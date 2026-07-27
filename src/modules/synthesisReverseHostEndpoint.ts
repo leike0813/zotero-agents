@@ -228,6 +228,7 @@ type EndpointOptions = {
   authorizeCapability: Parameters<
     typeof createSynthesisReverseHostBroker
   >[0]["authorizeCapability"];
+  allowUnboundServiceInstance?: boolean;
   handlers: SynthesisReverseHostHandlers;
   serverSocketFactory?: () => any;
 };
@@ -246,6 +247,8 @@ export function createSynthesisReverseHostEndpoint(
     now: options.now,
     isHostConnected: options.isHostConnected,
     authorizeCapability: options.authorizeCapability,
+    allowUnboundServiceInstance:
+      options.allowUnboundServiceInstance === true,
     handlers: options.handlers,
   });
 

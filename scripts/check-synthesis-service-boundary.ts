@@ -447,6 +447,14 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     ),
     "utf8",
   );
+  const hooksSource = fs.readFileSync(
+    path.join(ROOT_DIR, "src/hooks.ts"),
+    "utf8",
+  );
+  const productionOwnerSource = fs.readFileSync(
+    path.join(ROOT_DIR, "src/modules/synthesisProductionOwner.ts"),
+    "utf8",
+  );
   const supervisorSource = fs.readFileSync(
     path.join(
       ROOT_DIR,
@@ -458,6 +466,9 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     !defaultClientSource.includes(
       "createReadyNativeSynthesisClientComposition",
     ) ||
+    /legacyComposition|createDefaultLegacy|getDefaultLegacy|invalidateDefaultLegacy|createLegacyInProcess|synthesis\/service/.test(
+      defaultClientSource,
+    ) ||
     !supervisorSource.includes(
       "connection.discovery.mutationEnabled !== true",
     ) ||
@@ -467,6 +478,31 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
   ) {
     violations.push(
       "native default readiness must require the complete roster and mutation admission",
+    );
+  }
+  if (
+    !hooksSource.includes("startDefaultSynthesisProductionOwner()") ||
+    !hooksSource.includes("stopDefaultSynthesisProductionOwner") ||
+    hooksSource.includes("startSynthesisSidecarRuntimeSupervisor(")
+  ) {
+    violations.push(
+      "hooks must delegate production startup and shutdown to the production owner",
+    );
+  }
+  const invalidation = productionOwnerSource.indexOf(
+    "deps.invalidateClient || invalidateDefaultSynthesisClient",
+  );
+  const endpointStop = productionOwnerSource.indexOf("await endpoint?.stop()");
+  const supervisorStop = productionOwnerSource.indexOf(
+    "await deps.stopProductionSupervisor()",
+  );
+  if (
+    invalidation < 0 ||
+    endpointStop <= invalidation ||
+    supervisorStop <= endpointStop
+  ) {
+    violations.push(
+      "production owner shutdown must invalidate the client before endpoint and supervisor stop",
     );
   }
   return violations.sort();

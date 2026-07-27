@@ -1813,8 +1813,12 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(runtime, "113-method service");
   });
 
-  it("keeps supervised runtime isolated from production ownership [inv.runtime.sidecar_supervision_isolated]", function () {
+  it("routes production lifecycle through the single production owner [inv.runtime.sidecar_supervision_isolated]", function () {
     const hooks = fs.readFileSync(path.join(ROOT_DIR, "src/hooks.ts"), "utf8");
+    const owner = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisProductionOwner.ts"),
+      "utf8",
+    );
     const installer = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeInstaller.ts"),
       "utf8",
@@ -1823,7 +1827,19 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
       "utf8",
     );
-    assert.include(hooks, "startSynthesisSidecarRuntimeSupervisor");
+    assert.include(hooks, "startDefaultSynthesisProductionOwner()");
+    assert.include(hooks, "stopDefaultSynthesisProductionOwner");
+    assert.notInclude(hooks, "startSynthesisSidecarRuntimeSupervisor(");
+    const invalidation = owner.indexOf(
+      "deps.invalidateClient || invalidateDefaultSynthesisClient",
+    );
+    const endpointStop = owner.indexOf("await endpoint?.stop()");
+    const supervisorStop = owner.indexOf(
+      "await deps.stopProductionSupervisor()",
+    );
+    assert.isAtLeast(invalidation, 0);
+    assert.isAbove(endpointStop, invalidation);
+    assert.isAbove(supervisorStop, endpointStop);
     assert.notInclude(installer, "ensureSynthesisService");
     assert.notInclude(installer, "getMozillaSubprocessModule");
     assert.notInclude(installer, "resolveRuntimeCommand");

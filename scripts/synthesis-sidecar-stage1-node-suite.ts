@@ -5,7 +5,8 @@ export const SYNTHESIS_SIDECAR_STAGE1_SUITE_ID =
 
 const FIRST_CORE_NUMBER = 175;
 const ISOLATED_CORE_NUMBER = 202;
-const LAST_CORE_NUMBER = 218;
+const R9A_CORE_NUMBER = 219;
+const LAST_CORE_NUMBER = 229;
 
 export type SynthesisSidecarStage1SuiteSegment = {
   id: string;
@@ -86,7 +87,16 @@ export function resolveSynthesisSidecarStage1Suite(
         id: "synthesis-sidecar-stage1-203-218",
         label: "Synthesis Stage 1 Core 203-218",
         files: files.filter(
-          (filePath) => coreNumber(filePath) > ISOLATED_CORE_NUMBER,
+          (filePath) =>
+            coreNumber(filePath) > ISOLATED_CORE_NUMBER &&
+            coreNumber(filePath) < R9A_CORE_NUMBER,
+        ),
+      },
+      {
+        id: "synthesis-sidecar-stage1-219-229",
+        label: "Synthesis R9a Core 219-229",
+        files: files.filter(
+          (filePath) => coreNumber(filePath) >= R9A_CORE_NUMBER,
         ),
       },
     ],

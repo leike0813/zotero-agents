@@ -343,6 +343,50 @@ pub struct TopicGraphReplacement {
 }
 
 impl Repository {
+    pub fn update_topic_discovery_hint_status(
+        &mut self,
+        hint_id: &str,
+        status: &str,
+        updated_at: &str,
+    ) -> Result<Option<Value>, String> {
+        if hint_id.is_empty() || !matches!(status, "open" | "rejected") {
+            return Err("invalid_request".into());
+        }
+        self.transaction(|repository| {
+            let row = repository
+                .query(
+                    "SELECT payload_json FROM synt_topic_discovery_hint WHERE hint_id=?1",
+                    &[json!(hint_id)],
+                )?
+                .into_iter()
+                .next();
+            let Some(row) = row else {
+                return Ok(None);
+            };
+            let payload_json = row
+                .get("payload_json")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "topic_discovery_hint_invalid".to_owned())?;
+            let mut payload: Value = serde_json::from_str(payload_json)
+                .map_err(|_| "topic_discovery_hint_invalid".to_owned())?;
+            let object = payload
+                .as_object_mut()
+                .ok_or_else(|| "topic_discovery_hint_invalid".to_owned())?;
+            object.insert("status".into(), json!(status));
+            object.insert("updated_at".into(), json!(updated_at));
+            repository.execute(
+                "UPDATE synt_topic_discovery_hint SET payload_json=?1,updated_at=?2 WHERE hint_id=?3",
+                &[
+                    json!(serde_json::to_string(&payload)
+                        .map_err(|_| "topic_discovery_hint_invalid".to_owned())?),
+                    json!(updated_at),
+                    json!(hint_id),
+                ],
+            )?;
+            Ok(Some(payload))
+        })
+    }
+
     pub fn get_tag_application_state(&self) -> Result<Option<TagApplicationStateRecord>, String> {
         one(
             self,

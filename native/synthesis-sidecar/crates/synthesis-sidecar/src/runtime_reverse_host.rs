@@ -4,6 +4,8 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::time::Duration;
 use synthesis_sidecar::runtime_contract::{ProductionAdmission, current_time_ms};
 
+use crate::runtime_deadline::bounded_timeout;
+
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_REVERSE_HOST_RESPONSE_BYTES: u64 = 1024 * 1024;
@@ -44,6 +46,7 @@ pub(crate) fn call_reverse_host(
     payload: Value,
 ) -> Result<Value, String> {
     let now = current_time_ms()?;
+    let timeout = bounded_timeout(REVERSE_HOST_TIMEOUT)?;
     let body = serde_json::to_vec(&json!({
         "schema":"synthesis-reverse-host-call.v1",
         "requestId":format!("native:{now}"),
@@ -51,7 +54,7 @@ pub(crate) fn call_reverse_host(
         "serviceInstanceId":service_instance_id,
         "operationId":format!("native:{capability}:{now}"),
         "capability":capability,
-        "deadlineAtMs":now.saturating_add(5_000),
+        "deadlineAtMs":now.saturating_add(timeout.as_millis() as u64),
         "payload":payload,
     }))
     .map_err(|_| "reverse_host_request_invalid".to_owned())?;
@@ -59,11 +62,11 @@ pub(crate) fn call_reverse_host(
         Ipv4Addr::LOCALHOST,
         admission.reverse_host.port,
     ));
-    let mut stream = TcpStream::connect_timeout(&address, REVERSE_HOST_TIMEOUT)
+    let mut stream = TcpStream::connect_timeout(&address, timeout)
         .map_err(|_| "reverse_host_unavailable".to_owned())?;
     stream
-        .set_read_timeout(Some(REVERSE_HOST_TIMEOUT))
-        .and_then(|_| stream.set_write_timeout(Some(REVERSE_HOST_TIMEOUT)))
+        .set_read_timeout(Some(timeout))
+        .and_then(|_| stream.set_write_timeout(Some(timeout)))
         .map_err(|_| "reverse_host_unavailable".to_owned())?;
     write!(
         stream,

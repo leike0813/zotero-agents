@@ -1,9 +1,11 @@
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 use synthesis_sidecar::production_capabilities::ProductionClientAccess;
 
 use crate::runtime_capabilities::ServeState;
+use crate::runtime_deadline::with_request_deadline;
 use crate::runtime_production_compat::dispatch_legacy_client;
 
 #[derive(Debug, Deserialize)]
@@ -38,7 +40,13 @@ pub(crate) fn dispatch_production_client(
     }
     let envelope: ClientArguments =
         serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
-    let result = dispatch_legacy_client(&state.applications, capability, &envelope.args)?;
+    let started_at = Instant::now();
+    let result = with_request_deadline(Duration::from_millis(metadata.deadline_ms), || {
+        dispatch_legacy_client(&state.applications, capability, &envelope.args)
+    })?;
+    if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms) {
+        return Err("operation_timeout".into());
+    }
     if serde_json::to_vec(&result)
         .map_err(|_| "production_projection_invalid".to_owned())?
         .len()

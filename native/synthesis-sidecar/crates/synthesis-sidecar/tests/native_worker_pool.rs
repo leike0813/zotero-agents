@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+#[path = "../src/runtime_deadline.rs"]
+mod runtime_deadline;
+
 #[path = "../src/runtime_worker_pool.rs"]
 mod runtime_worker_pool;
 

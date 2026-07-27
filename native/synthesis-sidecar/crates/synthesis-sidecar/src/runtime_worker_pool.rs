@@ -17,6 +17,8 @@ use synthesis_protocol::{
     canonical_json, canonical_sha256, count_json_nodes,
 };
 
+use crate::runtime_deadline::bounded_timeout;
+
 const DIRECT_DEADLINE: Duration = Duration::from_secs(5);
 const TRANSFER_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -324,7 +326,7 @@ impl NativeComputePool {
     ) -> Result<Value, String> {
         let accepted_request = request.clone();
         let task_id = self.task_id();
-        let deadline = Instant::now() + DIRECT_DEADLINE;
+        let deadline = Instant::now() + bounded_timeout(DIRECT_DEADLINE)?;
         let result = self.with_worker(|worker| {
             worker.send(&json!({
                 "protocol":WORKER_PROTOCOL,
@@ -696,7 +698,57 @@ fn validate_direct_result(
             "lightMetrics",
             "diagnostics",
         ],
-        _ => return Err("worker_result_invalid".to_owned()),
+        WorkerOperation::TagVocabularyValidate => {
+            &["contractVersion", "algorithmVersion", "warnings"]
+        }
+        WorkerOperation::TagVocabularyIndex => &[
+            "contractVersion",
+            "algorithmVersion",
+            "schemaVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "tags",
+            "aliases",
+            "abbrev",
+        ],
+        WorkerOperation::ConceptKbIndex => &[
+            "contractVersion",
+            "algorithmVersion",
+            "schemaVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "search",
+            "overlayEntries",
+        ],
+        WorkerOperation::ConceptKbQuery => &["contractVersion", "algorithmVersion", "matches"],
+        WorkerOperation::TopicGraphIndex => &[
+            "contractVersion",
+            "algorithmVersion",
+            "schemaVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "roots",
+            "unplaced",
+        ],
+        WorkerOperation::ReferenceBinding => {
+            &["contractVersion", "algorithmVersion", "policyId", "matches"]
+        }
+        WorkerOperation::ReferenceCanonicalDedupe => &[
+            "contractVersion",
+            "algorithmVersion",
+            "counters",
+            "clusters",
+            "edges",
+            "actions",
+            "diagnostics",
+        ],
+        WorkerOperation::TopicManifestValidate
+        | WorkerOperation::TopicArtifactAssemble
+        | WorkerOperation::TopicArtifactValidate
+        | WorkerOperation::TopicSectionPatch
+        | WorkerOperation::CitationGraphBuildTransfer => {
+            return Ok(());
+        }
     };
     let object = result
         .as_object()
@@ -742,7 +794,24 @@ fn validate_direct_result(
                 return Err("worker_result_invalid".to_owned());
             }
         }
-        _ => unreachable!(),
+        WorkerOperation::TagVocabularyValidate
+        | WorkerOperation::TagVocabularyIndex
+        | WorkerOperation::ConceptKbIndex
+        | WorkerOperation::ConceptKbQuery
+        | WorkerOperation::TopicGraphIndex
+        | WorkerOperation::ReferenceBinding
+        | WorkerOperation::ReferenceCanonicalDedupe => {
+            if result["contractVersion"] != request["contractVersion"]
+                || result["algorithmVersion"] != request["algorithmVersion"]
+            {
+                return Err("worker_result_invalid".to_owned());
+            }
+        }
+        WorkerOperation::TopicManifestValidate
+        | WorkerOperation::TopicArtifactAssemble
+        | WorkerOperation::TopicArtifactValidate
+        | WorkerOperation::TopicSectionPatch
+        | WorkerOperation::CitationGraphBuildTransfer => unreachable!(),
     }
     Ok(())
 }

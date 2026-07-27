@@ -709,6 +709,10 @@ pub(crate) fn worker() -> Result<(), String> {
                     | synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION => {
                         synthesis_tag_vocabulary::compute(&operation, request, &canceled)
                     }
+                    synthesis_protocol::CONCEPT_KB_INDEX_OPERATION
+                    | synthesis_protocol::CONCEPT_KB_QUERY_OPERATION => {
+                        synthesis_concept_kb::compute(&operation, request, &canceled)
+                    }
                     synthesis_protocol::TOPIC_GRAPH_INDEX_OPERATION => {
                         synthesis_topic_graph::compute(request, &canceled)
                     }

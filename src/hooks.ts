@@ -186,9 +186,9 @@ import {
   type RuntimeProcessControlSnapshot,
 } from "./platform/processControl";
 import {
-  startSynthesisSidecarRuntimeSupervisor,
-  stopSynthesisSidecarRuntimeSupervisor,
-} from "./modules/synthesisSidecarRuntimeSupervisor";
+  startDefaultSynthesisProductionOwner,
+  stopDefaultSynthesisProductionOwner,
+} from "./modules/synthesisProductionOwner";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -837,7 +837,15 @@ async function onStartup() {
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
-  startSynthesisSidecarRuntimeSupervisor();
+  const synthesisProductionReady =
+    startDefaultSynthesisProductionOwner();
+  void synthesisProductionReady.catch((error) => {
+    emitVerboseConsole(
+      "warn",
+      "[synthesis-production] owner startup failed",
+      error,
+    );
+  });
   await cleanupRetiredSynthesisGitSyncRuntime(
     getRuntimePersistencePaths().runtimeRoot,
   ).catch((error) => {
@@ -853,7 +861,17 @@ async function onStartup() {
   } catch (error) {
     Zotero.logError(error instanceof Error ? error : new Error(String(error)));
   }
-  await initializeSynthesisBuiltinTagsOnStartup();
+  void synthesisProductionReady
+    .then(async () => {
+      await initializeSynthesisBuiltinTagsOnStartup();
+    })
+    .catch((error) => {
+      emitVerboseConsole(
+        "warn",
+        "[synthesis-production] post-readiness reconcile failed",
+        error,
+      );
+    });
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -1143,8 +1161,8 @@ async function onShutdown(): Promise<void> {
     shutdownDefaultSynthesisClient,
   );
   await runShutdownStepWithTimeout(
-    "synthesis-sidecar-supervisor-stop",
-    stopSynthesisSidecarRuntimeSupervisor,
+    "synthesis-production-owner-stop",
+    stopDefaultSynthesisProductionOwner,
   );
   await runShutdownStepWithTimeout(
     "reachability-coordinator-stop",

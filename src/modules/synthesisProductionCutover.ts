@@ -13,21 +13,32 @@ export type SynthesisCutoverBackupBasis = {
   durableSummarySha256: string;
 };
 
-export type SynthesisCutoverCoordinatorDeps = {
+export type SynthesisCutoverCoordinatorDeps<
+  BackupBasis extends SynthesisCutoverBackupBasis =
+    SynthesisCutoverBackupBasis,
+> = {
   now: () => number;
   readReceipt: () => Promise<SynthesisCutoverReceipt | null>;
   writeReceipt: (receipt: SynthesisCutoverReceipt) => Promise<void>;
   enterMaintenance: () => Promise<void>;
   drainLegacyOwner: () => Promise<void>;
-  createVerifiedBackup: () => Promise<SynthesisCutoverBackupBasis>;
+  createVerifiedBackup: () => Promise<BackupBasis>;
   preflightNativeOwner: (
-    basis: SynthesisCutoverBackupBasis,
+    basis: BackupBasis,
+    receipt: SynthesisCutoverReceipt,
   ) => Promise<void>;
   acquireNativeOwner: (
     basis: SynthesisCutoverBackupBasis,
+    receipt: SynthesisCutoverReceipt,
   ) => Promise<{ serviceInstanceId: string }>;
-  runCriticalSmoke: (serviceInstanceId: string) => Promise<void>;
-  enableNativeMutations: (serviceInstanceId: string) => Promise<void>;
+  runCriticalSmoke: (
+    serviceInstanceId: string,
+    receipt: SynthesisCutoverReceipt,
+  ) => Promise<void>;
+  enableNativeMutations: (
+    serviceInstanceId: string,
+    receipt: SynthesisCutoverReceipt,
+  ) => Promise<void>;
   resumeLegacyBeforeMigration: (
     receipt: SynthesisCutoverReceipt | null,
   ) => Promise<void>;
@@ -37,15 +48,20 @@ export type SynthesisCutoverCoordinatorDeps = {
   enterRustOnlyRepair: (receipt: SynthesisCutoverReceipt) => Promise<void>;
 };
 
-type CoordinatorOptions = {
+type CoordinatorOptions<
+  BackupBasis extends SynthesisCutoverBackupBasis =
+    SynthesisCutoverBackupBasis,
+> = {
   profileId: string;
   bundleFingerprint: string;
   capabilityFingerprint: string;
-  deps: SynthesisCutoverCoordinatorDeps;
+  deps: SynthesisCutoverCoordinatorDeps<BackupBasis>;
 };
 
-function receipt(
-  options: CoordinatorOptions,
+function receipt<
+  BackupBasis extends SynthesisCutoverBackupBasis,
+>(
+  options: CoordinatorOptions<BackupBasis>,
   basis: SynthesisCutoverBackupBasis,
   args: {
     receiptId: string;
@@ -76,7 +92,10 @@ function receipt(
 
 function sameIdentity(
   value: SynthesisCutoverReceipt,
-  options: CoordinatorOptions,
+  options: Pick<
+    CoordinatorOptions,
+    "profileId" | "bundleFingerprint" | "capabilityFingerprint"
+  >,
 ) {
   return (
     value.profileId === options.profileId &&
@@ -85,8 +104,10 @@ function sameIdentity(
   );
 }
 
-export function createSynthesisProductionCutoverCoordinator(
-  options: CoordinatorOptions,
+export function createSynthesisProductionCutoverCoordinator<
+  BackupBasis extends SynthesisCutoverBackupBasis,
+>(
+  options: CoordinatorOptions<BackupBasis>,
 ) {
   let running: Promise<{
     status: "mutation_enabled";
@@ -101,7 +122,31 @@ export function createSynthesisProductionCutoverCoordinator(
       existing.phase === "mutation_enabled" &&
       existing.mutationEnabled
     ) {
-      return { status: "mutation_enabled" as const, receipt: existing };
+      const basis: SynthesisCutoverBackupBasis = {
+        backupId: existing.backupId,
+        sourceSchemaVersion: existing.sourceSchemaVersion,
+        targetSchemaVersion: existing.targetSchemaVersion,
+        canonicalManifestSha256:
+          existing.canonicalManifestSha256,
+        durableSummarySha256: existing.durableSummarySha256,
+      };
+      try {
+        const owner = await options.deps.acquireNativeOwner(
+          basis,
+          existing,
+        );
+        await options.deps.runCriticalSmoke(
+          owner.serviceInstanceId,
+          existing,
+        );
+        return {
+          status: "mutation_enabled" as const,
+          receipt: existing,
+        };
+      } catch (error) {
+        await options.deps.enterRustOnlyRepair(existing);
+        throw error;
+      }
     }
     if (
       existing?.phase === "mutation_enabled" ||
@@ -138,7 +183,7 @@ export function createSynthesisProductionCutoverCoordinator(
       });
       await options.deps.writeReceipt(latest);
 
-      await options.deps.preflightNativeOwner(basis);
+      await options.deps.preflightNativeOwner(basis, latest);
       latest = receipt(options, basis, {
         receiptId,
         phase: "preflight_verified",
@@ -147,7 +192,7 @@ export function createSynthesisProductionCutoverCoordinator(
       });
       await options.deps.writeReceipt(latest);
 
-      const owner = await options.deps.acquireNativeOwner(basis);
+      const owner = await options.deps.acquireNativeOwner(basis, latest);
       nativeOwnerAcquired = true;
       latest = receipt(options, basis, {
         receiptId,
@@ -157,8 +202,14 @@ export function createSynthesisProductionCutoverCoordinator(
       });
       await options.deps.writeReceipt(latest);
 
-      await options.deps.runCriticalSmoke(owner.serviceInstanceId);
-      await options.deps.enableNativeMutations(owner.serviceInstanceId);
+      await options.deps.runCriticalSmoke(
+        owner.serviceInstanceId,
+        latest,
+      );
+      await options.deps.enableNativeMutations(
+        owner.serviceInstanceId,
+        latest,
+      );
       mutationAdmitted = true;
       latest = receipt(options, basis, {
         receiptId,

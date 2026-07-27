@@ -582,6 +582,61 @@ impl Repository {
         .collect()
     }
 
+    pub fn upsert_canonical_reference_record(
+        &mut self,
+        record: &CanonicalReferenceRecord,
+    ) -> Result<(), String> {
+        if record.canonical_reference_id.is_empty()
+            || !matches!(record.status.as_str(), "active" | "archived")
+        {
+            return Err("canonical_reference_invalid".into());
+        }
+        self.transaction(|repository| {
+            repository.execute(
+                "INSERT OR REPLACE INTO synt_reference_canonical(
+                 canonical_reference_id,title,normalized_title,year,authors_json,
+                 identifiers_json,metadata_hash,status,created_at,updated_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                &[
+                    json!(record.canonical_reference_id),
+                    json!(record.title),
+                    json!(record.normalized_title),
+                    json!(record.year),
+                    json!(record.authors_json),
+                    json!(record.identifiers_json),
+                    json!(record.metadata_hash),
+                    json!(record.status),
+                    json!(record.created_at),
+                    json!(record.updated_at),
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn upsert_canonical_reference_redirect(
+        &mut self,
+        record: &ReferenceRedirectFactRecord,
+    ) -> Result<(), String> {
+        self.transaction(|repository| upsert_redirect(repository, record))
+    }
+
+    pub fn mark_reference_dependent_caches_stale(
+        &mut self,
+        reason: &str,
+        updated_at: &str,
+    ) -> Result<(), String> {
+        self.transaction(|repository| {
+            repository.execute(
+                "UPDATE synt_cache_basis
+                 SET status='stale',stale_reason=?1,updated_at=?2
+                 WHERE cache_kind IN ('citation_graph','related_items')",
+                &[json!(reason), json!(updated_at)],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Replaces the active Citation Graph rows in one expected-basis transaction.
     /// Row values are normalized JSON objects whose keys must exactly match table
     /// columns; the SQL helper rejects malformed records before transaction commit.
@@ -2033,6 +2088,73 @@ mod tests {
                 .map(|row| row.literature_item_id)
                 .collect::<Vec<_>>(),
             ["paper:1"]
+        );
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canonical_maintenance_writes_records_redirects_and_cache_state() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        repository
+            .upsert_canonical_reference_record(&CanonicalReferenceRecord {
+                canonical_reference_id: "canonical:1".into(),
+                title: "Title".into(),
+                normalized_title: "title".into(),
+                authors_json: "[]".into(),
+                identifiers_json: "{}".into(),
+                metadata_hash: "sha256:metadata".into(),
+                status: "active".into(),
+                created_at: "1".into(),
+                updated_at: "1".into(),
+                ..CanonicalReferenceRecord::default()
+            })
+            .expect("canonical");
+        repository
+            .upsert_canonical_reference_redirect(&ReferenceRedirectFactRecord {
+                from_canonical_reference_id: "canonical:old".into(),
+                to_canonical_reference_id: "canonical:1".into(),
+                reason: "test".into(),
+                diagnostics_json: "[]".into(),
+                created_at: "1".into(),
+                updated_at: "1".into(),
+            })
+            .expect("redirect");
+        repository
+            .execute(
+                "INSERT INTO synt_cache_basis(
+                 cache_key,cache_kind,status
+                 ) VALUES('citation','citation_graph','ready')",
+                &[],
+            )
+            .expect("cache");
+        repository
+            .mark_reference_dependent_caches_stale("canonical_update", "2")
+            .expect("mark stale");
+        assert_eq!(
+            repository.list_canonical_references().expect("canonicals")[0].canonical_reference_id,
+            "canonical:1"
+        );
+        assert_eq!(
+            repository.list_reference_redirects().expect("redirects")[0].to_canonical_reference_id,
+            "canonical:1"
+        );
+        assert_eq!(
+            repository
+                .query(
+                    "SELECT status FROM synt_cache_basis WHERE cache_key='citation'",
+                    &[],
+                )
+                .expect("cache row")[0]["status"],
+            json!("stale")
         );
         drop(repository);
         let _ = std::fs::remove_dir_all(root);

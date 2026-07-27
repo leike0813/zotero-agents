@@ -186,6 +186,20 @@ describe("Synthesis production cutover coordinator", function () {
     assert.deepEqual(state.events, ["rust-repair"]);
   });
 
+  it("restarts the matching Rust owner for an admitted receipt without repeating migration", async function () {
+    const completedState = harness();
+    const completed = await coordinator(completedState.deps).run();
+    const state = harness({
+      readReceipt: async () => completed.receipt,
+    });
+
+    const result = await coordinator(state.deps).run();
+
+    assert.equal(result.receipt.receiptId, completed.receipt.receiptId);
+    assert.deepEqual(state.events, ["owner", "smoke"]);
+    assert.isEmpty(state.receipts);
+  });
+
   it("starts one background cutover and shuts down in owner order", async function () {
     const completedState = harness();
     const completed = await coordinator(completedState.deps).run();

@@ -12,6 +12,17 @@ import {
   shutdownDefaultSynthesisClient,
 } from "../../src/modules/synthesisClient/defaultClient";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import { createWorkflowSynthesisHostApi } from "../../src/modules/synthesisClient/workflowHostClient";
+import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflowParameterOptions";
+import {
+  configureHostBridgeServerForTests,
+  handleHostBridgeHttpRequestForTests,
+  resetHostBridgeServerForTests,
+} from "../../src/modules/hostBridgeServer";
+import {
+  handleZoteroMcpRequestForTests,
+  resetZoteroMcpServerForTests,
+} from "../../src/modules/zoteroMcpServer";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -38,6 +49,8 @@ describe("Synthesis lifecycle client consumers", function () {
   });
 
   afterEach(async function () {
+    resetHostBridgeServerForTests();
+    resetZoteroMcpServerForTests();
     await resetDefaultSynthesisClientForTests();
     setDefaultSynthesisClientCompositionFactoryForTests(null);
   });
@@ -226,6 +239,107 @@ describe("Synthesis lifecycle client consumers", function () {
       assert.notInclude(source, "legacyComposition");
       assert.notInclude(source, "createSynthesisService");
     }
+  });
+
+  it("executes workflow options, Host Bridge, and MCP through one native service instance", async function () {
+    const calls: Array<{
+      capability: string;
+      serviceInstanceId: string;
+    }> = [];
+    setDefaultSynthesisClientCompositionFactoryForTests(() =>
+      createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 9134,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "native-production-1",
+          },
+          clientToken: "client-token",
+        }),
+        rpcClient: {
+          async call(args) {
+            calls.push({
+              capability: args.capability,
+              serviceInstanceId: args.connection.serviceInstanceId,
+            });
+            const data =
+              args.capability === "client.listWorkflowTopicOptions"
+                ? {
+                    options: [
+                      {
+                        value: "topic-1",
+                        label: "Topic 1",
+                        description: "",
+                      },
+                    ],
+                    diagnostics: [],
+                  }
+                : args.capability === "client.getTopicReport"
+                  ? { topicId: "topic-1", status: "ready" }
+                  : { topicId: "topic-1", status: "ready" };
+            return args.rebuildResult(data);
+          },
+        },
+      }),
+    );
+
+    const workflow = createWorkflowSynthesisHostApi({
+      notifyChanged() {},
+    });
+    assert.deepEqual(
+      await workflow.getTopicReport({ topicId: "topic-1" }),
+      { topicId: "topic-1", status: "ready" },
+    );
+    assert.lengthOf(
+      (
+        await resolveWorkflowParameterOptionsSource({
+          kind: "synthesis.topics",
+          filter: "",
+        })
+      ).options,
+      1,
+    );
+
+    const token = configureHostBridgeServerForTests({
+      token: "native-route-token",
+    });
+    const bridgeRaw = await handleHostBridgeHttpRequestForTests({
+      method: "POST",
+      path: "/bridge/v1/call",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        capability: "topics.get_context",
+        input: { topicId: "topic-1" },
+      }),
+    });
+    assert.include(bridgeRaw, '"status":"ok"');
+
+    const mcp = (await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "native-route",
+      method: "tools/call",
+      params: {
+        name: "topics.get_context",
+        arguments: { topicId: "topic-1" },
+      },
+    })) as any;
+    assert.equal(
+      mcp.result.structuredContent.data.topicId,
+      "topic-1",
+    );
+    assert.deepEqual(
+      [...new Set(calls.map((call) => call.serviceInstanceId))],
+      ["native-production-1"],
+    );
+    assert.includeMembers(
+      calls.map((call) => call.capability),
+      [
+        "client.getTopicReport",
+        "client.listWorkflowTopicOptions",
+        "client.getTopicContext",
+      ],
+    );
   });
 
   it("removes full-service access from lifecycle and notification consumers", function () {

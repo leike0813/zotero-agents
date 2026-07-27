@@ -70,6 +70,43 @@ describe("Synthesis reverse Host broker", function () {
     assert.deepEqual(routed, ["library.items.list_page"]);
   });
 
+  it("allows a token-authenticated preflight instance only while no live instance is bound", async function () {
+    let boundInstance: string | null = null;
+    const broker = createSynthesisReverseHostBroker({
+      profileId,
+      serviceInstanceId: () => boundInstance,
+      allowUnboundServiceInstance: true,
+      authorizationToken: token,
+      now: () => 10_000,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers: makeHandlers(() => ({ ok: true })),
+    });
+
+    assert.deepEqual(
+      await broker.dispatch({
+        authorizationToken: token,
+        call: call("library.items.list_page", {
+          serviceInstanceId: "preflight-instance",
+        }),
+      }),
+      { ok: true },
+    );
+    boundInstance = serviceInstanceId;
+    let stale: unknown;
+    try {
+      await broker.dispatch({
+        authorizationToken: token,
+        call: call("library.items.list_page", {
+          serviceInstanceId: "preflight-instance",
+        }),
+      });
+    } catch (error) {
+      stale = error;
+    }
+    assert.equal(reason(stale), "reverse_host_stale_instance");
+  });
+
   it("rejects authorization, instance, deadline, connection, and permission failures before effects", async function () {
     let effects = 0;
     let connected = true;

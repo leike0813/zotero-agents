@@ -28,6 +28,7 @@ export type SynthesisReverseHostHandlers = Record<
 type BrokerOptions = {
   profileId: string;
   serviceInstanceId: string | (() => string | null);
+  allowUnboundServiceInstance?: boolean;
   authorizationToken: string;
   now: () => number;
   isHostConnected: () => boolean;
@@ -126,11 +127,12 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
       typeof options.serviceInstanceId === "function"
         ? options.serviceInstanceId()
         : options.serviceInstanceId;
-    if (
-      !serviceInstanceId ||
-      call.profileId !== options.profileId ||
-      call.serviceInstanceId !== serviceInstanceId
-    ) {
+    const instanceMatches =
+      serviceInstanceId === call.serviceInstanceId ||
+      (!serviceInstanceId &&
+        options.allowUnboundServiceInstance === true &&
+        call.serviceInstanceId.length > 0);
+    if (call.profileId !== options.profileId || !instanceMatches) {
       failure("unavailable", "reverse_host_stale_instance");
     }
     const now = options.now();
