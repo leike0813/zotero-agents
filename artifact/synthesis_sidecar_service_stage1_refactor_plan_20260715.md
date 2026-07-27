@@ -1580,6 +1580,13 @@ Rust WS6/WS7 承接。Node bundle 只用于 migration oracle 与 differential te
 | R9a | `cut-over-synthesis-production-owner-to-rust` | production copy rehearsal、single-writer cutover、实机 gates | R8 |
 | R9b | `remove-synthesis-node-runtime-and-legacy-implementation` | 删除 Node、旧 plugin implementation、依赖和 release branches | R9a，同一 release milestone |
 
+2026-07-27 当前状态：R9a 已建立本地 change，并完成 capability
+fingerprint、native client adapter、reverse-Host 闭集、持久化 cutover
+receipt/coordinator、legacy SQLite writer 释放、验证式备份恢复、Rust
+production-copy preflight 与 pre-admission owner lock。完整 Rust production
+RPC、mutation admission、supervisor wiring 和 default-client 切换仍未完成；
+生产 owner 尚未改变。R8 远端、签名/XPI 与实机证据单独保留为外部验收债务。
+
 下表是原 Stage 1 Node 路线的历史编排。0-5 已为当前迁移提供 seam/oracle；6-9 的 Node 目标已由上表取代，不再创建或继续：
 
 | 顺序 | Change 建议名 | 主要范围 | 依赖 |

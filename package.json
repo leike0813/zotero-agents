@@ -41,6 +41,7 @@
     "check:builtin-workflow-manifest": "tsx scripts/check-builtin-workflow-manifest.ts",
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:synthesis-service-boundary": "tsx scripts/check-synthesis-service-boundary.ts",
+    "check:synthesis-production-capabilities": "tsx scripts/check-synthesis-production-capabilities.ts",
     "check:synthesis-engine": "tsc -p packages/synthesis-engine/tsconfig.json --noEmit",
     "check:synthesis-contracts": "tsc -p packages/synthesis-contracts/tsconfig.json --noEmit",
     "check:synthesis-repository": "tsc -p packages/synthesis-repository/tsconfig.json --noEmit",

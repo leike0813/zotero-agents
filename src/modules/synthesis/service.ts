@@ -6220,6 +6220,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       runtimeRoot,
       now,
     });
+  const ownsSynthesisRepository = !options.synthesisRepository;
   const tagVocabulary = createSynthesisTagVocabularyService({
     root,
     now,
@@ -6532,7 +6533,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   function disposeService() {
     stopServiceLifecycle();
-    serviceDisposal ||= webDavSync.shutdown();
+    serviceDisposal ||= Promise.resolve(webDavSync.shutdown()).then(
+      async () => {
+        if (ownsSynthesisRepository) {
+          await synthesisRepository.close();
+        }
+      },
+    );
     return serviceDisposal;
   }
 

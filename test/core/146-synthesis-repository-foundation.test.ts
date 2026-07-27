@@ -63,6 +63,31 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
+  it("releases an owned repository adapter exactly once", async function () {
+    let closes = 0;
+    const repository = createSynthesisRepository({
+      adapter: {
+        run() {},
+        all() {
+          return [];
+        },
+        get() {
+          return null;
+        },
+        transaction(fn) {
+          return fn();
+        },
+        close() {
+          closes += 1;
+        },
+      },
+    });
+    await repository.close();
+    await repository.close();
+    assert.equal(closes, 1);
+    assert.throws(() => repository.initialize(), /repository_closed/);
+  });
+
   it("captures an empty durable sidecar corpus and stable aggregate basis transactionally", async function () {
     const root = await fs.mkdtemp(
       path.join(os.tmpdir(), "synthesis-durable-foundation-"),
@@ -108,11 +133,17 @@ describe("Synthesis repository foundation", function () {
               throw new Error("unexpected SQL during service construction");
             },
             executeSimpleSQL(sql: string) {
-              if (!String(sql).startsWith("PRAGMA busy_timeout=")) {
+              if (
+                !String(sql).startsWith("PRAGMA busy_timeout=") &&
+                String(sql) !== "PRAGMA wal_checkpoint(TRUNCATE)"
+              ) {
                 throw new Error(
                   "unexpected transaction during service construction",
                 );
               }
+            },
+            asyncClose(callback: { complete: () => void }) {
+              callback.complete();
             },
           };
         },

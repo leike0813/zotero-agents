@@ -3,8 +3,13 @@ import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  rebuildSynthesisProductionHandshakeResult,
+  rebuildSynthesisProductionHealth,
   rebuildSynthesisSidecarHandshakeResult,
   rebuildSynthesisSidecarHealth,
+  type SynthesisProductionDiscovery,
+  type SynthesisProductionHandshakeResult,
+  type SynthesisProductionHealth,
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarHandshakeResult,
   type SynthesisSidecarHealth,
@@ -16,9 +21,18 @@ export type SynthesisSidecarControlConnection = {
   lifecycleToken: string;
 };
 
-type FetchLike = typeof fetch;
+export type SynthesisProductionSidecarControlConnection = {
+  discovery: SynthesisProductionDiscovery;
+  clientToken: string;
+  lifecycleToken: string;
+};
 
-function endpoint(connection: SynthesisSidecarControlConnection, path: string) {
+type FetchLike = typeof fetch;
+type ControlConnection =
+  | SynthesisSidecarControlConnection
+  | SynthesisProductionSidecarControlConnection;
+
+function endpoint(connection: ControlConnection, path: string) {
   return `http://${connection.discovery.host}:${connection.discovery.port}${path}`;
 }
 
@@ -121,8 +135,88 @@ function validateHandshake(
   return data;
 }
 
+function validateProductionHealth(
+  value: unknown,
+  connection: SynthesisProductionSidecarControlConnection,
+): SynthesisProductionHealth {
+  let health: SynthesisProductionHealth;
+  try {
+    health = rebuildSynthesisProductionHealth(value);
+  } catch {
+    throw new Error("sidecar_health_identity_mismatch");
+  }
+  if (
+    health.serviceVersion !== connection.discovery.serviceVersion ||
+    health.serviceInstanceId !== connection.discovery.serviceInstanceId ||
+    health.supervisorInstanceId !== connection.discovery.supervisorInstanceId ||
+    health.bundleId !== connection.discovery.bundleId ||
+    health.target !== connection.discovery.target ||
+    health.targetTriple !== connection.discovery.targetTriple ||
+    health.buildFingerprint !== connection.discovery.buildFingerprint ||
+    JSON.stringify(health.platformSignature) !==
+      JSON.stringify(connection.discovery.platformSignature) ||
+    health.lifecycleState !== "ready" ||
+    health.ownerMode !== connection.discovery.ownerMode ||
+    health.mutationEnabled !== connection.discovery.mutationEnabled ||
+    health.capabilityFingerprint !==
+      connection.discovery.capabilityFingerprint ||
+    health.cutoverReceiptId !== connection.discovery.cutoverReceiptId ||
+    JSON.stringify(health.readyClientCapabilities) !==
+      JSON.stringify(connection.discovery.readyClientCapabilities)
+  ) {
+    throw new Error("sidecar_health_identity_mismatch");
+  }
+  return health;
+}
+
+function validateProductionHandshake(
+  value: unknown,
+  connection: SynthesisProductionSidecarControlConnection,
+) {
+  const response = value as {
+    ok?: unknown;
+    serviceInstanceId?: unknown;
+    data?: Partial<SynthesisProductionHandshakeResult>;
+  };
+  let data: SynthesisProductionHandshakeResult;
+  try {
+    data = rebuildSynthesisProductionHandshakeResult(response.data);
+  } catch {
+    throw new Error("sidecar_handshake_identity_mismatch");
+  }
+  if (
+    response.ok !== true ||
+    response.serviceInstanceId !== connection.discovery.serviceInstanceId ||
+    data.serviceVersion !== connection.discovery.serviceVersion ||
+    data.serviceInstanceId !== connection.discovery.serviceInstanceId ||
+    data.supervisorInstanceId !== connection.discovery.supervisorInstanceId ||
+    data.bundleId !== connection.discovery.bundleId ||
+    data.target !== connection.discovery.target ||
+    data.targetTriple !== connection.discovery.targetTriple ||
+    data.buildFingerprint !== connection.discovery.buildFingerprint ||
+    JSON.stringify(data.platformSignature) !==
+      JSON.stringify(connection.discovery.platformSignature) ||
+    data.profileId !== connection.discovery.profileId ||
+    data.schemaVersion !== connection.discovery.schemaVersion ||
+    data.runtimeRootId !== connection.discovery.runtimeRootId ||
+    data.dataRootId !== connection.discovery.dataRootId ||
+    data.ownerMode !== connection.discovery.ownerMode ||
+    data.mutationEnabled !== connection.discovery.mutationEnabled ||
+    data.capabilityFingerprint !== connection.discovery.capabilityFingerprint ||
+    data.cutoverReceiptId !== connection.discovery.cutoverReceiptId ||
+    JSON.stringify(data.readyClientCapabilities) !==
+      JSON.stringify(connection.discovery.readyClientCapabilities) ||
+    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
+      (capability, index) => data.capabilities[index] === capability,
+    )
+  ) {
+    throw new Error("sidecar_handshake_identity_mismatch");
+  }
+  return data;
+}
+
 async function callSystem(args: {
-  connection: SynthesisSidecarControlConnection;
+  connection: ControlConnection;
   token: string;
   capability: "system.handshake" | "system.shutdown";
   payload: Record<string, unknown>;
@@ -152,17 +246,27 @@ async function callSystem(args: {
   });
 }
 
-export function createSynthesisSidecarControlClient(options?: {
-  fetch?: FetchLike;
-  timeoutMs?: number;
-}) {
+function createControlClient<
+  TConnection extends ControlConnection,
+  THealth,
+  THandshake,
+>(
+  options: {
+    fetch?: FetchLike;
+    timeoutMs?: number;
+  } | undefined,
+  validators: {
+    health: (value: unknown, connection: TConnection) => THealth;
+    handshake: (value: unknown, connection: TConnection) => THandshake;
+  },
+) {
   const fetchImpl = options?.fetch || globalThis.fetch;
   const timeoutMs = options?.timeoutMs ?? 2_000;
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_control_fetch_unavailable");
   }
   return {
-    async health(connection: SynthesisSidecarControlConnection) {
+    async health(connection: TConnection) {
       const value = await withDeadline(timeoutMs, async (signal) => {
         const response = await fetchImpl(
           endpoint(connection, SYNTHESIS_SIDECAR_HEALTH_PATH),
@@ -170,9 +274,9 @@ export function createSynthesisSidecarControlClient(options?: {
         );
         return readJsonResponse(response);
       });
-      return validateHealth(value, connection);
+      return validators.health(value, connection);
     },
-    async handshake(connection: SynthesisSidecarControlConnection) {
+    async handshake(connection: TConnection) {
       const value = await callSystem({
         connection,
         token: connection.clientToken,
@@ -186,9 +290,9 @@ export function createSynthesisSidecarControlClient(options?: {
         timeoutMs,
         fetchImpl,
       });
-      return validateHandshake(value, connection);
+      return validators.handshake(value, connection);
     },
-    async shutdown(connection: SynthesisSidecarControlConnection) {
+    async shutdown(connection: TConnection) {
       await callSystem({
         connection,
         token: connection.lifecycleToken,
@@ -201,8 +305,38 @@ export function createSynthesisSidecarControlClient(options?: {
   };
 }
 
+export function createSynthesisSidecarControlClient(options?: {
+  fetch?: FetchLike;
+  timeoutMs?: number;
+}) {
+  return createControlClient<
+    SynthesisSidecarControlConnection,
+    SynthesisSidecarHealth,
+    SynthesisSidecarHandshakeResult
+  >(options, {
+    health: validateHealth,
+    handshake: validateHandshake,
+  });
+}
+
+export function createSynthesisProductionSidecarControlClient(options?: {
+  fetch?: FetchLike;
+  timeoutMs?: number;
+}) {
+  return createControlClient<
+    SynthesisProductionSidecarControlConnection,
+    SynthesisProductionHealth,
+    SynthesisProductionHandshakeResult
+  >(options, {
+    health: validateProductionHealth,
+    handshake: validateProductionHandshake,
+  });
+}
+
 export const synthesisSidecarControlClientInternalsForTests = {
   validateHealth,
   validateHandshake,
+  validateProductionHealth,
+  validateProductionHandshake,
   withDeadline,
 };

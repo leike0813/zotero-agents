@@ -1,6 +1,8 @@
 type MozStorageConnection = {
   createStatement: (sql: string) => unknown;
   executeSimpleSQL: (sql: string) => void;
+  asyncClose?: (callback: { complete: () => void }) => unknown;
+  close?: () => void;
 };
 
 type MozStorageService = {
@@ -11,6 +13,7 @@ type GuardedConnectionEntry = {
   conn: MozStorageConnection;
   transactionDepth: number;
   busyTimeoutConfigured: boolean;
+  ownerCount: number;
 };
 
 export type GuardedSqliteConnection = {
@@ -18,6 +21,7 @@ export type GuardedSqliteConnection = {
   execute: <T>(fn: () => T) => T;
   executeSimpleSQL: (sql: string) => void;
   transaction: <T>(fn: () => T) => T;
+  release: () => Promise<void>;
 };
 
 const DEFAULT_BUSY_TIMEOUT_MS = 2500;
@@ -134,10 +138,13 @@ export function getGuardedSqliteConnection(args: {
       conn,
       transactionDepth: 0,
       busyTimeoutConfigured: false,
+      ownerCount: 0,
     };
     entriesByPath.set(key, entry);
   }
+  entry.ownerCount += 1;
   configureBusyTimeout(entry);
+  let released = false;
 
   return {
     createStatement(sql) {
@@ -174,6 +181,50 @@ export function getGuardedSqliteConnection(args: {
       } finally {
         entry.transactionDepth = 0;
       }
+    },
+    async release() {
+      if (released) {
+        return;
+      }
+      released = true;
+      if (entry.transactionDepth > 0) {
+        released = false;
+        throw new Error("guarded_sqlite_transaction_active");
+      }
+      entry.ownerCount -= 1;
+      if (entry.ownerCount > 0) {
+        return;
+      }
+      withBusyRetry(() =>
+        entry.conn.executeSimpleSQL("PRAGMA wal_checkpoint(TRUNCATE)"),
+      );
+      if (entriesByPath.get(key) === entry) {
+        entriesByPath.delete(key);
+      }
+      if (typeof entry.conn.asyncClose === "function") {
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const complete = () => {
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          };
+          try {
+            const result = entry.conn.asyncClose?.({ complete });
+            if (
+              result &&
+              typeof (result as PromiseLike<unknown>).then === "function"
+            ) {
+              Promise.resolve(result).then(complete, reject);
+            }
+          } catch (error) {
+            reject(error);
+          }
+        });
+        return;
+      }
+      entry.conn.close?.();
     },
   };
 }

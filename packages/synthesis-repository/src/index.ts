@@ -120,6 +120,7 @@ export type SqlAdapter = {
   all: (sql: string, params?: SqlParams) => SqlRow[];
   get: (sql: string, params?: SqlParams) => SqlRow | null;
   transaction: <T>(fn: () => T) => T;
+  close?: () => void | Promise<void>;
 };
 
 export type SynthesisOperationStatus =

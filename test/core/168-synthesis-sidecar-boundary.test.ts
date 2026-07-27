@@ -1809,7 +1809,7 @@ describe("Synthesis sidecar migration boundary", function () {
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
     );
-    assert.include(runtime, "complete 113-method service");
+    assert.include(runtime, "113-method service");
   });
 
   it("keeps supervised runtime isolated from production ownership [inv.runtime.sidecar_supervision_isolated]", function () {

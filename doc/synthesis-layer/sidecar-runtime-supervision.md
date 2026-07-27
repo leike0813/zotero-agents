@@ -19,8 +19,9 @@ uses `synthesis-sidecar-launch-config.v2` and binds one profile session to:
 - supervisor instance, lease nonce, independent client/lifecycle tokens;
 - `mutationEnabled: false` and loopback ephemeral port selection.
 
-The Rust service strictly rebuilds that config before opening its isolated
-repository and canonical store. It then obtains the profile owner, binds
+The normal supervised Rust service strictly rebuilds that config before
+opening its isolated repository and canonical store. It then obtains the
+profile owner, binds
 `127.0.0.1:0`, atomically publishes
 `synthesis-sidecar-discovery.v2`, and exposes:
 
@@ -38,6 +39,13 @@ fallback.
 The client token authorizes handshake, read and compute calls. The independent
 lifecycle token authorizes shutdown only. Neither token appears in discovery,
 health, diagnostics or retained process tails.
+
+The R9a reverse-Host endpoint is a distinct loopback-only listener with a
+generation-scoped token. Its thirteen-operation registry maps directly to the
+existing paged library/artifact/image, export, WebDAV, Related Items, Tag, and
+staged-binding ports. It rejects unknown or extra authority, stale service
+instances, expired calls, disconnected Host state, permission failures, and
+conflicting effect replays before invoking a Host adapter.
 
 ## Profile Lifecycle
 
@@ -65,10 +73,25 @@ The owner prevents a second service for the same profile. It protects only the
 isolated sidecar process and is not the production database/canonical owner
 lock. Discovery is removed only by its matching owner.
 
-The service never opens production `synthesis.db`, production Topic canonical
-files, Host capabilities, or Zotero APIs. Repository and canonical identities
-must match the config before discovery is published. Health and handshake use
-path-free O(1) snapshots.
+The normal `serve` route never opens production `synthesis.db`, production
+Topic canonical files, Host capabilities, or Zotero APIs. Repository and
+canonical identities must match the config before discovery is published.
+Health and handshake use path-free O(1) snapshots.
+
+R9a adds two separate, non-default commands. `preflight-production` opens only
+an explicit production copy, while `serve-production` requires an explicit
+live-root admission, a matching durable `preflight_verified` cutover receipt,
+and an exclusive owner file beside `state/synthesis.db`. Both reject shadow
+paths and start with mutation disabled. Neither command is selected by normal
+startup yet. A distinct production supervisor now writes the private admission,
+accepts only v3 discovery plus matching health/handshake authority, and keeps
+its connection separate from the shadow supervisor. The first real production
+client route, `client.listTopics`, reads through the typed Rust Topic
+application; all other declared client operations fail closed as
+`service_not_ready`. Discovery reports that ready subset explicitly, and the
+default native composition cannot obtain the production connection until all
+95 operations are ready. The default-client switch therefore remains
+unfinished.
 
 ## Monitoring and Recovery
 

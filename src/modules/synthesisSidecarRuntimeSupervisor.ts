@@ -1,14 +1,20 @@
 import {
   SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
   SYNTHESIS_SIDECAR_LEASE_SCHEMA,
+  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  rebuildSynthesisProductionAdmission,
+  rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
+  type SynthesisProductionAdmission,
+  type SynthesisProductionDiscovery,
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarLease,
 } from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
+import { joinPath } from "../utils/path";
 import {
   getMozillaSubprocessModule,
   yieldToEventLoop,
@@ -24,7 +30,9 @@ import {
 } from "./runtimePersistence";
 import { SYNTHESIS_SCHEMA_VERSION } from "./synthesis/foundation";
 import {
+  createSynthesisProductionSidecarControlClient,
   createSynthesisSidecarControlClient,
+  type SynthesisProductionSidecarControlConnection,
   type SynthesisSidecarControlConnection,
 } from "./synthesisSidecarControlClient";
 import {
@@ -61,14 +69,11 @@ export type SynthesisSidecarSupervisorSnapshot = {
   nextRestartAt?: string;
 };
 
-type ControlClient = ReturnType<typeof createSynthesisSidecarControlClient>;
-
-type SupervisorOptions = {
+type BaseSupervisorOptions = {
   runtimeRoot?: string;
   profilePath?: string;
   installer?: SynthesisSidecarRuntimeInstaller;
   subprocess?: SubprocessModule | null;
-  controlClient?: ControlClient;
   now?: () => number;
   randomHex?: (bytes: number) => string;
   setTimeout?: typeof globalThis.setTimeout;
@@ -82,7 +87,80 @@ type SupervisorOptions = {
   restartDelaysMs?: readonly number[];
 };
 
-type Session = {
+type SupervisorOptions = BaseSupervisorOptions & {
+  controlClient?: ReturnType<typeof createSynthesisSidecarControlClient>;
+};
+
+export type SynthesisProductionRuntimeSupervisorOptions =
+  BaseSupervisorOptions & {
+    admission: SynthesisProductionAdmission;
+    controlClient?: ReturnType<
+      typeof createSynthesisProductionSidecarControlClient
+    >;
+  };
+
+type CommonDiscovery = {
+  profileId: string;
+  supervisorInstanceId: string;
+  serviceInstanceId: string;
+  bundleId: string;
+  implementation: "rust-native";
+  target: SynthesisSidecarRuntimeInstallSnapshot["target"];
+  targetTriple: string;
+  buildFingerprint: string;
+  platformSignature: unknown;
+  serviceVersion: string;
+  protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
+  schemaVersion: string;
+  runtimeRootId: string;
+  dataRootId: string;
+  host: "127.0.0.1";
+  port: number;
+};
+
+type CommonControlConnection<TDiscovery extends CommonDiscovery> = {
+  discovery: TDiscovery;
+  clientToken: string;
+  lifecycleToken: string;
+};
+
+type SupervisorControlClient<
+  TDiscovery extends CommonDiscovery,
+  TConnection extends CommonControlConnection<TDiscovery>,
+> = {
+  health(connection: TConnection): Promise<unknown>;
+  handshake(connection: TConnection): Promise<unknown>;
+  shutdown(connection: TConnection): Promise<void>;
+};
+
+type SupervisorMode<
+  TDiscovery extends CommonDiscovery,
+  TConnection extends CommonControlConnection<TDiscovery>,
+> = {
+  parseDiscovery(value: unknown): TDiscovery;
+  validateAuthority(discovery: TDiscovery): void;
+  createConnection(args: {
+    discovery: TDiscovery;
+    clientToken: string;
+    lifecycleToken: string;
+  }): TConnection;
+  controlClient: SupervisorControlClient<TDiscovery, TConnection>;
+  supervisorInstanceId?: string;
+  expectedProfileId?: string;
+  prepareLaunch(
+    paths: ReturnType<typeof getSynthesisSidecarLifecyclePaths>,
+  ): Promise<string | null>;
+  launchArguments(args: {
+    configPath: string;
+    admissionPath: string | null;
+  }): string[];
+  timerOwner: string;
+};
+
+type Session<
+  TDiscovery extends CommonDiscovery,
+  TConnection extends CommonControlConnection<TDiscovery>,
+> = {
   generation: number;
   profileId: string;
   supervisorInstanceId: string;
@@ -93,7 +171,7 @@ type Session = {
   install: SynthesisSidecarRuntimeInstallSnapshot;
   proc?: SidecarProcess;
   closed?: Promise<void>;
-  connection?: SynthesisSidecarControlConnection;
+  connection?: TConnection;
   stdoutTail: string;
   stderrTail: string;
 };
@@ -218,8 +296,12 @@ function waitForPromise(promise: Promise<unknown>, timeoutMs: number) {
   ]);
 }
 
-export function createSynthesisSidecarRuntimeSupervisor(
-  options: SupervisorOptions = {},
+function createSynthesisSidecarSupervisorCore<
+  TDiscovery extends CommonDiscovery,
+  TConnection extends CommonControlConnection<TDiscovery>,
+>(
+  options: BaseSupervisorOptions,
+  mode: SupervisorMode<TDiscovery, TConnection>,
 ) {
   const persistence = getRuntimePersistencePaths();
   const runtimeRoot = options.runtimeRoot || persistence.runtimeRoot;
@@ -244,8 +326,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
     options.subprocess === undefined
       ? getMozillaSubprocessModule()
       : options.subprocess;
-  const controlClient =
-    options.controlClient || createSynthesisSidecarControlClient();
+  const controlClient = mode.controlClient;
 
   let snapshot: SynthesisSidecarSupervisorSnapshot = {
     status: "stopped",
@@ -256,7 +337,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
   const subscribers = new Set<
     (value: SynthesisSidecarSupervisorSnapshot) => void
   >();
-  let session: Session | null = null;
+  let session: Session<TDiscovery, TConnection> | null = null;
   let launchIdentity: LaunchIdentity | null = null;
   let generation = 0;
   let controlledStop = false;
@@ -312,7 +393,9 @@ export function createSynthesisSidecarRuntimeSupervisor(
     );
   };
 
-  const writeLease = async (currentSession: Session) => {
+  const writeLease = async (
+    currentSession: Session<TDiscovery, TConnection>,
+  ) => {
     const lease: SynthesisSidecarLease = {
       schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
       profileId: currentSession.profileId,
@@ -326,13 +409,15 @@ export function createSynthesisSidecarRuntimeSupervisor(
     );
   };
 
-  const cleanupSession = async (currentSession: Session) => {
+  const cleanupSession = async (
+    currentSession: Session<TDiscovery, TConnection>,
+  ) => {
     try {
       const source = (
         await readRuntimeTextFile(currentSession.paths.discoveryPath)
       ).trim();
       if (source) {
-        const discovery = rebuildSynthesisSidecarDiscovery(JSON.parse(source));
+        const discovery = mode.parseDiscovery(JSON.parse(source));
         if (
           discovery.supervisorInstanceId ===
             currentSession.supervisorInstanceId &&
@@ -352,7 +437,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
   };
 
   const drainStream = async (
-    currentSession: Session,
+    currentSession: Session<TDiscovery, TConnection>,
     stream: SidecarProcess["stdout"] | SidecarProcess["stderr"],
     kind: "stdout" | "stderr",
   ) => {
@@ -379,7 +464,9 @@ export function createSynthesisSidecarRuntimeSupervisor(
     }
   };
 
-  const terminateProcess = async (currentSession: Session) => {
+  const terminateProcess = async (
+    currentSession: Session<TDiscovery, TConnection>,
+  ) => {
     expectedExitGenerations.add(currentSession.generation);
     try {
       await currentSession.proc?.stdin?.close?.();
@@ -414,6 +501,8 @@ export function createSynthesisSidecarRuntimeSupervisor(
       "sidecar_config_delete_failed",
       "sidecar_health_identity_mismatch",
       "sidecar_handshake_identity_mismatch",
+      "production_admission_profile_mismatch",
+      "production_admission_identity_mismatch",
       "protocol_mismatch",
       "schema_mismatch",
       "runtime_mismatch",
@@ -425,7 +514,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
 
   const fail = async (
     code: string,
-    currentSession?: Session | null,
+    currentSession?: Session<TDiscovery, TConnection> | null,
     terminal = classifyTerminal(code),
   ) => {
     cancelTimer();
@@ -478,15 +567,15 @@ export function createSynthesisSidecarRuntimeSupervisor(
   };
 
   const waitForDiscovery = async (
-    currentSession: Session,
-  ): Promise<SynthesisSidecarDiscovery> => {
+    currentSession: Session<TDiscovery, TConnection>,
+  ): Promise<TDiscovery> => {
     const deadline = now() + discoveryTimeoutMs;
     while (now() < deadline && session === currentSession && !controlledStop) {
       const text = (
         await readRuntimeTextFile(currentSession.paths.discoveryPath)
       ).trim();
       if (text) {
-        return rebuildSynthesisSidecarDiscovery(JSON.parse(text));
+        return mode.parseDiscovery(JSON.parse(text));
       }
       await new Promise<void>((resolve) => {
         setTimer(resolve, DISCOVERY_POLL_MS);
@@ -496,8 +585,8 @@ export function createSynthesisSidecarRuntimeSupervisor(
   };
 
   const validateDiscovery = (
-    discovery: SynthesisSidecarDiscovery,
-    currentSession: Session,
+    discovery: TDiscovery,
+    currentSession: Session<TDiscovery, TConnection>,
     identities: {
       runtimeRootId: string;
       dataRootId: string;
@@ -523,6 +612,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
     ) {
       throw new Error("sidecar_discovery_identity_mismatch");
     }
+    mode.validateAuthority(discovery);
   };
 
   const launch = async () => {
@@ -537,14 +627,21 @@ export function createSynthesisSidecarRuntimeSupervisor(
       nextRestartAt: undefined,
       readyAt: undefined,
     });
-    let currentSession: Session | null = null;
+    let currentSession: Session<TDiscovery, TConnection> | null = null;
     try {
       if (!launchIdentity) {
         const resolvedProfilePath = normalizeProfilePath(
           profilePath || resolveProfilePath(),
         );
         const profileId = await hashText(resolvedProfilePath);
-        const supervisorInstanceId = `sup-${randomHex(16)}`;
+        if (
+          mode.expectedProfileId &&
+          profileId !== mode.expectedProfileId
+        ) {
+          throw new Error("production_admission_profile_mismatch");
+        }
+        const supervisorInstanceId =
+          mode.supervisorInstanceId || `sup-${randomHex(16)}`;
         launchIdentity = {
           profileId,
           runtimeRootId: await hashText(runtimeRoot),
@@ -629,12 +726,16 @@ export function createSynthesisSidecarRuntimeSupervisor(
         paths.configPath,
         `${JSON.stringify(config)}\n`,
       );
+      const admissionPath = await mode.prepareLaunch(paths);
       if (!subprocess?.call) {
         throw new Error("sidecar_subprocess_unavailable");
       }
       const proc = await subprocess.call({
         command: install.executablePath,
-        arguments: ["serve", "--config", paths.configPath],
+        arguments: mode.launchArguments({
+          configPath: paths.configPath,
+          admissionPath,
+        }),
         environment: sealedEnvironment(),
         environmentAppend: false,
         workdir: paths.sessionRoot,
@@ -663,11 +764,11 @@ export function createSynthesisSidecarRuntimeSupervisor(
         runtimeRootId,
         dataRootId,
       });
-      const connection: SynthesisSidecarControlConnection = {
+      const connection = mode.createConnection({
         discovery,
         clientToken,
         lifecycleToken,
-      };
+      });
       currentSession.connection = connection;
       await controlClient.health(connection);
       await controlClient.handshake(connection);
@@ -694,7 +795,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
       if (!timerPolicyRegistered) {
         timerPolicyRegistered = true;
         registerBackgroundRefreshTimer({
-          owner: "synthesis-sidecar-supervisor",
+          owner: mode.timerOwner,
           activationCondition: "Synthesis sidecar runtime session is active",
           scopeKey: "current Zotero profile sidecar runtime",
           allowedDataSources: [
@@ -851,8 +952,109 @@ export function createSynthesisSidecarRuntimeSupervisor(
   };
 }
 
+function parseShadowDiscovery(value: unknown) {
+  try {
+    return rebuildSynthesisSidecarDiscovery(value);
+  } catch {
+    throw new Error("sidecar_discovery_identity_mismatch");
+  }
+}
+
+function parseProductionDiscovery(value: unknown) {
+  try {
+    return rebuildSynthesisProductionDiscovery(value);
+  } catch {
+    throw new Error("sidecar_discovery_identity_mismatch");
+  }
+}
+
+export function createSynthesisSidecarRuntimeSupervisor(
+  options: SupervisorOptions = {},
+) {
+  const controlClient =
+    options.controlClient || createSynthesisSidecarControlClient();
+  return createSynthesisSidecarSupervisorCore<
+    SynthesisSidecarDiscovery,
+    SynthesisSidecarControlConnection
+  >(options, {
+    parseDiscovery: parseShadowDiscovery,
+    validateAuthority() {},
+    createConnection: (connection) => connection,
+    controlClient,
+    async prepareLaunch() {
+      return null;
+    },
+    launchArguments: ({ configPath }) => [
+      "serve",
+      "--config",
+      configPath,
+    ],
+    timerOwner: "synthesis-sidecar-supervisor",
+  });
+}
+
+export function createSynthesisProductionRuntimeSupervisor(
+  options: SynthesisProductionRuntimeSupervisorOptions,
+) {
+  const admission = rebuildSynthesisProductionAdmission(options.admission);
+  if (admission.purpose !== "live_owner") {
+    throw new Error("production_admission_identity_mismatch");
+  }
+  const controlClient =
+    options.controlClient ||
+    createSynthesisProductionSidecarControlClient();
+  return createSynthesisSidecarSupervisorCore<
+    SynthesisProductionDiscovery,
+    SynthesisProductionSidecarControlConnection
+  >(options, {
+    parseDiscovery: parseProductionDiscovery,
+    validateAuthority(discovery) {
+      if (
+        discovery.ownerMode !== "production" ||
+        discovery.mutationEnabled !== false ||
+        discovery.capabilityFingerprint !==
+          admission.capabilityFingerprint ||
+        discovery.cutoverReceiptId !== admission.cutoverReceiptId
+      ) {
+        throw new Error("sidecar_discovery_identity_mismatch");
+      }
+    },
+    createConnection: (connection) => connection,
+    controlClient,
+    supervisorInstanceId: admission.supervisorInstanceId,
+    expectedProfileId: admission.profileId,
+    async prepareLaunch(paths) {
+      const admissionPath = joinPath(
+        paths.sessionRoot,
+        "production-admission.json",
+      );
+      await replacePrivateRuntimeTextFileAtomically(
+        admissionPath,
+        `${JSON.stringify(admission)}\n`,
+      );
+      return admissionPath;
+    },
+    launchArguments: ({ configPath, admissionPath }) => {
+      if (!admissionPath) {
+        throw new Error("production_admission_identity_mismatch");
+      }
+      return [
+        "serve-production",
+        "--config",
+        configPath,
+        "--admission",
+        admissionPath,
+      ];
+    },
+    timerOwner: "synthesis-production-sidecar-supervisor",
+  });
+}
+
 let defaultSupervisor: ReturnType<
   typeof createSynthesisSidecarRuntimeSupervisor
+> | null = null;
+let productionSupervisor: ReturnType<
+  typeof createSynthesisProductionRuntimeSupervisor
 > | null = null;
 
 function getDefaultSupervisor() {
@@ -886,11 +1088,50 @@ export function getReadySynthesisSidecarControlConnection() {
   return getDefaultSupervisor().getReadyConnection();
 }
 
+export function startSynthesisProductionRuntimeSupervisor(
+  options: SynthesisProductionRuntimeSupervisorOptions,
+) {
+  if (productionSupervisor) {
+    throw new Error("production_supervisor_already_configured");
+  }
+  productionSupervisor = createSynthesisProductionRuntimeSupervisor(options);
+  productionSupervisor.start();
+  return productionSupervisor;
+}
+
+export async function stopSynthesisProductionRuntimeSupervisor() {
+  const current = productionSupervisor;
+  productionSupervisor = null;
+  await current?.stop();
+}
+
+export function getReadySynthesisProductionControlConnection() {
+  const connection = productionSupervisor?.getReadyConnection() ?? null;
+  const readyCapabilities =
+    connection?.discovery.readyClientCapabilities as
+      | readonly string[]
+      | undefined;
+  const requiredCapabilities =
+    SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES as readonly string[];
+  if (
+    !connection ||
+    readyCapabilities?.length !== requiredCapabilities.length ||
+    !requiredCapabilities.every(
+      (capability, index) =>
+        readyCapabilities[index] === capability,
+    )
+  ) {
+    return null;
+  }
+  return connection;
+}
+
 export async function resetSynthesisSidecarRuntimeSupervisorForTests() {
   if (defaultSupervisor) {
     await defaultSupervisor.stop();
     defaultSupervisor = null;
   }
+  await stopSynthesisProductionRuntimeSupervisor();
 }
 
 export const synthesisSidecarRuntimeSupervisorInternalsForTests = {

@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use synthesis_protocol::canonical_json;
 
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-canonical.v1";
+const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-canonical.v1";
 const STORE_SCHEMA: &str = "synthesis-topic-canonical-store.v1";
 const JOURNAL_SCHEMA: &str = "synthesis-topic-canonical-transaction.v1";
 const RECEIPT_SCHEMA: &str = "synthesis-topic-canonical-receipt.v1";
@@ -197,8 +198,12 @@ fn validate_relative_file(value: &str) -> Result<(), String> {
 }
 
 fn stable_id(identity: &CanonicalIdentity) -> String {
+    stable_id_for_schema(IDENTITY_SCHEMA, identity)
+}
+
+fn stable_id_for_schema(schema: &str, identity: &CanonicalIdentity) -> String {
     sha256_hex(format!(
-        "{IDENTITY_SCHEMA}\0{}\0{}",
+        "{schema}\0{}\0{}",
         identity.profile_id, identity.data_root_id
     ))
 }
@@ -652,16 +657,42 @@ fn collect_markdown(
 
 impl CanonicalStore {
     pub fn open(profile_runtime_root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
-        validate_identity_part(&identity.profile_id)?;
-        validate_identity_part(&identity.data_root_id)?;
         let root = profile_runtime_root
             .join("shadow-canonical")
             .join(path_segment(&identity.data_root_id));
+        Self::open_root(root, identity, IDENTITY_SCHEMA)
+    }
+
+    pub fn open_production(root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
+        if !root.is_absolute()
+            || root.file_name().and_then(|value| value.to_str()) != Some("synthesis")
+        {
+            return Err("canonical_production_path_invalid".into());
+        }
+        let metadata = fs::symlink_metadata(root)
+            .map_err(|_| "canonical_production_root_missing".to_owned())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("canonical_production_path_invalid".into());
+        }
+        Self::open_root(root.to_owned(), identity, PRODUCTION_IDENTITY_SCHEMA)
+    }
+
+    fn open_root(
+        root: PathBuf,
+        identity: CanonicalIdentity,
+        identity_schema: &str,
+    ) -> Result<Self, String> {
+        validate_identity_part(&identity.profile_id)?;
+        validate_identity_part(&identity.data_root_id)?;
         fs::create_dir_all(root.join("topics"))
             .map_err(|error| format!("canonical_root_create:{error}"))?;
-        let store_id = stable_id(&identity);
+        let store_id = if identity_schema == IDENTITY_SCHEMA {
+            stable_id(&identity)
+        } else {
+            stable_id_for_schema(identity_schema, &identity)
+        };
         let marker = IdentityMarker {
-            schema: IDENTITY_SCHEMA.into(),
+            schema: identity_schema.into(),
             profile_id: identity.profile_id,
             data_root_id: identity.data_root_id,
             store_schema: STORE_SCHEMA.into(),
@@ -1366,6 +1397,34 @@ mod tests {
             "absent"
         );
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn production_open_uses_only_the_explicit_existing_root() {
+        let parent = root("production");
+        let production_root = parent.join("data").join("synthesis");
+        fs::create_dir_all(&production_root).expect("production root");
+        let store =
+            CanonicalStore::open_production(&production_root, identity()).expect("open production");
+        assert_eq!(store.root(), production_root);
+        assert!(!parent.join("shadow-canonical").exists());
+        store.close().expect("close");
+        fs::remove_dir_all(parent).expect("cleanup");
+    }
+
+    #[test]
+    fn production_open_rejects_missing_or_derived_roots() {
+        let parent = root("production-reject");
+        assert_eq!(
+            CanonicalStore::open_production(&parent.join("data/synthesis"), identity())
+                .unwrap_err(),
+            "canonical_production_root_missing"
+        );
+        assert_eq!(
+            CanonicalStore::open_production(Path::new("data/synthesis"), identity()).unwrap_err(),
+            "canonical_production_path_invalid"
+        );
+        fs::remove_dir_all(parent).expect("cleanup");
     }
 
     #[test]

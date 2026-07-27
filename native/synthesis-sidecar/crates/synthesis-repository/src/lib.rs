@@ -19,6 +19,7 @@ pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v1";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
+const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
@@ -219,8 +220,12 @@ pub struct Repository {
 }
 
 fn stable_id(identity: &RepositoryIdentity) -> String {
+    stable_id_for_schema(IDENTITY_SCHEMA, identity)
+}
+
+fn stable_id_for_schema(schema: &str, identity: &RepositoryIdentity) -> String {
     let mut hash = Sha256::new();
-    hash.update(IDENTITY_SCHEMA.as_bytes());
+    hash.update(schema.as_bytes());
     hash.update([0]);
     hash.update(identity.profile_id.as_bytes());
     hash.update([0]);
@@ -354,6 +359,31 @@ impl Repository {
         Self::open_internal(profile_runtime_root, identity, reconcile_now)
     }
 
+    pub fn open_production(
+        database_path: &Path,
+        identity: RepositoryIdentity,
+        reconcile_now: &str,
+    ) -> Result<Self, String> {
+        validate_identity_part(reconcile_now)?;
+        validate_identity_part(&identity.profile_id)?;
+        validate_identity_part(&identity.data_root_id)?;
+        if !database_path.is_absolute()
+            || database_path.file_name().and_then(|value| value.to_str()) != Some("synthesis.db")
+        {
+            return Err("repository_production_path_invalid".into());
+        }
+        let metadata = fs::symlink_metadata(database_path)
+            .map_err(|_| "repository_production_database_missing".to_owned())?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err("repository_production_path_invalid".into());
+        }
+        Self::open_database(
+            database_path.to_owned(),
+            stable_id_for_schema(PRODUCTION_IDENTITY_SCHEMA, &identity),
+            reconcile_now,
+        )
+    }
+
     fn open_internal(
         profile_runtime_root: &Path,
         identity: RepositoryIdentity,
@@ -394,6 +424,14 @@ impl Repository {
         }
 
         let database_path = root.join("synthesis.db");
+        Self::open_database(database_path, repository_id, reconcile_now)
+    }
+
+    fn open_database(
+        database_path: PathBuf,
+        repository_id: String,
+        reconcile_now: &str,
+    ) -> Result<Self, String> {
         let connection = Connection::open_with_flags(
             &database_path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -1250,6 +1288,45 @@ mod tests {
         assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(51));
         assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(40));
         repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn production_open_uses_only_the_explicit_existing_database() {
+        let root = root("production");
+        let database_path = root.join("state").join("synthesis.db");
+        fs::create_dir_all(database_path.parent().unwrap()).expect("state root");
+        fs::write(&database_path, []).expect("database placeholder");
+        let repository =
+            Repository::open_production(&database_path, identity(), "2026-07-27T00:00:00.000Z")
+                .expect("open production");
+        assert_eq!(repository.database_path(), database_path);
+        assert!(!root.join("shadow-repository").exists());
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn production_open_rejects_missing_or_derived_paths() {
+        let root = root("production-reject");
+        assert_eq!(
+            Repository::open_production(
+                &root.join("state").join("synthesis.db"),
+                identity(),
+                "2026-07-27T00:00:00.000Z",
+            )
+            .unwrap_err(),
+            "repository_production_database_missing"
+        );
+        assert_eq!(
+            Repository::open_production(
+                Path::new("state/synthesis.db"),
+                identity(),
+                "2026-07-27T00:00:00.000Z",
+            )
+            .unwrap_err(),
+            "repository_production_path_invalid"
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

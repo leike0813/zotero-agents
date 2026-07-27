@@ -6,6 +6,7 @@ import {
   isSynthesisSidecarErrorCode,
   type SynthesisSidecarCapability,
   type SynthesisSidecarErrorCode,
+  type SynthesisSidecarProductionClientCapability,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 
 export type SynthesisSidecarRpcConnection = {
@@ -139,7 +140,9 @@ export function createSynthesisSidecarRpcClient(options?: {
   return {
     async call<Result>(args: {
       connection: SynthesisSidecarRpcConnection;
-      capability: SynthesisSidecarCapability;
+      capability:
+        | SynthesisSidecarCapability
+        | SynthesisSidecarProductionClientCapability;
       payload: unknown;
       rebuildResult(value: unknown): Result;
       signal?: AbortSignal;

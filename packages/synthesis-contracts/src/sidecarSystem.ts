@@ -35,6 +35,108 @@ export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "workbench.chrome.read",
   "topics.canonical.inspect",
 ] as const;
+export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.listTopics",
+  "client.findTopicsByPaperRef",
+  "client.getTopicContext",
+  "client.resolveResolver",
+  "client.queryCitationGraphCluster",
+  "client.queryCitationGraph",
+  "client.getCitationGraphSlice",
+  "client.getCitationGraphLayout",
+  "client.getCitationGraphMetrics",
+  "client.rankLibraryPapers",
+  "client.refreshCitationGraphMetricsNow",
+  "client.startCitationGraphUpdate",
+  "client.getReferenceSidecarIndex",
+  "client.rankExternalReferences",
+  "client.getAttentionQueue",
+  "client.startReferenceSidecarRefresh",
+  "client.getPaperArtifactManifest",
+  "client.exportFilteredPaperArtifacts",
+  "client.queryConceptKb",
+  "client.getSchemas",
+  "client.getPublicMaintenanceOperation",
+  "client.getLibraryIndex",
+  "client.getReviewInput",
+  "client.debugSynthesisSnapshot",
+  "client.debugSynthesisCacheList",
+  "client.debugSynthesisOperationsList",
+  "client.debugSynthesisProfilerList",
+  "client.debugSynthesisPaperInspect",
+  "client.debugSynthesisTopicInspect",
+  "client.debugSynthesisDiff",
+  "client.debugSynthesisCleanInstallReset",
+  "client.listWorkflowTopicOptions",
+  "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+  "client.resetSynthesisDatabase",
+  "client.consumeRelatedItemsSyncEcho",
+  "client.applyLiteratureDigestSidecar",
+  "client.applyTopicSynthesisResult",
+  "client.getTopicReport",
+  "client.deleteTopicArtifact",
+  "client.purgeDeletedTopicArtifacts",
+  "client.rejectTopicDiscoveryHint",
+  "client.restoreTopicDiscoveryHint",
+  "client.rebuildTopicGraphIndex",
+  "client.acceptTopicGraphRelation",
+  "client.rejectTopicGraphRelation",
+  "client.applyTopicGraphReviewAction",
+  "client.readPaperArtifacts",
+  "client.initializeBuiltinTagPolicy",
+  "client.isBuiltinTagPolicyInitialized",
+  "client.loadTagVocabulary",
+  "client.saveTagVocabulary",
+  "client.validateTagVocabulary",
+  "client.rebuildTagVocabularyIndex",
+  "client.exportTagVocabularyForRegulator",
+  "client.listStagedTagSuggestions",
+  "client.stageTagSuggestions",
+  "client.updateStagedTagSuggestion",
+  "client.updateTagVocabularyEntry",
+  "client.deleteTagVocabularyEntry",
+  "client.promoteStagedTagSuggestions",
+  "client.discardStagedTagSuggestions",
+  "client.clearStagedTagSuggestions",
+  "client.previewTagVocabularyImport",
+  "client.applyTagVocabularyImport",
+  "client.replaceTagAuditRecords",
+  "client.clearTagAuditRecord",
+  "client.getSynthesisWorkbenchChromeInput",
+  "client.getSynthesisWorkbenchSurfaceInput",
+  "client.getSynthesisBackgroundJobRows",
+  "client.readTopicDetail",
+  "client.resolveTopicPaperDigest",
+  "client.recomputeCitationGraphLayout",
+  "client.rebuildCitationGraphCacheNow",
+  "client.refreshCitationGraphCacheIncrementalNow",
+  "client.retryCitationGraphCacheRebuild",
+  "client.refreshReferenceSidecarNow",
+  "client.retryReferenceSidecarRefresh",
+  "client.runAdvancedReferenceMatchingNow",
+  "client.retryAdvancedReferenceMatching",
+  "client.applyCanonicalRevisionReviewAction",
+  "client.applyReferenceMatchProposalAction",
+  "client.applyReferenceMatchProposalActions",
+  "client.mergeEffectiveCanonicalReference",
+  "client.applyCanonicalRevisionMergeRequests",
+  "client.updateCanonicalReferenceMetadata",
+  "client.archiveCanonicalReference",
+  "client.rebuildConceptKbIndex",
+  "client.updateConceptDisplayText",
+  "client.applyConceptReviewAction",
+  "client.deleteConceptEntries",
+  "client.syncWebDavNow",
+  "client.pauseWebDavSync",
+  "client.resumeWebDavSync",
+  "client.retryWebDavSync",
+  "client.resolveWebDavSyncConflict",
+] as const;
+export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
+  "0e8e1f406d382d24183a3ac078254d966aba7c1d2d15fe82cac347a192f1f372" as const;
+export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
+  "client.listTopics",
+] as const satisfies readonly SynthesisSidecarProductionClientCapability[];
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_layout",
   "compute.citation_graph_metrics",
@@ -70,6 +172,8 @@ export type SynthesisSidecarSystemCapability =
   (typeof SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES)[number];
 export type SynthesisSidecarGeneralCapability =
   (typeof SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES)[number];
+export type SynthesisSidecarProductionClientCapability =
+  (typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES)[number];
 export type SynthesisSidecarComputeCapability =
   (typeof SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES)[number];
 export type SynthesisSidecarWorkerCapability =
@@ -294,6 +398,17 @@ export function isSynthesisSidecarComputeCapability(
 ): value is SynthesisSidecarComputeCapability {
   return (SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES as readonly string[]).includes(
     value,
+  );
+}
+
+export function isSynthesisSidecarProductionClientCapability(
+  value: unknown,
+): value is SynthesisSidecarProductionClientCapability {
+  return (
+    typeof value === "string" &&
+    (
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES as readonly string[]
+    ).includes(value)
   );
 }
 

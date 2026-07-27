@@ -157,6 +157,44 @@ describe("plugin state store bootstrap", function () {
     assert.equal(sql.filter((entry) => entry === "BEGIN IMMEDIATE").length, 1);
   });
 
+  it("checkpoints and closes a guarded connection after its last owner releases", async function () {
+    resetGuardedSqliteForTests();
+    const sql: string[] = [];
+    let closes = 0;
+    const storage = {
+      openDatabase() {
+        return {
+          createStatement() {
+            throw new Error("unexpected statement");
+          },
+          executeSimpleSQL(value: string) {
+            sql.push(value);
+          },
+          asyncClose(callback: { complete: () => void }) {
+            closes += 1;
+            callback.complete();
+          },
+        };
+      },
+    };
+    const first = getGuardedSqliteConnection({
+      dbPath: "C:/runtime/state/synthesis.db",
+      file: {},
+      storage,
+    });
+    const second = getGuardedSqliteConnection({
+      dbPath: "c:/runtime/state/synthesis.db",
+      file: {},
+      storage,
+    });
+
+    await first.release();
+    assert.equal(closes, 0);
+    await second.release();
+    assert.equal(closes, 1);
+    assert.include(sql, "PRAGMA wal_checkpoint(TRUNCATE)");
+  });
+
   it("retries transient busy writes in plugin task rows", function () {
     const harness = installPluginStateStoreSqliteHarness({
       busyPluginTaskRowAttempts: 1,

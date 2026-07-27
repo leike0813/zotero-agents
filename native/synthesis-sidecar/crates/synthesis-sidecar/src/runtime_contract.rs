@@ -1,3 +1,4 @@
+use crate::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fs;
@@ -89,6 +90,51 @@ pub struct NativeLaunchConfig {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProductionReverseHost {
+    pub host: String,
+    pub port: u16,
+    pub authorization_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProductionAdmission {
+    pub schema: String,
+    pub purpose: String,
+    pub profile_id: String,
+    pub supervisor_instance_id: String,
+    pub cutover_receipt_id: String,
+    pub cutover_receipt_path: PathBuf,
+    pub capability_fingerprint: String,
+    pub repository_db_path: PathBuf,
+    pub canonical_root: PathBuf,
+    pub reverse_host: ProductionReverseHost,
+    pub mutation_enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionCutoverReceipt {
+    schema: String,
+    receipt_id: String,
+    profile_id: String,
+    phase: String,
+    source_owner: String,
+    target_owner: String,
+    backup_id: String,
+    source_schema_version: String,
+    target_schema_version: String,
+    canonical_manifest_sha256: String,
+    durable_summary_sha256: String,
+    bundle_fingerprint: String,
+    capability_fingerprint: String,
+    service_instance_id: Option<String>,
+    mutation_enabled: bool,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LeaseRecord {
     schema: String,
     profile_id: String,
@@ -134,6 +180,17 @@ fn safe_relative_path(value: &str) -> bool {
         && value
             .split('/')
             .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
+fn explicit_production_path(path: &Path, suffix: &Path) -> bool {
+    path.is_absolute()
+        && path.ends_with(suffix)
+        && !path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::CurDir | std::path::Component::ParentDir
+            )
+        })
 }
 
 fn timestamp(value: &str) -> bool {
@@ -518,6 +575,76 @@ pub fn read_native_launch_config(path: &Path) -> Result<NativeLaunchConfig, Stri
     rebuild_native_launch_config(&fs::read_to_string(path).map_err(|error| error.to_string())?)
 }
 
+pub fn rebuild_production_admission(value: &str) -> Result<ProductionAdmission, String> {
+    let admission: ProductionAdmission =
+        serde_json::from_str(value).map_err(|_| "invalid_production_admission".to_owned())?;
+    if admission.schema != "synthesis-production-admission.v1"
+        || !matches!(admission.purpose.as_str(), "preflight_copy" | "live_owner")
+        || !sha256(&admission.profile_id)
+        || !bounded_text(&admission.supervisor_instance_id, 128)
+        || !bounded_text(&admission.cutover_receipt_id, 128)
+        || !explicit_production_path(
+            &admission.cutover_receipt_path,
+            Path::new("state/synthesis-cutover/receipt.json"),
+        )
+        || admission.capability_fingerprint != PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
+        || !explicit_production_path(
+            &admission.repository_db_path,
+            Path::new("state/synthesis.db"),
+        )
+        || !explicit_production_path(&admission.canonical_root, Path::new("data/synthesis"))
+        || admission.reverse_host.host != "127.0.0.1"
+        || admission.reverse_host.port == 0
+        || admission.reverse_host.authorization_token.len() < 32
+        || admission.reverse_host.authorization_token.len() > 256
+        || admission.mutation_enabled
+    {
+        return Err("invalid_production_admission".into());
+    }
+    Ok(admission)
+}
+
+pub fn read_production_admission(path: &Path) -> Result<ProductionAdmission, String> {
+    rebuild_production_admission(&fs::read_to_string(path).map_err(|error| error.to_string())?)
+}
+
+pub fn validate_production_cutover_receipt(
+    admission: &ProductionAdmission,
+    config: &NativeLaunchConfig,
+) -> Result<(), String> {
+    let receipt: ProductionCutoverReceipt = serde_json::from_str(
+        &fs::read_to_string(&admission.cutover_receipt_path)
+            .map_err(|_| "production_cutover_receipt_unavailable".to_owned())?,
+    )
+    .map_err(|_| "production_cutover_receipt_invalid".to_owned())?;
+    let expected_phase = if admission.purpose == "preflight_copy" {
+        "backup_verified"
+    } else {
+        "preflight_verified"
+    };
+    if receipt.schema != "synthesis-production-cutover-receipt.v1"
+        || receipt.receipt_id != admission.cutover_receipt_id
+        || receipt.profile_id != admission.profile_id
+        || receipt.profile_id != config.profile_id
+        || receipt.phase != expected_phase
+        || receipt.source_owner != "legacy-plugin"
+        || receipt.target_owner != "rust-native"
+        || !sha256(&receipt.backup_id)
+        || !bounded_text(&receipt.source_schema_version, 128)
+        || !bounded_text(&receipt.target_schema_version, 128)
+        || !sha256(&receipt.canonical_manifest_sha256)
+        || !sha256(&receipt.durable_summary_sha256)
+        || receipt.bundle_fingerprint != config.build_fingerprint
+        || receipt.capability_fingerprint != admission.capability_fingerprint
+        || receipt.service_instance_id.is_some()
+        || receipt.mutation_enabled
+        || receipt.updated_at_ms == 0
+    {
+        return Err("production_cutover_receipt_invalid".into());
+    }
+    Ok(())
+}
+
 pub fn current_time_ms() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -543,4 +670,122 @@ pub fn validate_host_lease(path: &Path, config: &NativeLaunchConfig) -> Result<(
         return Err("host_lease_expired".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod production_admission_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn admission() -> Value {
+        json!({
+            "schema":"synthesis-production-admission.v1",
+            "purpose":"preflight_copy",
+            "profileId":"1".repeat(64),
+            "supervisorInstanceId":"supervisor-1",
+            "cutoverReceiptId":"receipt-1",
+            "cutoverReceiptPath":"/profile/state/synthesis-cutover/receipt.json",
+            "capabilityFingerprint":PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+            "repositoryDbPath":"/profile/state/synthesis.db",
+            "canonicalRoot":"/profile/data/synthesis",
+            "reverseHost":{
+                "host":"127.0.0.1",
+                "port":9134,
+                "authorizationToken":"2".repeat(64)
+            },
+            "mutationEnabled":false
+        })
+    }
+
+    fn launch_config() -> NativeLaunchConfig {
+        NativeLaunchConfig {
+            schema: "synthesis-sidecar-launch-config.v2".into(),
+            profile_id: "1".repeat(64),
+            profile_runtime_root: PathBuf::from("/profile/runtime"),
+            runtime_root_id: "2".repeat(64),
+            data_root_id: "3".repeat(64),
+            bundle_id: "4".repeat(64),
+            implementation: "rust-native".into(),
+            target: "linux-x64".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            build_fingerprint: "5".repeat(64),
+            platform_signature: json!({
+                "scheme":"not-applicable",
+                "status":"not-applicable",
+                "signer":null
+            }),
+            service_version: SERVICE_VERSION.into(),
+            protocol_version: "synthesis-sidecar.v1".into(),
+            schema_version: "schema-1".into(),
+            supervisor_instance_id: "supervisor-1".into(),
+            lease_nonce: "lease-1".into(),
+            client_token: "6".repeat(64),
+            lifecycle_token: "7".repeat(64),
+            mutation_enabled: false,
+            port: 0,
+        }
+    }
+
+    #[test]
+    fn accepts_only_explicit_production_roots_before_mutation_admission() {
+        rebuild_production_admission(&admission().to_string()).unwrap();
+        let mut shadow = admission();
+        shadow["repositoryDbPath"] = json!("/profile/runtime/shadow-repository/root/synthesis.db");
+        assert_eq!(
+            rebuild_production_admission(&shadow.to_string()).unwrap_err(),
+            "invalid_production_admission"
+        );
+        let mut admitted = admission();
+        admitted["mutationEnabled"] = json!(true);
+        assert_eq!(
+            rebuild_production_admission(&admitted.to_string()).unwrap_err(),
+            "invalid_production_admission"
+        );
+    }
+
+    #[test]
+    fn binds_preflight_to_the_durable_backup_verified_receipt() {
+        let root = std::env::temp_dir().join(format!(
+            "synthesis-cutover-receipt-{}-{}",
+            std::process::id(),
+            current_time_ms().unwrap()
+        ));
+        fs::create_dir_all(root.join("state/synthesis-cutover")).unwrap();
+        fs::create_dir_all(root.join("state")).unwrap();
+        fs::create_dir_all(root.join("data/synthesis")).unwrap();
+        let receipt_path = root.join("state/synthesis-cutover/receipt.json");
+        let receipt = json!({
+            "schema":"synthesis-production-cutover-receipt.v1",
+            "receiptId":"receipt-1",
+            "profileId":"1".repeat(64),
+            "phase":"backup_verified",
+            "sourceOwner":"legacy-plugin",
+            "targetOwner":"rust-native",
+            "backupId":"8".repeat(64),
+            "sourceSchemaVersion":"source-1",
+            "targetSchemaVersion":"target-1",
+            "canonicalManifestSha256":"9".repeat(64),
+            "durableSummarySha256":"a".repeat(64),
+            "bundleFingerprint":"5".repeat(64),
+            "capabilityFingerprint":PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+            "serviceInstanceId":null,
+            "mutationEnabled":false,
+            "updatedAtMs":1
+        });
+        fs::write(&receipt_path, receipt.to_string()).unwrap();
+        let mut value = admission();
+        value["repositoryDbPath"] = json!(root.join("state/synthesis.db"));
+        value["canonicalRoot"] = json!(root.join("data/synthesis"));
+        value["cutoverReceiptPath"] = json!(receipt_path);
+        let admission = rebuild_production_admission(&value.to_string()).unwrap();
+        validate_production_cutover_receipt(&admission, &launch_config()).unwrap();
+        let mut invalid = receipt;
+        invalid["phase"] = json!("native_owner");
+        fs::write(&admission.cutover_receipt_path, invalid.to_string()).unwrap();
+        assert_eq!(
+            validate_production_cutover_receipt(&admission, &launch_config(),).unwrap_err(),
+            "production_cutover_receipt_invalid"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

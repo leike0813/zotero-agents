@@ -80,7 +80,7 @@ type LegacySynthesisJsonPort = (
   delivery?: SynthesisDeliveryContext,
 ) => Promise<unknown>;
 
-export interface LegacySynthesisPort {
+export interface SynthesisClientPort {
   listTopics?: LegacySynthesisJsonPort;
   findTopicsByPaperRef?: LegacySynthesisJsonPort;
   getTopicContext?: LegacySynthesisJsonPort;
@@ -252,6 +252,8 @@ export interface LegacySynthesisPort {
     request: SynthesisSyncConflictResolutionRequest,
   ): Promise<unknown>;
 }
+
+export type LegacySynthesisPort = SynthesisClientPort;
 
 function normalizeClientError(error: unknown): SynthesisClientError {
   if (error instanceof SynthesisClientError) {
@@ -1150,8 +1152,8 @@ function mapPaperDigestRequest(value: unknown): SynthesisJsonObject {
   return mapped;
 }
 
-export function createInProcessSynthesisClient(
-  legacy: LegacySynthesisPort,
+export function createSynthesisClientFromPort(
+  legacy: SynthesisClientPort,
 ): SynthesisClient {
   return {
     concepts: {
@@ -2156,4 +2158,10 @@ export function createInProcessSynthesisClient(
       },
     },
   };
+}
+
+export function createInProcessSynthesisClient(
+  legacy: LegacySynthesisPort,
+): SynthesisClient {
+  return createSynthesisClientFromPort(legacy);
 }

@@ -1,17 +1,21 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use synthesis_application::{CanonicalStorePort, TopicCanonicalPort, WorkbenchApplication};
+use synthesis_application::{
+    CanonicalStorePort, TopicApplication, TopicCanonicalPort, WorkbenchApplication,
+};
 use synthesis_repository::Repository;
 use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
 use crate::runtime_http::{read_http, response};
+use crate::runtime_production_client::dispatch_production_client;
 use crate::runtime_transfer::{NativeTransferOwner, TransferDispatch};
 use crate::runtime_worker_pool::{NativeComputePool, WorkerOperation};
 
@@ -31,10 +35,14 @@ struct CallEnvelope {
 pub(crate) struct ServeState {
     pub(crate) config: NativeLaunchConfig,
     pub(crate) service_instance_id: String,
+    pub(crate) owner_mode: &'static str,
+    pub(crate) cutover_receipt_id: Option<String>,
     pub(crate) profile: String,
     pub(crate) repository_id: String,
     pub(crate) repository: Arc<Mutex<Repository>>,
     pub(crate) workbench: WorkbenchApplication,
+    pub(crate) topics: TopicApplication,
+    pub(crate) production_client_capabilities: BTreeSet<String>,
     pub(crate) canonical: CanonicalStorePort,
     pub(crate) stopping: Arc<AtomicBool>,
     pub(crate) compute_pool: Arc<NativeComputePool>,
@@ -95,7 +103,7 @@ fn compute_pool_snapshot(state: &ServeState) -> Result<Value, String> {
 
 fn repository_snapshot(state: &ServeState) -> Value {
     json!({
-        "mode":"isolated_shadow",
+        "mode":if state.owner_mode == "production" {"production"} else {"isolated_shadow"},
         "state":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
         "schemaVersion":synthesis_repository::SCHEMA_VERSION,
         "repositoryId":state.repository_id,
@@ -155,28 +163,36 @@ pub(crate) fn handle_connection(
         if method != "GET" || !body.is_empty() {
             return response(&mut stream, 400, error_response("invalid_request"));
         }
-        return response(
-            &mut stream,
-            200,
-            json!({
-                "status":"ok",
-                "implementation":state.config.implementation,
-                "protocol":state.config.protocol_version,
-                "serviceVersion":state.config.service_version,
-                "serviceInstanceId":state.service_instance_id,
-                "supervisorInstanceId":state.config.supervisor_instance_id,
-                "bundleId":state.config.bundle_id,
-                "target":state.config.target,
-                "targetTriple":state.config.target_triple,
-                "buildFingerprint":state.config.build_fingerprint,
-                "platformSignature":state.config.platform_signature,
-                "lifecycleState":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
-                "repository":repository_snapshot(&state),
-                "canonicalStore":canonical_snapshot(&state)?,
-                "computePool":compute_pool_snapshot(&state)?,
-                "citationGraphTransfer":transfer_snapshot(&state)?,
-            }),
-        );
+        let mut health = json!({
+            "status":"ok",
+            "implementation":state.config.implementation,
+            "protocol":state.config.protocol_version,
+            "serviceVersion":state.config.service_version,
+            "serviceInstanceId":state.service_instance_id,
+            "supervisorInstanceId":state.config.supervisor_instance_id,
+            "bundleId":state.config.bundle_id,
+            "target":state.config.target,
+            "targetTriple":state.config.target_triple,
+            "buildFingerprint":state.config.build_fingerprint,
+            "platformSignature":state.config.platform_signature,
+            "lifecycleState":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
+            "repository":repository_snapshot(&state),
+            "canonicalStore":canonical_snapshot(&state)?,
+            "computePool":compute_pool_snapshot(&state)?,
+            "citationGraphTransfer":transfer_snapshot(&state)?,
+        });
+        if state.owner_mode == "production" {
+            health["ownerMode"] = json!("production");
+            health["mutationEnabled"] = json!(false);
+            health["capabilityFingerprint"] = json!(
+                synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
+            );
+            health["cutoverReceiptId"] = json!(state.cutover_receipt_id);
+            health["readyClientCapabilities"] = json!(
+                synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
+            );
+        }
+        return response(&mut stream, 200, health);
     }
     if method != "POST" || path != "/synthesis/v1/call" {
         return response(&mut stream, 404, error_response("not_found"));
@@ -220,6 +236,25 @@ pub(crate) fn handle_connection(
         return response(&mut stream, 413, error_response("request_too_large"));
     }
     match call.capability.as_str() {
+        capability if capability.starts_with("client.") => {
+            match dispatch_production_client(&state, capability, call.payload) {
+                Ok(data) => bounded_response(
+                    &mut stream,
+                    200,
+                    call_response(&call.request_id, &state.service_instance_id, data),
+                    MAX_READ_RESPONSE_BYTES,
+                ),
+                Err(code) => response(
+                    &mut stream,
+                    match code.as_str() {
+                        "invalid_request" => 400,
+                        "capability_not_found" => 404,
+                        _ => 503,
+                    },
+                    error_response(&code),
+                ),
+            }
+        }
         capability @ ("compute.citation_graph_layout"
         | "compute.citation_graph_metrics"
         | "compute.citation_graph_build") => {
@@ -354,36 +389,43 @@ pub(crate) fn handle_connection(
             {
                 return response(&mut stream, 409, error_response("runtime_mismatch"));
             }
+            let mut handshake = json!({
+                "protocol":"synthesis-sidecar.v1",
+                "serviceVersion":state.config.service_version,
+                "serviceInstanceId":state.service_instance_id,
+                "supervisorInstanceId":state.config.supervisor_instance_id,
+                "bundleId":state.config.bundle_id,
+                "implementation":state.config.implementation,
+                "target":state.config.target,
+                "targetTriple":state.config.target_triple,
+                "buildFingerprint":state.config.build_fingerprint,
+                "platformSignature":state.config.platform_signature,
+                "profileId":state.config.profile_id,
+                "schemaVersion":state.config.schema_version,
+                "runtimeRootId":state.config.runtime_root_id,
+                "dataRootId":state.config.data_root_id,
+                "capabilities":SIDECAR_CAPABILITIES,
+                "mutationEnabled":false,
+                "lifecycleState":"ready",
+                "repository":repository_snapshot(&state),
+                "canonicalStore":canonical_snapshot(&state)?,
+                "computePool":compute_pool_snapshot(&state)?,
+                "citationGraphTransfer":transfer_snapshot(&state)?,
+            });
+            if state.owner_mode == "production" {
+                handshake["ownerMode"] = json!("production");
+                handshake["capabilityFingerprint"] = json!(
+                    synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
+                );
+                handshake["cutoverReceiptId"] = json!(state.cutover_receipt_id);
+                handshake["readyClientCapabilities"] = json!(
+                    synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
+                );
+            }
             bounded_response(
                 &mut stream,
                 200,
-                call_response(
-                    &call.request_id,
-                    &state.service_instance_id,
-                    json!({
-                        "protocol":"synthesis-sidecar.v1",
-                        "serviceVersion":state.config.service_version,
-                        "serviceInstanceId":state.service_instance_id,
-                        "supervisorInstanceId":state.config.supervisor_instance_id,
-                        "bundleId":state.config.bundle_id,
-                        "implementation":state.config.implementation,
-                        "target":state.config.target,
-                        "targetTriple":state.config.target_triple,
-                        "buildFingerprint":state.config.build_fingerprint,
-                        "platformSignature":state.config.platform_signature,
-                        "profileId":state.config.profile_id,
-                        "schemaVersion":state.config.schema_version,
-                        "runtimeRootId":state.config.runtime_root_id,
-                        "dataRootId":state.config.data_root_id,
-                        "capabilities":SIDECAR_CAPABILITIES,
-                        "mutationEnabled":false,
-                        "lifecycleState":"ready",
-                        "repository":repository_snapshot(&state),
-                        "canonicalStore":canonical_snapshot(&state)?,
-                        "computePool":compute_pool_snapshot(&state)?,
-                        "citationGraphTransfer":transfer_snapshot(&state)?,
-                    }),
-                ),
+                call_response(&call.request_id, &state.service_instance_id, handshake),
                 MAX_READ_RESPONSE_BYTES,
             )
         }

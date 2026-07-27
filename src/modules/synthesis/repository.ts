@@ -994,6 +994,9 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
     transaction(fn) {
       return conn.transaction(fn);
     },
+    close() {
+      return conn.release();
+    },
   };
 }
 
@@ -3614,6 +3617,7 @@ export function getSynthesisRepositoryDatabasePath(runtimeRoot?: string) {
 
 export class SynthesisRepository {
   private initialized = false;
+  private closed = false;
   private readonly db: SqlAdapter;
   private readonly now: () => string;
   private readonly runtimeRoot?: string;
@@ -3627,6 +3631,9 @@ export class SynthesisRepository {
   }
 
   initialize() {
+    if (this.closed) {
+      throw new Error("synthesis_repository_closed");
+    }
     if (this.initialized) {
       return;
     }
@@ -3642,6 +3649,15 @@ export class SynthesisRepository {
 
   migrate() {
     this.initialize();
+  }
+
+  async close() {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.initialized = false;
+    await this.db.close?.();
   }
 
   transaction<T>(fn: () => T) {

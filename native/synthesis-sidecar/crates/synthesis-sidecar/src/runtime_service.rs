@@ -6,56 +6,163 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use synthesis_application::{CanonicalStorePort, RepositoryPort, WorkbenchApplication};
+use synthesis_application::{
+    CanonicalStorePort, DisabledStructuredArtifact, RepositoryPort, TopicApplication,
+    WorkbenchApplication,
+};
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_repository::{Repository, RepositoryIdentity};
+use synthesis_sidecar::production_capabilities::production_client_capabilities;
 use synthesis_sidecar::runtime_contract::{
-    SIDECAR_CAPABILITIES, current_time_ms, read_native_launch_config, validate_host_lease,
+    SIDECAR_CAPABILITIES, current_time_ms, read_native_launch_config, read_production_admission,
+    validate_host_lease, validate_production_cutover_receipt,
 };
 
 use crate::runtime_capabilities::{ServeState, handle_connection};
-use crate::runtime_lifecycle::RuntimeOwnership;
+use crate::runtime_lifecycle::{ProductionOwnership, RuntimeOwnership};
 use crate::runtime_transfer::NativeTransferOwner;
 use crate::runtime_worker_pool::NativeComputePool;
 
-pub(crate) fn serve(config_path: &str) -> Result<(), String> {
+pub(crate) fn preflight_production(config_path: &str, admission_path: &str) -> Result<(), String> {
+    production_client_capabilities()?;
     let config = read_native_launch_config(Path::new(config_path))?;
+    let admission = read_production_admission(Path::new(admission_path))?;
+    if admission.purpose != "preflight_copy"
+        || admission.profile_id != config.profile_id
+        || admission.supervisor_instance_id != config.supervisor_instance_id
+    {
+        return Err("production_preflight_identity_mismatch".into());
+    }
+    validate_production_cutover_receipt(&admission, &config)?;
     let lease_path = Path::new(config_path)
         .parent()
         .ok_or_else(|| "invalid_config".to_owned())?
         .join("lease.json");
     validate_host_lease(&lease_path, &config)?;
-    let ownership = RuntimeOwnership::acquire(&config)?;
-    let repository = Repository::open(
-        &config.profile_runtime_root,
+    let repository = Repository::open_production(
+        &admission.repository_db_path,
         RepositoryIdentity {
             profile_id: config.profile_id.clone(),
             data_root_id: config.data_root_id.clone(),
         },
+        &current_time_ms()?.to_string(),
     )?;
-    let canonical = CanonicalStore::open(
-        &config.profile_runtime_root,
+    let inventory = repository.schema_inventory()?;
+    let canonical = CanonicalStore::open_production(
+        &admission.canonical_root,
         CanonicalIdentity {
             profile_id: config.profile_id.clone(),
             data_root_id: config.data_root_id.clone(),
         },
     )?;
     let repository_id = repository.repository_id().to_owned();
+    let canonical_id = canonical.store_id().to_owned();
+    canonical.close()?;
+    repository.close()?;
+    println!(
+        "{}",
+        json!({
+            "type":"production-preflight",
+            "status":"ready",
+            "profileId":config.profile_id,
+            "cutoverReceiptId":admission.cutover_receipt_id,
+            "capabilityFingerprint":admission.capability_fingerprint,
+            "repositoryId":repository_id,
+            "canonicalStoreId":canonical_id,
+            "schemaInventory":inventory,
+            "mutationEnabled":false
+        })
+    );
+    Ok(())
+}
+
+pub(crate) fn serve(config_path: &str) -> Result<(), String> {
+    serve_internal(config_path, None)
+}
+
+pub(crate) fn serve_production(config_path: &str, admission_path: &str) -> Result<(), String> {
+    serve_internal(config_path, Some(admission_path))
+}
+
+fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(), String> {
+    let production_client_capabilities = production_client_capabilities()?.into_iter().collect();
+    let config = read_native_launch_config(Path::new(config_path))?;
+    let admission = admission_path
+        .map(|path| read_production_admission(Path::new(path)))
+        .transpose()?;
+    if admission.as_ref().is_some_and(|admission| {
+        admission.purpose != "live_owner"
+            || admission.profile_id != config.profile_id
+            || admission.supervisor_instance_id != config.supervisor_instance_id
+    }) {
+        return Err("production_owner_identity_mismatch".into());
+    }
+    if let Some(admission) = admission.as_ref() {
+        validate_production_cutover_receipt(admission, &config)?;
+    }
+    let lease_path = Path::new(config_path)
+        .parent()
+        .ok_or_else(|| "invalid_config".to_owned())?
+        .join("lease.json");
+    validate_host_lease(&lease_path, &config)?;
+    let ownership = RuntimeOwnership::acquire(&config)?;
+    let production_ownership = admission
+        .as_ref()
+        .map(|admission| ProductionOwnership::acquire(admission, &ownership.service_instance_id))
+        .transpose()?;
+    let repository_identity = RepositoryIdentity {
+        profile_id: config.profile_id.clone(),
+        data_root_id: config.data_root_id.clone(),
+    };
+    let canonical_identity = CanonicalIdentity {
+        profile_id: config.profile_id.clone(),
+        data_root_id: config.data_root_id.clone(),
+    };
+    let repository = match admission.as_ref() {
+        Some(admission) => Repository::open_production(
+            &admission.repository_db_path,
+            repository_identity,
+            &current_time_ms()?.to_string(),
+        )?,
+        None => Repository::open(&config.profile_runtime_root, repository_identity)?,
+    };
+    let canonical = match admission.as_ref() {
+        Some(admission) => {
+            CanonicalStore::open_production(&admission.canonical_root, canonical_identity)?
+        }
+        None => CanonicalStore::open(&config.profile_runtime_root, canonical_identity)?,
+    };
+    let repository_id = repository.repository_id().to_owned();
     let repository = Arc::new(Mutex::new(repository));
     let canonical = Arc::new(Mutex::new(canonical));
-    let repository_port = RepositoryPort::new(Arc::clone(&repository));
-    let canonical_port = CanonicalStorePort::new(Arc::clone(&canonical));
-    let workbench = WorkbenchApplication::new(Arc::new(repository_port));
+    let repository_port = Arc::new(RepositoryPort::new(Arc::clone(&repository)));
+    let canonical_port = Arc::new(CanonicalStorePort::new(Arc::clone(&canonical)));
+    let workbench = WorkbenchApplication::new(repository_port.clone());
+    let topics = TopicApplication::new(
+        repository_port,
+        canonical_port.clone(),
+        Arc::new(DisabledStructuredArtifact),
+    );
     let stopping = Arc::new(AtomicBool::new(false));
     let transfer = NativeTransferOwner::new(Path::new(&config.profile_runtime_root))?;
     let state = Arc::new(ServeState {
         service_instance_id: ownership.service_instance_id.clone(),
+        owner_mode: if admission.is_some() {
+            "production"
+        } else {
+            "shadow"
+        },
+        cutover_receipt_id: admission
+            .as_ref()
+            .map(|admission| admission.cutover_receipt_id.clone()),
         profile: config.profile_id.clone(),
         config,
         repository_id,
         repository,
         workbench,
-        canonical: canonical_port,
+        topics,
+        production_client_capabilities,
+        canonical: canonical_port.as_ref().clone(),
         stopping: Arc::clone(&stopping),
         compute_pool: Arc::new(NativeComputePool::new()),
         transfer: Mutex::new(transfer),
@@ -69,7 +176,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         .local_addr()
         .map_err(|error| error.to_string())?
         .port();
-    ownership.publish_discovery(&json!({
+    let mut discovery = json!({
         "schema":"synthesis-sidecar-discovery.v2",
         "profileId":state.config.profile_id,
         "supervisorInstanceId":state.config.supervisor_instance_id,
@@ -91,7 +198,17 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         "lifecycleState":"ready",
         "tokenLocator":"supervisor-session",
         "capabilities":SIDECAR_CAPABILITIES,
-    }))?;
+    });
+    if let Some(admission) = admission.as_ref() {
+        discovery["schema"] = json!("synthesis-sidecar-discovery.v3");
+        discovery["ownerMode"] = json!("production");
+        discovery["mutationEnabled"] = json!(false);
+        discovery["capabilityFingerprint"] = json!(admission.capability_fingerprint);
+        discovery["cutoverReceiptId"] = json!(admission.cutover_receipt_id);
+        discovery["readyClientCapabilities"] =
+            json!(synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES);
+    }
+    ownership.publish_discovery(&discovery)?;
     println!(
         "{}",
         json!({"type":"listening","port":port,"buildFingerprint":state.config.build_fingerprint})
@@ -176,6 +293,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         Err(_) => cleanup_errors.push("service_owner_leaked".to_owned()),
     }
     drop(ownership);
+    drop(production_ownership);
     if cleanup_errors.is_empty() {
         Ok(())
     } else {

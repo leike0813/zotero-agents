@@ -336,6 +336,20 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **目标**：一次完成 Rust production ownership 与 Node 删除，避免双栈长期存在。
 
+**实施状态（2026-07-27）**：R9a change
+`cut-over-synthesis-production-owner-to-rust` 已开始本地实现。已落地完整
+production client 清单与跨语言 fingerprint、native client composition、
+十三项 reverse-Host 闭集及 loopback endpoint、cutover receipt/coordinator、
+DB/WAL/canonical 备份恢复、production-copy preflight、显式 production
+root adapter、mutation-disabled live owner lock、独立 production v3
+supervisor，以及首个真实 typed RPC `client.listTopics`。runtime 单独报告
+当前 ready 子集；其余已声明 operation 统一 fail closed，native default
+composition 在 95 项全部 ready 前拿不到连接。完整 Rust production RPC
+dispatch、mutation admission 和 default-client 切换尚未完成，因此
+production owner 仍是插件。R8 五平台远端、签名/XPI
+和实机证据按当前授权记为外部待验收项，不阻塞本地开发，也不得据此宣告
+R9 或 Stage 1 完成。
+
 **切换前硬门槛**：
 
 - R1-R8 全部完成；

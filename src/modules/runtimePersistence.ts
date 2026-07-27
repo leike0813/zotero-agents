@@ -47,6 +47,9 @@ export type RuntimePersistencePaths = {
   stateDbPath: string;
   /** Synthesis repository database for synt_* sidecar/runtime state. */
   synthesisDbPath: string;
+  synthesisCutoverRoot: string;
+  synthesisCutoverReceiptPath: string;
+  synthesisCutoverBackupRoot: string;
   logsDir: string;
   runtimeLogPath: string;
   acpChatRoot: string;
@@ -818,6 +821,16 @@ export function getRuntimePersistencePaths(
     stateDir,
     stateDbPath: joinPath(stateDir, SQLITE_FILE_NAME),
     synthesisDbPath: joinPath(stateDir, SYNTHESIS_SQLITE_FILE_NAME),
+    synthesisCutoverRoot: joinPath(stateDir, "synthesis-cutover"),
+    synthesisCutoverReceiptPath: joinPath(
+      stateDir,
+      "synthesis-cutover",
+      "receipt.json",
+    ),
+    synthesisCutoverBackupRoot: joinPath(
+      dataDir,
+      "synthesis-cutover-backups",
+    ),
     logsDir,
     runtimeLogPath: joinPath(logsDir, RUNTIME_LOG_FILE_NAME),
     acpChatRoot,

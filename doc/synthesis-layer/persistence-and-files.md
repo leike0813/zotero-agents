@@ -11,6 +11,8 @@ The current `runtime/synthesis/service-runtime` tree contains verified Node/serv
 | Class | Location | Role |
 | --- | --- | --- |
 | Synthesis runtime DB | `state/synthesis.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
+| Rust cutover receipt | `state/synthesis-cutover/receipt.json` | Private, atomically replaced phase and owner evidence. Phase progression is monotonic; an admitted receipt cannot return to a plugin/Node generation. |
+| Rust cutover backups | `data/synthesis-cutover-backups/<backupId>/{state,data}/**` | Content-addressed, verified DB/WAL/SHM and canonical-tree backup used only while all writers are stopped. Restore re-verifies source and restored bytes. |
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
@@ -36,9 +38,13 @@ zotero-agents/
   state/
     zotero-agents.db
     synthesis.db
+    synthesis-cutover/receipt.json
     workflow-registry-status.json
     *.bak
   data/
+    synthesis-cutover-backups/<backupId>/
+      state/synthesis.db{-wal,-shm}
+      data/synthesis/**
     synthesis/
       topics/<topicId>/current/**
       sidecar/**             # legacy/migration, sync transaction, debug only
@@ -82,10 +88,12 @@ identity from Node executable plus JavaScript entrypoint to one verified Rust
 executable. After cutover, active/previous pointers cannot target a Node bundle.
 
 The profile shadow repository is different from both the immutable runtime
-versions and production `state/synthesis.db`. Runtime configuration supplies
-only opaque profile/data-root identities; it never supplies the production DB
-or canonical root. Marker/schema mismatch fails service startup before
-discovery. Shadow rows persist across service restart so interrupted `running`
+versions and production `state/synthesis.db`. Normal runtime configuration
+supplies only opaque profile/data-root identities. R9a production-copy and
+live-owner admission use a separate strict document whose paths must end in
+`state/synthesis.db` and `data/synthesis`; a matching durable cutover receipt
+is required before Rust opens either root. Marker/schema mismatch fails service
+startup before discovery. Shadow rows persist across service restart so interrupted `running`
 operations can become `canceled`; terminal operation history and cache-basis
 rows remain. The same isolated database stores strict Topic application state,
 JSON-safe derived graph/concept/interest/discovery projections, and private

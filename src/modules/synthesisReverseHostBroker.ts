@@ -1,0 +1,185 @@
+import {
+  SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  SynthesisClientError,
+  rebuildSynthesisReverseHostCall,
+  toSynthesisJsonValue,
+  type SynthesisJsonValue,
+  type SynthesisReverseHostCall,
+  type SynthesisReverseHostCapability,
+} from "../../packages/synthesis-contracts/src";
+import { timingSafeEqualString } from "../utils/timingSafeEqual";
+
+type HandlerContext = {
+  requestId: string;
+  operationId: string;
+  deadlineAtMs: number;
+};
+
+export type SynthesisReverseHostHandler = (
+  payload: SynthesisReverseHostCall["payload"],
+  context: HandlerContext,
+) => Promise<unknown>;
+
+export type SynthesisReverseHostHandlers = Record<
+  SynthesisReverseHostCapability,
+  SynthesisReverseHostHandler
+>;
+
+type BrokerOptions = {
+  profileId: string;
+  serviceInstanceId: string | (() => string | null);
+  authorizationToken: string;
+  now: () => number;
+  isHostConnected: () => boolean;
+  authorizeCapability: (
+    call: SynthesisReverseHostCall,
+  ) => boolean | Promise<boolean>;
+  handlers: SynthesisReverseHostHandlers;
+};
+
+type DispatchInput = {
+  authorizationToken: string;
+  call: unknown;
+};
+
+type EffectResult = {
+  callIdentity: string;
+  result: SynthesisJsonValue;
+};
+
+const MAX_DEADLINE_AHEAD_MS = 60_000;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
+function failure(
+  code: ConstructorParameters<typeof SynthesisClientError>[0],
+  reason: string,
+): never {
+  throw new SynthesisClientError(code, reason, { reason });
+}
+
+function isEffect(capability: SynthesisReverseHostCapability) {
+  return capability.startsWith("effects.");
+}
+
+function callIdentity(call: SynthesisReverseHostCall) {
+  return JSON.stringify({
+    capability: call.capability,
+    payload: call.payload,
+  });
+}
+
+function assertCompleteHandlers(handlers: SynthesisReverseHostHandlers) {
+  const actual = Object.keys(handlers).sort();
+  const expected = [...SYNTHESIS_REVERSE_HOST_CAPABILITIES].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some(
+      (capability, index) =>
+        capability !== expected[index] ||
+        typeof handlers[capability as SynthesisReverseHostCapability] !==
+          "function",
+    )
+  ) {
+    failure("invalid_request", "reverse_host_handlers_incomplete");
+  }
+}
+
+export function createSynthesisReverseHostBroker(options: BrokerOptions) {
+  assertCompleteHandlers(options.handlers);
+  let active = true;
+  const completedEffects = new Map<string, EffectResult>();
+  const inFlightEffects = new Map<string, Promise<SynthesisJsonValue>>();
+
+  async function execute(call: SynthesisReverseHostCall) {
+    if (!(await options.authorizeCapability(call))) {
+      failure("unavailable", "permission_denied");
+    }
+    const handler = options.handlers[call.capability];
+    const result = toSynthesisJsonValue(
+      await handler(call.payload, {
+        requestId: call.requestId,
+        operationId: call.operationId,
+        deadlineAtMs: call.deadlineAtMs,
+      }),
+      "synthesisReverseHostResult",
+    );
+    if (JSON.stringify(result).length > MAX_RESPONSE_BYTES) {
+      failure("invalid_request", "reverse_host_response_too_large");
+    }
+    return result;
+  }
+
+  async function dispatch(input: DispatchInput) {
+    if (!active) {
+      failure("unavailable", "reverse_host_disposed");
+    }
+    if (
+      !timingSafeEqualString(
+        input.authorizationToken,
+        options.authorizationToken,
+      )
+    ) {
+      failure("unavailable", "reverse_host_unauthorized");
+    }
+    const call = rebuildSynthesisReverseHostCall(input.call);
+    const serviceInstanceId =
+      typeof options.serviceInstanceId === "function"
+        ? options.serviceInstanceId()
+        : options.serviceInstanceId;
+    if (
+      !serviceInstanceId ||
+      call.profileId !== options.profileId ||
+      call.serviceInstanceId !== serviceInstanceId
+    ) {
+      failure("unavailable", "reverse_host_stale_instance");
+    }
+    const now = options.now();
+    if (
+      call.deadlineAtMs <= now ||
+      call.deadlineAtMs > now + MAX_DEADLINE_AHEAD_MS
+    ) {
+      failure("timeout", "reverse_host_deadline_invalid");
+    }
+    if (!options.isHostConnected()) {
+      failure("unavailable", "reverse_host_disconnected");
+    }
+    if (!isEffect(call.capability)) {
+      return execute(call);
+    }
+
+    const identity = callIdentity(call);
+    const completed = completedEffects.get(call.operationId);
+    if (completed) {
+      if (completed.callIdentity !== identity) {
+        failure("conflict", "reverse_host_operation_conflict");
+      }
+      return completed.result;
+    }
+    const inFlight = inFlightEffects.get(call.operationId);
+    if (inFlight) {
+      return inFlight;
+    }
+    const operation = execute(call)
+      .then((result) => {
+        completedEffects.set(call.operationId, {
+          callIdentity: identity,
+          result,
+        });
+        return result;
+      })
+      .finally(() => {
+        inFlightEffects.delete(call.operationId);
+      });
+    inFlightEffects.set(call.operationId, operation);
+    return operation;
+  }
+
+  return {
+    dispatch,
+    dispose() {
+      active = false;
+      completedEffects.clear();
+      inFlightEffects.clear();
+    },
+  };
+}
