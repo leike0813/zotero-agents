@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use synthesis_application::{TopicListRequest, TopicListResult, TopicRecord};
+use synthesis_application::{
+    TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
+};
 
 use crate::runtime_capabilities::ServeState;
 
@@ -19,6 +21,37 @@ fn topic_list_request(payload: Value) -> Result<TopicListRequest, String> {
             serde_json::from_value(request.clone()).map_err(|_| "invalid_request".to_owned())
         }
         _ => Err("invalid_request".into()),
+    }
+}
+
+fn one_argument(payload: Value) -> Result<Value, String> {
+    let envelope: ClientArguments =
+        serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+    match envelope.args.as_slice() {
+        [request] => Ok(request.clone()),
+        _ => Err("invalid_request".into()),
+    }
+}
+
+fn topic_detail_request(payload: Value) -> Result<TopicDetailRequest, String> {
+    serde_json::from_value(one_argument(payload)?).map_err(|_| "invalid_request".to_owned())
+}
+
+fn workbench_chrome_request(payload: Value) -> Result<(), String> {
+    if one_argument(payload)?.is_object() {
+        Ok(())
+    } else {
+        Err("invalid_request".into())
+    }
+}
+
+fn no_arguments(payload: Value) -> Result<(), String> {
+    let envelope: ClientArguments =
+        serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+    if envelope.args.is_empty() {
+        Ok(())
+    } else {
+        Err("invalid_request".into())
     }
 }
 
@@ -68,6 +101,10 @@ fn topic_list_wire(result: TopicListResult) -> Value {
     Value::Object(value)
 }
 
+fn topic_detail_wire(result: TopicDetailResult) -> Result<Value, String> {
+    serde_json::to_value(result).map_err(|_| "topic_detail_projection_invalid".into())
+}
+
 pub(crate) fn dispatch_production_client(
     state: &ServeState,
     capability: &str,
@@ -81,10 +118,41 @@ pub(crate) fn dispatch_production_client(
             .topics
             .list(topic_list_request(payload)?)
             .map(topic_list_wire),
+        "client.readTopicDetail" => state
+            .topics
+            .detail(topic_detail_request(payload)?)
+            .and_then(topic_detail_wire),
+        "client.getSynthesisWorkbenchChromeInput" => {
+            workbench_chrome_request(payload)?;
+            state.workbench.read_json()
+        }
+        "client.getSynthesisBackgroundJobRows" => {
+            no_arguments(payload)?;
+            serde_json::to_value(state.workbench.read()?.maintenance.background_jobs)
+                .map_err(|_| "workbench_projection_invalid".into())
+        }
         known if state.production_client_capabilities.contains(known) => {
             Err("service_not_ready".into())
         }
-        _ => Err("capability_not_found".into()),
+        _ => Err("invalid_request".into()),
+    }
+}
+
+pub(crate) fn production_client_error_status(code: &str) -> u16 {
+    if code == "invalid_request" {
+        400
+    } else if code.ends_with("_not_found") || code.ends_with("_missing") {
+        404
+    } else if code.ends_with("_conflict") || code.ends_with("_basis_mismatch") {
+        409
+    } else if code.ends_with("_busy") {
+        429
+    } else if code.ends_with("_too_large") || code.ends_with("_limit_exceeded") {
+        413
+    } else if code.ends_with("_timeout") || code == "timeout" {
+        408
+    } else {
+        503
     }
 }
 
@@ -107,6 +175,25 @@ mod tests {
         );
         assert!(topic_list_request(json!({"args":[{},{}]})).is_err());
         assert!(topic_list_request(json!({"args":[],"extra":true})).is_err());
+        assert_eq!(
+            topic_detail_request(json!({"args":[{"topicId":"topic-a"}]})).unwrap(),
+            TopicDetailRequest {
+                topic_id: "topic-a".into(),
+            }
+        );
+        assert!(topic_detail_request(json!({"args":[]})).is_err());
+        assert!(topic_detail_request(json!({"args":[{},{}]})).is_err());
+        assert!(workbench_chrome_request(json!({"args":[{}]})).is_ok());
+        assert!(workbench_chrome_request(json!({"args":[]})).is_err());
+        assert!(no_arguments(json!({"args":[]})).is_ok());
+        assert!(no_arguments(json!({"args":[{}]})).is_err());
+        assert_eq!(production_client_error_status("invalid_request"), 400);
+        assert_eq!(production_client_error_status("topic_not_found"), 404);
+        assert_eq!(production_client_error_status("basis_conflict"), 409);
+        assert_eq!(production_client_error_status("worker_busy"), 429);
+        assert_eq!(production_client_error_status("request_too_large"), 413);
+        assert_eq!(production_client_error_status("worker_timeout"), 408);
+        assert_eq!(production_client_error_status("service_not_ready"), 503);
 
         let wire = topic_list_wire(TopicListResult {
             topics: Vec::new(),

@@ -16,10 +16,24 @@ type CapabilityManifest = {
   capabilities: string[];
 };
 
+type OperationManifest = {
+  schema: string;
+  requestCodec: string;
+  resultCodec: string;
+  requestBytes: number;
+  responseBytes: number;
+  deadlineMs: number;
+  access: Record<string, string>;
+};
+
 const ROOT = process.cwd();
 const MANIFEST_PATH = path.join(
   ROOT,
   "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json",
+);
+const OPERATIONS_PATH = path.join(
+  ROOT,
+  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
 );
 const PORT_PATH = path.join(
   ROOT,
@@ -75,6 +89,10 @@ export function inspectSynthesisProductionCapabilities() {
     fs.readFileSync(MANIFEST_PATH, "utf8"),
   ) as CapabilityManifest;
   const manifestCapabilities = manifest.capabilities || [];
+  const operations = JSON.parse(
+    fs.readFileSync(OPERATIONS_PATH, "utf8"),
+  ) as OperationManifest;
+  const operationCapabilities = Object.keys(operations.access || {});
   const typescriptCapabilities = [
     ...SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   ];
@@ -102,6 +120,7 @@ export function inspectSynthesisProductionCapabilities() {
 
   return {
     capabilityCount: manifestCapabilities.length,
+    operationCount: operationCapabilities.length,
     fingerprint: actualFingerprint,
     errors: {
       manifestIdentity:
@@ -152,6 +171,29 @@ export function inspectSynthesisProductionCapabilities() {
       readyDispatcherBinding: readyCapabilities.filter(
         (capability) => !rustDispatchSource.includes(`"${capability}"`),
       ),
+      operationMetadata:
+        operations.schema ===
+          "synthesis-production-client-operations.v1" &&
+        operations.requestCodec === "synthesis-client-args.v1" &&
+        operations.resultCodec === "synthesis-client-result.v1" &&
+        Number.isSafeInteger(operations.requestBytes) &&
+        operations.requestBytes > 0 &&
+        operations.requestBytes <= 8 * 1024 * 1024 &&
+        Number.isSafeInteger(operations.responseBytes) &&
+        operations.responseBytes > 0 &&
+        operations.responseBytes <= 8 * 1024 * 1024 &&
+        Number.isSafeInteger(operations.deadlineMs) &&
+        operations.deadlineMs >= 100 &&
+        operations.deadlineMs <= 60_000 &&
+        difference(manifestCapabilities, operationCapabilities).length ===
+          0 &&
+        difference(operationCapabilities, manifestCapabilities).length ===
+          0 &&
+        operationCapabilities.every((capability) =>
+          ["read", "mutation"].includes(operations.access[capability]!),
+        )
+          ? []
+          : ["invalid production operation metadata"],
     },
   };
 }

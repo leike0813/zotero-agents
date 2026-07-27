@@ -20,6 +20,7 @@ use synthesis_sidecar::runtime_contract::{
 
 use crate::runtime_capabilities::{ServeState, handle_connection};
 use crate::runtime_lifecycle::{ProductionOwnership, RuntimeOwnership};
+use crate::runtime_reverse_host::probe_reverse_host;
 use crate::runtime_transfer::NativeTransferOwner;
 use crate::runtime_worker_pool::NativeComputePool;
 
@@ -39,6 +40,7 @@ pub(crate) fn preflight_production(config_path: &str, admission_path: &str) -> R
         .ok_or_else(|| "invalid_config".to_owned())?
         .join("lease.json");
     validate_host_lease(&lease_path, &config)?;
+    probe_reverse_host(&admission)?;
     let repository = Repository::open_production(
         &admission.repository_db_path,
         RepositoryIdentity {

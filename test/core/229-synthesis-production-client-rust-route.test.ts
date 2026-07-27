@@ -1,17 +1,20 @@
 import { assert } from "chai";
 import {
-  execFileSync,
+  execFile,
   spawn,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { promisify } from "node:util";
 import {
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
   SYNTHESIS_SIDECAR_PROTOCOL,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const EXECUTABLE = path.join(
@@ -22,6 +25,7 @@ const EXECUTABLE = path.join(
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN =
   "lifecycle-token-0123456789abcdef0123456789abcdef";
+const execFileAsync = promisify(execFile);
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
   return {
@@ -159,7 +163,7 @@ async function call(
 describe("Synthesis Rust production client route", function () {
   this.timeout(30_000);
 
-  it("reads the production database through client.listTopics and fails closed for remaining inventory", async function () {
+  it("rehearses verified backup, preflight, owner conflict, native reads, and failed preflight recovery", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-production-client-route-"),
@@ -198,6 +202,13 @@ describe("Synthesis Rust production client route", function () {
       { recursive: true },
     );
     fs.rmSync(path.join(canonicalRoot, "identity.json"));
+    const verifiedBackup =
+      await createSynthesisProductionBackupService({
+        persistenceRoot: root,
+      }).createVerifiedBackup({
+        sourceSchemaVersion: shadowConfig.schemaVersion,
+        targetSchemaVersion: shadowConfig.schemaVersion,
+      });
 
     const productionSession = path.join(root, "production-session");
     const productionConfig = config(
@@ -220,11 +231,12 @@ describe("Synthesis Rust production client route", function () {
       phase: "backup_verified",
       sourceOwner: "legacy-plugin",
       targetOwner: "rust-native",
-      backupId: "6".repeat(64),
+      backupId: verifiedBackup.backupId,
       sourceSchemaVersion: productionConfig.schemaVersion,
       targetSchemaVersion: productionConfig.schemaVersion,
-      canonicalManifestSha256: "7".repeat(64),
-      durableSummarySha256: "8".repeat(64),
+      canonicalManifestSha256:
+        verifiedBackup.canonicalManifestSha256,
+      durableSummarySha256: verifiedBackup.durableSummarySha256,
       bundleFingerprint: productionConfig.buildFingerprint,
       capabilityFingerprint:
         SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
@@ -237,6 +249,33 @@ describe("Synthesis Rust production client route", function () {
       productionSession,
       "production-admission.json",
     );
+    const reverseHostCalls: Array<Record<string, unknown>> = [];
+    const reverseHost = http.createServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        reverseHostCalls.push(JSON.parse(body));
+        const responseBody = JSON.stringify({
+          ok: true,
+          result: { configured: false },
+        });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(responseBody),
+        });
+        response.end(responseBody);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const reverseHostAddress = reverseHost.address();
+    if (!reverseHostAddress || typeof reverseHostAddress === "string") {
+      throw new Error("reverse host test listener unavailable");
+    }
     const productionAdmission = {
       schema: "synthesis-production-admission.v1",
       purpose: "preflight_copy",
@@ -246,28 +285,32 @@ describe("Synthesis Rust production client route", function () {
       cutoverReceiptPath: receiptPath,
       capabilityFingerprint:
         SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-      repositoryDbPath,
-      canonicalRoot,
+      repositoryDbPath: path.join(
+        verifiedBackup.backupRoot,
+        "state/synthesis.db",
+      ),
+      canonicalRoot: path.join(
+        verifiedBackup.backupRoot,
+        "data/synthesis",
+      ),
       reverseHost: {
         host: "127.0.0.1",
-        port: 9134,
+        port: reverseHostAddress.port,
         authorizationToken: "9".repeat(64),
       },
       mutationEnabled: false,
     };
     fs.writeFileSync(admissionPath, JSON.stringify(productionAdmission));
     const preflight = JSON.parse(
-      execFileSync(
-        EXECUTABLE,
-        [
+      (
+        await execFileAsync(EXECUTABLE, [
           "preflight-production",
           "--config",
           productionConfigPath,
           "--admission",
           admissionPath,
-        ],
-        { encoding: "utf8" },
-      ),
+        ])
+      ).stdout,
     ) as Record<string, unknown>;
     assert.deepInclude(preflight, {
       type: "production-preflight",
@@ -276,6 +319,11 @@ describe("Synthesis Rust production client route", function () {
       cutoverReceiptId: "receipt-1",
       mutationEnabled: false,
     });
+    assert.equal(reverseHostCalls.length, 1);
+    assert.equal(
+      reverseHostCalls[0]?.capability,
+      "webdav.describe",
+    );
 
     fs.writeFileSync(
       receiptPath,
@@ -283,7 +331,12 @@ describe("Synthesis Rust production client route", function () {
     );
     fs.writeFileSync(
       admissionPath,
-      JSON.stringify({ ...productionAdmission, purpose: "live_owner" }),
+      JSON.stringify({
+        ...productionAdmission,
+        purpose: "live_owner",
+        repositoryDbPath,
+        canonicalRoot,
+      }),
     );
 
     const production = start([
@@ -297,6 +350,31 @@ describe("Synthesis Rust production client route", function () {
     try {
       const { port } = await production.listening;
       productionPort = port;
+      const contestedConfigPath = writeLaunchFiles(
+        path.join(root, "contested-session"),
+        {
+          ...productionConfig,
+          profileRuntimeRoot: path.join(
+            root,
+            "contested-profile-runtime",
+          ),
+        },
+      );
+      const contestedOwner = start([
+        "serve-production",
+        "--config",
+        contestedConfigPath,
+        "--admission",
+        admissionPath,
+      ]);
+      let ownerConflict: unknown;
+      try {
+        await contestedOwner.listening;
+      } catch (error) {
+        ownerConflict = error;
+      }
+      assert.match(String(ownerConflict), /production_owner_conflict/);
+
       const topics = await call(port, "client.listTopics", {
         args: [{}],
       });
@@ -316,6 +394,38 @@ describe("Synthesis Rust production client route", function () {
         },
       });
 
+      const topicDetail = await call(port, "client.readTopicDetail", {
+        args: [{ topicId: "missing-topic" }],
+      });
+      assert.equal(topicDetail.status, 200);
+      assert.deepEqual(topicDetail.body.data, {
+        status: "absent",
+        topicId: "missing-topic",
+        diagnostics: [],
+      });
+
+      const workbenchChrome = await call(
+        port,
+        "client.getSynthesisWorkbenchChromeInput",
+        { args: [{}] },
+      );
+      assert.equal(workbenchChrome.status, 200);
+      assert.hasAllKeys(workbenchChrome.body.data, ["maintenance"]);
+
+      const backgroundJobs = await call(
+        port,
+        "client.getSynthesisBackgroundJobRows",
+        { args: [] },
+      );
+      assert.equal(backgroundJobs.status, 200);
+      assert.deepEqual(backgroundJobs.body.data, []);
+
+      const malformedDetail = await call(port, "client.readTopicDetail", {
+        args: [{ topicId: "missing-topic" }, {}],
+      });
+      assert.equal(malformedDetail.status, 400);
+      assert.equal(malformedDetail.body.error.code, "invalid_request");
+
       const pending = await call(
         port,
         "client.findTopicsByPaperRef",
@@ -327,14 +437,42 @@ describe("Synthesis Rust production client route", function () {
       const unknown = await call(port, "client.notDeclared", {
         args: [],
       });
-      assert.equal(unknown.status, 404);
-      assert.equal(unknown.body.error.code, "capability_not_found");
+      assert.equal(unknown.status, 400);
+      assert.equal(unknown.body.error.code, "invalid_request");
     } finally {
       if (productionPort) {
         await stop(production.child, productionPort);
       } else {
         production.child.kill();
       }
+      await new Promise<void>((resolve, reject) =>
+        reverseHost.close((error) =>
+          error ? reject(error) : resolve(),
+        ),
+      );
     }
+
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+    fs.writeFileSync(admissionPath, JSON.stringify(productionAdmission));
+    let preflightFailure: unknown;
+    try {
+      await execFileAsync(EXECUTABLE, [
+        "preflight-production",
+        "--config",
+        productionConfigPath,
+        "--admission",
+        admissionPath,
+      ]);
+    } catch (error) {
+      preflightFailure = error;
+    }
+    assert.match(
+      String(preflightFailure),
+      /reverse_host_unavailable/,
+    );
+    assert.isFalse(
+      fs.existsSync(path.join(root, "state/synthesis.owner.json")),
+      "failed preflight must not acquire the live owner",
+    );
   });
 });

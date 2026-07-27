@@ -15,7 +15,9 @@ use synthesis_sidecar::runtime_contract::{
 };
 
 use crate::runtime_http::{read_http, response};
-use crate::runtime_production_client::dispatch_production_client;
+use crate::runtime_production_client::{
+    dispatch_production_client, production_client_error_status,
+};
 use crate::runtime_transfer::{NativeTransferOwner, TransferDispatch};
 use crate::runtime_worker_pool::{NativeComputePool, WorkerOperation};
 
@@ -246,11 +248,7 @@ pub(crate) fn handle_connection(
                 ),
                 Err(code) => response(
                     &mut stream,
-                    match code.as_str() {
-                        "invalid_request" => 400,
-                        "capability_not_found" => 404,
-                        _ => 503,
-                    },
+                    production_client_error_status(&code),
                     error_response(&code),
                 ),
             }

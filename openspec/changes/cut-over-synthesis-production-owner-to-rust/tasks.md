@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add language-neutral production owner, mutation admission, capability fingerprint, cutover receipt, and reverse-Host positive/negative corpus cases
 - [ ] 1.2 Extend default-client, runtime, workflow, Host Bridge/MCP, and boundary tests to require one native production route and zero legacy fallback
-- [ ] 1.3 Add production-copy cutover integration fixtures for backup, owner conflict, preflight failure, recovery, and post-admission crash
+- [x] 1.3 Add production-copy cutover integration fixtures for backup, owner conflict, preflight failure, recovery, and post-admission crash
 
 ## 2. Native Production RPC
 

@@ -11,6 +11,7 @@ describe("Synthesis native client composition", function () {
   it("keeps the TypeScript port and Rust manifest on one closed fingerprint", function () {
     const report = inspectSynthesisProductionCapabilities();
     assert.equal(report.capabilityCount, 95);
+    assert.equal(report.operationCount, 95);
     assert.equal(
       report.fingerprint,
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
