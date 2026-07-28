@@ -177,11 +177,11 @@ export type ZoteroMcpHandlerOptions = {
   onToolCall?: (event: ZoteroMcpToolCallEvent) => void | Promise<void>;
 };
 
-type JsonObjectSchema = {
+type JsonObjectSchema = Record<string, unknown> & {
   type: "object";
-  properties: Record<string, unknown>;
+  properties?: Record<string, unknown>;
   required?: string[];
-  additionalProperties: boolean;
+  additionalProperties?: boolean | Record<string, unknown>;
 };
 
 type ToolContext = {
@@ -3307,12 +3307,10 @@ function mcpInputSchemaForCapability(
     return inputSchema as JsonObjectSchema;
   }
   if (Array.isArray(inputSchema.oneOf)) {
-    const objectBranch = inputSchema.oneOf.find(
-      (entry) => isPlainObject(entry) && entry.type === "object",
-    );
-    if (isPlainObject(objectBranch)) {
-      return objectBranch as JsonObjectSchema;
-    }
+    return {
+      ...inputSchema,
+      type: "object",
+    } as JsonObjectSchema;
   }
   return objectSchema();
 }
@@ -3363,9 +3361,12 @@ function summarizeHostBridgeCapabilityResult(
       parts.push(`selectedItems=${payload.selectedItems.length}`);
     }
   }
-  if (capabilityName === "context.get_selected_items" && Array.isArray(data)) {
-    parts.push(`selectedItems=${data.length}`);
-    data.slice(0, 5).forEach((item) => {
+  if (
+    capabilityName === "context.get_selected_items" &&
+    Array.isArray(payload.items)
+  ) {
+    parts.push(`selectedItems=${payload.items.length}`);
+    payload.items.slice(0, 5).forEach((item) => {
       if (isPlainObject(item)) {
         parts.push(formatItemLine(item as Partial<ZoteroHostItemSummaryDto>));
       }
@@ -3403,7 +3404,10 @@ function summarizeHostBridgeCapabilityResult(
       }
     });
     parts.push("next=library.get_note_detail");
-  } else if (Array.isArray(payload.items)) {
+  } else if (
+    Array.isArray(payload.items) &&
+    capabilityName !== "context.get_selected_items"
+  ) {
     parts.push(`items=${payload.items.length}`);
     payload.items.slice(0, 5).forEach((item) => {
       if (isPlainObject(item)) {

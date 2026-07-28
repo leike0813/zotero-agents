@@ -1199,17 +1199,23 @@ async function debugTasksSnapshot(input: unknown) {
 }
 
 async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
-  const object = asObject(input);
-  const { getSkillRunnerConnectionGovernorSnapshot } =
-    await import("./skillRunnerConnectionAudit");
-  return debugEnvelope(
-    "host_bridge.debug.skillrunner.connections.snapshot.v1",
-    object,
-    {
-      skillRunnerConnections: getSkillRunnerConnectionGovernorSnapshot(),
-      truncated: false,
-    },
-  );
+  if (
+    typeof __debug_mode__ === "undefined" ||
+    (__debug_mode__ && __skillrunner_connection_audit_enabled__)
+  ) {
+    const object = asObject(input);
+    const { getSkillRunnerConnectionGovernorSnapshot } =
+      await import("./skillRunnerConnectionAudit");
+    return debugEnvelope(
+      "host_bridge.debug.skillrunner.connections.snapshot.v1",
+      object,
+      {
+        skillRunnerConnections: getSkillRunnerConnectionGovernorSnapshot(),
+        truncated: false,
+      },
+    );
+  }
+  throw new Error("SkillRunner connection audit is unavailable");
 }
 
 function synthesisCapability(
@@ -1296,9 +1302,17 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability("context.get_current_view", (_input, context) =>
     resolveHostBridgeApis(context).context.getCurrentView(),
   ),
-  capability("context.get_selected_items", (_input, context) =>
-    resolveHostBridgeApis(context).context.getSelectedItems(),
-  ),
+  capability("context.get_selected_items", (_input, context) => {
+    const items = resolveHostBridgeApis(context).context.getSelectedItems();
+    return {
+      items,
+      nextCursor: null,
+      hasMore: false,
+      returned: items.length,
+      total: items.length,
+      limit: items.length,
+    };
+  }),
   capability("library.search_items", async (input, context) => {
     const page = await resolveHostBridgeApis(context).library.listItems(
       asObject(input) as {
@@ -1497,15 +1511,10 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability("debug.status", debugStatus),
   debugCapability("debug.persistence.snapshot", debugPersistenceSnapshot),
   debugCapability("debug.tasks.snapshot", debugTasksSnapshot),
-  ...(typeof __debug_mode__ === "undefined" ||
-  (__debug_mode__ && __skillrunner_connection_audit_enabled__)
-    ? [
-        debugCapability(
-          "debug.skillrunner.connections.snapshot",
-          debugSkillRunnerConnectionsSnapshot,
-        ),
-      ]
-    : []),
+  debugCapability(
+    "debug.skillrunner.connections.snapshot",
+    debugSkillRunnerConnectionsSnapshot,
+  ),
   debugCapability("debug.acpSkillRun.reapplyResult", async (input) => {
     const object = asObject(input);
     const { reapplyAcpSkillRunResult } =

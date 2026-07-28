@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { build } from "esbuild";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -182,6 +184,45 @@ async function createNote(parent: Zotero.Item, title: string, html: string) {
 }
 
 describe("host bridge capability calls", function () {
+  it("imports the capability registry with production diagnostic defines", async function () {
+    this.timeout(10_000);
+    const bundleRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "host-bridge-registry-production-"),
+    );
+    const bundlePath = path.join(bundleRoot, "registry.mjs");
+
+    try {
+      await build({
+        entryPoints: ["src/modules/hostBridgeCapabilityRegistry.ts"],
+        bundle: true,
+        minifySyntax: true,
+        treeShaking: true,
+        write: true,
+        outfile: bundlePath,
+        target: "node18",
+        platform: "node",
+        format: "esm",
+        define: {
+          __debug_mode__: "false",
+          __acp_runtime_performance_profiler_enabled__: "false",
+          __acp_runtime_semantic_trace_recorder_enabled__: "false",
+          __acp_runtime_replay_profiler_enabled__: "false",
+          __skillrunner_connection_audit_enabled__: "false",
+          __env__: '"test"',
+        },
+        logLevel: "silent",
+      });
+
+      const registry = await import(
+        `${pathToFileURL(bundlePath).href}?test=${Date.now()}`
+      );
+      assert.isFunction(registry.listHostBridgeCapabilities);
+      assert.isArray(registry.listHostBridgeCapabilities());
+    } finally {
+      await fs.rm(bundleRoot, { recursive: true, force: true });
+    }
+  });
+
   beforeEach(function () {
     setZoteroLibraryPageQueryAdapterForTests(
       createMockZoteroLibraryPageQueryAdapter(),
