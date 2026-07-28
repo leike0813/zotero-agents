@@ -110,7 +110,7 @@ jobs:
             cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
             binary="native/synthesis-sidecar/target/release/${{ matrix.binary }}"
           fi
-          created_at="$(git show -s --format=%cI HEAD)"
+          created_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
           npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.platform }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
           if [ "${{ matrix.nativeSmoke }}" = "true" ]; then
             npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts --binary="$binary" --target="${{ matrix.platform }}"
