@@ -1,5 +1,0 @@
-- [x] Extend workflow runtime context to carry the explicit capability set required by workflow packages
-- [x] Add package-local runtime scope helpers for both workflow packages
-- [x] Update package hooks and package helpers to consume package-local runtime scope first
-- [x] Replace global-scope assumptions in package runtime tests
-- [x] Run type-check and targeted loader / runtime / workflow regressions

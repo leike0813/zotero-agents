@@ -1,5 +1,0 @@
-schema: hermes.cron.v1
-name: run-monitor
-schedule: { every: 5m }
-command: [scripts/zotero_librarian_service.py, --quiet, run, watch]
-behavior: { unchanged: "[SILENT]", mutation: never }

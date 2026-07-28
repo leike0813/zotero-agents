@@ -1,6 +1,0 @@
-- [x] Add a debug-gated workflow-package diagnostics helper that writes both runtime logs and console output.
-- [x] Instrument workflow module resource root registration and runtime module import paths.
-- [x] Instrument workflow hook execution scope for filterInputs/buildRequest/applyResult with capability summaries and failure diagnostics.
-- [x] Add minimal package-local runtime accessor diagnostics for capability fallback and missing capability cases.
-- [x] Enable runtime log diagnostic mode automatically during startup when hardcoded debug mode is enabled.
-- [x] Add targeted tests for debug-off silence, debug-on emission, loader diagnostics, startup diagnostic-mode enablement, and package-local accessor diagnostics.

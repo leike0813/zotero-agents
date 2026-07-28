@@ -1,6 +1,0 @@
-- [x] Add a token-based workflow execution capability bridge to core runtime infrastructure.
-- [x] Inject `workflowExecutionToken` into hook runtime context and clean up bridge snapshots after execution.
-- [x] Update `tag-vocabulary-package` runtime accessors to resolve capabilities from the bridge first.
-- [x] Update `reference-workbench-package` runtime accessors to resolve capabilities from the bridge first.
-- [x] Extend workflow diagnostics and debug probe output with bridge-state metadata.
-- [x] Add tests for bridge token lifecycle and bridge-backed package capability resolution.

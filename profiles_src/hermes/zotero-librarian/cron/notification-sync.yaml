@@ -1,5 +1,0 @@
-schema: hermes.cron.v1
-name: notification-sync
-schedule: { every: 5m }
-command: [scripts/zotero_librarian_service.py, --quiet, notification, sync]
-behavior: { unchanged: "[SILENT]", mutation: never }

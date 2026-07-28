@@ -1,6 +1,0 @@
-{
-  "id": "invalid-json-workflow",
-  "label": "Invalid Json Workflow",
-  "request": { "kind": "skillrunner.job.v1" },
-  "hooks": { "applyResult": "hooks/applyResult.js" }
-
