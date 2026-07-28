@@ -111,17 +111,17 @@ jobs:
             binary="native/synthesis-sidecar/target/release/${{ matrix.binary }}"
           fi
           created_at="$(git show -s --format=%cI HEAD)"
-          npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.target }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}"
+          npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.platform }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
           if [ "${{ matrix.nativeSmoke }}" = "true" ]; then
-            npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts --binary="$binary" --target="${{ matrix.target }}"
-            npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "$binary" ".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}/provenance.json"
-            npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.target }}"
+            npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts --binary="$binary" --target="${{ matrix.platform }}"
+            npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "$binary" ".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}/provenance.json"
+            npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.platform }}"
           fi
-          tar -czf ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" -C .scaffold/synthesis-sidecar-runtime "${{ matrix.target }}"
+          tar -czf ".scaffold/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz" -C .scaffold/synthesis-sidecar-runtime "${{ matrix.platform }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: synthesis-sidecar-runtime-${{ matrix.target }}
-          path: .scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz
+          name: synthesis-sidecar-runtime-${{ matrix.platform }}
+          path: .scaffold/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz
           if-no-files-found: error
 
   publish-set:
