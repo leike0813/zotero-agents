@@ -8,6 +8,8 @@ import {
   type WorkflowExecutionOptions,
 } from "./workflowSettingsDomain";
 import {
+  isWorkflowSettingsStructuralRefreshChange,
+  normalizeWorkflowSettingsDraftChangeOrigin,
   resolveWorkflowSettingsDialogLayout,
   type WorkflowExecutionUnitPreviewState,
   type WorkflowSettingsDialogLayout,
@@ -270,26 +272,6 @@ function normalizeDraftChangedSection(raw: unknown) {
 
 function normalizeDraftChangedKey(raw: unknown) {
   return String(raw || "").trim();
-}
-
-function isStructuralDraftChange(args: {
-  changedSection: string;
-  changedKey: string;
-}) {
-  if (args.changedSection === "backend" && args.changedKey === "backendId") {
-    return true;
-  }
-  if (
-    args.changedSection === "providerOptions" &&
-    (args.changedKey === "engine" ||
-      args.changedKey === "provider_id" ||
-      args.changedKey === "model" ||
-      args.changedKey === "acpModelProvider" ||
-      args.changedKey === "acpModelId")
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function buildDialogErrorResult(args: {
@@ -715,6 +697,9 @@ export async function openWorkflowSettingsWebDialog(args: {
           payload.changedSection,
         );
         const changedKey = normalizeDraftChangedKey(payload.changedKey);
+        const changeOrigin = normalizeWorkflowSettingsDraftChangeOrigin(
+          payload.changedOrigin,
+        );
         const previousBackendId = String(
           draft.backendId || descriptor.selectedProfile || "",
         ).trim();
@@ -734,11 +719,12 @@ export async function openWorkflowSettingsWebDialog(args: {
               }
             : nextDraft;
         if (
-          isStructuralDraftChange({
+          isWorkflowSettingsStructuralRefreshChange({
             changedSection,
             changedKey,
+            origin: changeOrigin,
           }) ||
-          changedSection === "workflowParams"
+          (changedSection === "workflowParams" && changeOrigin !== "text")
         ) {
           await refreshDescriptor();
           pushSnapshot("workflow-settings-dialog:snapshot");

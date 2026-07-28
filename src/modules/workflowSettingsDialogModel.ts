@@ -15,6 +15,35 @@ import { normalizeHostQueueMaxConcurrency } from "./workflowSettingsDomain";
 
 export type FormSchemaType = "string" | "number" | "boolean" | "array";
 
+export type WorkflowSettingsDraftChangeOrigin = "choice" | "text";
+
+export function normalizeWorkflowSettingsDraftChangeOrigin(
+  value: unknown,
+): WorkflowSettingsDraftChangeOrigin {
+  return value === "text" ? "text" : "choice";
+}
+
+export function isWorkflowSettingsStructuralRefreshChange(args: {
+  changedSection: string;
+  changedKey: string;
+  origin: WorkflowSettingsDraftChangeOrigin;
+}) {
+  if (args.origin === "text") {
+    return false;
+  }
+  if (args.changedSection === "backend" && args.changedKey === "backendId") {
+    return true;
+  }
+  return (
+    args.changedSection === "providerOptions" &&
+    (args.changedKey === "engine" ||
+      args.changedKey === "provider_id" ||
+      args.changedKey === "model" ||
+      args.changedKey === "acpModelProvider" ||
+      args.changedKey === "acpModelId")
+  );
+}
+
 export type FormSchemaEntry = {
   key: string;
   type: FormSchemaType;

@@ -1817,6 +1817,7 @@
       if (emitChange && (changed || rawValue !== lastCommittedRaw)) {
         args.onChange({
           changedKey: args.entry.key,
+          changedOrigin: "text",
         });
       }
       lastCommittedRaw = rawValue;
@@ -1856,6 +1857,10 @@
               changedKey:
                 changeMeta && typeof changeMeta.changedKey === "string"
                   ? changeMeta.changedKey
+                  : "",
+              changedOrigin:
+                changeMeta && typeof changeMeta.changedOrigin === "string"
+                  ? changeMeta.changedOrigin
                   : "",
             });
           },
@@ -1938,6 +1943,8 @@
         changedSection:
           typeof meta.changedSection === "string" ? meta.changedSection : "",
         changedKey: typeof meta.changedKey === "string" ? meta.changedKey : "",
+        changedOrigin:
+          typeof meta.changedOrigin === "string" ? meta.changedOrigin : "",
       });
     };
 

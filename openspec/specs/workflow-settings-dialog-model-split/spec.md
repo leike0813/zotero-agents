@@ -56,7 +56,9 @@ For enum-backed string parameters with `allowCustom=true`, dialog rendering MUST
 ### Requirement: Workflow settings refresh preserves active form controls
 
 Workflow settings dialogs SHALL preserve active form-control state during
-provider option, status, or render-model refreshes.
+provider option, status, or render-model refreshes. A draft update committed by
+an editable text control SHALL synchronize its value without causing a
+structural form refresh solely because that value is a dynamic provider option.
 
 #### Scenario: Options refresh keeps edited field
 
@@ -65,6 +67,23 @@ provider option, status, or render-model refreshes.
 - **THEN** the active field DOM node and current draft value SHALL be preserved
 - **AND** save, apply, cancel, validation, and serialization semantics SHALL
   remain unchanged.
+
+#### Scenario: First action after editable text commit is delivered
+
+- **WHEN** a user changes a free-text, numeric, or array workflow settings
+  control
+- **AND** the control commits because the user clicks a dialog or Dashboard
+  action
+- **THEN** the text-originated draft update SHALL NOT rebuild the current form
+  before that action is delivered
+- **AND** the action SHALL observe the committed draft value.
+
+#### Scenario: Choice-driven structural refresh remains available
+
+- **WHEN** a user selects a backend profile or a recommendation that changes
+  dependent provider options
+- **THEN** the settings UI SHALL retain its structural refresh behavior
+- **AND** the refreshed controls SHALL reflect the selected choice.
 
 #### Scenario: Custom select refresh keeps interaction state
 

@@ -145,7 +145,8 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, "resizeWorkflowSettingsDialogToContent");
     assert.include(ts, 'if (action === "resize-to-content")');
     assert.include(ts, "WORKFLOW_SETTINGS_DIALOG_SCREEN_MARGIN = 48");
-    assert.include(ts, "isStructuralDraftChange");
+    assert.include(ts, "isWorkflowSettingsStructuralRefreshChange");
+    assert.include(ts, "normalizeWorkflowSettingsDraftChangeOrigin");
     assert.include(ts, "toRunOptionsFormValues");
     assert.include(ts, "normalizeWorkflowRunOptions(raw.runOptions)");
     assert.include(ts, "showAcpRuntimeCacheRefreshToast");

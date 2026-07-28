@@ -70,6 +70,10 @@ import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
+  isWorkflowSettingsStructuralRefreshChange,
+  normalizeWorkflowSettingsDraftChangeOrigin,
+} from "./workflowSettingsDialogModel";
+import {
   compareWorkflowDisplayOrder,
   isCoreWorkflow,
   localizeWorkflowLabel,
@@ -885,26 +889,6 @@ function normalizeDraftChangedSection(raw: unknown) {
 
 function normalizeDraftChangedKey(raw: unknown) {
   return String(raw || "").trim();
-}
-
-function isWorkflowSettingsStructuralRefreshChange(args: {
-  changedSection: string;
-  changedKey: string;
-}) {
-  if (args.changedSection === "backend" && args.changedKey === "backendId") {
-    return true;
-  }
-  if (
-    args.changedSection === "providerOptions" &&
-    (args.changedKey === "engine" ||
-      args.changedKey === "provider_id" ||
-      args.changedKey === "model" ||
-      args.changedKey === "acpModelProvider" ||
-      args.changedKey === "acpModelId")
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function isSkillRunnerBackend(backend: BackendInstance) {
@@ -3594,6 +3578,9 @@ export async function openTaskManagerDialog(args?: {
         payload.changedSection,
       );
       const changedKey = normalizeDraftChangedKey(payload.changedKey);
+      const changeOrigin = normalizeWorkflowSettingsDraftChangeOrigin(
+        payload.changedOrigin,
+      );
       if (!workflowId) {
         return;
       }
@@ -3639,6 +3626,7 @@ export async function openTaskManagerDialog(args?: {
         isWorkflowSettingsStructuralRefreshChange({
           changedSection,
           changedKey,
+          origin: changeOrigin,
         })
       ) {
         refresh("user-action");
