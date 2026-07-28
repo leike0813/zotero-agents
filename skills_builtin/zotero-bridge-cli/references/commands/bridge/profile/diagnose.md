@@ -27,10 +27,10 @@ This command has no local parameters.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {},
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -42,27 +42,33 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {},
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by GET /bridge/v1/diagnostics/profile/diagnose.",
       "additionalProperties": true,
+      "description": "Response object returned by GET /bridge/v2/diagnostics/profile/diagnose.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -77,84 +83,98 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "bridge profile diagnose",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [],
   "argv": [
     "bridge",
     "profile",
     "diagnose"
   ],
-  "summary": "Diagnose Zotero Bridge connection-profile readiness",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {},
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [],
   "argvBindings": [],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {},
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by GET /bridge/v1/diagnostics/profile/diagnose.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
+  "binding": "none",
+  "category": "read",
+  "command": "bridge profile diagnose",
+  "composition": null,
+  "danger": "none",
   "effects": [
     {
+      "description": "Reads state without changing Zotero-managed data.",
       "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
+      "stateChanged": false
     }
   ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
   "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/diagnostics/profile/diagnose"
-    }
-  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
   "operationalAliases": [
     "bridge profile diagnose",
     "bridge",
     "profile",
     "diagnose"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by GET /bridge/v2/diagnostics/profile/diagnose.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Diagnose Zotero Bridge connection-profile readiness",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/diagnostics/profile/diagnose"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -162,6 +182,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `bridge profile diagnose`, `bridge`, `profile`, `diagnose`.
 
@@ -170,9 +191,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -182,8 +203,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -199,11 +220,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -214,7 +235,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/diagnostics/profile/diagnose"
+    "target": "GET /bridge/v2/diagnostics/profile/diagnose"
   }
 ]
 ```

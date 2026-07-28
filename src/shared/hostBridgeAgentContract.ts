@@ -1,9 +1,9 @@
-export const HOST_BRIDGE_PROTOCOL = "host-bridge.v1" as const;
+export const HOST_BRIDGE_PROTOCOL = "host-bridge.v2" as const;
 export const HOST_BRIDGE_AGENT_SURFACE_SCHEMA =
-  "host-bridge.agent-surface.v5" as const;
-export const HOST_BRIDGE_CLI_SCHEMA = "zotero-bridge.cli.v4" as const;
+  "host-bridge.agent-surface.v6" as const;
+export const HOST_BRIDGE_CLI_SCHEMA = "zotero-bridge.cli.v5" as const;
 export const HOST_BRIDGE_SURFACE_IDENTITY_SCHEMA =
-  "host-bridge.surface-identity.v5" as const;
+  "host-bridge.surface-identity.v6" as const;
 
 export type HostBridgeStateChange = "unchanged" | "changed" | "unknown";
 export type HostBridgeHandleConsumption = "unconsumed" | "consumed" | "unknown";

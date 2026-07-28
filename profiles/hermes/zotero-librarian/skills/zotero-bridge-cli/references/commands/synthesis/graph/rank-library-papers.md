@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "query": {
-      "type": "string",
-      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,14 +49,8 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "paperRefs": {
-      "type": "array"
-    },
-    "paper_refs": {
-      "type": "array"
-    },
     "cursor": {
       "type": [
         "number",
@@ -64,11 +58,17 @@ Required: `false`.
       ]
     },
     "limit": {
+      "minimum": 1,
       "type": [
         "number",
         "string"
-      ],
-      "minimum": 1
+      ]
+    },
+    "paperRefs": {
+      "type": "array"
+    },
+    "paper_refs": {
+      "type": "array"
     },
     "sortBy": {
       "type": "string"
@@ -77,8 +77,7 @@ Required: `false`.
       "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -86,14 +85,8 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "paperRefs": {
-      "type": "array"
-    },
-    "paper_refs": {
-      "type": "array"
-    },
     "cursor": {
       "type": [
         "number",
@@ -101,11 +94,17 @@ Required: `false`.
       ]
     },
     "limit": {
+      "minimum": 1,
       "type": [
         "number",
         "string"
-      ],
-      "minimum": 1
+      ]
+    },
+    "paperRefs": {
+      "type": "array"
+    },
+    "paper_refs": {
+      "type": "array"
     },
     "sortBy": {
       "type": "string"
@@ -114,31 +113,39 @@ Required: `false`.
       "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "citation_graph.rank_library_papers"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by citation_graph.rank_library_papers.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by citation_graph.rank_library_papers.",
       "properties": {
-        "papers": {
-          "type": "array"
+        "hasMore": {
+          "type": "boolean"
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
         },
         "nextCursor": {
           "type": [
@@ -146,25 +153,28 @@ Required: `false`.
             "null"
           ]
         },
-        "hasMore": {
-          "type": "boolean"
+        "papers": {
+          "type": "array"
         },
         "returned": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -188,74 +198,81 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "synthesis graph rank-library-papers",
-  "argv": [
-    "synthesis",
-    "graph",
-    "rank-library-papers"
-  ],
-  "summary": "Rank library papers from citation graph metrics",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "query",
-      "kind": "option",
-      "token": "--query",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
       "aliases": [
         "input"
       ],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "query",
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "query",
       "kind": "option",
-      "token": "--query",
-      "takesValue": true,
+      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--query",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "argv": [
+    "synthesis",
+    "graph",
+    "rank-library-papers"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "query",
+      "required": false,
+      "takesValue": true,
+      "token": "--query",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "passthrough",
+  "category": "read",
+  "command": "synthesis graph rank-library-papers",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "query": {
-      "token": "--query",
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --query.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
       "required": false,
       "requiredWhen": [],
       "schema": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "paperRefs": {
-            "type": "array"
-          },
-          "paper_refs": {
-            "type": "array"
-          },
           "cursor": {
             "type": [
               "number",
@@ -263,11 +280,17 @@ This closed descriptor is the machine-readable command contract returned by `sur
             ]
           },
           "limit": {
+            "minimum": 1,
             "type": [
               "number",
               "string"
-            ],
-            "minimum": 1
+            ]
+          },
+          "paperRefs": {
+            "type": "array"
+          },
+          "paper_refs": {
+            "type": "array"
           },
           "sortBy": {
             "type": "string"
@@ -276,140 +299,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
             "type": "string"
           }
         },
-        "required": [],
-        "additionalProperties": false
+        "type": "object"
       },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --query."
-        }
-      ]
+      "schemaSource": "target-capability",
+      "token": "--query"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "paperRefs": {
-        "type": "array"
-      },
-      "paper_refs": {
-        "type": "array"
-      },
-      "cursor": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "limit": {
-        "type": [
-          "number",
-          "string"
-        ],
-        "minimum": 1
-      },
-      "sortBy": {
-        "type": "string"
-      },
-      "sort_by": {
+      "query": {
+        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
         "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by citation_graph.rank_library_papers.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "papers": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "returned": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "data.papers",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total",
-      "data.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "citation_graph.rank_library_papers"
-    }
-  ],
   "operationalAliases": [
     "synthesis graph rank-library-papers",
     "synthesis",
@@ -418,16 +324,140 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "query",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.papers",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "limit": {
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "paperRefs": {
+        "type": "array"
+      },
+      "paper_refs": {
+        "type": "array"
+      },
+      "sortBy": {
+        "type": "string"
+      },
+      "sort_by": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "citation_graph.rank_library_papers"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by citation_graph.rank_library_papers.",
+        "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "limit": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "papers": {
+            "type": "array"
+          },
+          "returned": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Rank library papers from citation graph metrics",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "citation_graph.rank_library_papers"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `synthesis` `graph` `rank-library-papers`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"data.papers","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.papers","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis graph rank-library-papers`, `synthesis`, `graph`, `rank-library-papers`, `query`, `JSON_OR_FILE`.
 
@@ -436,9 +466,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -448,8 +478,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -465,11 +495,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

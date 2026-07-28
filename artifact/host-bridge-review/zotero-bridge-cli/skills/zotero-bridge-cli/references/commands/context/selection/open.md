@@ -1,6 +1,6 @@
 # `zotero-bridge context selection open`
 
-将一个或多个 Zotero item 作为当前选中项打开
+Open one or more Zotero items as the active selection
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] ITEM_REFS <ITEM_REFS> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -24,34 +24,36 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
 | Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ITEM_REFS | item_refs | positional | yes | — | ITEM_REFS; numArgs: 1.. | yes | — | — | Zotero item refs |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
 
 ## 调用 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
+    "cursor": {
+      "description": "Opaque continuation cursor",
+      "type": "string"
+    },
     "item_refs": {
-      "type": "array",
+      "description": "Zotero item refs",
       "items": {
         "type": "string"
       },
-      "description": "Zotero item refs",
-      "position": 1
-    },
-    "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
+      "position": 1,
+      "type": "array"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of entries (1-100)"
+      "description": "Maximum number of entries (1-100)",
+      "type": "string"
     }
   },
   "required": [
     "item_refs"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -59,332 +61,244 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "item_refs": {
-      "type": "string",
-      "description": "Zotero item refs"
+      "description": "Zotero item refs",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
-    "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/context/selection/open.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-    },
-    "target": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array"
-        }
-      },
-      "additionalProperties": true
-    },
     "pagination": {
-      "type": "object",
+      "additionalProperties": true,
       "properties": {
         "items": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
+            "hasMore": {
+              "type": "boolean"
+            },
+            "limit": {
+              "minimum": 0,
+              "type": "integer"
+            },
             "nextCursor": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "hasMore": {
-              "type": "boolean"
-            },
             "returned": {
-              "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "type": "integer"
             },
             "total": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "type": "integer"
             }
           },
-          "additionalProperties": true
+          "type": "object"
         }
       },
-      "additionalProperties": true
+      "type": "object"
+    },
+    "response": {
+      "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/context/selection/open.",
+      "type": "object",
+      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "target": {
+      "additionalProperties": true,
+      "properties": {
+        "items": {
+          "type": "array"
+        }
+      },
+      "type": "object"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "context selection open",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item refs",
+      "id": "item_refs",
+      "kind": "positional",
+      "numArgs": "1..",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "ITEM_REFS",
+      "valueNames": [
+        "ITEM_REFS"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "context",
     "selection",
     "open"
   ],
-  "summary": "Open one or more Zotero items as the active selection",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "item_refs",
+      "required": true,
+      "takesValue": true,
+      "token": "ITEM_REFS",
+      "valueNames": [
+        "ITEM_REFS"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "navigation",
+  "command": "context selection open",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change ui navigation state.",
+      "kind": "ui-navigation",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "itemRef",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
+      "cursor": {
+        "description": "Opaque continuation cursor",
+        "type": "string"
+      },
       "item_refs": {
-        "type": "array",
+        "description": "Zotero item refs",
         "items": {
           "type": "string"
         },
-        "description": "Zotero item refs",
-        "position": 1
-      },
-      "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
+        "position": 1,
+        "type": "array"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of entries (1-100)"
+        "description": "Maximum number of entries (1-100)",
+        "type": "string"
       }
     },
     "required": [
       "item_refs"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "item_refs",
-      "kind": "positional",
-      "token": "ITEM_REFS",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Zotero item refs",
-      "valueNames": [
-        "ITEM_REFS"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "numArgs": "1..",
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of entries (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "item_refs",
-      "kind": "positional",
-      "token": "ITEM_REFS",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "ITEM_REFS"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "item_refs": {
-        "type": "string",
-        "description": "Zotero item refs"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/context/selection/open.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      },
-      "target": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array"
-          }
-        },
-        "additionalProperties": true
-      },
-      "pagination": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "object",
-            "properties": {
-              "nextCursor": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "hasMore": {
-                "type": "boolean"
-              },
-              "returned": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "total": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "additionalProperties": true
-          }
-        },
-        "additionalProperties": true
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "target.items",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "pagination.items.nextCursor",
-      "pagination.items.hasMore",
-      "pagination.items.returned",
-      "pagination.items.total",
-      "pagination.items.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "ui-navigation",
-      "stateChanged": true,
-      "description": "May change ui navigation state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "itemRef",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/context/selection/open"
-    }
-  ],
   "operationalAliases": [
     "context selection open",
     "context",
@@ -397,26 +311,136 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "pagination.items.nextCursor",
+      "pagination.items.hasMore",
+      "pagination.items.returned",
+      "pagination.items.total",
+      "pagination.items.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "target.items",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "item_refs": {
+        "description": "Zotero item refs",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "pagination": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "hasMore": {
+                "type": "boolean"
+              },
+              "limit": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/context/selection/open.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "target": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Open one or more Zotero items as the active selection",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/context/selection/open"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `context` `selection` `open`.
-- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"target.items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["pagination.items.nextCursor","pagination.items.hasMore","pagination.items.returned","pagination.items.total","pagination.items.limit"]}.
+- 输出边界： `cursor`；受管详情： {"continuation":["pagination.items.nextCursor","pagination.items.hasMore","pagination.items.returned","pagination.items.total","pagination.items.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"target.items","strategy":"cursor"}.
 - 分页： `cursor`.
-- 类别： `navigation`; danger: `review`.
-- 意图可见性： `visible`.
+- 类别： `navigation`；危险等级： `review`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `context selection open`, `context`, `selection`, `open`, `item_refs`, `ITEM_REFS`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "May change ui navigation state.",
     "kind": "ui-navigation",
-    "stateChanged": true,
-    "description": "May change ui navigation state."
+    "stateChanged": true
   }
 ]
 ```
@@ -426,21 +450,21 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "itemRef",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "itemRef",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -450,22 +474,22 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/context/selection/open"
+    "target": "POST /bridge/v2/context/selection/open"
   }
 ]
 ```

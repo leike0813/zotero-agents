@@ -31,25 +31,25 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id"
+    "cursor": {
+      "description": "Opaque continuation cursor",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of runs"
+      "description": "Maximum number of runs",
+      "type": "string"
     },
-    "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
+    "workflow": {
+      "description": "Workflow id",
+      "type": "string"
     }
   },
   "required": [
     "workflow"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -61,30 +61,40 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id"
-    },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of runs"
+      "description": "Maximum number of runs",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
-    "runs": {
-      "type": "array"
+    "hasMore": {
+      "type": "boolean"
+    },
+    "limit": {
+      "minimum": 0,
+      "type": "integer"
     },
     "nextCursor": {
       "type": [
@@ -93,23 +103,19 @@ This command has no structured JSON input parameter.
         "null"
       ]
     },
-    "hasMore": {
-      "type": "boolean"
-    },
     "returned": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
+    },
+    "runs": {
+      "type": "array"
     },
     "total": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "limit": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -124,212 +130,137 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "run workflow recent",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow id",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of runs",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    }
+  ],
   "argv": [
     "run",
     "workflow",
     "recent"
   ],
-  "summary": "List recent workflow runs",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    }
+  ],
+  "binding": "none",
   "category": "read",
+  "command": "run workflow recent",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id"
+      "cursor": {
+        "description": "Opaque continuation cursor",
+        "type": "string"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of runs"
+        "description": "Maximum number of runs",
+        "type": "string"
       },
-      "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
+      "workflow": {
+        "description": "Workflow id",
+        "type": "string"
       }
     },
     "required": [
       "workflow"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Workflow id",
-      "valueNames": [
-        "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of runs",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of runs"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "runs": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
-      },
-      "returned": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "total": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "limit": {
-        "type": "integer",
-        "minimum": 0
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "runs",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "nextCursor",
-      "hasMore",
-      "returned",
-      "total",
-      "limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/workflows/runs"
-    }
-  ],
   "operationalAliases": [
     "run workflow recent",
     "run",
@@ -341,16 +272,106 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "cursor",
     "CURSOR"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "runs",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "description": "Maximum number of runs",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Workflow id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "hasMore": {
+        "type": "boolean"
+      },
+      "limit": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "number",
+          "null"
+        ]
+      },
+      "returned": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "runs": {
+        "type": "array"
+      },
+      "total": {
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "List recent workflow runs",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/workflows/runs"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `run` `workflow` `recent`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"runs","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"runs","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `run workflow recent`, `run`, `workflow`, `recent`, `WORKFLOW`, `limit`, `LIMIT`, `cursor`, `CURSOR`.
 
@@ -359,9 +380,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -371,8 +392,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -388,11 +409,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -403,7 +424,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/workflows/runs"
+    "target": "GET /bridge/v2/workflows/runs"
   }
 ]
 ```

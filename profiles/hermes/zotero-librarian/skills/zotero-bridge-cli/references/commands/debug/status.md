@@ -27,10 +27,10 @@ This command has no local parameters.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {},
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -42,10 +42,20 @@ This command has no structured JSON input parameter.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {},
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": []
 }
 ```
 
@@ -53,36 +63,42 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "debug.status"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by debug.status.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by debug.status.",
       "properties": {
         "tasks": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
             "recent": {
               "type": "array"
             }
           },
-          "additionalProperties": true
+          "type": "object"
         },
         "truncated": {
           "type": "boolean"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -96,112 +112,135 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "debug status",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [],
   "argv": [
     "debug",
     "status"
   ],
-  "summary": "Read debug-only Zotero Bridge service runtime status",
-  "category": "debug",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {},
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [],
   "argvBindings": [],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {},
-    "required": [],
-    "additionalProperties": false
+  "binding": "object",
+  "category": "debug",
+  "command": "debug status",
+  "composition": {
+    "constants": {},
+    "mappings": []
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by debug.status.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "tasks": {
-            "type": "object",
-            "properties": {
-              "recent": {
-                "type": "array"
-              }
-            },
-            "additionalProperties": true
-          },
-          "truncated": {
-            "type": "boolean"
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "limit",
-    "section": "data.tasks.recent",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "truncatedField": "data.truncated"
-  },
-  "pagination": "none",
+  "danger": "none",
   "effects": [
     {
+      "description": "Reads state without changing Zotero-managed data.",
       "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
+      "stateChanged": false
     }
   ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
   "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "debug.status"
-    }
-  ],
+  "hiddenFromIntentSearch": true,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
   "operationalAliases": [
     "debug status",
     "debug",
     "status"
   ],
-  "hiddenFromIntentSearch": true
+  "outputBoundary": {
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.tasks.recent",
+    "strategy": "limit",
+    "truncatedField": "data.truncated"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": true,
+    "type": "object",
+    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "debug.status"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by debug.status.",
+        "properties": {
+          "tasks": {
+            "additionalProperties": true,
+            "properties": {
+              "recent": {
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Read debug-only Zotero Bridge service runtime status",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "debug.status"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `debug` `status`.
-- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.tasks.recent","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
+- Output boundary: `limit`; governed details: {"defaultLimit":25,"maxLimit":100,"section":"data.tasks.recent","strategy":"limit","truncatedField":"data.truncated"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `hidden`.
 - Operational aliases: `debug status`, `debug`, `status`.
 
@@ -210,9 +249,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -222,8 +261,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -239,11 +278,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```

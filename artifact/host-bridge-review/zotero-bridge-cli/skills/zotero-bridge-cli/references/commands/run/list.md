@@ -1,6 +1,6 @@
 # `zotero-bridge run list`
 
-列出活跃和近期 workflow 运行时 task
+List active and recent workflow runtime tasks
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--backend-type <BACKEND_TYPE>] [--request <REQUEST>] [--submission <SUBMISSION>] [--run <RUN>] [--state <STATE>] [--active-only] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -31,56 +31,58 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
 | --run | run | option | no | — | RUN | no | — | — | Filter by workflow run id |
 | --state | state | option | no | — | STATE | no | — | — | Filter by task state |
 | --active-only | active_only | option | no | — | ACTIVE_ONLY; values: true, false | no | — | — | Only return active task runtime rows |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of tasks (1-100) |
 
 ## 调用 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Filter by workflow id"
+    "active-only": {
+      "description": "Only return active task runtime rows",
+      "type": "boolean"
     },
     "backend": {
-      "type": "string",
-      "description": "Filter by backend id"
+      "description": "Filter by backend id",
+      "type": "string"
     },
     "backend-type": {
-      "type": "string",
-      "description": "Filter by backend type"
-    },
-    "request": {
-      "type": "string",
-      "description": "Filter by provider request id"
-    },
-    "submission": {
-      "type": "string",
-      "description": "Filter by native workflow submission id"
-    },
-    "run": {
-      "type": "string",
-      "description": "Filter by workflow run id"
-    },
-    "state": {
-      "type": "string",
-      "description": "Filter by task state"
-    },
-    "active-only": {
-      "type": "boolean",
-      "description": "Only return active task runtime rows"
+      "description": "Filter by backend type",
+      "type": "string"
     },
     "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
+      "description": "Opaque continuation cursor",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of tasks (1-100)"
+      "description": "Maximum number of tasks (1-100)",
+      "type": "string"
+    },
+    "request": {
+      "description": "Filter by provider request id",
+      "type": "string"
+    },
+    "run": {
+      "description": "Filter by workflow run id",
+      "type": "string"
+    },
+    "state": {
+      "description": "Filter by task state",
+      "type": "string"
+    },
+    "submission": {
+      "description": "Filter by native workflow submission id",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Filter by workflow id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -88,54 +90,67 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Filter by workflow id"
-    },
     "backend": {
-      "type": "string",
-      "description": "Filter by backend id"
+      "description": "Filter by backend id",
+      "type": "string"
     },
     "backend_type": {
-      "type": "string",
-      "description": "Filter by backend type"
+      "description": "Filter by backend type",
+      "type": "string"
     },
     "request": {
-      "type": "string",
-      "description": "Filter by provider request id"
-    },
-    "submission": {
-      "type": "string",
-      "description": "Filter by native workflow submission id"
+      "description": "Filter by provider request id",
+      "type": "string"
     },
     "run": {
-      "type": "string",
-      "description": "Filter by workflow run id"
+      "description": "Filter by workflow run id",
+      "type": "string"
     },
     "state": {
-      "type": "string",
-      "description": "Filter by task state"
+      "description": "Filter by task state",
+      "type": "string"
+    },
+    "submission": {
+      "description": "Filter by native workflow submission id",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Filter by workflow id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
+    "hasMore": {
+      "type": "boolean"
+    },
     "items": {
       "type": "array"
+    },
+    "limit": {
+      "minimum": 0,
+      "type": "integer"
     },
     "nextCursor": {
       "type": [
@@ -144,480 +159,378 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
         "null"
       ]
     },
-    "hasMore": {
-      "type": "boolean"
-    },
     "returned": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     },
     "total": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "limit": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "run list",
-  "argv": [
-    "run",
-    "list"
-  ],
-  "summary": "List active and recent workflow runtime tasks",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Filter by workflow id"
-      },
-      "backend": {
-        "type": "string",
-        "description": "Filter by backend id"
-      },
-      "backend-type": {
-        "type": "string",
-        "description": "Filter by backend type"
-      },
-      "request": {
-        "type": "string",
-        "description": "Filter by provider request id"
-      },
-      "submission": {
-        "type": "string",
-        "description": "Filter by native workflow submission id"
-      },
-      "run": {
-        "type": "string",
-        "description": "Filter by workflow run id"
-      },
-      "state": {
-        "type": "string",
-        "description": "Filter by task state"
-      },
-      "active-only": {
-        "type": "boolean",
-        "description": "Only return active task runtime rows"
-      },
-      "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of tasks (1-100)"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by workflow id",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow",
       "valueNames": [
         "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "backend",
-      "kind": "option",
-      "token": "--backend",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by backend id",
+      "id": "backend",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--backend",
       "valueNames": [
         "BACKEND"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "backend_type",
-      "kind": "option",
-      "token": "--backend-type",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by backend type",
+      "id": "backend_type",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--backend-type",
       "valueNames": [
         "BACKEND_TYPE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "request",
-      "kind": "option",
-      "token": "--request",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by provider request id",
+      "id": "request",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--request",
       "valueNames": [
         "REQUEST"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "submission",
-      "kind": "option",
-      "token": "--submission",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by native workflow submission id",
+      "id": "submission",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--submission",
       "valueNames": [
         "SUBMISSION"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "run",
-      "kind": "option",
-      "token": "--run",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by workflow run id",
+      "id": "run",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--run",
       "valueNames": [
         "RUN"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "state",
-      "kind": "option",
-      "token": "--state",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by task state",
+      "id": "state",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--state",
       "valueNames": [
         "STATE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "active_only",
-      "kind": "option",
-      "token": "--active-only",
-      "takesValue": false,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Only return active task runtime rows",
-      "valueNames": [
-        "ACTIVE_ONLY"
-      ],
+      "id": "active_only",
+      "kind": "option",
       "possibleValues": [
         "true",
         "false"
       ],
-      "conflictsWith": [],
       "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
       "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of tasks (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "backend",
-      "kind": "option",
-      "token": "--backend",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "BACKEND"
-      ]
-    },
-    {
-      "property": "backend-type",
-      "kind": "option",
-      "token": "--backend-type",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "BACKEND_TYPE"
-      ]
-    },
-    {
-      "property": "request",
-      "kind": "option",
-      "token": "--request",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "REQUEST"
-      ]
-    },
-    {
-      "property": "submission",
-      "kind": "option",
-      "token": "--submission",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "SUBMISSION"
-      ]
-    },
-    {
-      "property": "run",
-      "kind": "option",
-      "token": "--run",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "RUN"
-      ]
-    },
-    {
-      "property": "state",
-      "kind": "option",
-      "token": "--state",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "STATE"
-      ]
-    },
-    {
-      "property": "active-only",
-      "kind": "option",
-      "token": "--active-only",
       "takesValue": false,
-      "required": false,
+      "token": "--active-only",
       "valueNames": [
         "ACTIVE_ONLY"
       ]
     },
     {
-      "property": "cursor",
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
       "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--cursor",
       "valueNames": [
         "CURSOR"
       ]
     },
     {
-      "property": "limit",
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of tasks (1-100)",
+      "id": "limit",
       "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--limit",
       "valueNames": [
         "LIMIT"
       ]
     }
   ],
+  "argv": [
+    "run",
+    "list"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "backend",
+      "required": false,
+      "takesValue": true,
+      "token": "--backend",
+      "valueNames": [
+        "BACKEND"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "backend-type",
+      "required": false,
+      "takesValue": true,
+      "token": "--backend-type",
+      "valueNames": [
+        "BACKEND_TYPE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "request",
+      "required": false,
+      "takesValue": true,
+      "token": "--request",
+      "valueNames": [
+        "REQUEST"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "submission",
+      "required": false,
+      "takesValue": true,
+      "token": "--submission",
+      "valueNames": [
+        "SUBMISSION"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "run",
+      "required": false,
+      "takesValue": true,
+      "token": "--run",
+      "valueNames": [
+        "RUN"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "state",
+      "required": false,
+      "takesValue": true,
+      "token": "--state",
+      "valueNames": [
+        "STATE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "active-only",
+      "required": false,
+      "takesValue": false,
+      "token": "--active-only",
+      "valueNames": [
+        "ACTIVE_ONLY"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "none",
+  "category": "read",
+  "command": "run list",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Filter by workflow id"
+      "active-only": {
+        "description": "Only return active task runtime rows",
+        "type": "boolean"
       },
       "backend": {
-        "type": "string",
-        "description": "Filter by backend id"
+        "description": "Filter by backend id",
+        "type": "string"
       },
-      "backend_type": {
-        "type": "string",
-        "description": "Filter by backend type"
+      "backend-type": {
+        "description": "Filter by backend type",
+        "type": "string"
+      },
+      "cursor": {
+        "description": "Opaque continuation cursor",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of tasks (1-100)",
+        "type": "string"
       },
       "request": {
-        "type": "string",
-        "description": "Filter by provider request id"
-      },
-      "submission": {
-        "type": "string",
-        "description": "Filter by native workflow submission id"
+        "description": "Filter by provider request id",
+        "type": "string"
       },
       "run": {
-        "type": "string",
-        "description": "Filter by workflow run id"
+        "description": "Filter by workflow run id",
+        "type": "string"
       },
       "state": {
-        "type": "string",
-        "description": "Filter by task state"
+        "description": "Filter by task state",
+        "type": "string"
+      },
+      "submission": {
+        "description": "Filter by native workflow submission id",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Filter by workflow id",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "items": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
-      },
-      "returned": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "total": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "limit": {
-        "type": "integer",
-        "minimum": 0
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "items",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "nextCursor",
-      "hasMore",
-      "returned",
-      "total",
-      "limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/tasks"
-    }
-  ],
   "operationalAliases": [
     "run list",
     "run",
@@ -644,26 +557,137 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "items",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "backend": {
+        "description": "Filter by backend id",
+        "type": "string"
+      },
+      "backend_type": {
+        "description": "Filter by backend type",
+        "type": "string"
+      },
+      "request": {
+        "description": "Filter by provider request id",
+        "type": "string"
+      },
+      "run": {
+        "description": "Filter by workflow run id",
+        "type": "string"
+      },
+      "state": {
+        "description": "Filter by task state",
+        "type": "string"
+      },
+      "submission": {
+        "description": "Filter by native workflow submission id",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Filter by workflow id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "hasMore": {
+        "type": "boolean"
+      },
+      "items": {
+        "type": "array"
+      },
+      "limit": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "number",
+          "null"
+        ]
+      },
+      "returned": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "total": {
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "List active and recent workflow runtime tasks",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/tasks"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `run` `list`.
-- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- 输出边界： `cursor`；受管详情： {"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"items","strategy":"cursor"}.
 - 分页： `cursor`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `none`.
+- intent 可见性： `visible`.
 - 操作别名： `run list`, `run`, `list`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `request`, `REQUEST`, `submission`, `SUBMISSION`, `RUN`, `state`, `STATE`, `active_only`, `active-only`, `ACTIVE_ONLY`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -673,12 +697,12 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -690,22 +714,22 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/tasks"
+    "target": "GET /bridge/v2/tasks"
   }
 ]
 ```

@@ -2248,7 +2248,7 @@ function mcpEndpointFromHostBridge(server: HostBridgeStatusSnapshot) {
     server.lanEnabled === true
       ? server.remoteEndpoint || server.endpoint
       : server.endpoint;
-  return String(bridgeEndpoint || "").replace(/\/bridge\/v1\/?$/, "/mcp");
+  return String(bridgeEndpoint || "").replace(/\/bridge\/v2\/?$/, "/mcp");
 }
 
 function endpointFacts(endpoint: string) {

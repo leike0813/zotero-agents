@@ -158,7 +158,7 @@ function buildReadme(args: {
     }.`,
     "",
     "Host Bridge CLI guidance is provided by the built-in `zotero-bridge-cli` wrapper skill.",
-    "Read that skill and `references/host-bridge-cli.md` for command and capability mappings.",
+    "Read that skill, use `references/command-catalog.md` for discovery, and load only the selected generated card under `references/commands/`.",
     "",
   ].join("\n");
 }

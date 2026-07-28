@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "operation-id": {
-      "type": "string",
-      "description": "Persistent maintenance operation id to read; omit for general cache status"
+      "description": "Persistent maintenance operation id to read; omit for general cache status",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,40 +49,46 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "operation_id": {
+    "operationId": {
       "type": "string"
     },
-    "operationId": {
+    "operation_id": {
       "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
-      "type": "string"
-    },
     "approval": {
       "type": "object"
     },
+    "capability": {
+      "type": "string"
+    },
     "data": {
-      "type": "object",
-      "description": "Result data owned by synthesis.operation.get, GET /bridge/v1/synthesis/cache/status.",
       "additionalProperties": true,
+      "description": "Result data owned by synthesis.operation.get, GET /bridge/v2/synthesis/cache/status.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -96,125 +102,73 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "synthesis cache status",
-  "argv": [
-    "synthesis",
-    "cache",
-    "status"
-  ],
-  "summary": "Read Synthesis cache maintenance status",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "operation-id": {
-        "type": "string",
-        "description": "Persistent maintenance operation id to read; omit for general cache status"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "operation_id",
-      "kind": "option",
-      "token": "--operation-id",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Persistent maintenance operation id to read; omit for general cache status",
-      "valueNames": [
-        "OPERATION_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "operation-id",
+      "id": "operation_id",
       "kind": "option",
-      "token": "--operation-id",
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--operation-id",
       "valueNames": [
         "OPERATION_ID"
       ]
     }
   ],
+  "argv": [
+    "synthesis",
+    "cache",
+    "status"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "operation-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--operation-id",
+      "valueNames": [
+        "OPERATION_ID"
+      ]
+    }
+  ],
+  "binding": "none",
+  "category": "read",
+  "command": "synthesis cache status",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "operation_id": {
-        "type": "string"
-      },
-      "operationId": {
+      "operation-id": {
+        "description": "Persistent maintenance operation id to read; omit for general cache status",
         "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by synthesis.operation.get, GET /bridge/v1/synthesis/cache/status.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "synthesis.operation.get"
-    },
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/synthesis/cache/status"
-    }
-  ],
   "operationalAliases": [
     "synthesis cache status",
     "synthesis",
@@ -224,9 +178,71 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "operation-id",
     "OPERATION_ID"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "operationId": {
+        "type": "string"
+      },
+      "operation_id": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "type": "object"
+      },
+      "capability": {
+        "type": "string"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by synthesis.operation.get, GET /bridge/v2/synthesis/cache/status.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "type": "object"
+  },
+  "summary": "Read Synthesis cache maintenance status",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/synthesis/cache/status"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -234,6 +250,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis cache status`, `synthesis`, `cache`, `status`, `operation_id`, `operation-id`, `OPERATION_ID`.
 
@@ -242,9 +259,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -254,8 +271,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -271,11 +288,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -285,12 +302,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "kind": "capability",
-    "target": "synthesis.operation.get"
-  },
-  {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/synthesis/cache/status"
+    "target": "GET /bridge/v2/synthesis/cache/status"
   }
 ]
 ```

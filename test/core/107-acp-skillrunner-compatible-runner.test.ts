@@ -877,13 +877,13 @@ async function createHostBridgeWrapperSkill(root: string) {
       "",
       "# Zotero Bridge CLI",
       "",
-      "Read references/host-bridge-cli.md.",
+      "Read references/command-catalog.md.",
     ].join("\n"),
     "utf8",
   );
   await fs.writeFile(
-    path.join(skillDir, "references", "host-bridge-cli.md"),
-    "# Host Bridge CLI Reference\n",
+    path.join(skillDir, "references", "command-catalog.md"),
+    "# Zotero Bridge command catalog\n",
     "utf8",
   );
   await fs.writeFile(
@@ -3957,10 +3957,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       requestId: "run-host-bridge-cli",
       ensureServer: async () => ({
         status: "running",
-        protocol: "host-bridge.v1",
+        protocol: "host-bridge.v2",
         host: "127.0.0.1",
         port: 26570,
-        endpoint: "http://127.0.0.1:26570/bridge/v1",
+        endpoint: "http://127.0.0.1:26570/bridge/v2",
         bindMode: "loopback",
         lanEnabled: false,
         portMode: "random",
@@ -4001,7 +4001,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       readme,
       "Host Bridge CLI guidance is provided by the built-in `zotero-bridge-cli` wrapper skill.",
     );
-    assert.include(readme, "references/host-bridge-cli.md");
+    assert.include(readme, "references/command-catalog.md");
     assert.notInclude(readme, "zotero-bridge item search");
     assert.notInclude(readme, "secret-token");
     assert.strictEqual(injection.env.ZOTERO_BRIDGE_TOKEN, "secret-token");
@@ -4073,10 +4073,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       ensureServer: async () =>
         ({
           status: "running",
-          protocol: "host-bridge.v1",
+          protocol: "host-bridge.v2",
           host: "127.0.0.1",
           port: 26570,
-          endpoint: "http://127.0.0.1:26570/bridge/v1",
+          endpoint: "http://127.0.0.1:26570/bridge/v2",
           bindMode: "loopback",
           lanEnabled: false,
           portMode: "random",
@@ -4903,7 +4903,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           hostBridgeInjectionCalled += 1;
           return {
             available: true,
-            endpoint: "http://127.0.0.1:26570/bridge/v1",
+            endpoint: "http://127.0.0.1:26570/bridge/v2",
             tokenMasked: "token",
             profilePath: ".zotero-bridge/profile.json",
             readmePath: ".zotero-bridge/README.md",
@@ -4956,12 +4956,12 @@ describe("ACP SkillRunner-compatible runner", function () {
         "skills",
         "zotero-bridge-cli",
         "references",
-        "host-bridge-cli.md",
+        "command-catalog.md",
       ),
       "utf8",
     );
     assert.include(wrapperSkill, "Zotero Bridge CLI");
-    assert.include(wrapperReference, "Host Bridge CLI Reference");
+    assert.include(wrapperReference, "Zotero Bridge command catalog");
     const run = listAcpSkillRuns().find(
       (entry) => entry.requestId === result.requestId,
     );
@@ -9566,7 +9566,7 @@ describe("ACP SkillRunner-compatible runner", function () {
             const injectedPath = [shimDir, cliDir].join(path.delimiter);
             return {
               available: true,
-              endpoint: "http://127.0.0.1:26570/bridge/v1",
+              endpoint: "http://127.0.0.1:26570/bridge/v2",
               tokenMasked: "reco...oken",
               profilePath,
               readmePath: path.join(

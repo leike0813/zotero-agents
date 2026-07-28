@@ -15,7 +15,7 @@ describe("Host Bridge semantic surface review skill", function () {
       "cli/zotero-bridge/src/commands.rs",
       "cli/zotero-bridge/src/surface.rs",
       "scripts/host-bridge-agent-surface.ts",
-      "schemas/host-bridge.agent-surface.v5.schema.json",
+      "schemas/host-bridge.agent-surface.v6.schema.json",
       "host-bridge/surfaces.json",
       "scripts/host-bridge-surface-model.ts",
       "scripts/render-host-bridge-surfaces.ts",
@@ -34,7 +34,7 @@ describe("Host Bridge semantic surface review skill", function () {
       "cli/zotero-bridge/src/surface.rs",
       "openspec/specs/host-bridge-cli-interface/spec.md",
       "host-bridge/surfaces.json",
-      "schemas/host-bridge.agent-surface.v5.schema.json",
+      "schemas/host-bridge.agent-surface.v6.schema.json",
       "scripts/check-host-bridge-skill-packages.ts",
       "schemas/host-bridge.release-receipt.v2.schema.json",
       "scripts/host-bridge-agent-surface.ts",
@@ -59,7 +59,7 @@ describe("Host Bridge semantic surface review skill", function () {
       "skills_builtin/zotero-bridge-cli/SKILL.md",
       "profiles/hermes/zotero-librarian/SOUL.md",
       "doc/host-bridge-cli.md",
-      "cli/zotero-bridge/agent-surface.json",
+      "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
       "host-bridge/release-set.json",
     ]);
 
@@ -68,7 +68,7 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.isEmpty(context.semanticSourceChanges);
     assert.sameMembers(context.generatedTargetChanges, [
       "doc/host-bridge-cli.md",
-      "cli/zotero-bridge/agent-surface.json",
+      "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
       "host-bridge/release-set.json",
       "profiles/hermes/zotero-librarian/SOUL.md",
       "skills_builtin/zotero-bridge-cli/SKILL.md",

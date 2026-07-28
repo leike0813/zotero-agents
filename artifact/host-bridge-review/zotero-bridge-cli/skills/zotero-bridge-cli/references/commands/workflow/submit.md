@@ -1,6 +1,6 @@
 # `zotero-bridge workflow submit`
 
-使用显式 JSON input 提交 workflow
+Submit a workflow with explicit JSON input
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--selection <JSON_OR_FILE>] [--none] [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>] [--max-concurrency <MAX_CONCURRENCY>]
 ```
 
-全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
+全局选项可位于叶命令之前或之后。 使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
 
 ## 全局参数
 
@@ -34,42 +34,13 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id to submit"
-    },
-    "selection": {
-      "type": "string",
-      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-    },
-    "none": {
-      "type": "boolean",
-      "description": "Submit a no-selection workflow"
-    },
-    "workflow-options": {
-      "type": "string",
-      "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-    },
-    "provider-profile": {
-      "type": "string",
-      "description": "Provider profile JSON object with backendId and providerOptions"
-    },
-    "max-concurrency": {
-      "type": "string",
-      "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited"
-    }
-  },
-  "required": [
-    "workflow"
-  ],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "selection",
-          "none"
+          "none",
+          "selection"
         ]
       }
     },
@@ -88,49 +59,93 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "max-concurrency": {
+      "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+      "type": "string"
+    },
+    "none": {
+      "description": "Submit a no-selection workflow",
+      "type": "boolean"
+    },
+    "provider-profile": {
+      "description": "Provider profile JSON object with backendId and providerOptions",
+      "type": "string"
+    },
+    "selection": {
+      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id to submit",
+      "type": "string"
+    },
+    "workflow-options": {
+      "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow"
+  ],
+  "type": "object"
 }
 ```
 
 ## 结构化输入 schema
 
-### `--selection` (selection)
+### `--provider-profile` (provider_profile)
 
-必填： `false`; 条件： Required unless --none is supplied..
+必填： `false`.
 
 ```json
 {
-  "type": "array",
-  "minItems": 1,
+  "additionalProperties": false,
+  "properties": {
+    "backendId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "backendType": {
+      "enum": [
+        "acp",
+        "skillrunner",
+        "generic-http",
+        "pass-through"
+      ]
+    },
+    "providerOptions": {
+      "additionalProperties": true,
+      "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
+      "type": "object",
+      "x-openPropertiesReason": "The selected provider owns its option vocabulary."
+    },
+    "schema": {
+      "const": "zotero-bridge.provider-profile.v1"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
+```
+
+### `--selection` (selection)
+
+必填： `false`；条件： Required unless --none is supplied..
+
+```json
+{
   "items": {
     "oneOf": [
       {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       },
       {
         "type": "integer"
       },
       {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1
-          },
-          "id": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          },
-          "libraryId": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          }
-        },
+        "additionalProperties": false,
         "anyOf": [
           {
             "required": [
@@ -143,10 +158,30 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
             ]
           }
         ],
-        "additionalProperties": false
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
       }
     ]
-  }
+  },
+  "minItems": 1,
+  "type": "array"
 }
 ```
 
@@ -156,135 +191,56 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
 
 ```json
 {
-  "type": "object",
-  "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
   "additionalProperties": true,
+  "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
+  "type": "object",
   "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
 }
 ```
 
-### `--provider-profile` (provider_profile)
-
-必填： `false`.
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "backendId": {
-      "type": "string",
-      "minLength": 1
-    },
-    "backendType": {
-      "enum": [
-        "acp",
-        "skillrunner",
-        "generic-http",
-        "pass-through"
-      ]
-    },
-    "providerOptions": {
-      "type": "object",
-      "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The selected provider owns its option vocabulary."
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
-```
-
-## 合成 payload schema
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id to submit"
-    },
-    "selection": {
-      "type": "string",
-      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-    },
-    "workflow_options": {
-      "type": "string",
-      "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
+    "max_concurrency": {
+      "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+      "type": "string"
     },
     "provider_profile": {
-      "type": "string",
-      "description": "Provider profile JSON object with backendId and providerOptions"
+      "description": "Provider profile JSON object with backendId and providerOptions",
+      "type": "string"
     },
-    "max_concurrency": {
-      "type": "string",
-      "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited"
+    "selection": {
+      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id to submit",
+      "type": "string"
+    },
+    "workflow_options": {
+      "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "workflowId": {
-      "type": "string"
-    },
-    "workflowLabel": {
-      "type": "string"
-    },
-    "admission": {
-      "enum": [
-        "direct",
-        "host-queue"
-      ]
-    },
-    "workflowRunId": {
-      "type": "string"
-    },
-    "submissionId": {
-      "type": "string"
-    },
-    "totalJobs": {
-      "type": "integer"
-    },
-    "runUrl": {
-      "type": "string"
-    },
-    "tasksUrl": {
-      "type": "string"
-    },
-    "totalUnits": {
-      "type": "integer"
-    },
-    "queuedUnits": {
-      "type": "integer"
-    },
-    "skippedUnits": {
-      "type": "integer"
-    },
-    "submissionUrl": {
-      "type": "string"
-    },
-    "queueUrl": {
-      "type": "string"
-    },
-    "permission": {
-      "type": "object"
-    }
-  },
-  "required": [
-    "workflowId",
-    "workflowLabel",
-    "admission",
-    "permission"
-  ],
+  "additionalProperties": false,
   "oneOf": [
     {
       "properties": {
@@ -315,39 +271,68 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "admission": {
+      "enum": [
+        "direct",
+        "host-queue"
+      ]
+    },
+    "permission": {
+      "type": "object"
+    },
+    "queueUrl": {
+      "type": "string"
+    },
+    "queuedUnits": {
+      "type": "integer"
+    },
+    "runUrl": {
+      "type": "string"
+    },
+    "skippedUnits": {
+      "type": "integer"
+    },
+    "submissionId": {
+      "type": "string"
+    },
+    "submissionUrl": {
+      "type": "string"
+    },
+    "tasksUrl": {
+      "type": "string"
+    },
+    "totalJobs": {
+      "type": "integer"
+    },
+    "totalUnits": {
+      "type": "integer"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "workflowLabel": {
+      "type": "string"
+    },
+    "workflowRunId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflowId",
+    "workflowLabel",
+    "admission",
+    "permission"
+  ],
+  "type": "object"
 }
 ```
 
 ## 示例
 
-### selection: shape-only
-
-最小 JSON 结构： --selection.
-
-```console
-zotero-bridge workflow submit --selection '["example"]'
-```
-
-前置条件：
-
-- 执行前，请将示例标识符和值替换为对所选 Zotero 文献库、workflow、provider 或 capability 有效的输入。
-
-### workflow_options: shape-only
-
-最小 JSON 结构： --workflow-options.
-
-```console
-zotero-bridge workflow submit --workflow-options '{}'
-```
-
-前置条件：
-
-- 执行前，请将示例标识符和值替换为对所选 Zotero 文献库、workflow、provider 或 capability 有效的输入。
-
 ### provider_profile: shape-only
 
-最小 JSON 结构： --provider-profile.
+用于 --provider-profile 的最小 JSON 形状。
 
 ```console
 zotero-bridge workflow submit --provider-profile '{}'
@@ -355,59 +340,403 @@ zotero-bridge workflow submit --provider-profile '{}'
 
 前置条件：
 
-- 执行前，请将示例标识符和值替换为对所选 Zotero 文献库、workflow、provider 或 capability 有效的输入。
+- 执行前，请将示例标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
+
+### selection: shape-only
+
+用于 --selection 的最小 JSON 形状。
+
+```console
+zotero-bridge workflow submit --selection '["example"]'
+```
+
+前置条件：
+
+- 执行前，请将示例标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
+
+### workflow_options: shape-only
+
+用于 --workflow-options 的最小 JSON 形状。
+
+```console
+zotero-bridge workflow submit --workflow-options '{}'
+```
+
+前置条件：
+
+- 执行前，请将示例标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "workflow submit",
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow id to submit",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "aliases": [
+        "items"
+      ],
+      "conflictsWith": [
+        "none"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "id": "selection",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--selection",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "selection"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Submit a no-selection workflow",
+      "id": "none",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--none",
+      "valueNames": [
+        "NONE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow options JSON object, file path, @file, or '-' for stdin",
+      "id": "workflow_options",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-options",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Provider profile JSON object with backendId and providerOptions",
+      "id": "provider_profile",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--provider-profile",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+      "id": "max_concurrency",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--max-concurrency",
+      "valueNames": [
+        "MAX_CONCURRENCY"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "submit"
   ],
-  "summary": "Submit a workflow with explicit JSON input",
-  "category": "write",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to submit"
-      },
-      "selection": {
-        "type": "string",
-        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-      },
-      "none": {
-        "type": "boolean",
-        "description": "Submit a no-selection workflow"
-      },
-      "workflow-options": {
-        "type": "string",
-        "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-      },
-      "provider-profile": {
-        "type": "string",
-        "description": "Provider profile JSON object with backendId and providerOptions"
-      },
-      "max-concurrency": {
-        "type": "string",
-        "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited"
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
     },
-    "required": [
-      "workflow"
-    ],
+    {
+      "kind": "option",
+      "property": "selection",
+      "required": false,
+      "takesValue": true,
+      "token": "--selection",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "none",
+      "required": false,
+      "takesValue": false,
+      "token": "--none",
+      "valueNames": [
+        "NONE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "workflow-options",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-options",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "provider-profile",
+      "required": false,
+      "takesValue": true,
+      "token": "--provider-profile",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "max-concurrency",
+      "required": false,
+      "takesValue": true,
+      "token": "--max-concurrency",
+      "valueNames": [
+        "MAX_CONCURRENCY"
+      ]
+    }
+  ],
+  "binding": "overlay",
+  "category": "write",
+  "command": "workflow submit",
+  "composition": null,
+  "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
+      "direction": "consume",
+      "handle": "itemRef",
+      "lifetime": "caller-owned",
+      "required": false
+    },
+    {
+      "condition": "Returned when direct admission starts workflow jobs.",
+      "direction": "produce",
+      "handle": "workflowRunId",
+      "lifetime": "response",
+      "required": false
+    },
+    {
+      "condition": "Returned when ACP or SkillRunner units enter the Zotero-managed Host queue.",
+      "direction": "produce",
+      "handle": "submissionId",
+      "lifetime": "response",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {
+    "provider_profile": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --provider-profile.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "backendId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "backendType": {
+            "enum": [
+              "acp",
+              "skillrunner",
+              "generic-http",
+              "pass-through"
+            ]
+          },
+          "providerOptions": {
+            "additionalProperties": true,
+            "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
+            "type": "object",
+            "x-openPropertiesReason": "The selected provider owns its option vocabulary."
+          },
+          "schema": {
+            "const": "zotero-bridge.provider-profile.v1"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "schemaSource": "inline",
+      "token": "--provider-profile"
+    },
+    "selection": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --selection.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": [
+            "example"
+          ]
+        }
+      ],
+      "required": false,
+      "requiredWhen": [
+        "Required unless --none is supplied."
+      ],
+      "schema": {
+        "items": {
+          "oneOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "additionalProperties": false,
+              "anyOf": [
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "id"
+                  ]
+                }
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "libraryId": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "schemaSource": "inline",
+      "token": "--selection"
+    },
+    "workflow_options": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --workflow-options.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
+        "type": "object",
+        "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
+      },
+      "schemaSource": "inline",
+      "token": "--workflow-options"
+    }
+  },
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "selection",
-            "none"
+            "none",
+            "selection"
           ]
         }
       },
@@ -426,396 +755,107 @@ zotero-bridge workflow submit --provider-profile '{}'
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Workflow id to submit",
-      "valueNames": [
-        "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "selection",
-      "kind": "option",
-      "token": "--selection",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "none"
-      ],
-      "repeatable": false,
-      "aliases": [
-        "items"
-      ],
-      "defaultValues": []
-    },
-    {
-      "id": "none",
-      "kind": "option",
-      "token": "--none",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Submit a no-selection workflow",
-      "valueNames": [
-        "NONE"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [
-        "selection"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "workflow_options",
-      "kind": "option",
-      "token": "--workflow-options",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Workflow options JSON object, file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "provider_profile",
-      "kind": "option",
-      "token": "--provider-profile",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Provider profile JSON object with backendId and providerOptions",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "max_concurrency",
-      "kind": "option",
-      "token": "--max-concurrency",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
-      "valueNames": [
-        "MAX_CONCURRENCY"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "selection",
-      "kind": "option",
-      "token": "--selection",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    },
-    {
-      "property": "none",
-      "kind": "option",
-      "token": "--none",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "NONE"
-      ]
-    },
-    {
-      "property": "workflow-options",
-      "kind": "option",
-      "token": "--workflow-options",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    },
-    {
-      "property": "provider-profile",
-      "kind": "option",
-      "token": "--provider-profile",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    },
-    {
-      "property": "max-concurrency",
-      "kind": "option",
-      "token": "--max-concurrency",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "MAX_CONCURRENCY"
-      ]
-    }
-  ],
-  "inputSchemas": {
-    "selection": {
-      "token": "--selection",
-      "required": false,
-      "requiredWhen": [
-        "Required unless --none is supplied."
-      ],
-      "schema": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "oneOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "id": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                },
-                "libraryId": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                }
-              },
-              "anyOf": [
-                {
-                  "required": [
-                    "key"
-                  ]
-                },
-                {
-                  "required": [
-                    "id"
-                  ]
-                }
-              ],
-              "additionalProperties": false
-            }
-          ]
-        }
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": [
-            "example"
-          ],
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --selection."
-        }
-      ]
-    },
-    "workflow_options": {
-      "token": "--workflow-options",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --workflow-options."
-        }
-      ]
-    },
-    "provider_profile": {
-      "token": "--provider-profile",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "properties": {
-          "backendId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "backendType": {
-            "enum": [
-              "acp",
-              "skillrunner",
-              "generic-http",
-              "pass-through"
-            ]
-          },
-          "providerOptions": {
-            "type": "object",
-            "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The selected provider owns its option vocabulary."
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --provider-profile."
-        }
-      ]
-    }
-  },
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to submit"
+      "max-concurrency": {
+        "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+        "type": "string"
+      },
+      "none": {
+        "description": "Submit a no-selection workflow",
+        "type": "boolean"
+      },
+      "provider-profile": {
+        "description": "Provider profile JSON object with backendId and providerOptions",
+        "type": "string"
       },
       "selection": {
-        "type": "string",
-        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-      },
-      "workflow_options": {
-        "type": "string",
-        "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-      },
-      "provider_profile": {
-        "type": "string",
-        "description": "Provider profile JSON object with backendId and providerOptions"
-      },
-      "max_concurrency": {
-        "type": "string",
-        "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "workflowId": {
+        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
         "type": "string"
       },
-      "workflowLabel": {
+      "workflow": {
+        "description": "Workflow id to submit",
         "type": "string"
       },
-      "admission": {
-        "enum": [
-          "direct",
-          "host-queue"
-        ]
-      },
-      "workflowRunId": {
+      "workflow-options": {
+        "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
         "type": "string"
-      },
-      "submissionId": {
-        "type": "string"
-      },
-      "totalJobs": {
-        "type": "integer"
-      },
-      "runUrl": {
-        "type": "string"
-      },
-      "tasksUrl": {
-        "type": "string"
-      },
-      "totalUnits": {
-        "type": "integer"
-      },
-      "queuedUnits": {
-        "type": "integer"
-      },
-      "skippedUnits": {
-        "type": "integer"
-      },
-      "submissionUrl": {
-        "type": "string"
-      },
-      "queueUrl": {
-        "type": "string"
-      },
-      "permission": {
-        "type": "object"
       }
     },
     "required": [
-      "workflowId",
-      "workflowLabel",
-      "admission",
-      "permission"
+      "workflow"
     ],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "workflow submit",
+    "workflow",
+    "submit",
+    "WORKFLOW",
+    "selection",
+    "JSON_OR_FILE",
+    "none",
+    "NONE",
+    "workflow_options",
+    "workflow-options",
+    "provider_profile",
+    "provider-profile",
+    "max_concurrency",
+    "max-concurrency",
+    "MAX_CONCURRENCY"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "max_concurrency": {
+        "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+        "type": "string"
+      },
+      "provider_profile": {
+        "description": "Provider profile JSON object with backendId and providerOptions",
+        "type": "string"
+      },
+      "selection": {
+        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Workflow id to submit",
+        "type": "string"
+      },
+      "workflow_options": {
+        "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the active native submission without inventing a workflow run id.",
+      "nextCommand": "workflow submission get",
+      "requiresHandles": [
+        "submissionId"
+      ],
+      "stateCheck": "caller-held-handle",
+      "when": "The response reports host-queue admission or queued progress is uncertain."
+    },
+    {
+      "action": "Inspect the returned workflow run before repeating submission.",
+      "nextCommand": "run get",
+      "requiresHandles": [
+        "workflowRunId"
+      ],
+      "stateCheck": "caller-held-handle",
+      "when": "The response reports direct admission and run progress is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
     "oneOf": [
       {
         "properties": {
@@ -846,110 +886,101 @@ zotero-bridge workflow submit --provider-profile '{}'
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [
-    {
-      "handle": "itemRef",
-      "direction": "consume",
-      "required": false,
-      "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
-      "lifetime": "caller-owned"
+    "properties": {
+      "admission": {
+        "enum": [
+          "direct",
+          "host-queue"
+        ]
+      },
+      "permission": {
+        "type": "object"
+      },
+      "queueUrl": {
+        "type": "string"
+      },
+      "queuedUnits": {
+        "type": "integer"
+      },
+      "runUrl": {
+        "type": "string"
+      },
+      "skippedUnits": {
+        "type": "integer"
+      },
+      "submissionId": {
+        "type": "string"
+      },
+      "submissionUrl": {
+        "type": "string"
+      },
+      "tasksUrl": {
+        "type": "string"
+      },
+      "totalJobs": {
+        "type": "integer"
+      },
+      "totalUnits": {
+        "type": "integer"
+      },
+      "workflowId": {
+        "type": "string"
+      },
+      "workflowLabel": {
+        "type": "string"
+      },
+      "workflowRunId": {
+        "type": "string"
+      }
     },
-    {
-      "handle": "workflowRunId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when direct admission starts workflow jobs.",
-      "lifetime": "response"
-    },
-    {
-      "handle": "submissionId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when ACP or SkillRunner units enter the Zotero-managed Host queue.",
-      "lifetime": "response"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The response reports host-queue admission or queued progress is uncertain.",
-      "stateCheck": "caller-held-handle",
-      "requiresHandles": [
-        "submissionId"
-      ],
-      "action": "Inspect the active native submission without inventing a workflow run id.",
-      "nextCommand": "workflow submission get"
-    },
-    {
-      "when": "The response reports direct admission and run progress is uncertain.",
-      "stateCheck": "caller-held-handle",
-      "requiresHandles": [
-        "workflowRunId"
-      ],
-      "action": "Inspect the returned workflow run before repeating submission.",
-      "nextCommand": "run get"
-    }
-  ],
+    "required": [
+      "workflowId",
+      "workflowLabel",
+      "admission",
+      "permission"
+    ],
+    "type": "object"
+  },
+  "summary": "Submit a workflow with explicit JSON input",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/submit"
+      "target": "POST /bridge/v2/workflows/submit"
     }
-  ],
-  "operationalAliases": [
-    "workflow submit",
-    "workflow",
-    "submit",
-    "WORKFLOW",
-    "selection",
-    "JSON_OR_FILE",
-    "none",
-    "NONE",
-    "workflow_options",
-    "workflow-options",
-    "provider_profile",
-    "provider-profile",
-    "max_concurrency",
-    "max-concurrency",
-    "MAX_CONCURRENCY"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- `command_input` 表示结构化输入违反 schema。检查有界的 `violations`，然后对这个准确的叶命令运行 `--schema`，修正已声明的字段或类型；不得自行发明别名。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `workflow` `submit`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; danger: `review`.
-- 意图可见性： `visible`.
+- 类别： `write`；危险等级： `review`.
+- 结构化 binding 模式： `overlay`.
+- intent 可见性： `visible`.
 - 操作别名： `workflow submit`, `workflow`, `submit`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`, `provider_profile`, `provider-profile`, `max_concurrency`, `max-concurrency`, `MAX_CONCURRENCY`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   }
 ]
 ```
@@ -959,35 +990,35 @@ zotero-bridge workflow submit --provider-profile '{}'
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "itemRef",
-    "direction": "consume",
-    "required": false,
     "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "itemRef",
+    "lifetime": "caller-owned",
+    "required": false
   },
   {
-    "handle": "workflowRunId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when direct admission starts workflow jobs.",
-    "lifetime": "response"
+    "direction": "produce",
+    "handle": "workflowRunId",
+    "lifetime": "response",
+    "required": false
   },
   {
-    "handle": "submissionId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when ACP or SkillRunner units enter the Zotero-managed Host queue.",
-    "lifetime": "response"
+    "direction": "produce",
+    "handle": "submissionId",
+    "lifetime": "response",
+    "required": false
   }
 ]
 ```
@@ -997,33 +1028,33 @@ zotero-bridge workflow submit --provider-profile '{}'
 ```json
 [
   {
-    "when": "The response reports host-queue admission or queued progress is uncertain.",
-    "stateCheck": "caller-held-handle",
+    "action": "Inspect the active native submission without inventing a workflow run id.",
+    "nextCommand": "workflow submission get",
     "requiresHandles": [
       "submissionId"
     ],
-    "action": "Inspect the active native submission without inventing a workflow run id.",
-    "nextCommand": "workflow submission get"
+    "stateCheck": "caller-held-handle",
+    "when": "The response reports host-queue admission or queued progress is uncertain."
   },
   {
-    "when": "The response reports direct admission and run progress is uncertain.",
-    "stateCheck": "caller-held-handle",
+    "action": "Inspect the returned workflow run before repeating submission.",
+    "nextCommand": "run get",
     "requiresHandles": [
       "workflowRunId"
     ],
-    "action": "Inspect the returned workflow run before repeating submission.",
-    "nextCommand": "run get"
+    "stateCheck": "caller-held-handle",
+    "when": "The response reports direct admission and run progress is uncertain."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/submit"
+    "target": "POST /bridge/v2/workflows/submit"
   }
 ]
 ```

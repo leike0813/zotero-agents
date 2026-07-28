@@ -131,6 +131,7 @@ shared skill catalog and run-local skill roots.
 - **GIVEN** the effective plugin skill registry contains `zotero-bridge-cli`
 - **WHEN** an ACP Skills run materializes the shared catalog and proxy skills
 - **THEN** the shared catalog resource manifest for `zotero-bridge-cli` SHALL
-  include `references/host-bridge-cli.md`
+  include `references/command-catalog.md` and the generated
+  `references/commands/` command-card tree
 - **AND** the run prompt SHALL NOT append a separate Host Bridge CLI prompt
   snippet.

@@ -31,26 +31,26 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "path": {
-      "type": "string",
-      "description": "Local file path to upload",
-      "position": 1
+    "content-type": {
+      "description": "Content type for the uploaded file",
+      "type": "string"
     },
     "display-name": {
-      "type": "string",
-      "description": "Display name stored in the Zotero-side file descriptor"
+      "description": "Display name stored in the Zotero-side file descriptor",
+      "type": "string"
     },
-    "content-type": {
-      "type": "string",
-      "description": "Content type for the uploaded file"
+    "path": {
+      "description": "Local file path to upload",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "path"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -62,37 +62,43 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "path": {
-      "type": "string",
-      "description": "Local file path to upload"
+    "content_type": {
+      "description": "Content type for the uploaded file",
+      "type": "string"
     },
     "display_name": {
-      "type": "string",
-      "description": "Display name stored in the Zotero-side file descriptor"
+      "description": "Display name stored in the Zotero-side file descriptor",
+      "type": "string"
     },
-    "content_type": {
-      "type": "string",
-      "description": "Content type for the uploaded file"
+    "path": {
+      "description": "Local file path to upload",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "fileId": {
       "type": "string"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -107,193 +113,147 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "file upload",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Local file path to upload",
+      "id": "path",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "PATH",
+      "valueNames": [
+        "PATH"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Display name stored in the Zotero-side file descriptor",
+      "id": "display_name",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--display-name",
+      "valueNames": [
+        "DISPLAY_NAME"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Content type for the uploaded file",
+      "id": "content_type",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--content-type",
+      "valueNames": [
+        "CONTENT_TYPE"
+      ]
+    }
+  ],
   "argv": [
     "file",
     "upload"
   ],
-  "summary": "Upload one local file through Zotero Bridge and return a short-lived file handle",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "path",
+      "required": true,
+      "takesValue": true,
+      "token": "PATH",
+      "valueNames": [
+        "PATH"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "display-name",
+      "required": false,
+      "takesValue": true,
+      "token": "--display-name",
+      "valueNames": [
+        "DISPLAY_NAME"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "content-type",
+      "required": false,
+      "takesValue": true,
+      "token": "--content-type",
+      "valueNames": [
+        "CONTENT_TYPE"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "write",
+  "command": "file upload",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change ephemeral file state.",
+      "kind": "ephemeral-file",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "fileId",
+      "lifetime": "short-lived",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "path": {
-        "type": "string",
-        "description": "Local file path to upload",
-        "position": 1
+      "content-type": {
+        "description": "Content type for the uploaded file",
+        "type": "string"
       },
       "display-name": {
-        "type": "string",
-        "description": "Display name stored in the Zotero-side file descriptor"
+        "description": "Display name stored in the Zotero-side file descriptor",
+        "type": "string"
       },
-      "content-type": {
-        "type": "string",
-        "description": "Content type for the uploaded file"
+      "path": {
+        "description": "Local file path to upload",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "path"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "path",
-      "kind": "positional",
-      "token": "PATH",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Local file path to upload",
-      "valueNames": [
-        "PATH"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "display_name",
-      "kind": "option",
-      "token": "--display-name",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Display name stored in the Zotero-side file descriptor",
-      "valueNames": [
-        "DISPLAY_NAME"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "content_type",
-      "kind": "option",
-      "token": "--content-type",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Content type for the uploaded file",
-      "valueNames": [
-        "CONTENT_TYPE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "path",
-      "kind": "positional",
-      "token": "PATH",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "PATH"
-      ]
-    },
-    {
-      "property": "display-name",
-      "kind": "option",
-      "token": "--display-name",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "DISPLAY_NAME"
-      ]
-    },
-    {
-      "property": "content-type",
-      "kind": "option",
-      "token": "--content-type",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CONTENT_TYPE"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "path": {
-        "type": "string",
-        "description": "Local file path to upload"
-      },
-      "display_name": {
-        "type": "string",
-        "description": "Display name stored in the Zotero-side file descriptor"
-      },
-      "content_type": {
-        "type": "string",
-        "description": "Content type for the uploaded file"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "fileId": {
-        "type": "string"
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "ephemeral-file",
-      "stateChanged": true,
-      "description": "May change ephemeral file state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "fileId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "short-lived"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "command-result",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/files/upload"
-    }
-  ],
   "operationalAliases": [
     "file upload",
     "file",
@@ -307,9 +267,69 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "content-type",
     "CONTENT_TYPE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "content_type": {
+        "description": "Content type for the uploaded file",
+        "type": "string"
+      },
+      "display_name": {
+        "description": "Display name stored in the Zotero-side file descriptor",
+        "type": "string"
+      },
+      "path": {
+        "description": "Local file path to upload",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "command-result",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "fileId": {
+        "type": "string"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Upload one local file through Zotero Bridge and return a short-lived file handle",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/files/upload"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -317,6 +337,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `file upload`, `file`, `upload`, `path`, `PATH`, `display_name`, `display-name`, `DISPLAY_NAME`, `content_type`, `content-type`, `CONTENT_TYPE`.
 
@@ -325,9 +346,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change ephemeral file state.",
     "kind": "ephemeral-file",
-    "stateChanged": true,
-    "description": "May change ephemeral file state."
+    "stateChanged": true
   }
 ]
 ```
@@ -337,8 +358,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -347,11 +368,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "fileId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "short-lived"
+    "direction": "produce",
+    "handle": "fileId",
+    "lifetime": "short-lived",
+    "required": false
   }
 ]
 ```
@@ -361,11 +382,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "command-result",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "command-result",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
@@ -376,7 +397,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/files/upload"
+    "target": "POST /bridge/v2/files/upload"
   }
 ]
 ```

@@ -99,7 +99,7 @@ async function callBridgeCapability(args: {
   return parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
       method: "POST",
-      path: "/bridge/v1/call",
+      path: "/bridge/v2/call",
       headers,
       body: JSON.stringify({
         capability: args.capability,
@@ -122,10 +122,10 @@ async function callBridgeCapabilityRaw(args: {
   return parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
       method: "POST",
-      path: "/bridge/v1/call",
+      path: "/bridge/v2/call",
       rawRequestBytes: rawHttpRequestBytes({
         method: "POST",
-        path: "/bridge/v1/call",
+        path: "/bridge/v2/call",
         headers: {
           Authorization: `Bearer ${args.token}`,
           "Content-Type": "application/json; charset=utf-8",
@@ -227,7 +227,7 @@ describe("host bridge capability calls", function () {
     const invalidJson = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "POST",
-        path: "/bridge/v1/call",
+        path: "/bridge/v2/call",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -247,7 +247,7 @@ describe("host bridge capability calls", function () {
       const capability = listHostBridgeCapabilities().find(
         (entry) => entry.name === name,
       );
-      assert.deepEqual(capability?.input.properties?.cursor, {
+      assert.deepEqual(capability?.inputSchema.properties?.cursor, {
         type: "string",
       });
     }
@@ -587,10 +587,35 @@ describe("host bridge capability calls", function () {
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
-    const titles = parsed.json.result.data.map(
+    const titles = parsed.json.result.data.items.map(
       (entry: { title?: string }) => entry.title,
     );
     assert.include(titles, "桥接中文🚀 Paper");
+    assert.isBoolean(parsed.json.result.data.truncated);
+  });
+
+  it("uses query as the shared Host and CLI search field", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "search-contract-token",
+    });
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "library.search_items",
+      input: { text: "legacy-field" },
+    });
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_capability_input");
+    assert.strictEqual(
+      parsed.json.error.details.capability,
+      "library.search_items",
+    );
+    assert.include(
+      parsed.json.error.details.violations.map(
+        (violation: { property?: string }) => violation.property,
+      ),
+      "text",
+    );
   });
 
   it("exposes Synthesis host capabilities through Host Bridge CLI-compatible calls", async function () {
@@ -630,7 +655,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest?limit=100",
+        path: "/bridge/v2/manifest?limit=100",
         headers: { authorization: `Bearer ${token}` },
       }),
     );
@@ -726,7 +751,7 @@ describe("host bridge capability calls", function () {
     assert.notProperty(file, "localPath");
     const downloaded = await handleHostBridgeHttpRequestForTests({
       method: "GET",
-      path: `/bridge/v1/files/${file.fileId}`,
+      path: `/bridge/v2/files/${file.fileId}`,
       headers: { authorization: `Bearer ${token}` },
     });
     const body = downloaded.slice(downloaded.indexOf("\r\n\r\n") + 4);
@@ -787,7 +812,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest?limit=100",
+        path: "/bridge/v2/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -819,7 +844,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -850,7 +875,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest?limit=100",
+        path: "/bridge/v2/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -1249,6 +1274,33 @@ describe("host bridge capability calls", function () {
     assert.notInclude(approvalRequest.detail, "{");
   });
 
+  it("rejects invalid approved-capability input before requesting approval", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "invalid-approved-input-token",
+    });
+    let approvalCount = 0;
+    configureHostBridgeGlobalApprovalHandlerForTests(() => {
+      approvalCount += 1;
+      return { outcome: "approved" };
+    });
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "workflow_products.remove",
+      input: { product: "missing-product-id" },
+    });
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_capability_input");
+    assert.strictEqual(parsed.json.error.details.phase, "capability_input");
+    assert.strictEqual(
+      parsed.json.error.details.capability,
+      "workflow_products.remove",
+    );
+    assert.isNotEmpty(parsed.json.error.details.violations);
+    assert.strictEqual(approvalCount, 0);
+  });
+
   it("can disable Host Bridge write approvals from the preference switch", async function () {
     setPref("hostBridgeDisableWriteApproval", true);
     const token = configureHostBridgeServerForTests({
@@ -1268,7 +1320,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: { authorization: `Bearer ${token}` },
       }),
     );
@@ -1464,9 +1516,10 @@ describe("host bridge capability calls", function () {
       },
     });
 
-    assert.strictEqual(parsed.status, 500);
+    assert.strictEqual(parsed.status, 400);
     assert.isNull(approvalRequest);
-    assert.include(parsed.json.error.message, "Host Bridge capability failed");
+    assert.strictEqual(parsed.json.error.code, "invalid_capability_input");
+    assert.strictEqual(parsed.json.error.details.phase, "capability_input");
   });
 
   it("summarizes tag mutation approvals for people instead of dumping JSON", async function () {
@@ -1595,7 +1648,7 @@ describe("host bridge capability calls", function () {
     const file = annotations.json.result.data.delivery.file;
     const downloaded = await handleHostBridgeHttpRequestForTests({
       method: "GET",
-      path: `/bridge/v1/files/${file.fileId}`,
+      path: `/bridge/v2/files/${file.fileId}`,
       headers: { authorization: `Bearer ${token}` },
     });
     const separator = downloaded.indexOf("\r\n\r\n");
@@ -1621,10 +1674,10 @@ describe("host bridge capability calls", function () {
     const uploaded = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "POST",
-        path: "/bridge/v1/files/upload",
+        path: "/bridge/v2/files/upload",
         rawRequestBytes: rawHttpRequestBytes({
           method: "POST",
-          path: "/bridge/v1/files/upload",
+          path: "/bridge/v2/files/upload",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "text/plain",
@@ -1728,12 +1781,12 @@ describe("host bridge capability calls", function () {
     const readAsset = capabilities.find(
       (entry) => entry.name === "workflow_products.read_asset",
     ) as any;
-    assert.containsAllKeys(readAsset.input.properties, [
+    assert.containsAllKeys(readAsset.inputSchema.properties, [
       "productId",
       "assetId",
       "relativePath",
     ]);
-    assert.deepEqual(readAsset.input.requiredProperties, ["productId"]);
+    assert.deepEqual(readAsset.inputSchema.required, ["productId"]);
   });
 
   it("reads and exports Product assets through logical relative paths", async function () {

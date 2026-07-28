@@ -462,7 +462,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
           workflowId: workflow.manifest.id,
           expiresAt: args.expiresAt,
           requests: publicRequests,
-          applyEndpoint: `/bridge/v1/workflows/agent-runs/${args.agentRunId}/apply`,
+          applyEndpoint: `/bridge/v2/workflows/agent-runs/${args.agentRunId}/apply`,
           applyCommand: `zotero-bridge workflow agent-apply ${args.agentRunId}`,
         },
         null,

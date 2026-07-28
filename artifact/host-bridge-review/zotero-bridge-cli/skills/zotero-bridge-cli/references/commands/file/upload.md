@@ -1,6 +1,6 @@
 # `zotero-bridge file upload`
 
-通过 Zotero Bridge 上传一个本地文件并返回短期 file handle
+Upload one local file through Zotero Bridge and return a short-lived file handle
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] PATH <PATH> [--display-name <DISPLAY_NAME>] [--content-type <CONTENT_TYPE>]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -31,26 +31,26 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "path": {
-      "type": "string",
-      "description": "Local file path to upload",
-      "position": 1
+    "content-type": {
+      "description": "Content type for the uploaded file",
+      "type": "string"
     },
     "display-name": {
-      "type": "string",
-      "description": "Display name stored in the Zotero-side file descriptor"
+      "description": "Display name stored in the Zotero-side file descriptor",
+      "type": "string"
     },
-    "content-type": {
-      "type": "string",
-      "description": "Content type for the uploaded file"
+    "path": {
+      "description": "Local file path to upload",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "path"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -58,242 +58,202 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "path": {
-      "type": "string",
-      "description": "Local file path to upload"
+    "content_type": {
+      "description": "Content type for the uploaded file",
+      "type": "string"
     },
     "display_name": {
-      "type": "string",
-      "description": "Display name stored in the Zotero-side file descriptor"
+      "description": "Display name stored in the Zotero-side file descriptor",
+      "type": "string"
     },
-    "content_type": {
-      "type": "string",
-      "description": "Content type for the uploaded file"
+    "path": {
+      "description": "Local file path to upload",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "fileId": {
       "type": "string"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "file upload",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Local file path to upload",
+      "id": "path",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "PATH",
+      "valueNames": [
+        "PATH"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Display name stored in the Zotero-side file descriptor",
+      "id": "display_name",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--display-name",
+      "valueNames": [
+        "DISPLAY_NAME"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Content type for the uploaded file",
+      "id": "content_type",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--content-type",
+      "valueNames": [
+        "CONTENT_TYPE"
+      ]
+    }
+  ],
   "argv": [
     "file",
     "upload"
   ],
-  "summary": "Upload one local file through Zotero Bridge and return a short-lived file handle",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "path",
+      "required": true,
+      "takesValue": true,
+      "token": "PATH",
+      "valueNames": [
+        "PATH"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "display-name",
+      "required": false,
+      "takesValue": true,
+      "token": "--display-name",
+      "valueNames": [
+        "DISPLAY_NAME"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "content-type",
+      "required": false,
+      "takesValue": true,
+      "token": "--content-type",
+      "valueNames": [
+        "CONTENT_TYPE"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "write",
+  "command": "file upload",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change ephemeral file state.",
+      "kind": "ephemeral-file",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "fileId",
+      "lifetime": "short-lived",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "path": {
-        "type": "string",
-        "description": "Local file path to upload",
-        "position": 1
+      "content-type": {
+        "description": "Content type for the uploaded file",
+        "type": "string"
       },
       "display-name": {
-        "type": "string",
-        "description": "Display name stored in the Zotero-side file descriptor"
+        "description": "Display name stored in the Zotero-side file descriptor",
+        "type": "string"
       },
-      "content-type": {
-        "type": "string",
-        "description": "Content type for the uploaded file"
+      "path": {
+        "description": "Local file path to upload",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "path"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "path",
-      "kind": "positional",
-      "token": "PATH",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Local file path to upload",
-      "valueNames": [
-        "PATH"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "display_name",
-      "kind": "option",
-      "token": "--display-name",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Display name stored in the Zotero-side file descriptor",
-      "valueNames": [
-        "DISPLAY_NAME"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "content_type",
-      "kind": "option",
-      "token": "--content-type",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Content type for the uploaded file",
-      "valueNames": [
-        "CONTENT_TYPE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "path",
-      "kind": "positional",
-      "token": "PATH",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "PATH"
-      ]
-    },
-    {
-      "property": "display-name",
-      "kind": "option",
-      "token": "--display-name",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "DISPLAY_NAME"
-      ]
-    },
-    {
-      "property": "content-type",
-      "kind": "option",
-      "token": "--content-type",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CONTENT_TYPE"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "path": {
-        "type": "string",
-        "description": "Local file path to upload"
-      },
-      "display_name": {
-        "type": "string",
-        "description": "Display name stored in the Zotero-side file descriptor"
-      },
-      "content_type": {
-        "type": "string",
-        "description": "Content type for the uploaded file"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "fileId": {
-        "type": "string"
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "ephemeral-file",
-      "stateChanged": true,
-      "description": "May change ephemeral file state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "fileId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "short-lived"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "command-result",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/files/upload"
-    }
-  ],
   "operationalAliases": [
     "file upload",
     "file",
@@ -307,26 +267,88 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
     "content-type",
     "CONTENT_TYPE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "content_type": {
+        "description": "Content type for the uploaded file",
+        "type": "string"
+      },
+      "display_name": {
+        "description": "Display name stored in the Zotero-side file descriptor",
+        "type": "string"
+      },
+      "path": {
+        "description": "Local file path to upload",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "command-result",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "fileId": {
+        "type": "string"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Upload one local file through Zotero Bridge and return a short-lived file handle",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/files/upload"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `file` `upload`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; danger: `review`.
-- 意图可见性： `visible`.
+- 类别： `write`；危险等级： `review`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `file upload`, `file`, `upload`, `path`, `PATH`, `display_name`, `display-name`, `DISPLAY_NAME`, `content_type`, `content-type`, `CONTENT_TYPE`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "May change ephemeral file state.",
     "kind": "ephemeral-file",
-    "stateChanged": true,
-    "description": "May change ephemeral file state."
+    "stateChanged": true
   }
 ]
 ```
@@ -336,21 +358,21 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "fileId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "short-lived"
+    "direction": "produce",
+    "handle": "fileId",
+    "lifetime": "short-lived",
+    "required": false
   }
 ]
 ```
@@ -360,22 +382,22 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "command-result",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "command-result",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/files/upload"
+    "target": "POST /bridge/v2/files/upload"
   }
 ]
 ```

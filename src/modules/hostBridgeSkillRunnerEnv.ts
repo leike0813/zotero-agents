@@ -51,7 +51,7 @@ function isLoopbackOrWildcardHost(host: string) {
 }
 
 function buildEndpoint(host: string, port: number) {
-  return `http://${host}:${port}/bridge/v1`;
+  return `http://${host}:${port}/bridge/v2`;
 }
 
 export function buildSkillRunnerHostBridgeScopeEnv(
@@ -106,7 +106,7 @@ function buildLocalSkillRunnerHostBridgeRuntimeEnv(args: {
   token: string;
 }): SkillRunnerHostBridgeEnvResult {
   const endpoint = normalizeString(args.status.endpoint);
-  if (!endpoint || !endpoint.includes("/bridge/v1")) {
+  if (!endpoint || !endpoint.includes("/bridge/v2")) {
     return {
       ok: false,
       code: "host_bridge_local_endpoint_unavailable",
@@ -228,7 +228,7 @@ async function buildRemoteSkillRunnerHostBridgeRuntimeEnv(args: {
     resolvedAdvertisedHost,
     Number(status.pinnedPort),
   );
-  if (!endpoint || !endpoint.includes("/bridge/v1")) {
+  if (!endpoint || !endpoint.includes("/bridge/v2")) {
     return {
       ok: false,
       code: "host_bridge_remote_endpoint_unavailable",

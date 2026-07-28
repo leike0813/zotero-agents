@@ -23,23 +23,23 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --query | query | option | yes | — | JSON_OR_FILE | no | — | — | Bounded search query JSON object. Use inline JSON such as '{"text":"graph","limit":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. |
+| --query | query | option | yes | — | JSON_OR_FILE | no | — | — | Bounded search query JSON object. Use inline JSON such as '{"query":"graph","limit":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. |
 
 ## Invocation schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "query": {
-      "type": "string",
-      "description": "Bounded search query JSON object with text, limit, and libraryId"
+      "description": "Bounded search query JSON object with query, limit, and libraryId",
+      "type": "string"
     }
   },
   "required": [
     "query"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -51,31 +51,31 @@ Required: `true`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "query": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 500
-    },
-    "limit": {
-      "type": [
-        "number",
-        "string"
-      ],
-      "minimum": 1
-    },
     "libraryId": {
       "type": [
         "number",
         "string"
       ]
+    },
+    "limit": {
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "query": {
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [
     "query"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -83,62 +83,82 @@ Required: `true`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "query": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 500
-    },
-    "limit": {
-      "type": [
-        "number",
-        "string"
-      ],
-      "minimum": 1
-    },
     "libraryId": {
       "type": [
         "number",
         "string"
       ]
+    },
+    "limit": {
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "query": {
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [
     "query"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "library.search_items"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by library.search_items.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "additionalProperties": false,
+      "description": "Bounded search results returned by library.search_items.",
       "properties": {
         "items": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+          },
           "type": "array"
         },
         "truncated": {
           "type": "boolean"
         }
-      }
+      },
+      "required": [
+        "items",
+        "truncated"
+      ],
+      "type": "object"
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -162,195 +182,122 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "library item search",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Bounded search query JSON object with query, limit, and libraryId",
+      "id": "query",
+      "kind": "option",
+      "longHelp": "Bounded search query JSON object. Use inline JSON such as '{\"query\":\"graph\",\"limit\":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin.",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--query",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "library",
     "item",
     "search"
   ],
-  "summary": "Search Zotero library items",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "Bounded search query JSON object with text, limit, and libraryId"
-      }
-    },
-    "required": [
-      "query"
-    ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "query",
-      "kind": "option",
-      "token": "--query",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Bounded search query JSON object with text, limit, and libraryId",
-      "longHelp": "Bounded search query JSON object. Use inline JSON such as '{\"text\":\"graph\",\"limit\":10}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
   "argvBindings": [
     {
-      "property": "query",
       "kind": "option",
-      "token": "--query",
-      "takesValue": true,
+      "property": "query",
       "required": true,
+      "takesValue": true,
+      "token": "--query",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "binding": "passthrough",
+  "category": "read",
+  "command": "library item search",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "query": {
-      "token": "--query",
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --query.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {
+            "query": "example"
+          }
+        }
+      ],
       "required": true,
       "requiredWhen": [],
       "schema": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          },
-          "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
-            "minimum": 1
-          },
           "libraryId": {
             "type": [
               "number",
               "string"
             ]
+          },
+          "limit": {
+            "minimum": 1,
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "query": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
           }
         },
         "required": [
           "query"
         ],
-        "additionalProperties": false
+        "type": "object"
       },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {
-            "query": "example"
-          },
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --query."
-        }
-      ]
+      "schemaSource": "target-capability",
+      "token": "--query"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "query": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 500
-      },
-      "limit": {
-        "type": [
-          "number",
-          "string"
-        ],
-        "minimum": 1
-      },
-      "libraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
+        "description": "Bounded search query JSON object with query, limit, and libraryId",
+        "type": "string"
       }
     },
     "required": [
       "query"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by library.search_items.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "items": {
-            "type": "array"
-          },
-          "truncated": {
-            "type": "boolean"
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "limit",
-    "section": "data.items",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "truncatedField": "data.truncated"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "library.search_items"
-    }
-  ],
   "operationalAliases": [
     "library item search",
     "library",
@@ -359,16 +306,119 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "query",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.items",
+    "strategy": "limit",
+    "truncatedField": "data.truncated"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "libraryId": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "limit": {
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "query": {
+        "maxLength": 500,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "library.search_items"
+      },
+      "data": {
+        "additionalProperties": false,
+        "description": "Bounded search results returned by library.search_items.",
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object",
+              "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Search Zotero library items",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "library.search_items"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `library` `item` `search`.
-- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.items","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
+- Output boundary: `limit`; governed details: {"defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"limit","truncatedField":"data.truncated"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
 - Operational aliases: `library item search`, `library`, `item`, `search`, `query`, `JSON_OR_FILE`.
 
@@ -377,9 +427,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -389,8 +439,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -406,11 +456,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

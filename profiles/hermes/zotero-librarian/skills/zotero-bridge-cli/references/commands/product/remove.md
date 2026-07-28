@@ -29,18 +29,18 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "product_id": {
-      "type": "string",
       "description": "Dashboard Product id",
-      "position": 1
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "product_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -52,7 +52,7 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "productId": {
       "type": "string"
@@ -61,7 +61,25 @@ This command has no structured JSON input parameter.
   "required": [
     "productId"
   ],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "product_id",
+      "field": "productId",
+      "required": true,
+      "transform": "trim-string"
+    }
+  ]
 }
 ```
 
@@ -69,22 +87,28 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "workflow_products.remove"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by workflow_products.remove.",
       "additionalProperties": true,
+      "description": "Result data owned by workflow_products.remove.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -98,64 +122,108 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "product remove",
-  "argv": [
-    "product",
-    "remove"
-  ],
-  "summary": "Remove one Dashboard Product record through Zotero approval",
-  "category": "write",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "product_id": {
-        "type": "string",
-        "description": "Dashboard Product id",
-        "position": 1
-      }
-    },
-    "required": [
-      "product_id"
-    ],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
   },
   "arguments": [
     {
-      "id": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Dashboard Product id",
-      "valueNames": [
-        "PRODUCT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "product_id",
+      "id": "product_id",
       "kind": "positional",
-      "token": "PRODUCT_ID",
       "position": 1,
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
       "valueNames": [
         "PRODUCT_ID"
       ]
     }
   ],
+  "argv": [
+    "product",
+    "remove"
+  ],
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "product_id",
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "write",
+  "command": "product remove",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "product_id",
+        "field": "productId",
+        "required": true,
+        "transform": "trim-string"
+      }
+    ]
+  },
+  "danger": "review",
+  "effects": [
+    {
+      "description": "May change product store state.",
+      "kind": "product-store",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "productId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "product_id": {
+        "description": "Dashboard Product id",
+        "position": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "product_id"
+    ],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "product remove",
+    "product",
+    "remove",
+    "product_id",
+    "PRODUCT_ID"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
   "payloadSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "productId": {
         "type": "string"
@@ -164,76 +232,62 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "required": [
       "productId"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "capability": {
+      "approval": {
+        "minLength": 1,
         "type": "string"
       },
-      "approval": {
-        "type": "object"
+      "capability": {
+        "const": "workflow_products.remove"
       },
       "data": {
-        "type": "object",
-        "description": "Result data owned by workflow_products.remove.",
         "additionalProperties": true,
+        "description": "Result data owned by workflow_products.remove.",
+        "type": "object",
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
       }
     },
-    "additionalProperties": false
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "product-store",
-      "stateChanged": true,
-      "description": "May change product store state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [
-    {
-      "handle": "productId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Remove one Dashboard Product record through Zotero approval",
   "targets": [
     {
       "kind": "capability",
       "target": "workflow_products.remove"
     }
-  ],
-  "operationalAliases": [
-    "product remove",
-    "product",
-    "remove",
-    "product_id",
-    "PRODUCT_ID"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -241,6 +295,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `product remove`, `product`, `remove`, `product_id`, `PRODUCT_ID`.
 
@@ -249,9 +304,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change product store state.",
     "kind": "product-store",
-    "stateChanged": true,
-    "description": "May change product store state."
+    "stateChanged": true
   }
 ]
 ```
@@ -261,8 +316,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
@@ -271,11 +326,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "productId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "productId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -285,11 +340,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```

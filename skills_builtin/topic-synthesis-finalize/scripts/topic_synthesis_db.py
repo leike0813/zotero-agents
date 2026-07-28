@@ -111,7 +111,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "schema": "stage-20-resolver-and-workset.schema.json",
                 "payload_path": "runtime/payloads/resolver-and-workset.json",
                 "required_reads": [
-                    "<zotero-bridge> synthesis index library get --query '{\"cursor\":0,\"limit\":200}'"
+                    "<zotero-bridge> synthesis index library get --query '{\"cursor\":0,\"limit\":100}'"
                 ],
             },
             {
@@ -159,7 +159,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "payload_path": "runtime/payloads/update-topic-context.json",
                 "required_reads": [
                     "runtime/payloads/update-audit-report.json",
-                    "<zotero-bridge> synthesis index library get --query '{\"cursor\":0,\"limit\":200}'"
+                    "<zotero-bridge> synthesis index library get --query '{\"cursor\":0,\"limit\":100}'"
                 ],
             },
             {

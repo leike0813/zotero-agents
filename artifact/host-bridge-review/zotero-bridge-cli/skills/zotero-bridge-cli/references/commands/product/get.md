@@ -1,6 +1,6 @@
 # `zotero-bridge product get`
 
-读取一个普通 Dashboard Product
+Read one normal Dashboard Product
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] PRODUCT_ID <PRODUCT_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -24,31 +24,33 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 | Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | PRODUCT_ID | product_id | positional | yes | — | PRODUCT_ID | no | — | — | Dashboard Product id |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
 
 ## 调用 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "product_id": {
-      "type": "string",
-      "description": "Dashboard Product id",
-      "position": 1
-    },
     "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
+      "description": "Opaque continuation cursor",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of entries (1-100)"
+      "description": "Maximum number of entries (1-100)",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Dashboard Product id",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "product_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -56,12 +58,22 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
+    "cursor": {
+      "type": "string"
+    },
+    "limit": {
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
+    },
     "productId": {
       "type": "string"
     }
@@ -69,7 +81,37 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
   "required": [
     "productId"
   ],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload 组合
+
+以下内容由可执行命令契约定义 base source、fixed value、field mapping 与 closed transform。命令 handler 只向所引用的 Clap argument ID 提供值。
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "product_id",
+      "field": "productId",
+      "required": true,
+      "transform": "trim-string"
+    },
+    {
+      "argument": "cursor",
+      "field": "cursor",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "limit",
+      "field": "limit",
+      "required": false,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -77,329 +119,255 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "workflow_products.get"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by workflow_products.get.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by workflow_products.get.",
       "properties": {
-        "product": {
-          "type": "object",
-          "properties": {
-            "assets": {
-              "type": "array"
-            }
-          },
-          "additionalProperties": true
-        },
         "pagination": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
             "assets": {
-              "type": "object",
+              "additionalProperties": true,
               "properties": {
+                "hasMore": {
+                  "type": "boolean"
+                },
+                "limit": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "nextCursor": {
                   "type": [
                     "string",
                     "null"
                   ]
                 },
-                "hasMore": {
-                  "type": "boolean"
-                },
                 "returned": {
-                  "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "type": "integer"
                 },
                 "total": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "limit": {
-                  "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "type": "integer"
                 }
               },
-              "additionalProperties": true
+              "type": "object"
             }
           },
-          "additionalProperties": true
+          "type": "object"
+        },
+        "product": {
+          "additionalProperties": true,
+          "properties": {
+            "assets": {
+              "type": "array"
+            }
+          },
+          "type": "object"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "product get",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Dashboard Product id",
+      "id": "product_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "product",
     "get"
   ],
-  "summary": "Read one normal Dashboard Product",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "product_id",
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "product_id": {
-        "type": "string",
-        "description": "Dashboard Product id",
-        "position": 1
+  "command": "product get",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "product_id",
+        "field": "productId",
+        "required": true,
+        "transform": "trim-string"
       },
+      {
+        "argument": "cursor",
+        "field": "cursor",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "limit",
+        "field": "limit",
+        "required": false,
+        "transform": "identity"
+      }
+    ]
+  },
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "productId",
+      "lifetime": "caller-owned",
+      "required": true
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "productId",
+      "lifetime": "response",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {
       "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
+        "description": "Opaque continuation cursor",
+        "type": "string"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of entries (1-100)"
+        "description": "Maximum number of entries (1-100)",
+        "type": "string"
+      },
+      "product_id": {
+        "description": "Dashboard Product id",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "product_id"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Dashboard Product id",
-      "valueNames": [
-        "PRODUCT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of entries (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "PRODUCT_ID"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "productId": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "productId"
-    ],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by workflow_products.get.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "product": {
-            "type": "object",
-            "properties": {
-              "assets": {
-                "type": "array"
-              }
-            },
-            "additionalProperties": true
-          },
-          "pagination": {
-            "type": "object",
-            "properties": {
-              "assets": {
-                "type": "object",
-                "properties": {
-                  "nextCursor": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "hasMore": {
-                    "type": "boolean"
-                  },
-                  "returned": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "total": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "minimum": 0
-                  }
-                },
-                "additionalProperties": true
-              }
-            },
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "data.product.assets",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "data.pagination.assets.nextCursor",
-      "data.pagination.assets.hasMore",
-      "data.pagination.assets.returned",
-      "data.pagination.assets.total",
-      "data.pagination.assets.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "productId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    },
-    {
-      "handle": "productId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "response"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "command-result",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "workflow_products.get"
-    }
-  ],
   "operationalAliases": [
     "product get",
     "product",
@@ -411,26 +379,160 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "data.pagination.assets.nextCursor",
+      "data.pagination.assets.hasMore",
+      "data.pagination.assets.returned",
+      "data.pagination.assets.total",
+      "data.pagination.assets.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.product.assets",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "type": "string"
+      },
+      "limit": {
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "productId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "productId"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "command-result",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "workflow_products.get"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by workflow_products.get.",
+        "properties": {
+          "pagination": {
+            "additionalProperties": true,
+            "properties": {
+              "assets": {
+                "additionalProperties": true,
+                "properties": {
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "limit": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "returned": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "total": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "product": {
+            "additionalProperties": true,
+            "properties": {
+              "assets": {
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Read one normal Dashboard Product",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "workflow_products.get"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `product` `get`.
-- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.product.assets","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.pagination.assets.nextCursor","data.pagination.assets.hasMore","data.pagination.assets.returned","data.pagination.assets.total","data.pagination.assets.limit"]}.
+- 输出边界： `cursor`；受管详情： {"continuation":["data.pagination.assets.nextCursor","data.pagination.assets.hasMore","data.pagination.assets.returned","data.pagination.assets.total","data.pagination.assets.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.product.assets","strategy":"cursor"}.
 - 分页： `cursor`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `product get`, `product`, `get`, `product_id`, `PRODUCT_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -440,28 +542,28 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "productId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "productId",
+    "lifetime": "caller-owned",
+    "required": true
   },
   {
-    "handle": "productId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "response"
+    "direction": "produce",
+    "handle": "productId",
+    "lifetime": "response",
+    "required": false
   }
 ]
 ```
@@ -471,16 +573,16 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "command-result",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "command-result",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

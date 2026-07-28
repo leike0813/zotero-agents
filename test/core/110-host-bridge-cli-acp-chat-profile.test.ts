@@ -18,8 +18,8 @@ describe("Host Bridge CLI ACP Chat profile scope", function () {
       ensureServer: async () =>
         ({
           status: "running",
-          protocol: "host-bridge.v1",
-          endpoint: "http://127.0.0.1:26570/bridge/v1",
+          protocol: "host-bridge.v2",
+          endpoint: "http://127.0.0.1:26570/bridge/v2",
         }) as any,
       getToken: () => "secret-token",
       resolveCli: async () => ({
@@ -35,8 +35,8 @@ describe("Host Bridge CLI ACP Chat profile scope", function () {
       ensureServer: async () =>
         ({
           status: "running",
-          protocol: "host-bridge.v1",
-          endpoint: "http://127.0.0.1:26570/bridge/v1",
+          protocol: "host-bridge.v2",
+          endpoint: "http://127.0.0.1:26570/bridge/v2",
         }) as any,
       getToken: () => "secret-token",
       resolveCli: async () => ({

@@ -66,6 +66,7 @@ candidate 的合法 payload 可以继续检查和入库。
 
 payload 不包含：
 
+- `operation`；该常量由 `mutation literature-ingest` 的 executable composition 注入；
 - 多篇 `papers[]`；
 - provenance、route trace 或 uncertainty；
 - candidate outcome；
@@ -188,11 +189,12 @@ URL 规则：
 主代理执行：
 
 ```bash
-zotero-bridge mutation literature-ingest --input @runtime/path/to/paper.json
+zotero-bridge mutation literature-ingest --operation-id <operation-id> --input @runtime/path/to/paper.json
 ```
 
 执行纪律：
 
+- 每篇论文在提交前分配并保存一个稳定、唯一的 operation id；
 - 一次只运行一篇；
 - 等待当前命令 terminal response；
 - 保存当前 response 后再开始下一篇；
@@ -205,24 +207,41 @@ zotero-bridge mutation literature-ingest --input @runtime/path/to/paper.json
 
 ## Host receipt
 
-原样保存 Host JSON response。成功示例：
+原样保存 CLI stdout JSON envelope。成功示例：
 
 ```json
 {
   "ok": true,
-  "result": {
-    "ingest": {
-      "status": "created",
-      "item": {
-        "id": 101,
-        "key": "ITEM101",
-        "libraryId": 1
-      },
-      "hasPdfAttachment": true
+  "data": {
+    "capability": "mutation.execute",
+    "approval": "zotero-ui-required",
+    "data": {
+      "ok": true,
+      "result": {
+        "ingest": {
+          "status": "created",
+          "item": {
+            "id": 101,
+            "key": "ITEM101",
+            "libraryId": 1
+          },
+          "hasPdfAttachment": true
+        }
+      }
     }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v5",
+    "operationId": "ingest-run-candidate-0001"
   }
 }
 ```
+
+最外层 `ok` 是 CLI 执行状态。命令结果位于外层 `data`，mutation 业务结果固定
+读取 `data.data.result.ingest`；`data.approval` 记录 permission contract，
+`meta.operationId` 必须等于该 candidate 提交前保存的 operation id。命令卡中的
+result schema描述外层 `data` 的命令结果，不是整个 stdout envelope。
 
 每份 receipt 与以下信息关联：
 
@@ -230,6 +249,7 @@ zotero-bridge mutation literature-ingest --input @runtime/path/to/paper.json
 - candidate id；
 - title；
 - payload path；
+- operation id；
 - mutation completion time；
 - raw Host response；
 - derived ingest/pdf outcome。
@@ -281,12 +301,33 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 以下失败停止后续 mutation：
 
 - `host_unavailable`；
-- `approval_denied`；
+- CLI `permission_denied`，映射为 workflow `approval_denied`；
+- CLI `permission_timeout` 或 `permission_ui_unavailable`，映射为 workflow
+  `execution_blocked`，不声称用户拒绝；
 - `execution_blocked`；
 - 当前运行工作区不可写；
 - 无法确认正在执行的 mutation 是否已产生结果。
 
 保留已完成 receipts 和 outcomes，写入 cancellation 原因，并返回 canceled JSON。不要把 fatal failure 伪装成单篇 `failed`。
+
+### Structured parameter failure
+
+CLI 参数错误使用外层 `ok: false`，并在 `error.details` 中返回
+`schema: "host-bridge.argument-error.v1"`。按 `phase` 处理：
+
+- `argv`、`json_source`、`json_syntax`、`command_input`：只修复
+  `argumentId` 与 bounded violations 指明的问题；若 `stateChange` 不是
+  `unchanged`，不得直接重试；
+- `payload_composition`、`payload_contract`：视为 CLI contract、执行器或
+  release identity 漂移，停止 mutation，记录 `execution_blocked`，不得改用
+  raw mutation capability；
+- `command_result`：本次 response 不能作为成功证据，先按 operation id 读取
+  durable receipt。
+
+不要根据错误消息猜测旧字段名。运行同一 leaf 的 `--schema` 或
+`surface describe 'mutation literature-ingest'`，修复 payload 后仍沿用该
+candidate 已保存的 operation id；只有在确认 Host 未保留不同 request digest 时
+才能提交。
 
 ## 幂等性与恢复
 
@@ -295,6 +336,7 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 - `runtime/input.json`；
 - `runtime/candidates/` 下的 candidate 文件与已批准范围；
 - 已存在的单篇 payload；
+- 每篇 candidate 已保存的 operation id；
 - 已保存的 raw Host receipts；
 - `result/search-ledger.json` 若已存在；
 - 可选内部审计若存在。
@@ -302,10 +344,13 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 逐篇判断：
 
 1. candidate 文件存在且已有可识别 terminal receipt：从 receipt 恢复 outcome，不重复 mutation；
-2. candidate 文件存在，`payloadPath` 有效但无 receipt：该论文可进入串行 mutation 队列；
-3. candidate 文件存在但 payload 缺失或畸形：修复或重新委派该论文；
-4. candidate 文件对应的 identity/metadata unresolved：恢复为 `not_attempted`；
-5. receipt 状态不清楚：停止后续 mutation并报告 `execution_blocked`，避免重复创建。
+2. candidate 文件存在，已有 operation id 但 receipt 缺失或命令返回不确定：
+   先执行 `zotero-bridge operation get <operation-id>`；只有 receipt 明确没有
+   state change 且允许 retry 时才继续；
+3. candidate 文件存在，`payloadPath` 有效且尚未分配/提交 operation id：为该论文分配 operation id 后进入串行 mutation 队列；
+4. candidate 文件存在但 payload 缺失或畸形：修复或重新委派该论文；
+5. candidate 文件对应的 identity/metadata unresolved：恢复为 `not_attempted`；
+6. receipt 状态不清楚：停止后续 mutation并报告 `execution_blocked`，避免重复创建。
 
 恢复按论文独立进行：任何有效论文都可以继续，单篇问题保持局部。
 
@@ -331,6 +376,7 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
       "metadataStatus": "qualified",
       "pdfStatus": "found",
       "payloadPath": "runtime/payloads/example.json",
+      "operationId": "ingest-run-candidate-0001",
       "receiptPath": "runtime/host/example.json",
       "ingestStatus": "created",
       "itemId": 101,
@@ -345,7 +391,8 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 
 research report 的 `candidateId`、`candidatePath`、`title`、
 `metadataStatus`、`pdfStatus` 和 `payloadPath` 可直接投影到对应 ledger entry。
-主代理在 Host mutation 后补充 `receiptPath`、`ingestStatus`、`itemId` 和最终
+主代理在 Host mutation 前补充 `operationId`，在 terminal response 后补充
+`receiptPath`、`ingestStatus`、`itemId` 和最终
 `needsCuration`。metadata sources、PDF route details 和 uncertainties 可保留在
 内部审计，不复制到紧凑账本。
 

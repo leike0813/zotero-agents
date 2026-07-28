@@ -337,7 +337,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows",
+      path: "/bridge/v2/workflows",
     });
 
     assert.strictEqual(parsed.status, 200);
@@ -365,7 +365,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows",
+      path: "/bridge/v2/workflows",
     });
 
     assert.strictEqual(parsed.status, 200);
@@ -388,7 +388,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows",
+      path: "/bridge/v2/workflows",
     });
 
     assert.strictEqual(parsed.status, 200);
@@ -408,7 +408,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "debug-workflow",
         selection: {
@@ -440,7 +440,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "debug-workflow",
         selection: {
@@ -464,7 +464,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
       },
@@ -487,7 +487,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
         input: {
@@ -557,7 +557,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -685,7 +685,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -700,7 +700,7 @@ describe("host bridge workflow control", function () {
     const applied = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: applyBody,
     });
 
@@ -712,7 +712,7 @@ describe("host bridge workflow control", function () {
     const second = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: applyBody,
     });
     assert.strictEqual(second.status, 409);
@@ -740,14 +740,14 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       headers: { "x-zotero-bridge-operation-id": "prepare-operation-1" },
       body: {
         workflowId: "bridge-workflow",
         selection: { items: [{ id: parent.id }] },
       },
     });
-    const path = `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
+    const path = `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
     const body = createAgentRunApplyBody(agentRunRequests(handoff)[0]);
     const headers = { "x-zotero-bridge-operation-id": "apply-operation-1" };
     const first = await bridgeRequest({
@@ -771,7 +771,7 @@ describe("host bridge workflow control", function () {
     const receipt = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/operations/apply-operation-1",
+      path: "/bridge/v2/operations/apply-operation-1",
     });
     assert.strictEqual(receipt.status, 200);
     assert.strictEqual(receipt.json.result.state, "completed");
@@ -793,7 +793,7 @@ describe("host bridge workflow control", function () {
       operationId: "retained-operation",
       requestDigest: "request-digest",
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
     });
     assert.strictEqual(reserved.kind, "reserved");
     const unknown = markHostBridgeOperationOutcomeUnknown("retained-operation");
@@ -853,13 +853,13 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: { items: [{ id: parent.id }] },
       },
     });
-    const path = `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
+    const path = `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
     const body = createAgentRunApplyBody(agentRunRequests(handoff)[0]);
     const firstPending = bridgeRequest({ token, method: "POST", path, body });
     await entered;
@@ -885,7 +885,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: { items: [{ id: parent.id }] },
@@ -934,7 +934,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: { items: [{ id: parent.id }] },
@@ -944,7 +944,7 @@ describe("host bridge workflow control", function () {
     const invalid = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: {
         results: [
           {
@@ -965,7 +965,7 @@ describe("host bridge workflow control", function () {
     const receipt = await bridgeRequest({
       token,
       method: "GET",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
     });
     assert.strictEqual(receipt.status, 200);
     assert.strictEqual(receipt.json.result.handleConsumption, "unconsumed");
@@ -974,7 +974,7 @@ describe("host bridge workflow control", function () {
     const retry = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: createAgentRunApplyBody(request),
     });
     assert.strictEqual(retry.status, 200);
@@ -1005,7 +1005,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: { items: parents.map((item) => ({ id: item.id })) },
@@ -1017,7 +1017,7 @@ describe("host bridge workflow control", function () {
     const applied = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: { results: bodies.flatMap((body: any) => body.results) },
     });
     assert.strictEqual(applied.status, 200);
@@ -1036,7 +1036,7 @@ describe("host bridge workflow control", function () {
     const firstReceiptPage = await bridgeRequest({
       token,
       method: "GET",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply?limit=1`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply?limit=1`,
     });
     assert.strictEqual(firstReceiptPage.json.result.status, "partial");
     assert.strictEqual(firstReceiptPage.json.result.stateChange, "changed");
@@ -1055,7 +1055,7 @@ describe("host bridge workflow control", function () {
     const secondReceiptPage = await bridgeRequest({
       token,
       method: "GET",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply?limit=1&cursor=${encodeURIComponent(firstReceiptPage.json.result.nextCursor)}`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply?limit=1&cursor=${encodeURIComponent(firstReceiptPage.json.result.nextCursor)}`,
     });
     assert.lengthOf(secondReceiptPage.json.result.results, 1);
     assert.isFalse(secondReceiptPage.json.result.hasMore);
@@ -1077,7 +1077,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: { items: [{ id: parent.id }] },
@@ -1088,7 +1088,7 @@ describe("host bridge workflow control", function () {
     const renewed = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${agentRunId}/renew`,
+      path: `/bridge/v2/workflows/agent-runs/${agentRunId}/renew`,
       body: {},
     });
     assert.strictEqual(renewed.status, 200);
@@ -1099,7 +1099,7 @@ describe("host bridge workflow control", function () {
     const abandoned = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${agentRunId}/abandon`,
+      path: `/bridge/v2/workflows/agent-runs/${agentRunId}/abandon`,
       body: {},
     });
     assert.strictEqual(abandoned.status, 200);
@@ -1110,7 +1110,7 @@ describe("host bridge workflow control", function () {
     const apply = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${agentRunId}/apply`,
       body: createAgentRunApplyBody(agentRunRequests(handoff)[0]),
     });
     assert.strictEqual(apply.status, 409);
@@ -1145,7 +1145,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1159,7 +1159,7 @@ describe("host bridge workflow control", function () {
     const applied = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: createAgentRunApplyBody(request),
     });
 
@@ -1199,7 +1199,7 @@ describe("host bridge workflow control", function () {
     const handoff = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1213,7 +1213,7 @@ describe("host bridge workflow control", function () {
     const deniedByApplyStatus = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: {
         results: [
           {
@@ -1235,7 +1235,7 @@ describe("host bridge workflow control", function () {
     const unknownRequest = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v2/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
       body: {
         results: [
           {
@@ -1261,7 +1261,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1298,7 +1298,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1333,7 +1333,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1392,7 +1392,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/agent-run",
+      path: "/bridge/v2/workflows/agent-run",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1427,7 +1427,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/describe",
+      path: "/bridge/v2/workflows/describe",
       body: {
         workflowId: "bridge-workflow",
         workflowOptions: {
@@ -1498,12 +1498,12 @@ describe("host bridge workflow control", function () {
     const listed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows",
+      path: "/bridge/v2/workflows",
     });
     const described = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/describe",
+      path: "/bridge/v2/workflows/describe",
       body: { workflowId: "projected-workflow" },
     });
 
@@ -1542,7 +1542,7 @@ describe("host bridge workflow control", function () {
     const requirements = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/requirements",
+      path: "/bridge/v2/workflows/requirements",
       body: {
         workflowId: "bridge-workflow",
       },
@@ -1557,7 +1557,7 @@ describe("host bridge workflow control", function () {
     const validate = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/validate",
+      path: "/bridge/v2/workflows/validate",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1597,7 +1597,7 @@ describe("host bridge workflow control", function () {
     const requirements = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/requirements",
+      path: "/bridge/v2/workflows/requirements",
       body: { workflowId: "required-workflow" },
     });
     assert.strictEqual(requirements.status, 200);
@@ -1613,7 +1613,7 @@ describe("host bridge workflow control", function () {
     const validate = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/validate",
+      path: "/bridge/v2/workflows/validate",
       body: {
         workflowId: "required-workflow",
         selection: {
@@ -1657,7 +1657,7 @@ describe("host bridge workflow control", function () {
       const listed = await bridgeRequest({
         token,
         method: "GET",
-        path: "/bridge/v1/workflows/provider-profiles",
+        path: "/bridge/v2/workflows/provider-profiles",
       });
       assert.strictEqual(listed.status, 200);
       assert.deepInclude(listed.json.result.profiles[0], {
@@ -1668,7 +1668,7 @@ describe("host bridge workflow control", function () {
       const described = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/provider-profiles/describe",
+        path: "/bridge/v2/workflows/provider-profiles/describe",
         body: {
           backendId: "acp-opencode",
         },
@@ -1689,7 +1689,7 @@ describe("host bridge workflow control", function () {
       const validated = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/provider-profiles/validate",
+        path: "/bridge/v2/workflows/provider-profiles/validate",
         body: {
           providerProfile: {
             backendId: "acp-opencode",
@@ -1711,7 +1711,7 @@ describe("host bridge workflow control", function () {
       const unavailable = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/provider-profiles/validate",
+        path: "/bridge/v2/workflows/provider-profiles/validate",
         body: {
           providerProfile: {
             backendId: "acp-opencode",
@@ -1753,7 +1753,7 @@ describe("host bridge workflow control", function () {
       const described = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/provider-profiles/describe",
+        path: "/bridge/v2/workflows/provider-profiles/describe",
         body: { backendId: "skillrunner-local" },
       });
       assert.strictEqual(described.status, 200);
@@ -1768,7 +1768,7 @@ describe("host bridge workflow control", function () {
       const validated = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/provider-profiles/validate",
+        path: "/bridge/v2/workflows/provider-profiles/validate",
         body: {
           providerProfile: {
             backendId: "skillrunner-local",
@@ -1794,7 +1794,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/provider-profiles/validate",
+      path: "/bridge/v2/workflows/provider-profiles/validate",
       body: {
         providerProfile: {
           backendId: "backend-1",
@@ -1818,11 +1818,11 @@ describe("host bridge workflow control", function () {
 
     for (const [path, body] of [
       [
-        "/bridge/v1/workflows/describe",
+        "/bridge/v2/workflows/describe",
         { workflowId: "bridge-workflow", providerProfile: {} },
       ],
       [
-        "/bridge/v1/workflows/validate",
+        "/bridge/v2/workflows/validate",
         {
           workflowId: "bridge-workflow",
           selection: { items: [{ key: "ABCD1234", libraryId: 1 }] },
@@ -1845,7 +1845,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1874,7 +1874,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -1941,7 +1941,7 @@ describe("host bridge workflow control", function () {
     const queued = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/queue",
+      path: "/bridge/v2/workflows/queue",
     });
     assert.strictEqual(queued.status, 200);
     assert.lengthOf(queued.json.result.units, 1);
@@ -1953,7 +1953,7 @@ describe("host bridge workflow control", function () {
     const submission = await bridgeRequest({
       token,
       method: "GET",
-      path: `/bridge/v1/workflows/submissions/${handle.submissionId}`,
+      path: `/bridge/v2/workflows/submissions/${handle.submissionId}`,
     });
     assert.strictEqual(submission.status, 200);
     assert.strictEqual(
@@ -1970,7 +1970,7 @@ describe("host bridge workflow control", function () {
     const canceled = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/queue/${secondQueueId}/cancel`,
+      path: `/bridge/v2/workflows/queue/${secondQueueId}/cancel`,
       headers: { "x-zotero-bridge-operation-id": "cancel-queue-u2" },
       body: {},
     });
@@ -1980,7 +1980,7 @@ describe("host bridge workflow control", function () {
     const cancelAdmitted = await bridgeRequest({
       token,
       method: "POST",
-      path: `/bridge/v1/workflows/queue/${admittedQueueId}/cancel`,
+      path: `/bridge/v2/workflows/queue/${admittedQueueId}/cancel`,
       headers: { "x-zotero-bridge-operation-id": "cancel-queue-u1" },
       body: {},
     });
@@ -2024,7 +2024,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks?submissionId=workflow-submission-a",
+      path: "/bridge/v2/tasks?submissionId=workflow-submission-a",
     });
     assert.strictEqual(parsed.status, 200);
     assert.deepEqual(
@@ -2058,7 +2058,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -2137,7 +2137,7 @@ describe("host bridge workflow control", function () {
       const parsed = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/submit",
+        path: "/bridge/v2/workflows/submit",
         body: {
           workflowId: "queued-workflow",
           selection: { items: [{ id: parent.id }] },
@@ -2159,7 +2159,7 @@ describe("host bridge workflow control", function () {
       );
       assert.strictEqual(
         parsed.json.result.queueUrl,
-        "/bridge/v1/workflows/queue",
+        "/bridge/v2/workflows/queue",
       );
     } finally {
       setPref("backendsConfigJson", previousBackends);
@@ -2189,7 +2189,7 @@ describe("host bridge workflow control", function () {
     const manifest = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/manifest",
+      path: "/bridge/v2/manifest",
     });
     assert.strictEqual(
       manifest.json.result.workflowControl.submitRequiresApproval,
@@ -2199,7 +2199,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
         selection: {
@@ -2248,12 +2248,12 @@ describe("host bridge workflow control", function () {
     const tasks = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks?runId=run-redacted",
+      path: "/bridge/v2/tasks?runId=run-redacted",
     });
     const run = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/runs/run-redacted",
+      path: "/bridge/v2/workflows/runs/run-redacted",
     });
 
     for (const parsed of [tasks, run]) {
@@ -2313,7 +2313,7 @@ describe("host bridge workflow control", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/tasks?${query}`,
+        path: `/bridge/v2/tasks?${query}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -2340,7 +2340,7 @@ describe("host bridge workflow control", function () {
     const pendingSubmit = bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       headers: {
         "x-zotero-bridge-scope": JSON.stringify({
           kind: "acp-skill-run",
@@ -2404,7 +2404,7 @@ describe("host bridge workflow control", function () {
     const pendingSubmit = bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       headers: {
         "x-zotero-bridge-scope": JSON.stringify({
           kind: "skillrunner-run",
@@ -2460,7 +2460,7 @@ describe("host bridge workflow control", function () {
       status: "running",
       hostBridgeCli: {
         available: true,
-        endpoint: "http://127.0.0.1:26570/bridge/v1",
+        endpoint: "http://127.0.0.1:26570/bridge/v2",
         pathInjected: true,
         autoApproveWrites: true,
       },
@@ -2475,7 +2475,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/submit",
+      path: "/bridge/v2/workflows/submit",
       headers: {
         "x-zotero-bridge-scope": JSON.stringify({
           kind: "acp-skill-run",
@@ -2526,7 +2526,7 @@ describe("host bridge workflow control", function () {
     const run = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/runs/run-bridge-1",
+      path: "/bridge/v2/workflows/runs/run-bridge-1",
     });
     assert.strictEqual(run.status, 200);
     assert.strictEqual(run.json.result.runId, "run-bridge-1");
@@ -2548,7 +2548,7 @@ describe("host bridge workflow control", function () {
     const tasks = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks?workflowId=bridge-workflow&backendId=backend-1",
+      path: "/bridge/v2/tasks?workflowId=bridge-workflow&backendId=backend-1",
     });
     assert.strictEqual(tasks.status, 200);
     assert.lengthOf(tasks.json.result.items, 1);
@@ -2601,7 +2601,7 @@ describe("host bridge workflow control", function () {
     const runStatus = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/runs/run-sequence",
+      path: "/bridge/v2/workflows/runs/run-sequence",
     });
     assert.strictEqual(runStatus.status, 200);
     assert.strictEqual(runStatus.json.result.runId, "run-sequence");
@@ -2627,7 +2627,7 @@ describe("host bridge workflow control", function () {
     const tasks = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks?runId=run-sequence",
+      path: "/bridge/v2/tasks?runId=run-sequence",
     });
     assert.strictEqual(tasks.status, 200);
     assert.lengthOf(tasks.json.result.items, 1);
@@ -2688,7 +2688,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks/active",
+      path: "/bridge/v2/tasks/active",
     });
 
     assert.strictEqual(parsed.status, 200);
@@ -2739,7 +2739,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/runs/run-acp-status-only",
+      path: "/bridge/v2/workflows/runs/run-acp-status-only",
     });
 
     assert.strictEqual(parsed.status, 200);
@@ -2799,7 +2799,7 @@ describe("host bridge workflow control", function () {
     const runStatus = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/runs/run-acp-sequence",
+      path: "/bridge/v2/workflows/runs/run-acp-sequence",
     });
 
     assert.strictEqual(runStatus.status, 200);
@@ -2832,7 +2832,7 @@ describe("host bridge workflow control", function () {
     const active = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks/active",
+      path: "/bridge/v2/tasks/active",
     });
     assert.strictEqual(active.status, 200);
     assert.deepEqual(
@@ -2899,7 +2899,7 @@ describe("host bridge workflow control", function () {
     const recentTasks = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/tasks/recent?workflowId=bridge-workflow&limit=5",
+      path: "/bridge/v2/tasks/recent?workflowId=bridge-workflow&limit=5",
     });
     assert.strictEqual(recentTasks.status, 200);
     assert.isAtLeast(recentTasks.json.result.items.length, 2);
@@ -2909,7 +2909,7 @@ describe("host bridge workflow control", function () {
     const workflowRuns = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/workflows/runs?workflowId=bridge-workflow&limit=5",
+      path: "/bridge/v2/workflows/runs?workflowId=bridge-workflow&limit=5",
     });
     assert.strictEqual(workflowRuns.status, 200);
     assert.include(
@@ -2922,7 +2922,7 @@ describe("host bridge workflow control", function () {
     const skillRuns = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/skill-runs/recent?state=waiting_user&limit=5",
+      path: "/bridge/v2/skill-runs/recent?state=waiting_user&limit=5",
     });
     assert.strictEqual(skillRuns.status, 200);
     assert.include(
@@ -2935,7 +2935,7 @@ describe("host bridge workflow control", function () {
     const events = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/skill-runs/acp-events-1/events?limit=5",
+      path: "/bridge/v2/skill-runs/acp-events-1/events?limit=5",
     });
     assert.strictEqual(events.status, 200);
     assert.include(
@@ -2989,7 +2989,7 @@ describe("host bridge workflow control", function () {
     const unprojected = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=false",
+      path: "/bridge/v2/notifications?workflowRunId=run-notify-1&acknowledged=false",
     });
     assert.strictEqual(unprojected.status, 200);
     assert.deepEqual(unprojected.json.result.notifications, []);
@@ -3001,7 +3001,7 @@ describe("host bridge workflow control", function () {
     const listed = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=false",
+      path: "/bridge/v2/notifications?workflowRunId=run-notify-1&acknowledged=false",
     });
 
     assert.strictEqual(listed.status, 200);
@@ -3027,7 +3027,7 @@ describe("host bridge workflow control", function () {
     const repeated = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=false",
+      path: "/bridge/v2/notifications?workflowRunId=run-notify-1&acknowledged=false",
     });
     assert.strictEqual(repeated.status, 200);
     assert.deepEqual(
@@ -3040,12 +3040,12 @@ describe("host bridge workflow control", function () {
     const unfiltered = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?acknowledged=false",
+      path: "/bridge/v2/notifications?acknowledged=false",
     });
     const unfilteredAgain = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?acknowledged=false",
+      path: "/bridge/v2/notifications?acknowledged=false",
     });
     assert.deepEqual(
       unfilteredAgain.json.result.notifications.map(
@@ -3059,17 +3059,17 @@ describe("host bridge workflow control", function () {
     const clientFirst = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?acknowledged=false&clientId=client-a",
+      path: "/bridge/v2/notifications?acknowledged=false&clientId=client-a",
     });
     const clientSecond = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?acknowledged=false&clientId=client-a",
+      path: "/bridge/v2/notifications?acknowledged=false&clientId=client-a",
     });
     const otherClient = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?acknowledged=false&clientId=client-b",
+      path: "/bridge/v2/notifications?acknowledged=false&clientId=client-b",
     });
     assert.deepEqual(
       clientFirst.json.result.notifications.map(
@@ -3089,7 +3089,7 @@ describe("host bridge workflow control", function () {
     const ack = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/notifications/ack",
+      path: "/bridge/v2/notifications/ack",
       body: { eventIds: [eventId], clientId: "client-a" },
     });
     assert.strictEqual(ack.status, 200);
@@ -3098,7 +3098,7 @@ describe("host bridge workflow control", function () {
     const acknowledged = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=true",
+      path: "/bridge/v2/notifications?workflowRunId=run-notify-1&acknowledged=true",
     });
     assert.strictEqual(acknowledged.status, 200);
     assert.deepEqual(
@@ -3201,7 +3201,7 @@ describe("host bridge workflow control", function () {
     const waiting = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?skillRunId=acp-wait-notify",
+      path: "/bridge/v2/notifications?skillRunId=acp-wait-notify",
     });
     assert.strictEqual(waiting.status, 200);
     assert.deepInclude(waiting.json.result.notifications[0], {
@@ -3218,7 +3218,7 @@ describe("host bridge workflow control", function () {
     const retriable = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/notifications?skillRunId=acp-retriable-notify",
+      path: "/bridge/v2/notifications?skillRunId=acp-retriable-notify",
     });
     assert.strictEqual(retriable.status, 200);
     assert.deepInclude(retriable.json.result.notifications[0], {
@@ -3256,7 +3256,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/runs/run-cancel-1/cancel",
+      path: "/bridge/v2/workflows/runs/run-cancel-1/cancel",
       headers: {
         "x-zotero-bridge-scope": JSON.stringify({
           kind: "acp-skill-run",
@@ -3312,7 +3312,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/runs/run-cancel-no-approval/cancel",
+      path: "/bridge/v2/workflows/runs/run-cancel-no-approval/cancel",
       body: {
         reason: "test",
       },
@@ -3346,7 +3346,7 @@ describe("host bridge workflow control", function () {
     const pendingInvalidate = bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/synthesis/cache/invalidate",
+      path: "/bridge/v2/synthesis/cache/invalidate",
       body: {
         scope: "graph",
         id: "metrics",
@@ -3358,7 +3358,7 @@ describe("host bridge workflow control", function () {
     const pending = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/permissions/pending",
+      path: "/bridge/v2/permissions/pending",
     });
     assert.strictEqual(pending.status, 200);
     assert.deepInclude(pending.json.result.permissions[0], {
@@ -3383,7 +3383,7 @@ describe("host bridge workflow control", function () {
     const resolved = await bridgeRequest({
       token,
       method: "GET",
-      path: `/bridge/v1/permissions/${permissionRequestId}`,
+      path: `/bridge/v2/permissions/${permissionRequestId}`,
     });
     assert.strictEqual(resolved.status, 200);
     assert.deepInclude(resolved.json.result.permission, {
@@ -3408,7 +3408,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/synthesis/cache/invalidate",
+      path: "/bridge/v2/synthesis/cache/invalidate",
       body: {
         scope: "sql",
       },
@@ -3438,7 +3438,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/synthesis/cache/invalidate",
+      path: "/bridge/v2/synthesis/cache/invalidate",
       body: {
         scope: "graph",
       },
@@ -3446,7 +3446,7 @@ describe("host bridge workflow control", function () {
     const pending = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/permissions/pending",
+      path: "/bridge/v2/permissions/pending",
     });
 
     assert.strictEqual(parsed.status, 200);
@@ -3480,7 +3480,7 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/skill-runs/acp-reply-1/reply",
+      path: "/bridge/v2/skill-runs/acp-reply-1/reply",
       body: {
         message: "continue",
       },
@@ -3493,7 +3493,7 @@ describe("host bridge workflow control", function () {
     const rejected = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/skill-runs/acp-reply-1/reply",
+      path: "/bridge/v2/skill-runs/acp-reply-1/reply",
       body: {
         message: "",
       },
@@ -3533,7 +3533,7 @@ describe("host bridge workflow control", function () {
     const unsupported = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/skill-runs/skillrunner-run-1/reply",
+      path: "/bridge/v2/skill-runs/skillrunner-run-1/reply",
       body: {
         message: "continue",
       },
@@ -3547,7 +3547,7 @@ describe("host bridge workflow control", function () {
     const notWaiting = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/skill-runs/acp-running-1/reply",
+      path: "/bridge/v2/skill-runs/acp-running-1/reply",
       body: {
         message: "continue",
       },
@@ -3558,7 +3558,7 @@ describe("host bridge workflow control", function () {
     const missing = await bridgeRequest({
       token,
       method: "GET",
-      path: "/bridge/v1/skill-runs/missing-run",
+      path: "/bridge/v2/skill-runs/missing-run",
     });
     assert.strictEqual(missing.status, 404);
     assert.strictEqual(missing.json.error.code, "skill_run_not_found");
@@ -3590,7 +3590,7 @@ describe("host bridge workflow control", function () {
     const connected = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/skill-runs/acp-connect-1/connect",
+      path: "/bridge/v2/skill-runs/acp-connect-1/connect",
     });
     assert.strictEqual(connected.status, 200);
     assert.strictEqual(connected.json.result.skillRunId, "acp-connect-1");
@@ -3599,7 +3599,7 @@ describe("host bridge workflow control", function () {
     const rejected = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/skill-runs/acp-connect-running-1/connect",
+      path: "/bridge/v2/skill-runs/acp-connect-running-1/connect",
     });
     assert.strictEqual(rejected.status, 409);
     assert.strictEqual(rejected.json.error.code, "skill_run_not_recoverable");

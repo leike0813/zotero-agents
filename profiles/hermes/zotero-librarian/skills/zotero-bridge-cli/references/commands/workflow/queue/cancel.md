@@ -29,18 +29,18 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "queue_id": {
-      "type": "string",
       "description": "Opaque queue id returned by workflow queue list",
-      "position": 1
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "queue_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -52,36 +52,42 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "queue_id": {
-      "type": "string",
-      "description": "Opaque queue id returned by workflow queue list"
+      "description": "Opaque queue id returned by workflow queue list",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "status": {
-      "const": "canceled"
-    },
     "queueId": {
       "type": "string"
+    },
+    "status": {
+      "const": "canceled"
     }
   },
   "required": [
     "status",
     "queueId"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -95,132 +101,86 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow queue cancel",
-  "argv": [
-    "workflow",
-    "queue",
-    "cancel"
-  ],
-  "summary": "Cancel one still-pending Zotero-managed workflow queue unit",
-  "category": "write",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "queue_id": {
-        "type": "string",
-        "description": "Opaque queue id returned by workflow queue list",
-        "position": 1
-      }
-    },
-    "required": [
-      "queue_id"
-    ],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "queue_id",
-      "kind": "positional",
-      "token": "QUEUE_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Opaque queue id returned by workflow queue list",
-      "valueNames": [
-        "QUEUE_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "queue_id",
+      "id": "queue_id",
       "kind": "positional",
-      "token": "QUEUE_ID",
       "position": 1,
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": true,
+      "takesValue": true,
+      "token": "QUEUE_ID",
       "valueNames": [
         "QUEUE_ID"
       ]
     }
   ],
+  "argv": [
+    "workflow",
+    "queue",
+    "cancel"
+  ],
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "queue_id",
+      "required": true,
+      "takesValue": true,
+      "token": "QUEUE_ID",
+      "valueNames": [
+        "QUEUE_ID"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "write",
+  "command": "workflow queue cancel",
+  "composition": null,
+  "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required to cancel one unit that is still pending in the native Host queue.",
+      "direction": "consume",
+      "handle": "queueId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "queue_id": {
-        "type": "string",
-        "description": "Opaque queue id returned by workflow queue list"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "status": {
-        "const": "canceled"
-      },
-      "queueId": {
+        "description": "Opaque queue id returned by workflow queue list",
+        "position": 1,
         "type": "string"
       }
     },
     "required": [
-      "status",
-      "queueId"
+      "queue_id"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "queueId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required to cancel one unit that is still pending in the native Host queue.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "Cancellation fails or races with admission.",
-      "stateCheck": "caller-held-handle",
-      "requiresHandles": [
-        "queueId"
-      ],
-      "action": "List the native queue again. Absence means the unit was admitted, canceled, or settled; inspect its submission and tasks before taking further action.",
-      "nextCommand": "workflow queue list"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/queue/{queueId}/cancel"
-    }
-  ],
   "operationalAliases": [
     "workflow queue cancel",
     "workflow",
@@ -229,9 +189,69 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "queue_id",
     "QUEUE_ID"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "queue_id": {
+        "description": "Opaque queue id returned by workflow queue list",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "List the native queue again. Absence means the unit was admitted, canceled, or settled; inspect its submission and tasks before taking further action.",
+      "nextCommand": "workflow queue list",
+      "requiresHandles": [
+        "queueId"
+      ],
+      "stateCheck": "caller-held-handle",
+      "when": "Cancellation fails or races with admission."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "queueId": {
+        "type": "string"
+      },
+      "status": {
+        "const": "canceled"
+      }
+    },
+    "required": [
+      "status",
+      "queueId"
+    ],
+    "type": "object"
+  },
+  "summary": "Cancel one still-pending Zotero-managed workflow queue unit",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/workflows/queue/{queueId}/cancel"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -239,6 +259,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow queue cancel`, `workflow`, `queue`, `cancel`, `queue_id`, `QUEUE_ID`.
 
@@ -247,9 +268,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   }
 ]
 ```
@@ -259,8 +280,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -269,11 +290,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "queueId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required to cancel one unit that is still pending in the native Host queue.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "queueId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -283,13 +304,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "Cancellation fails or races with admission.",
-    "stateCheck": "caller-held-handle",
+    "action": "List the native queue again. Absence means the unit was admitted, canceled, or settled; inspect its submission and tasks before taking further action.",
+    "nextCommand": "workflow queue list",
     "requiresHandles": [
       "queueId"
     ],
-    "action": "List the native queue again. Absence means the unit was admitted, canceled, or settled; inspect its submission and tasks before taking further action.",
-    "nextCommand": "workflow queue list"
+    "stateCheck": "caller-held-handle",
+    "when": "Cancellation fails or races with admission."
   }
 ]
 ```
@@ -300,7 +321,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/queue/{queueId}/cancel"
+    "target": "POST /bridge/v2/workflows/queue/{queueId}/cancel"
   }
 ]
 ```

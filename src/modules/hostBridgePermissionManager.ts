@@ -8,29 +8,7 @@ import {
   setSkillRunnerHostBridgePermissionRequest,
 } from "./skillRunnerHostBridgePermissionRegistry";
 import { getPref } from "../utils/prefs";
-
-const NO_APPROVAL_CAPABILITIES = new Set([
-  "context.get_current_view",
-  "context.get_selected_items",
-  "library.search_items",
-  "library.list_items",
-  "library.sync_snapshot",
-  "library.readiness_audit",
-  "library.get_item_detail",
-  "library.get_item_notes",
-  "library.get_note_detail",
-  "library.list_note_payloads",
-  "library.get_note_payload",
-  "library.get_item_attachments",
-  "library.list_annotations",
-  "library.export_annotations",
-  "workflow_products.list",
-  "workflow_products.get",
-  "workflow_products.read_asset",
-  "workflow_products.export",
-  "mutation.preview",
-  "diagnostic.get_status",
-]);
+import { getHostBridgeCapabilityContract } from "./hostBridgeCapabilityContract";
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -573,34 +551,9 @@ async function requestAcpChatScopedPermission(
 export function getHostBridgeApprovalRequirement(
   capability: string,
 ): HostBridgeApprovalRequirement {
-  let requirement: HostBridgeApprovalRequirement = "zotero-ui-required";
-  if (
-    capability === "debug.synthesis.cleanInstallReset" ||
-    capability === "debug.zotero.eval" ||
-    capability === "citation_graph.refresh_metrics" ||
-    capability === "reference_sidecar.refresh" ||
-    capability === "citation_graph.update"
-  ) {
-    requirement = "zotero-ui-required";
-  } else if (capability === "synthesis.operation.get") {
-    requirement = "none";
-  } else if (capability.startsWith("debug.")) {
-    requirement = "none";
-  } else if (
-    capability.startsWith("citation_graph.") ||
-    capability.startsWith("concepts.") ||
-    capability.startsWith("insights.") ||
-    capability.startsWith("library_index.") ||
-    capability.startsWith("paper_artifacts.") ||
-    capability.startsWith("reference_index.") ||
-    capability.startsWith("resolvers.") ||
-    capability.startsWith("schemas.") ||
-    capability.startsWith("topics.")
-  ) {
-    requirement = "none";
-  } else if (NO_APPROVAL_CAPABILITIES.has(capability)) {
-    requirement = "none";
-  }
+  const requirement =
+    getHostBridgeCapabilityContract(capability)?.approval ||
+    "zotero-ui-required";
   if (
     requirement === "zotero-ui-required" &&
     hostBridgeWriteApprovalDisabled()

@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,13 +49,18 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "scope": {
-      "type": "string",
-      "enum": [
-        "library",
-        "papers"
+    "idempotencyKey": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "libraryId": {
+      "type": [
+        "number",
+        "string"
       ]
     },
     "library_id": {
@@ -64,27 +69,21 @@ Required: `false`.
         "string"
       ]
     },
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
+    "paperRefs": {
+      "type": "array"
     },
     "paper_refs": {
       "type": "array"
     },
-    "paperRefs": {
-      "type": "array"
-    },
-    "idempotency_key": {
-      "type": "string"
-    },
-    "idempotencyKey": {
+    "scope": {
+      "enum": [
+        "library",
+        "papers"
+      ],
       "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -92,13 +91,18 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "scope": {
-      "type": "string",
-      "enum": [
-        "library",
-        "papers"
+    "idempotencyKey": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "libraryId": {
+      "type": [
+        "number",
+        "string"
       ]
     },
     "library_id": {
@@ -107,50 +111,56 @@ Required: `false`.
         "string"
       ]
     },
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
+    "paperRefs": {
+      "type": "array"
     },
     "paper_refs": {
       "type": "array"
     },
-    "paperRefs": {
-      "type": "array"
-    },
-    "idempotency_key": {
-      "type": "string"
-    },
-    "idempotencyKey": {
+    "scope": {
+      "enum": [
+        "library",
+        "papers"
+      ],
       "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "reference_sidecar.refresh"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by reference_sidecar.refresh.",
       "additionalProperties": true,
+      "description": "Result data owned by reference_sidecar.refresh.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -174,71 +184,89 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "synthesis cache refresh-reference-sidecar",
-  "argv": [
-    "synthesis",
-    "cache",
-    "refresh-reference-sidecar"
-  ],
-  "summary": "Start a reference-sidecar refresh",
-  "category": "maintenance",
-  "danger": "high",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "input": {
-        "type": "string",
-        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
   },
   "arguments": [
     {
-      "id": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "input",
+      "id": "input",
       "kind": "option",
-      "token": "--input",
-      "takesValue": true,
+      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--input",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "argv": [
+    "synthesis",
+    "cache",
+    "refresh-reference-sidecar"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "input",
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "passthrough",
+  "category": "maintenance",
+  "command": "synthesis cache refresh-reference-sidecar",
+  "composition": null,
+  "danger": "high",
+  "effects": [
+    {
+      "description": "May change cache maintenance state.",
+      "kind": "cache-maintenance",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "input": {
-      "token": "--input",
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --input.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
       "required": false,
       "requiredWhen": [],
       "schema": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "scope": {
-            "type": "string",
-            "enum": [
-              "library",
-              "papers"
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
             ]
           },
           "library_id": {
@@ -247,128 +275,37 @@ This closed descriptor is the machine-readable command contract returned by `sur
               "string"
             ]
           },
-          "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+          "paperRefs": {
+            "type": "array"
           },
           "paper_refs": {
             "type": "array"
           },
-          "paperRefs": {
-            "type": "array"
-          },
-          "idempotency_key": {
-            "type": "string"
-          },
-          "idempotencyKey": {
+          "scope": {
+            "enum": [
+              "library",
+              "papers"
+            ],
             "type": "string"
           }
         },
-        "required": [],
-        "additionalProperties": false
+        "type": "object"
       },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --input."
-        }
-      ]
+      "schemaSource": "target-capability",
+      "token": "--input"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "scope": {
-        "type": "string",
-        "enum": [
-          "library",
-          "papers"
-        ]
-      },
-      "library_id": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "libraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
-      "paper_refs": {
-        "type": "array"
-      },
-      "paperRefs": {
-        "type": "array"
-      },
-      "idempotency_key": {
-        "type": "string"
-      },
-      "idempotencyKey": {
+      "input": {
+        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
         "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by reference_sidecar.refresh.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "cache-maintenance",
-      "stateChanged": true,
-      "description": "May change cache maintenance state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "reference_sidecar.refresh"
-    }
-  ],
   "operationalAliases": [
     "synthesis cache refresh-reference-sidecar",
     "synthesis",
@@ -377,9 +314,101 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "input",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "idempotencyKey": {
+        "type": "string"
+      },
+      "idempotency_key": {
+        "type": "string"
+      },
+      "libraryId": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "library_id": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "paperRefs": {
+        "type": "array"
+      },
+      "paper_refs": {
+        "type": "array"
+      },
+      "scope": {
+        "enum": [
+          "library",
+          "papers"
+        ],
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "reference_sidecar.refresh"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by reference_sidecar.refresh.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Start a reference-sidecar refresh",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "reference_sidecar.refresh"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -387,6 +416,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `maintenance`; danger: `high`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis cache refresh-reference-sidecar`, `synthesis`, `cache`, `refresh-reference-sidecar`, `input`, `JSON_OR_FILE`.
 
@@ -395,9 +425,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change cache maintenance state.",
     "kind": "cache-maintenance",
-    "stateChanged": true,
-    "description": "May change cache maintenance state."
+    "stateChanged": true
   }
 ]
 ```
@@ -407,8 +437,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
@@ -424,11 +454,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```

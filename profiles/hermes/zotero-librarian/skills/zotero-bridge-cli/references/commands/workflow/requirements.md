@@ -30,24 +30,13 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id"
-    },
-    "legacy_workflow": {
-      "type": "string",
-      "position": 1
-    }
-  },
-  "required": [],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "workflow",
-          "legacy_workflow"
+          "legacy_workflow",
+          "workflow"
         ]
       }
     },
@@ -66,7 +55,18 @@ The global options may appear before or after the leaf command. This leaf has no
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "legacy_workflow": {
+      "position": 1,
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
 }
 ```
 
@@ -78,35 +78,41 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id"
-    },
     "legacy_workflow": {
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id",
       "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/workflows/requirements.",
       "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/workflows/requirements.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -121,33 +127,102 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow requirements",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "legacy_workflow"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow id",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "workflow"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "legacy_workflow",
+      "id": "legacy_workflow",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "LEGACY_WORKFLOW",
+      "valueNames": [
+        "LEGACY_WORKFLOW"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "requirements"
   ],
-  "summary": "Read workflow requirements",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id"
-      },
-      "legacy_workflow": {
-        "type": "string",
-        "position": 1
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
     },
-    "required": [],
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "legacy_workflow",
+      "required": false,
+      "takesValue": true,
+      "token": "LEGACY_WORKFLOW",
+      "valueNames": [
+        "LEGACY_WORKFLOW"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "read",
+  "command": "workflow requirements",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "workflow",
-            "legacy_workflow"
+            "legacy_workflow",
+            "workflow"
           ]
         }
       },
@@ -166,132 +241,19 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Workflow id",
-      "valueNames": [
-        "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "legacy_workflow"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "legacy_workflow",
-      "kind": "positional",
-      "token": "LEGACY_WORKFLOW",
-      "position": 1,
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "legacy_workflow",
-      "valueNames": [
-        "LEGACY_WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "workflow"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "legacy_workflow",
-      "kind": "positional",
-      "token": "LEGACY_WORKFLOW",
-      "position": 1,
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LEGACY_WORKFLOW"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id"
-      },
       "legacy_workflow": {
+        "position": 1,
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Workflow id",
         "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/workflows/requirements.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/requirements"
-    }
-  ],
   "operationalAliases": [
     "workflow requirements",
     "workflow",
@@ -300,9 +262,67 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "legacy_workflow",
     "LEGACY_WORKFLOW"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "legacy_workflow": {
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Workflow id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/workflows/requirements.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Read workflow requirements",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/workflows/requirements"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -310,6 +330,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow requirements`, `workflow`, `requirements`, `WORKFLOW`, `legacy_workflow`, `LEGACY_WORKFLOW`.
 
@@ -318,9 +339,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -330,8 +351,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -347,11 +368,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -362,7 +383,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/requirements"
+    "target": "POST /bridge/v2/workflows/requirements"
   }
 ]
 ```

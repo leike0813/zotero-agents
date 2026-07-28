@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,11 +25,30 @@ export async function checkHostBridgeCliBinaryIdentity(options = {}) {
     throw new Error("platform and binary are required");
   }
 
-  const [release, surface, bytes] = await Promise.all([
+  const [release, bytes] = await Promise.all([
     readJson(root, "cli/zotero-bridge/release.json"),
-    readJson(root, "cli/zotero-bridge/src/agent-surface.json"),
     fs.readFile(path.join(root, "addon", "bin", platform, binary)),
   ]);
+  const surface =
+    options.surface ||
+    JSON.parse(
+      execFileSync(
+        "cargo",
+        [
+          "run",
+          "--quiet",
+          "--manifest-path",
+          path.join(root, "cli/zotero-bridge/Cargo.toml"),
+          "--example",
+          "export-agent-surface",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ),
+    );
   const expected = [
     release.version,
     release.buildFingerprint,

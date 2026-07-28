@@ -1,6 +1,6 @@
 # `zotero-bridge library readiness missing-pdf`
 
-列出缺少 PDF 附件的 Zotero item
+List Zotero items missing a PDF attachment
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--query <JSON_OR_FILE>]
 ```
 
-全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
+全局选项可位于叶命令之前或之后。 使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
 
 ## 全局参数
 
@@ -29,15 +29,15 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "query": {
-      "type": "string",
-      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,14 +49,8 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
     "collection": {},
     "collectionId": {
       "type": [
@@ -73,31 +67,23 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
         "string"
       ]
     },
-    "tag": {
+    "cursor": {
       "type": "string"
     },
     "itemType": {
       "type": "string"
     },
-    "query": {
-      "type": "string"
-    },
-    "limit": {
+    "libraryId": {
       "type": [
         "number",
         "string"
-      ],
-      "minimum": 1
+      ]
     },
-    "cursor": {
-      "type": "string"
-    },
-    "checks": {},
-    "missingOnly": {
+    "limit": {
+      "minimum": 1,
       "type": [
-        "boolean",
-        "string",
-        "number"
+        "number",
+        "string"
       ]
     },
     "missing_only": {
@@ -106,25 +92,25 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
         "string",
         "number"
       ]
+    },
+    "query": {
+      "type": "string"
+    },
+    "tag": {
+      "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "libraryId": {
-      "type": [
-        "number",
-        "string"
-      ]
-    },
+    "checks": {},
     "collection": {},
     "collectionId": {
       "type": [
@@ -141,26 +127,25 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
         "string"
       ]
     },
-    "tag": {
+    "cursor": {
       "type": "string"
     },
     "itemType": {
       "type": "string"
     },
-    "query": {
-      "type": "string"
-    },
-    "limit": {
+    "libraryId": {
       "type": [
         "number",
         "string"
-      ],
-      "minimum": 1
+      ]
     },
-    "cursor": {
-      "type": "string"
+    "limit": {
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
     },
-    "checks": {},
     "missingOnly": {
       "type": [
         "boolean",
@@ -174,10 +159,34 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
         "string",
         "number"
       ]
+    },
+    "query": {
+      "type": "string"
+    },
+    "tag": {
+      "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload 组合
+
+以下内容由可执行命令契约定义 base source、fixed value、field mapping 与 closed transform。命令 handler 只向所引用的 Clap argument ID 提供值。
+
+```json
+{
+  "base": {
+    "argument": "query"
+  },
+  "constants": {
+    "checks": [
+      "pdf"
+    ],
+    "missingOnly": true
+  },
+  "mappings": []
 }
 ```
 
@@ -185,22 +194,28 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "library.readiness_audit"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by library.readiness_audit.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by library.readiness_audit.",
       "properties": {
+        "hasMore": {
+          "type": "boolean"
+        },
         "items": {
           "type": "array"
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
         },
         "nextCursor": {
           "type": [
@@ -208,25 +223,25 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
             "null"
           ]
         },
-        "hasMore": {
-          "type": "boolean"
-        },
         "returned": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -234,7 +249,7 @@ zotero-bridge library readiness missing-pdf [--endpoint <ENDPOINT>] [--operation
 
 ### query: shape-only
 
-最小 JSON 结构： --query.
+用于 --query 的最小 JSON 形状。
 
 ```console
 zotero-bridge library readiness missing-pdf --query '{}'
@@ -242,82 +257,100 @@ zotero-bridge library readiness missing-pdf --query '{}'
 
 前置条件：
 
-- 执行前，请将示例标识符和值替换为对所选 Zotero 文献库、workflow、provider 或 capability 有效的输入。
+- 执行前，请将示例标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "library readiness missing-pdf",
-  "argv": [
-    "library",
-    "readiness",
-    "missing-pdf"
-  ],
-  "summary": "List Zotero items missing a PDF attachment",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "query",
-      "kind": "option",
-      "token": "--query",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
       "aliases": [
         "input"
       ],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "query",
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "query",
       "kind": "option",
-      "token": "--query",
-      "takesValue": true,
+      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--query",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "argv": [
+    "library",
+    "readiness",
+    "missing-pdf"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "query",
+      "required": false,
+      "takesValue": true,
+      "token": "--query",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "overlay",
+  "category": "read",
+  "command": "library readiness missing-pdf",
+  "composition": {
+    "base": {
+      "argument": "query"
+    },
+    "constants": {
+      "checks": [
+        "pdf"
+      ],
+      "missingOnly": true
+    },
+    "mappings": []
+  },
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "query": {
-      "token": "--query",
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --query.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
       "required": false,
       "requiredWhen": [],
       "schema": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
-          },
           "collection": {},
           "collectionId": {
             "type": [
@@ -334,31 +367,23 @@ zotero-bridge library readiness missing-pdf --query '{}'
               "string"
             ]
           },
-          "tag": {
+          "cursor": {
             "type": "string"
           },
           "itemType": {
             "type": "string"
           },
-          "query": {
-            "type": "string"
-          },
-          "limit": {
+          "libraryId": {
             "type": [
               "number",
               "string"
-            ],
-            "minimum": 1
+            ]
           },
-          "cursor": {
-            "type": "string"
-          },
-          "checks": {},
-          "missingOnly": {
+          "limit": {
+            "minimum": 1,
             "type": [
-              "boolean",
-              "string",
-              "number"
+              "number",
+              "string"
             ]
           },
           "missing_only": {
@@ -367,32 +392,58 @@ zotero-bridge library readiness missing-pdf --query '{}'
               "string",
               "number"
             ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
           }
         },
-        "required": [],
-        "additionalProperties": false
+        "type": "object"
       },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --query."
-        }
-      ]
+      "schemaSource": "composition",
+      "token": "--query"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "libraryId": {
-        "type": [
-          "number",
-          "string"
-        ]
-      },
+      "query": {
+        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "library readiness missing-pdf",
+    "library",
+    "readiness",
+    "missing-pdf",
+    "query",
+    "JSON_OR_FILE"
+  ],
+  "outputBoundary": {
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.items",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "checks": {},
       "collection": {},
       "collectionId": {
         "type": [
@@ -409,26 +460,25 @@ zotero-bridge library readiness missing-pdf --query '{}'
           "string"
         ]
       },
-      "tag": {
+      "cursor": {
         "type": "string"
       },
       "itemType": {
         "type": "string"
       },
-      "query": {
-        "type": "string"
-      },
-      "limit": {
+      "libraryId": {
         "type": [
           "number",
           "string"
-        ],
-        "minimum": 1
+        ]
       },
-      "cursor": {
-        "type": "string"
+      "limit": {
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
       },
-      "checks": {},
       "missingOnly": {
         "type": [
           "boolean",
@@ -442,28 +492,48 @@ zotero-bridge library readiness missing-pdf --query '{}'
           "string",
           "number"
         ]
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
+      },
+      "query": {
         "type": "string"
       },
+      "tag": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
       "approval": {
-        "type": "object"
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "library.readiness_audit"
       },
       "data": {
-        "type": "object",
-        "description": "Result data owned by library.readiness_audit.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "description": "Result data owned by library.readiness_audit.",
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "items": {
             "type": "array"
+          },
+          "limit": {
+            "minimum": 0,
+            "type": "integer"
           },
           "nextCursor": {
             "type": [
@@ -471,97 +541,66 @@ zotero-bridge library readiness missing-pdf --query '{}'
               "null"
             ]
           },
-          "hasMore": {
-            "type": "boolean"
-          },
           "returned": {
-            "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "type": "integer"
           },
           "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "type": "integer"
           }
-        }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
       }
     },
-    "additionalProperties": false
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "data.items",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total",
-      "data.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "List Zotero items missing a PDF attachment",
   "targets": [
     {
       "kind": "capability",
       "target": "library.readiness_audit"
     }
-  ],
-  "operationalAliases": [
-    "library readiness missing-pdf",
-    "library",
-    "readiness",
-    "missing-pdf",
-    "query",
-    "JSON_OR_FILE"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- `command_input` 表示结构化输入违反 schema。检查有界的 `violations`，然后对这个准确的叶命令运行 `--schema`，修正已声明的字段或类型；不得自行发明别名。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `library` `readiness` `missing-pdf`.
-- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
+- 输出边界： `cursor`；受管详情： {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.items","strategy":"cursor"}.
 - 分页： `cursor`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `overlay`.
+- intent 可见性： `visible`.
 - 操作别名： `library readiness missing-pdf`, `library`, `readiness`, `missing-pdf`, `query`, `JSON_OR_FILE`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -571,12 +610,12 @@ zotero-bridge library readiness missing-pdf --query '{}'
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -588,16 +627,16 @@ zotero-bridge library readiness missing-pdf --query '{}'
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

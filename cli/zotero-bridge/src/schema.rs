@@ -2,25 +2,14 @@ use clap::{Command, CommandFactory};
 use serde_json::{json, Map, Value};
 
 use crate::args::Cli;
+use crate::contract;
 use crate::error::{CliError, ErrorCategory};
-
-const REGISTRY_JSON: &str =
-    include_str!("../../../schemas/host-bridge-cli-command-contracts.v1.json");
-
-fn registry() -> Result<Value, CliError> {
-    serde_json::from_str(REGISTRY_JSON).map_err(|error| {
-        CliError::internal(
-            "command_contract_registry_invalid",
-            format!("Embedded command-contract registry is invalid: {error}"),
-        )
-    })
-}
 
 pub fn is_schema_request(argv: &[String]) -> bool {
     argv.iter().skip(1).any(|argument| argument == "--schema")
 }
 
-fn leaf_path(argv: &[String]) -> Result<String, CliError> {
+pub fn leaf_path(argv: &[String]) -> Result<String, CliError> {
     let root = Cli::command();
     let mut command = &root;
     let mut path = Vec::new();
@@ -68,23 +57,7 @@ fn leaf_path(argv: &[String]) -> Result<String, CliError> {
 
 pub fn run(argv: &[String]) -> Result<Value, CliError> {
     let command = leaf_path(argv)?;
-    let registry = registry()?;
-    let contract = registry
-        .pointer(&format!(
-            "/commands/{}",
-            command.replace('~', "~0").replace('/', "~1")
-        ))
-        .ok_or_else(|| {
-            CliError::internal(
-                "command_contract_missing",
-                format!("Embedded command-contract registry has no entry for {command}"),
-            )
-        })?;
-    let inputs = contract
-        .get("inputs")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let inputs = contract::resolved_command_inputs(&command)?;
     if inputs.is_empty() {
         return Err(CliError::validation(
             "command_input_schema_unavailable",
@@ -93,7 +66,7 @@ pub fn run(argv: &[String]) -> Result<Value, CliError> {
         .with_next_command(format!("zotero-bridge surface describe {command} --json")));
     }
     Ok(json!({
-        "schema": "zotero-bridge.command-input-schemas.v1",
+        "schema": "zotero-bridge.command-input-schemas.v2",
         "command": command,
         "inputs": inputs,
     }))
@@ -169,7 +142,7 @@ fn augment(command: &mut Command, path: &mut Vec<String>, contracts: &Map<String
 }
 
 pub fn augment_command_help(command: &mut Command) {
-    let Ok(registry) = registry() else {
+    let Ok(registry) = contract::command_contract() else {
         return;
     };
     let Some(contracts) = registry.get("commands").and_then(Value::as_object) else {

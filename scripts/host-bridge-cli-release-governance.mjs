@@ -67,6 +67,11 @@ const BUILD_INPUT_EXACT_PATHS = new Set([
   "scripts/package-zotero-bridge-cli.mjs",
   CARGO_TOML_PATH,
   CARGO_LOCK_PATH,
+  "host-bridge/contracts/capabilities.v2.json",
+  "host-bridge/contracts/cli-commands.v2.json",
+  "schemas/host-bridge-capabilities.v2.schema.json",
+  "schemas/host-bridge-cli-command-contracts.v2.schema.json",
+  "schemas/host-bridge.agent-surface.v6.schema.json",
 ]);
 
 const BUILD_INPUT_PREFIXES = ["cli/zotero-bridge/src/"];

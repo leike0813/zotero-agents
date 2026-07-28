@@ -35,39 +35,39 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow-run-id": {
-      "type": "string",
-      "description": "Filter by workflow run id"
-    },
-    "skill-run-id": {
-      "type": "string",
-      "description": "Filter by concrete skill run id"
-    },
-    "type": {
-      "type": "string",
-      "description": "Filter by notification type"
-    },
-    "since-event-id": {
-      "type": "string",
-      "description": "Return events after this event id"
+    "acknowledged": {
+      "description": "Filter by acknowledgement state",
+      "type": "string"
     },
     "client-id": {
-      "type": "string",
-      "description": "Best-effort Zotero notification client id"
-    },
-    "acknowledged": {
-      "type": "string",
-      "description": "Filter by acknowledgement state"
+      "description": "Best-effort Zotero notification client id",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of events to return"
+      "description": "Maximum number of events to return",
+      "type": "string"
+    },
+    "since-event-id": {
+      "description": "Return events after this event id",
+      "type": "string"
+    },
+    "skill-run-id": {
+      "description": "Filter by concrete skill run id",
+      "type": "string"
+    },
+    "type": {
+      "description": "Filter by notification type",
+      "type": "string"
+    },
+    "workflow-run-id": {
+      "description": "Filter by workflow run id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -79,53 +79,56 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow_run_id": {
-      "type": "string",
-      "description": "Filter by workflow run id"
-    },
-    "skill_run_id": {
-      "type": "string",
-      "description": "Filter by concrete skill run id"
-    },
-    "type": {
-      "type": "string",
-      "description": "Filter by notification type"
-    },
-    "since_event_id": {
-      "type": "string",
-      "description": "Return events after this event id"
+    "acknowledged": {
+      "description": "Filter by acknowledgement state",
+      "type": "string"
     },
     "client_id": {
-      "type": "string",
-      "description": "Best-effort Zotero notification client id"
-    },
-    "acknowledged": {
-      "type": "string",
-      "description": "Filter by acknowledgement state"
+      "description": "Best-effort Zotero notification client id",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of events to return"
+      "description": "Maximum number of events to return",
+      "type": "string"
+    },
+    "since_event_id": {
+      "description": "Return events after this event id",
+      "type": "string"
+    },
+    "skill_run_id": {
+      "description": "Filter by concrete skill run id",
+      "type": "string"
+    },
+    "type": {
+      "description": "Filter by notification type",
+      "type": "string"
+    },
+    "workflow_run_id": {
+      "description": "Filter by workflow run id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "notifications": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
+    "hasMore": {
+      "type": "boolean"
     },
     "nextSinceEventId": {
       "type": [
@@ -133,11 +136,14 @@ This command has no structured JSON input parameter.
         "null"
       ]
     },
+    "notifications": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
     "returned": {
       "type": "integer"
-    },
-    "hasMore": {
-      "type": "boolean"
     },
     "truncated": {
       "type": "boolean"
@@ -149,7 +155,7 @@ This command has no structured JSON input parameter.
     "hasMore",
     "truncated"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -163,356 +169,262 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "run notification list",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Filter by workflow run id",
+      "id": "workflow_run_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-run-id",
+      "valueNames": [
+        "WORKFLOW_RUN_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Filter by concrete skill run id",
+      "id": "skill_run_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--skill-run-id",
+      "valueNames": [
+        "SKILL_RUN_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Filter by notification type",
+      "id": "event_type",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--type",
+      "valueNames": [
+        "EVENT_TYPE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Return events after this event id",
+      "id": "since_event_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--since-event-id",
+      "valueNames": [
+        "SINCE_EVENT_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Best-effort Zotero notification client id",
+      "id": "client_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--client-id",
+      "valueNames": [
+        "CLIENT_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Filter by acknowledgement state",
+      "id": "acknowledged",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--acknowledged",
+      "valueNames": [
+        "ACKNOWLEDGED"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of events to return",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "run",
     "notification",
     "list"
   ],
-  "summary": "List workflow notification inbox events",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow-run-id": {
-        "type": "string",
-        "description": "Filter by workflow run id"
-      },
-      "skill-run-id": {
-        "type": "string",
-        "description": "Filter by concrete skill run id"
-      },
-      "type": {
-        "type": "string",
-        "description": "Filter by notification type"
-      },
-      "since-event-id": {
-        "type": "string",
-        "description": "Return events after this event id"
-      },
-      "client-id": {
-        "type": "string",
-        "description": "Best-effort Zotero notification client id"
-      },
-      "acknowledged": {
-        "type": "string",
-        "description": "Filter by acknowledgement state"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of events to return"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "workflow_run_id",
-      "kind": "option",
-      "token": "--workflow-run-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Filter by workflow run id",
-      "valueNames": [
-        "WORKFLOW_RUN_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "skill_run_id",
-      "kind": "option",
-      "token": "--skill-run-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Filter by concrete skill run id",
-      "valueNames": [
-        "SKILL_RUN_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "event_type",
-      "kind": "option",
-      "token": "--type",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Filter by notification type",
-      "valueNames": [
-        "EVENT_TYPE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "since_event_id",
-      "kind": "option",
-      "token": "--since-event-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Return events after this event id",
-      "valueNames": [
-        "SINCE_EVENT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "client_id",
-      "kind": "option",
-      "token": "--client-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Best-effort Zotero notification client id",
-      "valueNames": [
-        "CLIENT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "acknowledged",
-      "kind": "option",
-      "token": "--acknowledged",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Filter by acknowledgement state",
-      "valueNames": [
-        "ACKNOWLEDGED"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of events to return",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
   "argvBindings": [
     {
-      "property": "workflow-run-id",
       "kind": "option",
-      "token": "--workflow-run-id",
-      "takesValue": true,
+      "property": "workflow-run-id",
       "required": false,
+      "takesValue": true,
+      "token": "--workflow-run-id",
       "valueNames": [
         "WORKFLOW_RUN_ID"
       ]
     },
     {
-      "property": "skill-run-id",
       "kind": "option",
-      "token": "--skill-run-id",
-      "takesValue": true,
+      "property": "skill-run-id",
       "required": false,
+      "takesValue": true,
+      "token": "--skill-run-id",
       "valueNames": [
         "SKILL_RUN_ID"
       ]
     },
     {
-      "property": "type",
       "kind": "option",
-      "token": "--type",
-      "takesValue": true,
+      "property": "type",
       "required": false,
+      "takesValue": true,
+      "token": "--type",
       "valueNames": [
         "EVENT_TYPE"
       ]
     },
     {
-      "property": "since-event-id",
       "kind": "option",
-      "token": "--since-event-id",
-      "takesValue": true,
+      "property": "since-event-id",
       "required": false,
+      "takesValue": true,
+      "token": "--since-event-id",
       "valueNames": [
         "SINCE_EVENT_ID"
       ]
     },
     {
-      "property": "client-id",
       "kind": "option",
-      "token": "--client-id",
-      "takesValue": true,
+      "property": "client-id",
       "required": false,
+      "takesValue": true,
+      "token": "--client-id",
       "valueNames": [
         "CLIENT_ID"
       ]
     },
     {
-      "property": "acknowledged",
       "kind": "option",
-      "token": "--acknowledged",
-      "takesValue": true,
+      "property": "acknowledged",
       "required": false,
+      "takesValue": true,
+      "token": "--acknowledged",
       "valueNames": [
         "ACKNOWLEDGED"
       ]
     },
     {
-      "property": "limit",
       "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
+      "property": "limit",
       "required": false,
+      "takesValue": true,
+      "token": "--limit",
       "valueNames": [
         "LIMIT"
       ]
     }
   ],
+  "binding": "none",
+  "category": "read",
+  "command": "run notification list",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "workflow_run_id": {
-        "type": "string",
-        "description": "Filter by workflow run id"
-      },
-      "skill_run_id": {
-        "type": "string",
-        "description": "Filter by concrete skill run id"
-      },
-      "type": {
-        "type": "string",
-        "description": "Filter by notification type"
-      },
-      "since_event_id": {
-        "type": "string",
-        "description": "Return events after this event id"
-      },
-      "client_id": {
-        "type": "string",
-        "description": "Best-effort Zotero notification client id"
-      },
       "acknowledged": {
-        "type": "string",
-        "description": "Filter by acknowledgement state"
+        "description": "Filter by acknowledgement state",
+        "type": "string"
+      },
+      "client-id": {
+        "description": "Best-effort Zotero notification client id",
+        "type": "string"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of events to return"
+        "description": "Maximum number of events to return",
+        "type": "string"
+      },
+      "since-event-id": {
+        "description": "Return events after this event id",
+        "type": "string"
+      },
+      "skill-run-id": {
+        "description": "Filter by concrete skill run id",
+        "type": "string"
+      },
+      "type": {
+        "description": "Filter by notification type",
+        "type": "string"
+      },
+      "workflow-run-id": {
+        "description": "Filter by workflow run id",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "notifications": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
-      },
-      "nextSinceEventId": {
-        "type": [
-          "string",
-          "null"
-        ]
-      },
-      "returned": {
-        "type": "integer"
-      },
-      "hasMore": {
-        "type": "boolean"
-      },
-      "truncated": {
-        "type": "boolean"
-      }
-    },
-    "required": [
-      "notifications",
-      "returned",
-      "hasMore",
-      "truncated"
-    ],
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "notifications",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "since_event_id",
-    "continuation": [
-      "nextSinceEventId",
-      "hasMore",
-      "returned"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/notifications"
-    }
-  ],
   "operationalAliases": [
     "run notification list",
     "run",
@@ -538,16 +450,125 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "nextSinceEventId",
+      "hasMore",
+      "returned"
+    ],
+    "cursorInput": "since_event_id",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "notifications",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "acknowledged": {
+        "description": "Filter by acknowledgement state",
+        "type": "string"
+      },
+      "client_id": {
+        "description": "Best-effort Zotero notification client id",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of events to return",
+        "type": "string"
+      },
+      "since_event_id": {
+        "description": "Return events after this event id",
+        "type": "string"
+      },
+      "skill_run_id": {
+        "description": "Filter by concrete skill run id",
+        "type": "string"
+      },
+      "type": {
+        "description": "Filter by notification type",
+        "type": "string"
+      },
+      "workflow_run_id": {
+        "description": "Filter by workflow run id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "hasMore": {
+        "type": "boolean"
+      },
+      "nextSinceEventId": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "notifications": {
+        "items": {
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "returned": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "notifications",
+      "returned",
+      "hasMore",
+      "truncated"
+    ],
+    "type": "object"
+  },
+  "summary": "List workflow notification inbox events",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/notifications"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `run` `notification` `list`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"notifications","defaultLimit":25,"maxLimit":100,"cursorInput":"since_event_id","continuation":["nextSinceEventId","hasMore","returned"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["nextSinceEventId","hasMore","returned"],"cursorInput":"since_event_id","defaultLimit":25,"maxLimit":100,"section":"notifications","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `run notification list`, `run`, `notification`, `list`, `workflow_run_id`, `workflow-run-id`, `WORKFLOW_RUN_ID`, `skill_run_id`, `skill-run-id`, `SKILL_RUN_ID`, `event_type`, `type`, `EVENT_TYPE`, `since_event_id`, `since-event-id`, `SINCE_EVENT_ID`, `client_id`, `client-id`, `CLIENT_ID`, `acknowledged`, `ACKNOWLEDGED`, `limit`, `LIMIT`.
 
@@ -556,9 +577,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -568,8 +589,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -585,11 +606,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -600,7 +621,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/notifications"
+    "target": "GET /bridge/v2/notifications"
   }
 ]
 ```

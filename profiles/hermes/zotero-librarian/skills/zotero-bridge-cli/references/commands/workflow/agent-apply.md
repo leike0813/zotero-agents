@@ -30,26 +30,26 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agent_run_id": {
-      "type": "string",
       "description": "Agent run id returned by workflow agent-run",
-      "position": 1
+      "position": 1,
+      "type": "string"
     },
     "result": {
-      "type": "array",
+      "description": "Apply-back result mapping. Repeat for multiple request bundles.",
       "items": {
         "type": "string"
       },
-      "description": "Apply-back result mapping. Repeat for multiple request bundles."
+      "type": "array"
     }
   },
   "required": [
     "agent_run_id",
     "result"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -61,62 +61,48 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agent_run_id": {
-      "type": "string",
-      "description": "Agent run id returned by workflow agent-run"
+      "description": "Agent run id returned by workflow agent-run",
+      "type": "string"
     },
     "result": {
-      "type": "string",
-      "description": "Apply-back result mapping. Repeat for multiple request bundles."
+      "description": "Apply-back result mapping. Repeat for multiple request bundles.",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agentRunId": {
-      "type": "string"
-    },
-    "workflowId": {
       "type": "string"
     },
     "appliedAt": {
       "type": "string"
     },
+    "handleConsumption": {
+      "const": "consumed"
+    },
     "permission": {
       "type": "object"
     },
-    "summary": {
-      "type": "object",
-      "properties": {
-        "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "succeeded": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "failed": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "total",
-        "succeeded",
-        "failed"
-      ],
-      "additionalProperties": false
+    "receiptUrl": {
+      "type": "string"
     },
     "stateChange": {
       "enum": [
@@ -124,10 +110,30 @@ This command has no structured JSON input parameter.
         "changed"
       ]
     },
-    "handleConsumption": {
-      "const": "consumed"
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "succeeded": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "succeeded",
+        "failed"
+      ],
+      "type": "object"
     },
-    "receiptUrl": {
+    "workflowId": {
       "type": "string"
     }
   },
@@ -141,7 +147,7 @@ This command has no structured JSON input parameter.
     "handleConsumption",
     "receiptUrl"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -155,150 +161,197 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow agent-apply",
+  "approvalContract": {
+    "kind": "conditional",
+    "scope": "Each result request is preflighted before any approval or handle consumption.",
+    "timing": "apply-back"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Agent run id returned by workflow agent-run",
+      "id": "agent_run_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "AGENT_RUN_ID",
+      "valueNames": [
+        "AGENT_RUN_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Apply-back result mapping. Repeat for multiple request bundles.",
+      "id": "results",
+      "kind": "option",
+      "numArgs": "1",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "--result",
+      "valueNames": [
+        "AGENT_REQUEST_ID=BUNDLE_PATH"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "agent-apply"
   ],
-  "summary": "Apply finalized self-owned agent workflow result bundles",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "agent_run_id",
+      "required": true,
+      "takesValue": true,
+      "token": "AGENT_RUN_ID",
+      "valueNames": [
+        "AGENT_RUN_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "result",
+      "required": true,
+      "takesValue": true,
+      "token": "--result",
+      "valueNames": [
+        "AGENT_REQUEST_ID=BUNDLE_PATH"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "write",
+  "command": "workflow agent-apply",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    },
+    {
+      "description": "May apply finalized Agent results to the Zotero library.",
+      "kind": "zotero-library",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "agentRunId",
+      "lifetime": "one-shot",
+      "required": true
+    },
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "agentRequestId",
+      "lifetime": "caller-owned",
+      "required": true
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "applyReceipt",
+      "lifetime": "response",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "agent_run_id": {
-        "type": "string",
         "description": "Agent run id returned by workflow agent-run",
-        "position": 1
+        "position": 1,
+        "type": "string"
       },
       "result": {
-        "type": "array",
+        "description": "Apply-back result mapping. Repeat for multiple request bundles.",
         "items": {
           "type": "string"
         },
-        "description": "Apply-back result mapping. Repeat for multiple request bundles."
+        "type": "array"
       }
     },
     "required": [
       "agent_run_id",
       "result"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "agent_run_id",
-      "kind": "positional",
-      "token": "AGENT_RUN_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Agent run id returned by workflow agent-run",
-      "valueNames": [
-        "AGENT_RUN_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "results",
-      "kind": "option",
-      "token": "--result",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Apply-back result mapping. Repeat for multiple request bundles.",
-      "valueNames": [
-        "AGENT_REQUEST_ID=BUNDLE_PATH"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "numArgs": "1",
-      "aliases": [],
-      "defaultValues": []
-    }
+  "operationalAliases": [
+    "workflow agent-apply",
+    "workflow",
+    "agent-apply",
+    "agent_run_id",
+    "AGENT_RUN_ID",
+    "results",
+    "result",
+    "AGENT_REQUEST_ID=BUNDLE_PATH"
   ],
-  "argvBindings": [
-    {
-      "property": "agent_run_id",
-      "kind": "positional",
-      "token": "AGENT_RUN_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "AGENT_RUN_ID"
-      ]
-    },
-    {
-      "property": "result",
-      "kind": "option",
-      "token": "--result",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "AGENT_REQUEST_ID=BUNDLE_PATH"
-      ]
-    }
-  ],
-  "inputSchemas": {},
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
   "payloadSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "agent_run_id": {
-        "type": "string",
-        "description": "Agent run id returned by workflow agent-run"
+        "description": "Agent run id returned by workflow agent-run",
+        "type": "string"
       },
       "result": {
-        "type": "string",
-        "description": "Apply-back result mapping. Repeat for multiple request bundles."
+        "description": "Apply-back result mapping. Repeat for multiple request bundles.",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Read the persisted per-request apply receipt before retrying any result.",
+      "nextCommand": "workflow agent-apply-status",
+      "requiresHandles": [
+        "agentRunId"
+      ],
+      "stateCheck": "caller-held-handle",
+      "when": "Apply-back fails after preflight or may have partially written results."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "agentRunId": {
-        "type": "string"
-      },
-      "workflowId": {
         "type": "string"
       },
       "appliedAt": {
         "type": "string"
       },
+      "handleConsumption": {
+        "const": "consumed"
+      },
       "permission": {
         "type": "object"
       },
-      "summary": {
-        "type": "object",
-        "properties": {
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "succeeded": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "failed": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": [
-          "total",
-          "succeeded",
-          "failed"
-        ],
-        "additionalProperties": false
+      "receiptUrl": {
+        "type": "string"
       },
       "stateChange": {
         "enum": [
@@ -306,10 +359,30 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "changed"
         ]
       },
-      "handleConsumption": {
-        "const": "consumed"
+      "summary": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "succeeded": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "type": "object"
       },
-      "receiptUrl": {
+      "workflowId": {
         "type": "string"
       }
     },
@@ -323,82 +396,29 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "handleConsumption",
       "receiptUrl"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    },
-    {
-      "kind": "zotero-library",
-      "stateChanged": true,
-      "description": "May apply finalized Agent results to the Zotero library."
-    }
-  ],
-  "approvalContract": {
-    "kind": "conditional",
-    "timing": "apply-back",
-    "scope": "Each result request is preflighted before any approval or handle consumption."
-  },
-  "handleTransitions": [
-    {
-      "handle": "agentRunId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "one-shot"
-    },
-    {
-      "handle": "agentRequestId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    },
-    {
-      "handle": "applyReceipt",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "response"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "Apply-back fails after preflight or may have partially written results.",
-      "stateCheck": "caller-held-handle",
-      "requiresHandles": [
-        "agentRunId"
-      ],
-      "action": "Read the persisted per-request apply receipt before retrying any result.",
-      "nextCommand": "workflow agent-apply-status"
-    }
-  ],
+  "summary": "Apply finalized self-owned agent workflow result bundles",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply"
+      "target": "POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply"
     }
-  ],
-  "operationalAliases": [
-    "workflow agent-apply",
-    "workflow",
-    "agent-apply",
-    "agent_run_id",
-    "AGENT_RUN_ID",
-    "results",
-    "result",
-    "AGENT_REQUEST_ID=BUNDLE_PATH"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -406,6 +426,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow agent-apply`, `workflow`, `agent-apply`, `agent_run_id`, `AGENT_RUN_ID`, `results`, `result`, `AGENT_REQUEST_ID=BUNDLE_PATH`.
 
@@ -414,14 +435,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   },
   {
+    "description": "May apply finalized Agent results to the Zotero library.",
     "kind": "zotero-library",
-    "stateChanged": true,
-    "description": "May apply finalized Agent results to the Zotero library."
+    "stateChanged": true
   }
 ]
 ```
@@ -431,8 +452,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "conditional",
-  "timing": "apply-back",
-  "scope": "Each result request is preflighted before any approval or handle consumption."
+  "scope": "Each result request is preflighted before any approval or handle consumption.",
+  "timing": "apply-back"
 }
 ```
 
@@ -441,25 +462,25 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "condition": "Required by the command invocation.",
+    "direction": "consume",
     "handle": "agentRunId",
-    "direction": "consume",
-    "required": true,
-    "condition": "Required by the command invocation.",
-    "lifetime": "one-shot"
+    "lifetime": "one-shot",
+    "required": true
   },
   {
+    "condition": "Required by the command invocation.",
+    "direction": "consume",
     "handle": "agentRequestId",
-    "direction": "consume",
-    "required": true,
-    "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "lifetime": "caller-owned",
+    "required": true
   },
   {
-    "handle": "applyReceipt",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "response"
+    "direction": "produce",
+    "handle": "applyReceipt",
+    "lifetime": "response",
+    "required": false
   }
 ]
 ```
@@ -469,13 +490,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "Apply-back fails after preflight or may have partially written results.",
-    "stateCheck": "caller-held-handle",
+    "action": "Read the persisted per-request apply receipt before retrying any result.",
+    "nextCommand": "workflow agent-apply-status",
     "requiresHandles": [
       "agentRunId"
     ],
-    "action": "Read the persisted per-request apply receipt before retrying any result.",
-    "nextCommand": "workflow agent-apply-status"
+    "stateCheck": "caller-held-handle",
+    "when": "Apply-back fails after preflight or may have partially written results."
   }
 ]
 ```
@@ -486,7 +507,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply"
+    "target": "POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply"
   }
 ]
 ```

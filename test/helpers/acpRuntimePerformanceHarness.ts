@@ -248,7 +248,7 @@ async function exerciseR2ProductionSeams(requestId: string) {
   const scope = JSON.stringify({ kind: "acp-skill-run", requestId });
   const raw = new TextEncoder().encode(
     [
-      "GET /bridge/v1/health HTTP/1.1",
+      "GET /bridge/v2/health HTTP/1.1",
       "Host: 127.0.0.1",
       `X-Zotero-Bridge-Scope: ${scope}`,
       "Content-Length: 0",
@@ -267,7 +267,7 @@ async function exerciseR2ProductionSeams(requestId: string) {
   configureHostBridgeServerForTests({ token: "fixture-host-bridge-token" });
   await handleHostBridgeHttpRequestForTests({
     method: "GET",
-    path: "/bridge/v1/health",
+    path: "/bridge/v2/health",
     headers: { "X-Zotero-Bridge-Scope": scope },
   });
 }

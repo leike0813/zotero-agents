@@ -1,6 +1,11 @@
-## MODIFIED Requirements
+# host-bridge-cli-interface Specification
 
-### Requirement: CLI SHALL publish a mechanism-only Agent Surface v4
+## Purpose
+TBD - created by syncing changes upgrade-host-bridge-cli-machine-readable-contracts and unify-host-bridge-cli-contracts-and-parameter-errors. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: CLI SHALL publish a mechanism-only Agent Surface v5
 The offline `surface` command family SHALL publish `host-bridge.agent-surface.v5` under CLI identity `zotero-bridge.cli.v4`, with global options and exact command argv, complete parser argument metadata, raw structured-input schemas, classified examples, composed payload schemas, strict result schemas, effects, approval requirements, typed handles, recovery rules, targets, operational summaries, and operational aliases. It SHALL NOT contain research-task guidance or a built-in workflow catalog.
 
 #### Scenario: Generic prose does not change CLI identity
@@ -21,8 +26,6 @@ The `zotero-bridge-cli` `SKILL.md` SHALL contain the complete executable CLI loo
 #### Scenario: Generated command card is complete
 - **WHEN** one v5 command descriptor is rendered into its offline reference
 - **THEN** global and local argv metadata, invocation schema, every structured input schema, composed payload schema, result schema, examples, pagination, effects, approval scope, handles, recovery, targets, aliases, and search visibility remain available.
-
-## ADDED Requirements
 
 ### Requirement: CLI SHALL expose offline structured-input schemas
 The CLI SHALL accept global `--schema` for canonical leaf commands and return a versioned `zotero-bridge.command-input-schemas.v1` package inside the existing success envelope. Schema mode SHALL identify the leaf without requiring ordinary command values and SHALL NOT load a profile, read Bridge configuration, or make a network request.
@@ -96,3 +99,56 @@ match reasons. It SHALL default to 10 matches and reject or clamp limits above 2
 - **WHEN** a search matches a command
 - **THEN** the result does not embed the complete command descriptor
 - **AND** directs full contract inspection to `surface describe`.
+
+### Requirement: CLI SHALL execute remote commands through one canonical contract
+Zotero Bridge CLI 0.5.0 SHALL derive every remote target, structured payload binding, capability input Schema, command result Schema, effect, approval fact, handle transition, and recovery rule from the executable capability and command contracts.
+
+#### Scenario: Remote command executes
+- **WHEN** a canonical remote leaf command is invoked
+- **THEN** the CLI SHALL resolve its target and binding from the command contract
+- **AND** compose constants, field mappings, and closed transforms from that contract rather than a command handler
+- **AND** validate the composed payload against the target capability before network I/O
+- **AND** validate the returned capability and command results before stdout.
+
+#### Scenario: Command implementation bypasses the executor
+- **WHEN** a command implementation calls low-level remote transport or declares a capability target outside the contract executor
+- **THEN** architecture validation SHALL fail.
+
+#### Scenario: Composition references parser input
+- **WHEN** a fixed capability command declares a base source or field mapping
+- **THEN** every referenced source SHALL resolve to an argument ID in the real Clap leaf
+- **AND** unknown sources, duplicate target fields, undeclared transforms, and missing required values SHALL fail before network I/O.
+
+#### Scenario: Semantic command specializes a generic capability
+- **WHEN** a mutation or readiness command fixes an operation discriminator, check set, or field mapping
+- **THEN** the specialization SHALL exist in executable command-contract composition
+- **AND** `--schema`, `surface describe`, generated command cards, and runtime payload construction SHALL project that same specialization.
+
+#### Scenario: Item search uses the canonical selector
+- **WHEN** `library item search --query` receives `{"query":"graph"}`
+- **THEN** the payload SHALL validate and pass through without field translation
+- **AND** `{"text":"graph"}` SHALL fail as an undeclared field.
+
+### Requirement: CLI SHALL return structured parameter failures
+The CLI SHALL distinguish argv, JSON source, JSON syntax, command input, capability input, payload composition, remote result, and local result failures with stable error codes and redacted violation details.
+
+#### Scenario: Argument parser rejects an invocation
+- **WHEN** the invocation has a missing argument, unknown argument, conflict, invalid value, or missing subcommand
+- **THEN** the CLI SHALL return the corresponding stable usage code rather than only `cli_usage_error`
+- **AND** include the command and safe argument context when available.
+
+#### Scenario: Structured input violates a Schema
+- **WHEN** parsed JSON has missing, mistyped, or undeclared properties
+- **THEN** the CLI SHALL return sorted structured violations with JSON paths and expected constraints
+- **AND** SHALL NOT expose secrets or the complete raw payload.
+
+### Requirement: Broker file routes SHALL use the Host Bridge v2 namespace
+Broker-issued file upload and download operations SHALL use `/bridge/v2` and retain their opaque-handle, authorization, integrity, and path-redaction requirements.
+
+#### Scenario: Authenticated v2 client downloads a file
+- **WHEN** a v2 client downloads a valid broker-issued file handle
+- **THEN** Host Bridge SHALL return the authorized bytes under the existing integrity and redaction rules.
+
+#### Scenario: Client uses the removed v1 route
+- **WHEN** a client requests the corresponding `/bridge/v1/files` route
+- **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.

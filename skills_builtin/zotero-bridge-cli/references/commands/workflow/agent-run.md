@@ -32,34 +32,13 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id to prepare for self-owned agent execution"
-    },
-    "selection": {
-      "type": "string",
-      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-    },
-    "none": {
-      "type": "boolean",
-      "description": "Prepare a no-selection workflow"
-    },
-    "output-dir": {
-      "type": "string",
-      "description": "Download the handoff zip into this directory"
-    }
-  },
-  "required": [
-    "workflow"
-  ],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "selection",
-          "none"
+          "none",
+          "selection"
         ]
       }
     },
@@ -78,7 +57,28 @@ The global options may appear before or after the leaf command. Use `--schema` t
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "none": {
+      "description": "Prepare a no-selection workflow",
+      "type": "boolean"
+    },
+    "output-dir": {
+      "description": "Download the handoff zip into this directory",
+      "type": "string"
+    },
+    "selection": {
+      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id to prepare for self-owned agent execution",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow"
+  ],
+  "type": "object"
 }
 ```
 
@@ -90,37 +90,17 @@ Required: `false`; condition: Required unless --none is supplied..
 
 ```json
 {
-  "type": "array",
-  "minItems": 1,
   "items": {
     "oneOf": [
       {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       },
       {
         "type": "integer"
       },
       {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1
-          },
-          "id": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          },
-          "libraryId": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          }
-        },
+        "additionalProperties": false,
         "anyOf": [
           {
             "required": [
@@ -133,10 +113,30 @@ Required: `false`; condition: Required unless --none is supplied..
             ]
           }
         ],
-        "additionalProperties": false
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
       }
     ]
-  }
+  },
+  "minItems": 1,
+  "type": "array"
 }
 ```
 
@@ -144,52 +144,39 @@ Required: `false`; condition: Required unless --none is supplied..
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id to prepare for self-owned agent execution"
+    "output_dir": {
+      "description": "Download the handoff zip into this directory",
+      "type": "string"
     },
     "selection": {
-      "type": "string",
-      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
+      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "type": "string"
     },
-    "output_dir": {
-      "type": "string",
-      "description": "Download the handoff zip into this directory"
+    "workflow": {
+      "description": "Workflow id to prepare for self-owned agent execution",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agentRunId": {
-      "type": "string"
-    },
-    "workflowId": {
-      "type": "string"
-    },
-    "workflowLabel": {
-      "type": "string"
-    },
-    "generatedAt": {
-      "type": "string"
-    },
-    "expiresAt": {
-      "type": "string"
-    },
-    "requestCount": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "instruction": {
       "type": "string"
     },
     "applyStatus": {
@@ -198,16 +185,35 @@ Required: `false`; condition: Required unless --none is supplied..
     "bundle": {
       "type": "object"
     },
+    "bundleInspectCommand": {
+      "type": "string"
+    },
     "contents": {
       "type": "object"
     },
+    "expiresAt": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "instruction": {
+      "type": "string"
+    },
     "notes": {
-      "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "type": "array"
     },
-    "bundleInspectCommand": {
+    "requestCount": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "workflowLabel": {
       "type": "string"
     }
   },
@@ -219,7 +225,7 @@ Required: `false`; condition: Required unless --none is supplied..
     "bundle",
     "bundleInspectCommand"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -243,43 +249,258 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow agent-run",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow id to prepare for self-owned agent execution",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "aliases": [
+        "items"
+      ],
+      "conflictsWith": [
+        "none"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "id": "selection",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--selection",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "selection"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Prepare a no-selection workflow",
+      "id": "none",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--none",
+      "valueNames": [
+        "NONE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Download the handoff zip into this directory",
+      "id": "output_dir",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--output-dir",
+      "valueNames": [
+        "DIR"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "agent-run"
   ],
-  "summary": "Prepare a self-owned agent workflow handoff bundle",
-  "category": "write",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to prepare for self-owned agent execution"
-      },
-      "selection": {
-        "type": "string",
-        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-      },
-      "none": {
-        "type": "boolean",
-        "description": "Prepare a no-selection workflow"
-      },
-      "output-dir": {
-        "type": "string",
-        "description": "Download the handoff zip into this directory"
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
     },
-    "required": [
-      "workflow"
-    ],
+    {
+      "kind": "option",
+      "property": "selection",
+      "required": false,
+      "takesValue": true,
+      "token": "--selection",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "none",
+      "required": false,
+      "takesValue": false,
+      "token": "--none",
+      "valueNames": [
+        "NONE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "output-dir",
+      "required": false,
+      "takesValue": true,
+      "token": "--output-dir",
+      "valueNames": [
+        "DIR"
+      ]
+    }
+  ],
+  "binding": "overlay",
+  "category": "write",
+  "command": "workflow agent-run",
+  "composition": null,
+  "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
+      "direction": "consume",
+      "handle": "itemRef",
+      "lifetime": "caller-owned",
+      "required": false
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "agentRunId",
+      "lifetime": "one-shot",
+      "required": false
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "agentRequestId",
+      "lifetime": "response",
+      "required": false
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "fileId",
+      "lifetime": "short-lived",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {
+    "selection": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --selection.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": [
+            "example"
+          ]
+        }
+      ],
+      "required": false,
+      "requiredWhen": [
+        "Required unless --none is supplied."
+      ],
+      "schema": {
+        "items": {
+          "oneOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "additionalProperties": false,
+              "anyOf": [
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "id"
+                  ]
+                }
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "libraryId": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "schemaSource": "inline",
+      "token": "--selection"
+    }
+  },
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "selection",
-            "none"
+            "none",
+            "selection"
           ]
         }
       },
@@ -298,333 +519,29 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Workflow id to prepare for self-owned agent execution",
-      "valueNames": [
-        "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "selection",
-      "kind": "option",
-      "token": "--selection",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "none"
-      ],
-      "repeatable": false,
-      "aliases": [
-        "items"
-      ],
-      "defaultValues": []
-    },
-    {
-      "id": "none",
-      "kind": "option",
-      "token": "--none",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Prepare a no-selection workflow",
-      "valueNames": [
-        "NONE"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [
-        "selection"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "output_dir",
-      "kind": "option",
-      "token": "--output-dir",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Download the handoff zip into this directory",
-      "valueNames": [
-        "DIR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "selection",
-      "kind": "option",
-      "token": "--selection",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    },
-    {
-      "property": "none",
-      "kind": "option",
-      "token": "--none",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "NONE"
-      ]
-    },
-    {
-      "property": "output-dir",
-      "kind": "option",
-      "token": "--output-dir",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "DIR"
-      ]
-    }
-  ],
-  "inputSchemas": {
-    "selection": {
-      "token": "--selection",
-      "required": false,
-      "requiredWhen": [
-        "Required unless --none is supplied."
-      ],
-      "schema": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "oneOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "id": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                },
-                "libraryId": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                }
-              },
-              "anyOf": [
-                {
-                  "required": [
-                    "key"
-                  ]
-                },
-                {
-                  "required": [
-                    "id"
-                  ]
-                }
-              ],
-              "additionalProperties": false
-            }
-          ]
-        }
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": [
-            "example"
-          ],
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --selection."
-        }
-      ]
-    }
-  },
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to prepare for self-owned agent execution"
+      "none": {
+        "description": "Prepare a no-selection workflow",
+        "type": "boolean"
+      },
+      "output-dir": {
+        "description": "Download the handoff zip into this directory",
+        "type": "string"
       },
       "selection": {
-        "type": "string",
-        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-      },
-      "output_dir": {
-        "type": "string",
-        "description": "Download the handoff zip into this directory"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "agentRunId": {
+        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
         "type": "string"
       },
-      "workflowId": {
-        "type": "string"
-      },
-      "workflowLabel": {
-        "type": "string"
-      },
-      "generatedAt": {
-        "type": "string"
-      },
-      "expiresAt": {
-        "type": "string"
-      },
-      "requestCount": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "instruction": {
-        "type": "string"
-      },
-      "applyStatus": {
-        "type": "object"
-      },
-      "bundle": {
-        "type": "object"
-      },
-      "contents": {
-        "type": "object"
-      },
-      "notes": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
-      "bundleInspectCommand": {
+      "workflow": {
+        "description": "Workflow id to prepare for self-owned agent execution",
         "type": "string"
       }
     },
     "required": [
-      "agentRunId",
-      "workflowId",
-      "expiresAt",
-      "requestCount",
-      "bundle",
-      "bundleInspectCommand"
+      "workflow"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "itemRef",
-      "direction": "consume",
-      "required": false,
-      "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
-      "lifetime": "caller-owned"
-    },
-    {
-      "handle": "agentRunId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "one-shot"
-    },
-    {
-      "handle": "agentRequestId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "response"
-    },
-    {
-      "handle": "fileId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "short-lived"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "Handoff preparation fails or its response is uncertain.",
-      "stateCheck": "command-result",
-      "requiresHandles": [],
-      "action": "Inspect the structured error; do not enter the Zotero-managed run plane.",
-      "nextCommand": "workflow describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/agent-run"
-    }
-  ],
   "operationalAliases": [
     "workflow agent-run",
     "workflow",
@@ -638,9 +555,117 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "output-dir",
     "DIR"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "output_dir": {
+        "description": "Download the handoff zip into this directory",
+        "type": "string"
+      },
+      "selection": {
+        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Workflow id to prepare for self-owned agent execution",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the structured error; do not enter the Zotero-managed run plane.",
+      "nextCommand": "workflow describe",
+      "requiresHandles": [],
+      "stateCheck": "command-result",
+      "when": "Handoff preparation fails or its response is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "agentRunId": {
+        "type": "string"
+      },
+      "applyStatus": {
+        "type": "object"
+      },
+      "bundle": {
+        "type": "object"
+      },
+      "bundleInspectCommand": {
+        "type": "string"
+      },
+      "contents": {
+        "type": "object"
+      },
+      "expiresAt": {
+        "type": "string"
+      },
+      "generatedAt": {
+        "type": "string"
+      },
+      "instruction": {
+        "type": "string"
+      },
+      "notes": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "requestCount": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "workflowId": {
+        "type": "string"
+      },
+      "workflowLabel": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "agentRunId",
+      "workflowId",
+      "expiresAt",
+      "requestCount",
+      "bundle",
+      "bundleInspectCommand"
+    ],
+    "type": "object"
+  },
+  "summary": "Prepare a self-owned agent workflow handoff bundle",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/workflows/agent-run"
+    },
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/files/{fileId}"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -648,6 +673,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `overlay`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow agent-run`, `workflow`, `agent-run`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `output_dir`, `output-dir`, `DIR`.
 
@@ -656,9 +682,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   }
 ]
 ```
@@ -668,8 +694,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -678,32 +704,32 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "itemRef",
-    "direction": "consume",
-    "required": false,
     "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "itemRef",
+    "lifetime": "caller-owned",
+    "required": false
   },
   {
+    "condition": "Returned when the corresponding operation succeeds.",
+    "direction": "produce",
     "handle": "agentRunId",
-    "direction": "produce",
-    "required": false,
-    "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "one-shot"
+    "lifetime": "one-shot",
+    "required": false
   },
   {
+    "condition": "Returned when the corresponding operation succeeds.",
+    "direction": "produce",
     "handle": "agentRequestId",
-    "direction": "produce",
-    "required": false,
-    "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "response"
+    "lifetime": "response",
+    "required": false
   },
   {
-    "handle": "fileId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "short-lived"
+    "direction": "produce",
+    "handle": "fileId",
+    "lifetime": "short-lived",
+    "required": false
   }
 ]
 ```
@@ -713,11 +739,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "Handoff preparation fails or its response is uncertain.",
-    "stateCheck": "command-result",
-    "requiresHandles": [],
     "action": "Inspect the structured error; do not enter the Zotero-managed run plane.",
-    "nextCommand": "workflow describe"
+    "nextCommand": "workflow describe",
+    "requiresHandles": [],
+    "stateCheck": "command-result",
+    "when": "Handoff preparation fails or its response is uncertain."
   }
 ]
 ```
@@ -728,7 +754,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/agent-run"
+    "target": "POST /bridge/v2/workflows/agent-run"
+  },
+  {
+    "kind": "endpoint",
+    "target": "GET /bridge/v2/files/{fileId}"
   }
 ]
 ```

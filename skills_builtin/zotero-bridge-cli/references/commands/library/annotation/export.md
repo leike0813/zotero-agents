@@ -30,21 +30,21 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "item": {
-      "type": "string",
-      "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object"
-    },
     "format": {
-      "type": "string",
-      "description": "Export format"
+      "description": "Export format",
+      "type": "string"
+    },
+    "item": {
+      "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object",
+      "type": "string"
     }
   },
   "required": [
     "item"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -56,19 +56,34 @@ This command has no structured JSON input parameter.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "item": {
-      "type": "string",
-      "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object"
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "item",
+      "field": "ref",
+      "required": true,
+      "transform": "context-ref"
     },
-    "format": {
-      "type": "string",
-      "description": "Export format"
+    {
+      "argument": "format",
+      "default": "markdown",
+      "field": "format",
+      "required": false,
+      "transform": "identity"
     }
-  },
-  "required": [],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -76,61 +91,85 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "library.export_annotations"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by library.export_annotations.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by library.export_annotations.",
       "properties": {
         "delivery": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
             "file": {
-              "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "fileId": {
+                "contentType": {
+                  "type": "string"
+                },
+                "createdAt": {
                   "type": "string"
                 },
                 "displayName": {
                   "type": "string"
                 },
-                "contentType": {
+                "expiresAt": {
                   "type": "string"
                 },
-                "size": {
-                  "type": "integer",
-                  "minimum": 0
+                "fileId": {
+                  "type": "string"
+                },
+                "owner": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
                 },
                 "sha256": {
                   "type": "string"
                 },
-                "expiresAt": {
-                  "type": "string"
+                "size": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceKind": {
+                  "enum": [
+                    "zotero-attachment",
+                    "workflow-artifact",
+                    "bridge-export",
+                    "bridge-upload"
+                  ]
                 }
               },
               "required": [
                 "fileId",
+                "sourceKind",
                 "displayName",
                 "contentType",
+                "createdAt",
                 "expiresAt"
               ],
-              "additionalProperties": false
+              "type": "object"
             }
           },
-          "additionalProperties": true
+          "type": "object"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -144,199 +183,126 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "library annotation export",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item ref: key, numeric id, libraryId:key, or JSON object",
+      "id": "item",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--item",
+      "valueNames": [
+        "ITEM"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Export format",
+      "id": "format",
+      "kind": "option",
+      "possibleValues": [
+        "markdown",
+        "json"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--format",
+      "valueNames": [
+        "FORMAT"
+      ]
+    }
+  ],
   "argv": [
     "library",
     "annotation",
     "export"
   ],
-  "summary": "Export reader annotations for one Zotero item",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "item",
+      "required": true,
+      "takesValue": true,
+      "token": "--item",
+      "valueNames": [
+        "ITEM"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "format",
+      "required": false,
+      "takesValue": true,
+      "token": "--format",
+      "valueNames": [
+        "FORMAT"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "item": {
-        "type": "string",
-        "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object"
+  "command": "library annotation export",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "item",
+        "field": "ref",
+        "required": true,
+        "transform": "context-ref"
       },
+      {
+        "argument": "format",
+        "default": "markdown",
+        "field": "format",
+        "required": false,
+        "transform": "identity"
+      }
+    ]
+  },
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {
       "format": {
-        "type": "string",
-        "description": "Export format"
+        "description": "Export format",
+        "type": "string"
+      },
+      "item": {
+        "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object",
+        "type": "string"
       }
     },
     "required": [
       "item"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "item",
-      "kind": "option",
-      "token": "--item",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Zotero item ref: key, numeric id, libraryId:key, or JSON object",
-      "valueNames": [
-        "ITEM"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "format",
-      "kind": "option",
-      "token": "--format",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Export format",
-      "valueNames": [
-        "FORMAT"
-      ],
-      "possibleValues": [
-        "markdown",
-        "json"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "item",
-      "kind": "option",
-      "token": "--item",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "ITEM"
-      ]
-    },
-    {
-      "property": "format",
-      "kind": "option",
-      "token": "--format",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "FORMAT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "item": {
-        "type": "string",
-        "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object"
-      },
-      "format": {
-        "type": "string",
-        "description": "Export format"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by library.export_annotations.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "delivery": {
-            "type": "object",
-            "properties": {
-              "file": {
-                "type": "object",
-                "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "sha256": {
-                    "type": "string"
-                  },
-                  "expiresAt": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "fileId",
-                  "displayName",
-                  "contentType",
-                  "expiresAt"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "file",
-    "fileField": "data.delivery.file"
-  },
-  "pagination": "file",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "library.export_annotations"
-    }
-  ],
   "operationalAliases": [
     "library annotation export",
     "library",
@@ -347,16 +313,135 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "format",
     "FORMAT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "fileField": "data.delivery.file",
+    "strategy": "file"
+  },
+  "pagination": "file",
+  "payloadSchema": {
+    "additionalProperties": true,
+    "type": "object",
+    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "library.export_annotations"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by library.export_annotations.",
+        "properties": {
+          "delivery": {
+            "additionalProperties": true,
+            "properties": {
+              "file": {
+                "additionalProperties": false,
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "additionalProperties": true,
+                    "type": "object",
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Export reader annotations for one Zotero item",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "library.export_annotations"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `library` `annotation` `export`.
-- Output boundary: `file`; governed details: {"strategy":"file","fileField":"data.delivery.file"}.
+- Output boundary: `file`; governed details: {"fileField":"data.delivery.file","strategy":"file"}.
 - Pagination: `file`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `library annotation export`, `library`, `annotation`, `export`, `item`, `ITEM`, `format`, `FORMAT`.
 
@@ -365,9 +450,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -377,8 +462,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -394,11 +479,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

@@ -1017,7 +1017,7 @@ describe("workflow execution seams", function () {
                 execution_mode: "interactive",
                 env: {
                   KEEP_ME: "yes",
-                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v2",
                   ZOTERO_BRIDGE_CONNECTION_MODE: "local",
                 },
                 zotero_host_access: {
@@ -1034,10 +1034,10 @@ describe("workflow execution seams", function () {
           assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
           return {
             ok: true,
-            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            endpoint: "http://127.0.0.1:27655/bridge/v2",
             connectionMode: "local",
             env: {
-              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
               ZOTERO_BRIDGE_TOKEN: "runtime-token",
               ZOTERO_BRIDGE_CONNECTION_MODE: "local",
             },
@@ -1069,7 +1069,7 @@ describe("workflow execution seams", function () {
                 execution_mode: "interactive",
                 env: {
                   KEEP_ME: "yes",
-                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v2",
                   ZOTERO_BRIDGE_CONNECTION_MODE: "local",
                 },
                 zotero_host_access: {
@@ -1084,10 +1084,10 @@ describe("workflow execution seams", function () {
           assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
           return {
             ok: true,
-            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            endpoint: "http://127.0.0.1:27655/bridge/v2",
             connectionMode: "local",
             env: {
-              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
               ZOTERO_BRIDGE_TOKEN: "runtime-token",
               ZOTERO_BRIDGE_CONNECTION_MODE: "local",
             },
@@ -1112,7 +1112,7 @@ describe("workflow execution seams", function () {
       { ...env, ZOTERO_BRIDGE_SCOPE: undefined },
       {
         KEEP_ME: "yes",
-        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
         ZOTERO_BRIDGE_TOKEN: "runtime-token",
         ZOTERO_BRIDGE_CONNECTION_MODE: "local",
         ZOTERO_BRIDGE_SCOPE: undefined,
@@ -1201,10 +1201,10 @@ describe("workflow execution seams", function () {
           fakeExecutionContext as any,
         buildSkillRunnerHostBridgeEnv: async () => ({
           ok: true,
-          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          endpoint: "http://127.0.0.1:27655/bridge/v2",
           connectionMode: "local",
           env: {
-            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
             ZOTERO_BRIDGE_TOKEN: "runtime-token",
             ZOTERO_BRIDGE_CONNECTION_MODE: "local",
           },
@@ -1249,10 +1249,10 @@ describe("workflow execution seams", function () {
           ] as any,
         buildSkillRunnerHostBridgeEnv: async () => ({
           ok: true,
-          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          endpoint: "http://127.0.0.1:27655/bridge/v2",
           connectionMode: "local",
           env: {
-            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
             ZOTERO_BRIDGE_TOKEN: "runtime-token",
             ZOTERO_BRIDGE_CONNECTION_MODE: "local",
           },
@@ -1272,7 +1272,7 @@ describe("workflow execution seams", function () {
       { ...env, ZOTERO_BRIDGE_SCOPE: undefined },
       {
         KEEP_ME: "yes",
-        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
         ZOTERO_BRIDGE_TOKEN: "runtime-token",
         ZOTERO_BRIDGE_CONNECTION_MODE: "local",
         ZOTERO_BRIDGE_SCOPE: undefined,

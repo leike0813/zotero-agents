@@ -200,10 +200,10 @@ fn normalize_endpoint(endpoint: &str) -> Result<String, CliError> {
             "Only http:// Zotero Bridge service endpoints are supported in v1",
         ));
     }
-    if !trimmed.contains("/bridge/v1") {
+    if !trimmed.contains("/bridge/v2") {
         return Err(CliError::config(
             "config_invalid_endpoint",
-            "Bridge endpoint must include /bridge/v1",
+            "Bridge endpoint must include /bridge/v2",
         ));
     }
     Ok(trimmed.to_string())
@@ -243,15 +243,15 @@ mod tests {
     #[test]
     fn normalizes_http_bridge_endpoint() {
         assert_eq!(
-            normalize_endpoint("http://127.0.0.1:26570/bridge/v1/").unwrap(),
-            "http://127.0.0.1:26570/bridge/v1"
+            normalize_endpoint("http://127.0.0.1:26570/bridge/v2/").unwrap(),
+            "http://127.0.0.1:26570/bridge/v2"
         );
     }
 
     #[test]
     fn rejects_non_bridge_endpoint() {
         assert!(normalize_endpoint("http://127.0.0.1:26570").is_err());
-        assert!(normalize_endpoint("https://127.0.0.1/bridge/v1").is_err());
+        assert!(normalize_endpoint("https://127.0.0.1/bridge/v2").is_err());
     }
 
     #[test]
@@ -264,7 +264,7 @@ mod tests {
             &profile,
             r#"{
               "schema": "zotero-bridge.profile.v1",
-              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v2",
               "auth": { "type": "bearer", "token": "profile-token" }
             }"#,
         )
@@ -279,7 +279,7 @@ mod tests {
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
-        assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v1");
+        assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v2");
         assert_eq!(config.token.as_deref(), Some("profile-token"));
         if let Some(value) = previous {
             env::set_var("ZOTERO_BRIDGE_TOKEN", value);
@@ -298,7 +298,7 @@ mod tests {
             &profile,
             r#"{
               "schema": "zotero-bridge.profile.v1",
-              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v2",
               "auth": { "type": "bearer", "token": "profile-token" }
             }"#,
         )
@@ -307,7 +307,7 @@ mod tests {
         let previous_token = env::var("ZOTERO_BRIDGE_TOKEN").ok();
         env::set_var(
             "ZOTERO_BRIDGE_ENDPOINT",
-            "http://192.0.2.25:27655/bridge/v1",
+            "http://192.0.2.25:27655/bridge/v2",
         );
         env::remove_var("ZOTERO_BRIDGE_TOKEN");
         let cli = Cli {
@@ -318,7 +318,7 @@ mod tests {
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
-        assert_eq!(config.endpoint, "http://192.0.2.25:27655/bridge/v1");
+        assert_eq!(config.endpoint, "http://192.0.2.25:27655/bridge/v2");
         assert_eq!(config.token.as_deref(), Some("profile-token"));
         if let Some(value) = previous_endpoint {
             env::set_var("ZOTERO_BRIDGE_ENDPOINT", value);
@@ -344,7 +344,7 @@ mod tests {
             &profile,
             r#"{
               "schema": "zotero-bridge.profile.v1",
-              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v2",
               "connectionMode": "remote",
               "auth": { "type": "bearer", "token": "profile-token" }
             }"#,
@@ -364,7 +364,7 @@ mod tests {
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
-        assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v1");
+        assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v2");
         assert_eq!(config.token.as_deref(), Some("profile-token"));
         assert_eq!(config.connection_mode.as_deref(), Some("remote"));
         if let Some(value) = previous_endpoint {
@@ -392,7 +392,7 @@ mod tests {
             &profile,
             r#"{
               "schema": "zotero-bridge.profile.v1",
-              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v2",
               "connectionMode": "local",
               "auth": { "type": "bearer", "token": "profile-token" }
             }"#,
@@ -440,7 +440,7 @@ mod tests {
             &profile,
             r#"{
               "schema": "zotero-bridge.profile.v1",
-              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v2",
               "scope": { "kind": "acp-skill-run", "requestId": "profile-run" },
               "auth": { "type": "bearer", "token": "profile-token" }
             }"#,

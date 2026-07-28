@@ -34,40 +34,13 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "key": {
-      "type": "string",
-      "description": "Zotero item key"
-    },
-    "id": {
-      "type": "string",
-      "description": "Zotero item numeric id"
-    },
-    "library-id": {
-      "type": "string",
-      "description": "Zotero library id for key lookup"
-    },
-    "format": {
-      "type": "string",
-      "description": "Payload format"
-    },
-    "offset": {
-      "type": "string",
-      "description": "Start offset"
-    },
-    "max-chars": {
-      "type": "string",
-      "description": "Maximum characters"
-    }
-  },
-  "required": [],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "key",
-          "id"
+          "id",
+          "key"
         ]
       }
     },
@@ -86,7 +59,34 @@ The global options may appear before or after the leaf command. This leaf has no
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "format": {
+      "description": "Payload format",
+      "type": "string"
+    },
+    "id": {
+      "description": "Zotero item numeric id",
+      "type": "string"
+    },
+    "key": {
+      "description": "Zotero item key",
+      "type": "string"
+    },
+    "library-id": {
+      "description": "Zotero library id for key lookup",
+      "type": "string"
+    },
+    "max-chars": {
+      "description": "Maximum characters",
+      "type": "string"
+    },
+    "offset": {
+      "description": "Start offset",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
 }
 ```
 
@@ -98,35 +98,57 @@ This command has no structured JSON input parameter.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "key": {
-      "type": "string",
-      "description": "Zotero item key"
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "key",
+      "field": "key",
+      "required": false,
+      "transform": "identity"
     },
-    "id": {
-      "type": "string",
-      "description": "Zotero item numeric id"
+    {
+      "argument": "id",
+      "field": "id",
+      "required": false,
+      "transform": "identity"
     },
-    "library_id": {
-      "type": "string",
-      "description": "Zotero library id for key lookup"
+    {
+      "argument": "library_id",
+      "field": "libraryId",
+      "required": false,
+      "transform": "identity"
     },
-    "format": {
-      "type": "string",
-      "description": "Payload format"
+    {
+      "argument": "format",
+      "field": "format",
+      "required": false,
+      "transform": "identity"
     },
-    "offset": {
-      "type": "string",
-      "description": "Start offset"
+    {
+      "argument": "offset",
+      "field": "offset",
+      "required": false,
+      "transform": "identity"
     },
-    "max_chars": {
-      "type": "string",
-      "description": "Maximum characters"
+    {
+      "argument": "max_chars",
+      "field": "maxChars",
+      "required": false,
+      "transform": "identity"
     }
-  },
-  "required": [],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -134,42 +156,48 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "library.get_note_detail"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by library.get_note_detail.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by library.get_note_detail.",
       "properties": {
-        "nextOffset": {
-          "type": "integer",
-          "minimum": 0
-        },
         "hasMore": {
           "type": "boolean"
         },
+        "maxChars": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nextOffset": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "totalChars": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "truncated": {
           "type": "boolean"
-        },
-        "maxChars": {
-          "type": "integer",
-          "minimum": 0
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -183,50 +211,252 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "library note get",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "id"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item key",
+      "id": "key",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--key",
+      "valueNames": [
+        "KEY"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "key"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item numeric id",
+      "id": "id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero library id for key lookup",
+      "id": "library_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--library-id",
+      "valueNames": [
+        "LIBRARY_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Payload format",
+      "id": "format",
+      "kind": "option",
+      "possibleValues": [
+        "text",
+        "html"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--format",
+      "valueNames": [
+        "FORMAT"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Start offset",
+      "id": "offset",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--offset",
+      "valueNames": [
+        "OFFSET"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum characters",
+      "id": "max_chars",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--max-chars",
+      "valueNames": [
+        "MAX_CHARS"
+      ]
+    }
+  ],
   "argv": [
     "library",
     "note",
     "get"
   ],
-  "summary": "Read one Zotero note body chunk",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "key": {
-        "type": "string",
-        "description": "Zotero item key"
-      },
-      "id": {
-        "type": "string",
-        "description": "Zotero item numeric id"
-      },
-      "library-id": {
-        "type": "string",
-        "description": "Zotero library id for key lookup"
-      },
-      "format": {
-        "type": "string",
-        "description": "Payload format"
-      },
-      "offset": {
-        "type": "string",
-        "description": "Start offset"
-      },
-      "max-chars": {
-        "type": "string",
-        "description": "Maximum characters"
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "key",
+      "required": false,
+      "takesValue": true,
+      "token": "--key",
+      "valueNames": [
+        "KEY"
+      ]
     },
-    "required": [],
+    {
+      "kind": "option",
+      "property": "id",
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "library-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--library-id",
+      "valueNames": [
+        "LIBRARY_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "format",
+      "required": false,
+      "takesValue": true,
+      "token": "--format",
+      "valueNames": [
+        "FORMAT"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "offset",
+      "required": false,
+      "takesValue": true,
+      "token": "--offset",
+      "valueNames": [
+        "OFFSET"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "max-chars",
+      "required": false,
+      "takesValue": true,
+      "token": "--max-chars",
+      "valueNames": [
+        "MAX_CHARS"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "read",
+  "command": "library note get",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "key",
+        "field": "key",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "id",
+        "field": "id",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "library_id",
+        "field": "libraryId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "format",
+        "field": "format",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "offset",
+        "field": "offset",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "max_chars",
+        "field": "maxChars",
+        "required": false,
+        "transform": "identity"
+      }
+    ]
+  },
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "key",
-            "id"
+            "id",
+            "key"
           ]
         }
       },
@@ -245,294 +475,35 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "key",
-      "kind": "option",
-      "token": "--key",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero item key",
-      "valueNames": [
-        "KEY"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "id"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero item numeric id",
-      "valueNames": [
-        "ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "key"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "library_id",
-      "kind": "option",
-      "token": "--library-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero library id for key lookup",
-      "valueNames": [
-        "LIBRARY_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "format",
-      "kind": "option",
-      "token": "--format",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Payload format",
-      "valueNames": [
-        "FORMAT"
-      ],
-      "possibleValues": [
-        "text",
-        "html"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "offset",
-      "kind": "option",
-      "token": "--offset",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Start offset",
-      "valueNames": [
-        "OFFSET"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "max_chars",
-      "kind": "option",
-      "token": "--max-chars",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum characters",
-      "valueNames": [
-        "MAX_CHARS"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "key",
-      "kind": "option",
-      "token": "--key",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "KEY"
-      ]
-    },
-    {
-      "property": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "ID"
-      ]
-    },
-    {
-      "property": "library-id",
-      "kind": "option",
-      "token": "--library-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIBRARY_ID"
-      ]
-    },
-    {
-      "property": "format",
-      "kind": "option",
-      "token": "--format",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "FORMAT"
-      ]
-    },
-    {
-      "property": "offset",
-      "kind": "option",
-      "token": "--offset",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "OFFSET"
-      ]
-    },
-    {
-      "property": "max-chars",
-      "kind": "option",
-      "token": "--max-chars",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "MAX_CHARS"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "key": {
-        "type": "string",
-        "description": "Zotero item key"
+      "format": {
+        "description": "Payload format",
+        "type": "string"
       },
       "id": {
-        "type": "string",
-        "description": "Zotero item numeric id"
+        "description": "Zotero item numeric id",
+        "type": "string"
       },
-      "library_id": {
-        "type": "string",
-        "description": "Zotero library id for key lookup"
+      "key": {
+        "description": "Zotero item key",
+        "type": "string"
       },
-      "format": {
-        "type": "string",
-        "description": "Payload format"
+      "library-id": {
+        "description": "Zotero library id for key lookup",
+        "type": "string"
+      },
+      "max-chars": {
+        "description": "Maximum characters",
+        "type": "string"
       },
       "offset": {
-        "type": "string",
-        "description": "Start offset"
-      },
-      "max_chars": {
-        "type": "string",
-        "description": "Maximum characters"
+        "description": "Start offset",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by library.get_note_detail.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "nextOffset": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "totalChars": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "truncated": {
-            "type": "boolean"
-          },
-          "maxChars": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "offset",
-    "section": "data.content",
-    "defaultLimit": 8000,
-    "maxLimit": 16000,
-    "cursorInput": "offset",
-    "continuation": [
-      "data.nextOffset",
-      "data.hasMore",
-      "data.totalChars",
-      "data.truncated",
-      "data.maxChars"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "library.get_note_detail"
-    }
-  ],
   "operationalAliases": [
     "library note get",
     "library",
@@ -553,16 +524,108 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "max-chars",
     "MAX_CHARS"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "data.nextOffset",
+      "data.hasMore",
+      "data.totalChars",
+      "data.truncated",
+      "data.maxChars"
+    ],
+    "cursorInput": "offset",
+    "defaultLimit": 8000,
+    "maxLimit": 16000,
+    "section": "data.content",
+    "strategy": "offset"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": true,
+    "type": "object",
+    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "library.get_note_detail"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by library.get_note_detail.",
+        "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nextOffset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "totalChars": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Read one Zotero note body chunk",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "library.get_note_detail"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `library` `note` `get`.
-- Output boundary: `offset`; governed details: {"strategy":"offset","section":"data.content","defaultLimit":8000,"maxLimit":16000,"cursorInput":"offset","continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"]}.
+- Output boundary: `offset`; governed details: {"continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"],"cursorInput":"offset","defaultLimit":8000,"maxLimit":16000,"section":"data.content","strategy":"offset"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `library note get`, `library`, `note`, `get`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `format`, `FORMAT`, `offset`, `OFFSET`, `max_chars`, `max-chars`, `MAX_CHARS`.
 
@@ -571,9 +634,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -583,8 +646,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -600,11 +663,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

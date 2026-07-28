@@ -109,7 +109,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -160,7 +160,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -189,7 +189,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 404);
@@ -214,7 +214,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 404);
@@ -240,7 +240,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -276,7 +276,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token: master.token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -293,7 +293,7 @@ describe("host bridge file downloads", function () {
       const unknown = await bridgeRequest({
         token,
         method: "GET",
-        path: "/bridge/v1/files/file-missing",
+        path: "/bridge/v2/files/file-missing",
       });
       assert.strictEqual(unknown.status, 404);
       assert.strictEqual(unknown.json.error.code, "file_not_found");
@@ -301,7 +301,7 @@ describe("host bridge file downloads", function () {
       const pathLike = await bridgeRequest({
         token,
         method: "GET",
-        path: "/bridge/v1/files/..%2Fsecret.txt",
+        path: "/bridge/v2/files/..%2Fsecret.txt",
       });
       assert.strictEqual(pathLike.status, 400);
       assert.strictEqual(pathLike.json.error.code, "invalid_file_id");
@@ -315,7 +315,7 @@ describe("host bridge file downloads", function () {
       const expired = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${expiredDescriptor.fileId}`,
+        path: `/bridge/v2/files/${expiredDescriptor.fileId}`,
       });
       assert.strictEqual(expired.status, 410);
       assert.strictEqual(expired.json.error.code, "file_handle_expired");
@@ -361,7 +361,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/call",
+        path: "/bridge/v2/call",
         body: {
           capability: "library.get_item_attachments",
           input: { id: parent.id },

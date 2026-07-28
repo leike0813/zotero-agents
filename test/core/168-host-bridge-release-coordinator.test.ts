@@ -619,8 +619,8 @@ describe("Host Bridge release coordinator", function () {
   it("creates a deterministic release set from exact CLI and surface identities", function () {
     const input = {
       sourceCommit: "abc1234",
-      protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v4",
+      protocol: "host-bridge.v2",
+      cliSchema: "zotero-bridge.cli.v5",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),
@@ -653,12 +653,12 @@ describe("Host Bridge release coordinator", function () {
     const validateReleaseSet = new Ajv({ strict: false }).compile(
       JSON.parse(
         readFileSync(
-          join(process.cwd(), "schemas/host-bridge.release-set.v3.schema.json"),
+          join(process.cwd(), "schemas/host-bridge.release-set.v4.schema.json"),
           "utf8",
         ),
       ),
     );
-    assert.strictEqual(first.schema, "host-bridge.release-set.v3");
+    assert.strictEqual(first.schema, "host-bridge.release-set.v4");
     assert.isTrue(
       validateReleaseSet(first),
       JSON.stringify(validateReleaseSet.errors),
@@ -666,7 +666,7 @@ describe("Host Bridge release coordinator", function () {
     assert.strictEqual(first.cli.schema, "zotero-bridge-cli-release.v1");
     assert.strictEqual(
       first.cli.identity.schema,
-      "host-bridge.surface-identity.v5",
+      "host-bridge.surface-identity.v6",
     );
     assert.strictEqual(first.releaseSetId, second.releaseSetId);
     assert.match(first.releaseSetId, /^hbrs-[a-f0-9]{24}$/);
@@ -694,8 +694,8 @@ describe("Host Bridge release coordinator", function () {
   it("rejects equal SemVer surfaces carrying a different CLI identity", function () {
     const releaseSet = buildHostBridgeReleaseSet({
       sourceCommit: "abc123",
-      protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v4",
+      protocol: "host-bridge.v2",
+      cliSchema: "zotero-bridge.cli.v5",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),

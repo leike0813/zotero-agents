@@ -149,9 +149,10 @@ describe("Manuscript Literature Framing workflow contract", function () {
     const prompt = runner.entrypoint?.prompts?.common || "";
 
     for (const text of [skill, prompt]) {
-      assert.include(text, "topics.list");
-      assert.include(text, "topics.get_review_input");
-      assert.include(text, "prepare_paper_reading_context");
+      assert.include(text, "synthesis topic list");
+      assert.include(text, "synthesis topic get-review-input");
+      assert.include(text, "library item attachments");
+      assert.include(text, "MCP");
       assert.include(text, "manuscript intent");
       assert.include(text, "material");
       assert.include(text, "framing analysis");
@@ -163,8 +164,6 @@ describe("Manuscript Literature Framing workflow contract", function () {
       assert.include(text, "writing.manuscript_literature_framing");
       assert.include(text, "artifact_manifest_path");
     }
-    assert.notInclude(prompt, "MCP");
-    assert.notInclude(skill, "MCP");
     assert.include(
       skill,
       "背景动机 → 具体问题 → 现有路线 → gap → 本文定位/贡献 → 结构引导",

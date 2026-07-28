@@ -30,22 +30,22 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "note": {
-      "type": "string",
-      "description": "Target Zotero note ref"
-    },
     "input": {
-      "type": "string",
-      "description": "Payload JSON object"
+      "description": "Payload JSON object",
+      "type": "string"
+    },
+    "note": {
+      "description": "Target Zotero note ref",
+      "type": "string"
     }
   },
   "required": [
     "note",
     "input"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -57,19 +57,198 @@ Required: `true`.
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "note": {
-      "type": "string",
-      "description": "Target Zotero note ref"
+  "$defs": {
+    "collectionRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        }
+      ]
     },
-    "input": {
-      "type": "string",
-      "description": "Payload JSON object"
+    "creator": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "firstName"
+          ]
+        },
+        {
+          "required": [
+            "lastName"
+          ]
+        }
+      ],
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "fieldPatch": {
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "objectRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+        }
+      ]
+    },
+    "objectRefs": {
+      "items": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "paper": {
+      "additionalProperties": false,
+      "properties": {
+        "attachLandingUrlOnMissingPdf": {
+          "type": "boolean"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "type": "object"
+        },
+        "identifiers": {
+          "additionalProperties": false,
+          "properties": {
+            "arxiv": {
+              "type": "string"
+            },
+            "doi": {
+              "type": "string"
+            },
+            "isbn": {
+              "type": "string"
+            },
+            "pmid": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "landingUrl": {
+          "type": "string"
+        },
+        "pdfUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemType",
+        "fields",
+        "creators",
+        "identifiers"
+      ],
+      "type": "object"
+    },
+    "tags": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "noteKind": {
+      "type": "string"
+    },
+    "payload": {},
+    "payloadFormat": {
+      "type": "string"
+    },
+    "payloadType": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/objectRef"
+    }
+  },
+  "required": [
+    "payloadType"
+  ],
+  "type": "object"
 }
 ```
 
@@ -77,19 +256,240 @@ Required: `true`.
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "note": {
-      "type": "string",
-      "description": "Target Zotero note ref"
+  "$defs": {
+    "collectionRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        }
+      ]
     },
-    "input": {
-      "type": "string",
-      "description": "Payload JSON object"
+    "creator": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "firstName"
+          ]
+        },
+        {
+          "required": [
+            "lastName"
+          ]
+        }
+      ],
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "fieldPatch": {
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "objectRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+        }
+      ]
+    },
+    "objectRefs": {
+      "items": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "paper": {
+      "additionalProperties": false,
+      "properties": {
+        "attachLandingUrlOnMissingPdf": {
+          "type": "boolean"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "type": "object"
+        },
+        "identifiers": {
+          "additionalProperties": false,
+          "properties": {
+            "arxiv": {
+              "type": "string"
+            },
+            "doi": {
+              "type": "string"
+            },
+            "isbn": {
+              "type": "string"
+            },
+            "pmid": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "landingUrl": {
+          "type": "string"
+        },
+        "pdfUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemType",
+        "fields",
+        "creators",
+        "identifiers"
+      ],
+      "type": "object"
+    },
+    "tags": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "note"
+      ]
+    },
+    {
+      "required": [
+        "target"
+      ]
+    }
+  ],
+  "properties": {
+    "content": {
+      "type": "string"
+    },
+    "note": {
+      "$ref": "#/$defs/objectRef"
+    },
+    "noteKind": {
+      "type": "string"
+    },
+    "operation": {
+      "const": "note.upsertPayload"
+    },
+    "payload": {},
+    "payloadFormat": {
+      "type": "string"
+    },
+    "payloadType": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/objectRef"
+    }
+  },
+  "required": [
+    "operation",
+    "payloadType"
+  ],
+  "type": "object"
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "base": {
+    "argument": "input"
+  },
+  "constants": {
+    "operation": "note.upsertPayload"
+  },
+  "mappings": [
+    {
+      "argument": "note",
+      "field": "note",
+      "required": true,
+      "transform": "context-ref"
+    }
+  ]
 }
 ```
 
@@ -97,22 +497,28 @@ Required: `true`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "mutation.execute"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by mutation.execute.",
       "additionalProperties": true,
+      "description": "Result data owned by mutation.execute.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -123,7 +529,7 @@ Required: `true`.
 Minimal JSON shape for --input.
 
 ```console
-zotero-bridge mutation note upsert-payload --input '{}'
+zotero-bridge mutation note upsert-payload --input '{"payload":{},"payloadType":"example"}'
 ```
 
 Prerequisites:
@@ -136,188 +542,336 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "mutation note upsert-payload",
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Target Zotero note ref",
+      "id": "note",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--note",
+      "valueNames": [
+        "NOTE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Payload JSON object",
+      "id": "input",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "mutation",
     "note",
     "upsert-payload"
   ],
-  "summary": "Upsert one embedded note payload",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "note",
+      "required": true,
+      "takesValue": true,
+      "token": "--note",
+      "valueNames": [
+        "NOTE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "input",
+      "required": true,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "overlay",
   "category": "write",
+  "command": "mutation note upsert-payload",
+  "composition": {
+    "base": {
+      "argument": "input"
+    },
+    "constants": {
+      "operation": "note.upsertPayload"
+    },
+    "mappings": [
+      {
+        "argument": "note",
+        "field": "note",
+        "required": true,
+        "transform": "context-ref"
+      }
+    ]
+  },
   "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "note": {
-        "type": "string",
-        "description": "Target Zotero note ref"
+  "effects": [
+    {
+      "description": "May change zotero library state.",
+      "kind": "zotero-library",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {
+    "input": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --input.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {
+            "payload": {},
+            "payloadType": "example"
+          }
+        }
+      ],
+      "required": true,
+      "requiredWhen": [],
+      "schema": {
+        "$defs": {
+          "collectionRef": {
+            "oneOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": true,
+                "minProperties": 1,
+                "type": "object",
+                "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+              }
+            ]
+          },
+          "creator": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "firstName"
+                ]
+              },
+              {
+                "required": [
+                  "lastName"
+                ]
+              }
+            ],
+            "properties": {
+              "creatorType": {
+                "type": "string"
+              },
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "fieldPatch": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "objectRef": {
+            "oneOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": true,
+                "minProperties": 1,
+                "type": "object",
+                "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+              }
+            ]
+          },
+          "objectRefs": {
+            "items": {
+              "$ref": "#/$defs/objectRef"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "paper": {
+            "additionalProperties": false,
+            "properties": {
+              "attachLandingUrlOnMissingPdf": {
+                "type": "boolean"
+              },
+              "creators": {
+                "items": {
+                  "$ref": "#/$defs/creator"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              "fields": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "properties": {
+                  "title": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              },
+              "identifiers": {
+                "additionalProperties": false,
+                "properties": {
+                  "arxiv": {
+                    "type": "string"
+                  },
+                  "doi": {
+                    "type": "string"
+                  },
+                  "isbn": {
+                    "type": "string"
+                  },
+                  "pmid": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "itemType": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "landingUrl": {
+                "type": "string"
+              },
+              "pdfUrl": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "itemType",
+              "fields",
+              "creators",
+              "identifiers"
+            ],
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "noteKind": {
+            "type": "string"
+          },
+          "payload": {},
+          "payloadFormat": {
+            "type": "string"
+          },
+          "payloadType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "required": [
+          "payloadType"
+        ],
+        "type": "object"
       },
+      "schemaSource": "composition",
+      "token": "--input"
+    }
+  },
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {
       "input": {
-        "type": "string",
-        "description": "Payload JSON object"
+        "description": "Payload JSON object",
+        "type": "string"
+      },
+      "note": {
+        "description": "Target Zotero note ref",
+        "type": "string"
       }
     },
     "required": [
       "note",
       "input"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "note",
-      "kind": "option",
-      "token": "--note",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Target Zotero note ref",
-      "valueNames": [
-        "NOTE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Payload JSON object",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "note",
-      "kind": "option",
-      "token": "--note",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "NOTE"
-      ]
-    },
-    {
-      "property": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    }
-  ],
-  "inputSchemas": {
-    "input": {
-      "token": "--input",
-      "required": true,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "properties": {
-          "note": {
-            "type": "string",
-            "description": "Target Zotero note ref"
-          },
-          "input": {
-            "type": "string",
-            "description": "Payload JSON object"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --input."
-        }
-      ]
-    }
-  },
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "note": {
-        "type": "string",
-        "description": "Target Zotero note ref"
-      },
-      "input": {
-        "type": "string",
-        "description": "Payload JSON object"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by mutation.execute.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "zotero-library",
-      "stateChanged": true,
-      "description": "May change zotero library state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "mutation.execute"
-    }
-  ],
   "operationalAliases": [
     "mutation note upsert-payload",
     "mutation",
@@ -327,9 +881,277 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "input",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "$defs": {
+      "collectionRef": {
+        "oneOf": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "type": "object",
+            "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+          }
+        ]
+      },
+      "creator": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "firstName"
+            ]
+          },
+          {
+            "required": [
+              "lastName"
+            ]
+          }
+        ],
+        "properties": {
+          "creatorType": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "fieldPatch": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "minProperties": 1,
+        "type": "object"
+      },
+      "objectRef": {
+        "oneOf": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "type": "object",
+            "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+          }
+        ]
+      },
+      "objectRefs": {
+        "items": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "paper": {
+        "additionalProperties": false,
+        "properties": {
+          "attachLandingUrlOnMissingPdf": {
+            "type": "boolean"
+          },
+          "creators": {
+            "items": {
+              "$ref": "#/$defs/creator"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "properties": {
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          },
+          "identifiers": {
+            "additionalProperties": false,
+            "properties": {
+              "arxiv": {
+                "type": "string"
+              },
+              "doi": {
+                "type": "string"
+              },
+              "isbn": {
+                "type": "string"
+              },
+              "pmid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "itemType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "landingUrl": {
+            "type": "string"
+          },
+          "pdfUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemType",
+          "fields",
+          "creators",
+          "identifiers"
+        ],
+        "type": "object"
+      },
+      "tags": {
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "minItems": 1,
+        "type": "array"
+      }
+    },
+    "additionalProperties": false,
+    "anyOf": [
+      {
+        "required": [
+          "note"
+        ]
+      },
+      {
+        "required": [
+          "target"
+        ]
+      }
+    ],
+    "properties": {
+      "content": {
+        "type": "string"
+      },
+      "note": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "noteKind": {
+        "type": "string"
+      },
+      "operation": {
+        "const": "note.upsertPayload"
+      },
+      "payload": {},
+      "payloadFormat": {
+        "type": "string"
+      },
+      "payloadType": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "target": {
+        "$ref": "#/$defs/objectRef"
+      }
+    },
+    "required": [
+      "operation",
+      "payloadType"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "mutation.execute"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by mutation.execute.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Upsert one embedded note payload",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "mutation.execute"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -337,6 +1159,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `overlay`.
 - Intent visibility: `visible`.
 - Operational aliases: `mutation note upsert-payload`, `mutation`, `note`, `upsert-payload`, `NOTE`, `input`, `JSON_OR_FILE`.
 
@@ -345,9 +1168,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change zotero library state.",
     "kind": "zotero-library",
-    "stateChanged": true,
-    "description": "May change zotero library state."
+    "stateChanged": true
   }
 ]
 ```
@@ -357,8 +1180,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
@@ -374,11 +1197,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```

@@ -38,51 +38,51 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Filter by workflow id"
+    "active-only": {
+      "description": "Only return active task runtime rows",
+      "type": "boolean"
     },
     "backend": {
-      "type": "string",
-      "description": "Filter by backend id"
+      "description": "Filter by backend id",
+      "type": "string"
     },
     "backend-type": {
-      "type": "string",
-      "description": "Filter by backend type"
-    },
-    "request": {
-      "type": "string",
-      "description": "Filter by provider request id"
-    },
-    "submission": {
-      "type": "string",
-      "description": "Filter by native workflow submission id"
-    },
-    "run": {
-      "type": "string",
-      "description": "Filter by workflow run id"
-    },
-    "state": {
-      "type": "string",
-      "description": "Filter by task state"
-    },
-    "active-only": {
-      "type": "boolean",
-      "description": "Only return active task runtime rows"
+      "description": "Filter by backend type",
+      "type": "string"
     },
     "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
+      "description": "Opaque continuation cursor",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of tasks (1-100)"
+      "description": "Maximum number of tasks (1-100)",
+      "type": "string"
+    },
+    "request": {
+      "description": "Filter by provider request id",
+      "type": "string"
+    },
+    "run": {
+      "description": "Filter by workflow run id",
+      "type": "string"
+    },
+    "state": {
+      "description": "Filter by task state",
+      "type": "string"
+    },
+    "submission": {
+      "description": "Filter by native workflow submission id",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Filter by workflow id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -94,50 +94,63 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Filter by workflow id"
-    },
     "backend": {
-      "type": "string",
-      "description": "Filter by backend id"
+      "description": "Filter by backend id",
+      "type": "string"
     },
     "backend_type": {
-      "type": "string",
-      "description": "Filter by backend type"
+      "description": "Filter by backend type",
+      "type": "string"
     },
     "request": {
-      "type": "string",
-      "description": "Filter by provider request id"
-    },
-    "submission": {
-      "type": "string",
-      "description": "Filter by native workflow submission id"
+      "description": "Filter by provider request id",
+      "type": "string"
     },
     "run": {
-      "type": "string",
-      "description": "Filter by workflow run id"
+      "description": "Filter by workflow run id",
+      "type": "string"
     },
     "state": {
-      "type": "string",
-      "description": "Filter by task state"
+      "description": "Filter by task state",
+      "type": "string"
+    },
+    "submission": {
+      "description": "Filter by native workflow submission id",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Filter by workflow id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
+    "hasMore": {
+      "type": "boolean"
+    },
     "items": {
       "type": "array"
+    },
+    "limit": {
+      "minimum": 0,
+      "type": "integer"
     },
     "nextCursor": {
       "type": [
@@ -146,23 +159,16 @@ This command has no structured JSON input parameter.
         "null"
       ]
     },
-    "hasMore": {
-      "type": "boolean"
-    },
     "returned": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     },
     "total": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "limit": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -177,449 +183,354 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "run list",
-  "argv": [
-    "run",
-    "list"
-  ],
-  "summary": "List active and recent workflow runtime tasks",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Filter by workflow id"
-      },
-      "backend": {
-        "type": "string",
-        "description": "Filter by backend id"
-      },
-      "backend-type": {
-        "type": "string",
-        "description": "Filter by backend type"
-      },
-      "request": {
-        "type": "string",
-        "description": "Filter by provider request id"
-      },
-      "submission": {
-        "type": "string",
-        "description": "Filter by native workflow submission id"
-      },
-      "run": {
-        "type": "string",
-        "description": "Filter by workflow run id"
-      },
-      "state": {
-        "type": "string",
-        "description": "Filter by task state"
-      },
-      "active-only": {
-        "type": "boolean",
-        "description": "Only return active task runtime rows"
-      },
-      "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of tasks (1-100)"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by workflow id",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow",
       "valueNames": [
         "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "backend",
-      "kind": "option",
-      "token": "--backend",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by backend id",
+      "id": "backend",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--backend",
       "valueNames": [
         "BACKEND"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "backend_type",
-      "kind": "option",
-      "token": "--backend-type",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by backend type",
+      "id": "backend_type",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--backend-type",
       "valueNames": [
         "BACKEND_TYPE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "request",
-      "kind": "option",
-      "token": "--request",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by provider request id",
+      "id": "request",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--request",
       "valueNames": [
         "REQUEST"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "submission",
-      "kind": "option",
-      "token": "--submission",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by native workflow submission id",
+      "id": "submission",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--submission",
       "valueNames": [
         "SUBMISSION"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "run",
-      "kind": "option",
-      "token": "--run",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by workflow run id",
+      "id": "run",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--run",
       "valueNames": [
         "RUN"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "state",
-      "kind": "option",
-      "token": "--state",
-      "takesValue": true,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Filter by task state",
+      "id": "state",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--state",
       "valueNames": [
         "STATE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
+      ]
     },
     {
-      "id": "active_only",
-      "kind": "option",
-      "token": "--active-only",
-      "takesValue": false,
-      "required": false,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Only return active task runtime rows",
-      "valueNames": [
-        "ACTIVE_ONLY"
-      ],
+      "id": "active_only",
+      "kind": "option",
       "possibleValues": [
         "true",
         "false"
       ],
-      "conflictsWith": [],
       "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
       "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of tasks (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "backend",
-      "kind": "option",
-      "token": "--backend",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "BACKEND"
-      ]
-    },
-    {
-      "property": "backend-type",
-      "kind": "option",
-      "token": "--backend-type",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "BACKEND_TYPE"
-      ]
-    },
-    {
-      "property": "request",
-      "kind": "option",
-      "token": "--request",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "REQUEST"
-      ]
-    },
-    {
-      "property": "submission",
-      "kind": "option",
-      "token": "--submission",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "SUBMISSION"
-      ]
-    },
-    {
-      "property": "run",
-      "kind": "option",
-      "token": "--run",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "RUN"
-      ]
-    },
-    {
-      "property": "state",
-      "kind": "option",
-      "token": "--state",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "STATE"
-      ]
-    },
-    {
-      "property": "active-only",
-      "kind": "option",
-      "token": "--active-only",
       "takesValue": false,
-      "required": false,
+      "token": "--active-only",
       "valueNames": [
         "ACTIVE_ONLY"
       ]
     },
     {
-      "property": "cursor",
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
       "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--cursor",
       "valueNames": [
         "CURSOR"
       ]
     },
     {
-      "property": "limit",
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of tasks (1-100)",
+      "id": "limit",
       "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--limit",
       "valueNames": [
         "LIMIT"
       ]
     }
   ],
+  "argv": [
+    "run",
+    "list"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "backend",
+      "required": false,
+      "takesValue": true,
+      "token": "--backend",
+      "valueNames": [
+        "BACKEND"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "backend-type",
+      "required": false,
+      "takesValue": true,
+      "token": "--backend-type",
+      "valueNames": [
+        "BACKEND_TYPE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "request",
+      "required": false,
+      "takesValue": true,
+      "token": "--request",
+      "valueNames": [
+        "REQUEST"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "submission",
+      "required": false,
+      "takesValue": true,
+      "token": "--submission",
+      "valueNames": [
+        "SUBMISSION"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "run",
+      "required": false,
+      "takesValue": true,
+      "token": "--run",
+      "valueNames": [
+        "RUN"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "state",
+      "required": false,
+      "takesValue": true,
+      "token": "--state",
+      "valueNames": [
+        "STATE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "active-only",
+      "required": false,
+      "takesValue": false,
+      "token": "--active-only",
+      "valueNames": [
+        "ACTIVE_ONLY"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "none",
+  "category": "read",
+  "command": "run list",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Filter by workflow id"
+      "active-only": {
+        "description": "Only return active task runtime rows",
+        "type": "boolean"
       },
       "backend": {
-        "type": "string",
-        "description": "Filter by backend id"
+        "description": "Filter by backend id",
+        "type": "string"
       },
-      "backend_type": {
-        "type": "string",
-        "description": "Filter by backend type"
+      "backend-type": {
+        "description": "Filter by backend type",
+        "type": "string"
+      },
+      "cursor": {
+        "description": "Opaque continuation cursor",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of tasks (1-100)",
+        "type": "string"
       },
       "request": {
-        "type": "string",
-        "description": "Filter by provider request id"
-      },
-      "submission": {
-        "type": "string",
-        "description": "Filter by native workflow submission id"
+        "description": "Filter by provider request id",
+        "type": "string"
       },
       "run": {
-        "type": "string",
-        "description": "Filter by workflow run id"
+        "description": "Filter by workflow run id",
+        "type": "string"
       },
       "state": {
-        "type": "string",
-        "description": "Filter by task state"
+        "description": "Filter by task state",
+        "type": "string"
+      },
+      "submission": {
+        "description": "Filter by native workflow submission id",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Filter by workflow id",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "items": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
-      },
-      "returned": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "total": {
-        "type": "integer",
-        "minimum": 0
-      },
-      "limit": {
-        "type": "integer",
-        "minimum": 0
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "items",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "nextCursor",
-      "hasMore",
-      "returned",
-      "total",
-      "limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/tasks"
-    }
-  ],
   "operationalAliases": [
     "run list",
     "run",
@@ -646,16 +557,126 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "items",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "backend": {
+        "description": "Filter by backend id",
+        "type": "string"
+      },
+      "backend_type": {
+        "description": "Filter by backend type",
+        "type": "string"
+      },
+      "request": {
+        "description": "Filter by provider request id",
+        "type": "string"
+      },
+      "run": {
+        "description": "Filter by workflow run id",
+        "type": "string"
+      },
+      "state": {
+        "description": "Filter by task state",
+        "type": "string"
+      },
+      "submission": {
+        "description": "Filter by native workflow submission id",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Filter by workflow id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "hasMore": {
+        "type": "boolean"
+      },
+      "items": {
+        "type": "array"
+      },
+      "limit": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "number",
+          "null"
+        ]
+      },
+      "returned": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "total": {
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "List active and recent workflow runtime tasks",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/tasks"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `run` `list`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"items","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `run list`, `run`, `list`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `request`, `REQUEST`, `submission`, `SUBMISSION`, `RUN`, `state`, `STATE`, `active_only`, `active-only`, `ACTIVE_ONLY`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
@@ -664,9 +685,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -676,8 +697,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -693,11 +714,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -708,7 +729,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/tasks"
+    "target": "GET /bridge/v2/tasks"
   }
 ]
 ```

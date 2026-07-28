@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "query": {
-      "type": "string",
-      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,74 +49,41 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "topicId": {
-      "type": "string"
-    },
-    "topic_id": {
-      "type": "string"
-    },
-    "view": {
-      "type": "string",
-      "enum": [
-        "digest",
-        "semantic",
-        "audit",
-        "full"
-      ]
-    },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "create",
-        "update"
-      ]
-    },
-    "language": {
-      "type": "string"
-    },
-    "updateScope": {
-      "type": "string"
-    },
-    "update_scope": {
-      "type": "string"
-    },
-    "updateMode": {
-      "type": "string"
-    },
-    "update_mode": {
-      "type": "string"
-    },
-    "updateReason": {
-      "type": "string"
-    },
-    "update_reason": {
-      "type": "string"
-    },
-    "includeFull": {
-      "type": "boolean"
-    },
-    "include_full": {
-      "type": "boolean"
-    },
-    "includeMarkdown": {
-      "type": "boolean"
-    },
-    "include_markdown": {
-      "type": "boolean"
-    },
     "includeArtifact": {
       "type": "boolean"
     },
-    "include_artifact": {
+    "includeFull": {
       "type": "boolean"
     },
     "includeManifest": {
       "type": "boolean"
     },
+    "includeMarkdown": {
+      "type": "boolean"
+    },
+    "include_artifact": {
+      "type": "boolean"
+    },
+    "include_full": {
+      "type": "boolean"
+    },
     "include_manifest": {
       "type": "boolean"
+    },
+    "include_markdown": {
+      "type": "boolean"
+    },
+    "language": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "create",
+        "update"
+      ],
+      "type": "string"
     },
     "outputPath": {
       "type": "string"
@@ -126,10 +93,42 @@ Required: `false`.
     },
     "overwrite": {
       "type": "boolean"
+    },
+    "topicId": {
+      "type": "string"
+    },
+    "topic_id": {
+      "type": "string"
+    },
+    "updateMode": {
+      "type": "string"
+    },
+    "updateReason": {
+      "type": "string"
+    },
+    "updateScope": {
+      "type": "string"
+    },
+    "update_mode": {
+      "type": "string"
+    },
+    "update_reason": {
+      "type": "string"
+    },
+    "update_scope": {
+      "type": "string"
+    },
+    "view": {
+      "enum": [
+        "digest",
+        "semantic",
+        "audit",
+        "full"
+      ],
+      "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -137,74 +136,41 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "topicId": {
-      "type": "string"
-    },
-    "topic_id": {
-      "type": "string"
-    },
-    "view": {
-      "type": "string",
-      "enum": [
-        "digest",
-        "semantic",
-        "audit",
-        "full"
-      ]
-    },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "create",
-        "update"
-      ]
-    },
-    "language": {
-      "type": "string"
-    },
-    "updateScope": {
-      "type": "string"
-    },
-    "update_scope": {
-      "type": "string"
-    },
-    "updateMode": {
-      "type": "string"
-    },
-    "update_mode": {
-      "type": "string"
-    },
-    "updateReason": {
-      "type": "string"
-    },
-    "update_reason": {
-      "type": "string"
-    },
-    "includeFull": {
-      "type": "boolean"
-    },
-    "include_full": {
-      "type": "boolean"
-    },
-    "includeMarkdown": {
-      "type": "boolean"
-    },
-    "include_markdown": {
-      "type": "boolean"
-    },
     "includeArtifact": {
       "type": "boolean"
     },
-    "include_artifact": {
+    "includeFull": {
       "type": "boolean"
     },
     "includeManifest": {
       "type": "boolean"
     },
+    "includeMarkdown": {
+      "type": "boolean"
+    },
+    "include_artifact": {
+      "type": "boolean"
+    },
+    "include_full": {
+      "type": "boolean"
+    },
     "include_manifest": {
       "type": "boolean"
+    },
+    "include_markdown": {
+      "type": "boolean"
+    },
+    "language": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "create",
+        "update"
+      ],
+      "type": "string"
     },
     "outputPath": {
       "type": "string"
@@ -214,51 +180,99 @@ Required: `false`.
     },
     "overwrite": {
       "type": "boolean"
+    },
+    "topicId": {
+      "type": "string"
+    },
+    "topic_id": {
+      "type": "string"
+    },
+    "updateMode": {
+      "type": "string"
+    },
+    "updateReason": {
+      "type": "string"
+    },
+    "updateScope": {
+      "type": "string"
+    },
+    "update_mode": {
+      "type": "string"
+    },
+    "update_reason": {
+      "type": "string"
+    },
+    "update_scope": {
+      "type": "string"
+    },
+    "view": {
+      "enum": [
+        "digest",
+        "semantic",
+        "audit",
+        "full"
+      ],
+      "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "topics.get_context"
     },
     "data": {
-      "type": "object",
+      "additionalProperties": true,
       "description": "Result data owned by topics.get_context.",
       "properties": {
-        "file": {
-          "type": "object",
-          "properties": {
-            "fileId": {
-              "type": "string"
-            },
-            "path": {
-              "type": "string"
-            },
-            "checksum": {
-              "type": "string"
-            },
-            "bytes": {
-              "type": "integer"
-            }
-          },
-          "additionalProperties": true
-        },
         "delivery": {
-          "type": "object",
+          "additionalProperties": false,
           "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
           "properties": {
+            "bundle": {
+              "additionalProperties": true,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "fileId": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "downloadCommand": {
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
             "mode": {
               "enum": [
                 "local",
@@ -269,45 +283,41 @@ Required: `false`.
             "path": {
               "type": "string"
             },
-            "files": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            },
-            "bundle": {
-              "type": "object",
-              "properties": {
-                "fileId": {
-                  "type": "string"
-                },
-                "displayName": {
-                  "type": "string"
-                },
-                "contentType": {
-                  "type": "string"
-                },
-                "size": {
-                  "type": "integer"
-                }
-              },
-              "additionalProperties": true
-            },
-            "downloadCommand": {
-              "type": "string"
-            },
             "unpackHint": {
               "type": "string"
             }
           },
-          "additionalProperties": false
+          "type": "object"
+        },
+        "file": {
+          "additionalProperties": true,
+          "properties": {
+            "bytes": {
+              "type": "integer"
+            },
+            "checksum": {
+              "type": "string"
+            },
+            "fileId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "type": "object"
         }
       },
-      "additionalProperties": true,
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -331,134 +341,114 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "synthesis topic get-context",
-  "argv": [
-    "synthesis",
-    "topic",
-    "get-context"
-  ],
-  "summary": "Read one topic synthesis context",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "query",
-      "kind": "option",
-      "token": "--query",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
       "aliases": [
         "input"
       ],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "query",
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "query",
       "kind": "option",
-      "token": "--query",
-      "takesValue": true,
+      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--query",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "argv": [
+    "synthesis",
+    "topic",
+    "get-context"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "query",
+      "required": false,
+      "takesValue": true,
+      "token": "--query",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "passthrough",
+  "category": "read",
+  "command": "synthesis topic get-context",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "query": {
-      "token": "--query",
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --query.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
       "required": false,
       "requiredWhen": [],
       "schema": {
-        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "topicId": {
-            "type": "string"
-          },
-          "topic_id": {
-            "type": "string"
-          },
-          "view": {
-            "type": "string",
-            "enum": [
-              "digest",
-              "semantic",
-              "audit",
-              "full"
-            ]
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "create",
-              "update"
-            ]
-          },
-          "language": {
-            "type": "string"
-          },
-          "updateScope": {
-            "type": "string"
-          },
-          "update_scope": {
-            "type": "string"
-          },
-          "updateMode": {
-            "type": "string"
-          },
-          "update_mode": {
-            "type": "string"
-          },
-          "updateReason": {
-            "type": "string"
-          },
-          "update_reason": {
-            "type": "string"
-          },
-          "includeFull": {
-            "type": "boolean"
-          },
-          "include_full": {
-            "type": "boolean"
-          },
-          "includeMarkdown": {
-            "type": "boolean"
-          },
-          "include_markdown": {
-            "type": "boolean"
-          },
           "includeArtifact": {
             "type": "boolean"
           },
-          "include_artifact": {
+          "includeFull": {
             "type": "boolean"
           },
           "includeManifest": {
             "type": "boolean"
           },
+          "includeMarkdown": {
+            "type": "boolean"
+          },
+          "include_artifact": {
+            "type": "boolean"
+          },
+          "include_full": {
+            "type": "boolean"
+          },
           "include_manifest": {
             "type": "boolean"
+          },
+          "include_markdown": {
+            "type": "boolean"
+          },
+          "language": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "create",
+              "update"
+            ],
+            "type": "string"
           },
           "outputPath": {
             "type": "string"
@@ -468,92 +458,106 @@ This closed descriptor is the machine-readable command contract returned by `sur
           },
           "overwrite": {
             "type": "boolean"
+          },
+          "topicId": {
+            "type": "string"
+          },
+          "topic_id": {
+            "type": "string"
+          },
+          "updateMode": {
+            "type": "string"
+          },
+          "updateReason": {
+            "type": "string"
+          },
+          "updateScope": {
+            "type": "string"
+          },
+          "update_mode": {
+            "type": "string"
+          },
+          "update_reason": {
+            "type": "string"
+          },
+          "update_scope": {
+            "type": "string"
+          },
+          "view": {
+            "enum": [
+              "digest",
+              "semantic",
+              "audit",
+              "full"
+            ],
+            "type": "string"
           }
         },
-        "required": [],
-        "additionalProperties": false
+        "type": "object"
       },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --query."
-        }
-      ]
+      "schemaSource": "target-capability",
+      "token": "--query"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
-      "topicId": {
+      "query": {
+        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
         "type": "string"
-      },
-      "topic_id": {
-        "type": "string"
-      },
-      "view": {
-        "type": "string",
-        "enum": [
-          "digest",
-          "semantic",
-          "audit",
-          "full"
-        ]
-      },
-      "mode": {
-        "type": "string",
-        "enum": [
-          "create",
-          "update"
-        ]
-      },
-      "language": {
-        "type": "string"
-      },
-      "updateScope": {
-        "type": "string"
-      },
-      "update_scope": {
-        "type": "string"
-      },
-      "updateMode": {
-        "type": "string"
-      },
-      "update_mode": {
-        "type": "string"
-      },
-      "updateReason": {
-        "type": "string"
-      },
-      "update_reason": {
-        "type": "string"
-      },
-      "includeFull": {
-        "type": "boolean"
-      },
-      "include_full": {
-        "type": "boolean"
-      },
-      "includeMarkdown": {
-        "type": "boolean"
-      },
-      "include_markdown": {
-        "type": "boolean"
-      },
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "synthesis topic get-context",
+    "synthesis",
+    "topic",
+    "get-context",
+    "query",
+    "JSON_OR_FILE"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
       "includeArtifact": {
         "type": "boolean"
       },
-      "include_artifact": {
+      "includeFull": {
         "type": "boolean"
       },
       "includeManifest": {
         "type": "boolean"
       },
+      "includeMarkdown": {
+        "type": "boolean"
+      },
+      "include_artifact": {
+        "type": "boolean"
+      },
+      "include_full": {
+        "type": "boolean"
+      },
       "include_manifest": {
         "type": "boolean"
+      },
+      "include_markdown": {
+        "type": "boolean"
+      },
+      "language": {
+        "type": "string"
+      },
+      "mode": {
+        "enum": [
+          "create",
+          "update"
+        ],
+        "type": "string"
       },
       "outputPath": {
         "type": "string"
@@ -563,46 +567,97 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "overwrite": {
         "type": "boolean"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
+      },
+      "topicId": {
         "type": "string"
       },
+      "topic_id": {
+        "type": "string"
+      },
+      "updateMode": {
+        "type": "string"
+      },
+      "updateReason": {
+        "type": "string"
+      },
+      "updateScope": {
+        "type": "string"
+      },
+      "update_mode": {
+        "type": "string"
+      },
+      "update_reason": {
+        "type": "string"
+      },
+      "update_scope": {
+        "type": "string"
+      },
+      "view": {
+        "enum": [
+          "digest",
+          "semantic",
+          "audit",
+          "full"
+        ],
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
       "approval": {
-        "type": "object"
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "topics.get_context"
       },
       "data": {
-        "type": "object",
+        "additionalProperties": true,
         "description": "Result data owned by topics.get_context.",
         "properties": {
-          "file": {
-            "type": "object",
-            "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
           "delivery": {
-            "type": "object",
+            "additionalProperties": false,
             "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
             "properties": {
+              "bundle": {
+                "additionalProperties": true,
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "files": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "mode": {
                 "enum": [
                   "local",
@@ -613,89 +668,63 @@ This closed descriptor is the machine-readable command contract returned by `sur
               "path": {
                 "type": "string"
               },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
-                "type": "object",
-                "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer"
-                  }
-                },
-                "additionalProperties": true
-              },
-              "downloadCommand": {
-                "type": "string"
-              },
               "unpackHint": {
                 "type": "string"
               }
             },
-            "additionalProperties": false
+            "type": "object"
+          },
+          "file": {
+            "additionalProperties": true,
+            "properties": {
+              "bytes": {
+                "type": "integer"
+              },
+              "checksum": {
+                "type": "string"
+              },
+              "fileId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
           }
         },
-        "additionalProperties": true,
+        "type": "object",
         "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
       }
     },
-    "additionalProperties": false
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Read one topic synthesis context",
   "targets": [
     {
       "kind": "capability",
       "target": "topics.get_context"
     }
-  ],
-  "operationalAliases": [
-    "synthesis topic get-context",
-    "synthesis",
-    "topic",
-    "get-context",
-    "query",
-    "JSON_OR_FILE"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -703,6 +732,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis topic get-context`, `synthesis`, `topic`, `get-context`, `query`, `JSON_OR_FILE`.
 
@@ -711,9 +741,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -723,8 +753,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -740,11 +770,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

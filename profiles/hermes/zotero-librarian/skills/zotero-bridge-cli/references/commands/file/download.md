@@ -31,27 +31,27 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "file_id": {
-      "type": "string",
       "description": "Broker-issued opaque file id",
-      "position": 1
-    },
-    "output": {
-      "type": "string",
-      "description": "Output file path"
+      "position": 1,
+      "type": "string"
     },
     "force": {
-      "type": "boolean",
-      "description": "Overwrite the output file if it already exists"
+      "description": "Overwrite the output file if it already exists",
+      "type": "boolean"
+    },
+    "output": {
+      "description": "Output file path",
+      "type": "string"
     }
   },
   "required": [
     "file_id",
     "output"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -63,50 +63,65 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "file_id": {
-      "type": "string",
-      "description": "Broker-issued opaque file id"
+      "description": "Broker-issued opaque file id",
+      "type": "string"
     },
     "output": {
-      "type": "string",
-      "description": "Output file path"
+      "description": "Output file path",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
-    "file": {
-      "type": "object",
-      "properties": {
-        "fileId": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "checksum": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": true
-    },
     "delivery": {
-      "type": "object",
+      "additionalProperties": false,
       "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
       "properties": {
+        "bundle": {
+          "additionalProperties": true,
+          "properties": {
+            "contentType": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "fileId": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "downloadCommand": {
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
         "mode": {
           "enum": [
             "local",
@@ -117,41 +132,32 @@ This command has no structured JSON input parameter.
         "path": {
           "type": "string"
         },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        },
-        "bundle": {
-          "type": "object",
-          "properties": {
-            "fileId": {
-              "type": "string"
-            },
-            "displayName": {
-              "type": "string"
-            },
-            "contentType": {
-              "type": "string"
-            },
-            "size": {
-              "type": "integer"
-            }
-          },
-          "additionalProperties": true
-        },
-        "downloadCommand": {
-          "type": "string"
-        },
         "unpackHint": {
           "type": "string"
         }
       },
-      "additionalProperties": false
+      "type": "object"
+    },
+    "file": {
+      "additionalProperties": true,
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "fileId": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -166,255 +172,151 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "file download",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Broker-issued opaque file id",
+      "id": "file_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "FILE_ID",
+      "valueNames": [
+        "FILE_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Output file path",
+      "id": "output",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--output",
+      "valueNames": [
+        "PATH"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Overwrite the output file if it already exists",
+      "id": "force",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--force",
+      "valueNames": [
+        "FORCE"
+      ]
+    }
+  ],
   "argv": [
     "file",
     "download"
   ],
-  "summary": "Download one registered file handle",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "file_id",
+      "required": true,
+      "takesValue": true,
+      "token": "FILE_ID",
+      "valueNames": [
+        "FILE_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "output",
+      "required": true,
+      "takesValue": true,
+      "token": "--output",
+      "valueNames": [
+        "PATH"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "force",
+      "required": false,
+      "takesValue": false,
+      "token": "--force",
+      "valueNames": [
+        "FORCE"
+      ]
+    }
+  ],
+  "binding": "none",
   "category": "read",
+  "command": "file download",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "fileId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "file_id": {
-        "type": "string",
         "description": "Broker-issued opaque file id",
-        "position": 1
-      },
-      "output": {
-        "type": "string",
-        "description": "Output file path"
+        "position": 1,
+        "type": "string"
       },
       "force": {
-        "type": "boolean",
-        "description": "Overwrite the output file if it already exists"
+        "description": "Overwrite the output file if it already exists",
+        "type": "boolean"
+      },
+      "output": {
+        "description": "Output file path",
+        "type": "string"
       }
     },
     "required": [
       "file_id",
       "output"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "file_id",
-      "kind": "positional",
-      "token": "FILE_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Broker-issued opaque file id",
-      "valueNames": [
-        "FILE_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "output",
-      "kind": "option",
-      "token": "--output",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Output file path",
-      "valueNames": [
-        "PATH"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "force",
-      "kind": "option",
-      "token": "--force",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Overwrite the output file if it already exists",
-      "valueNames": [
-        "FORCE"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "file_id",
-      "kind": "positional",
-      "token": "FILE_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "FILE_ID"
-      ]
-    },
-    {
-      "property": "output",
-      "kind": "option",
-      "token": "--output",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "PATH"
-      ]
-    },
-    {
-      "property": "force",
-      "kind": "option",
-      "token": "--force",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "FORCE"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "file_id": {
-        "type": "string",
-        "description": "Broker-issued opaque file id"
-      },
-      "output": {
-        "type": "string",
-        "description": "Output file path"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "file": {
-        "type": "object",
-        "properties": {
-          "fileId": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "bytes": {
-            "type": "integer"
-          }
-        },
-        "additionalProperties": true
-      },
-      "delivery": {
-        "type": "object",
-        "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-        "properties": {
-          "mode": {
-            "enum": [
-              "local",
-              "bridge-download",
-              "bundle"
-            ]
-          },
-          "path": {
-            "type": "string"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "bundle": {
-            "type": "object",
-            "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "displayName": {
-                "type": "string"
-              },
-              "contentType": {
-                "type": "string"
-              },
-              "size": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "downloadCommand": {
-            "type": "string"
-          },
-          "unpackHint": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "fileId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "GET /bridge/v1/files/{fileId}"
-    }
-  ],
   "operationalAliases": [
     "file download",
     "file",
@@ -426,9 +328,127 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "force",
     "FORCE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "file_id": {
+        "description": "Broker-issued opaque file id",
+        "type": "string"
+      },
+      "output": {
+        "description": "Output file path",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "delivery": {
+        "additionalProperties": false,
+        "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+        "properties": {
+          "bundle": {
+            "additionalProperties": true,
+            "properties": {
+              "contentType": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "fileId": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "downloadCommand": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "local",
+              "bridge-download",
+              "bundle"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "unpackHint": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "file": {
+        "additionalProperties": true,
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "checksum": {
+            "type": "string"
+          },
+          "fileId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Download one registered file handle",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "GET /bridge/v2/files/{fileId}"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -436,6 +456,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `file download`, `file`, `download`, `file_id`, `FILE_ID`, `output`, `PATH`, `force`, `FORCE`.
 
@@ -444,9 +465,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -456,8 +477,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -466,11 +487,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "fileId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "fileId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -480,11 +501,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -495,7 +516,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/files/{fileId}"
+    "target": "GET /bridge/v2/files/{fileId}"
   }
 ]
 ```

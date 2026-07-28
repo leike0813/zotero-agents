@@ -106,7 +106,8 @@ describe("workflow: tag-bootstrapper", function () {
     assert.include(skill, "references/tag_standard.md");
     assert.include(skill, "zotero-bridge-cli");
     assert.include(skill, "synthesis index library get");
-    assert.include(skill, "has_more");
+    assert.include(skill, "data.data.pagination.<section>");
+    assert.include(skill, "hasMore");
     assert.include(skill, "Zotero DB/storage");
     assert.include(skill, "scripts/normalize_output.py");
     assert.include(skill, "scripts/validate_output.py");

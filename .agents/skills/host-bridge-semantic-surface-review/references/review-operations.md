@@ -12,7 +12,7 @@
 
 ## Contracts and sources
 
-Review behavior changes in Host Bridge modules, CLI command implementations, `schemas/host-bridge.agent-surface.v4.schema.json`, the v4 agent-surface descriptor, workflow declarations, and relevant OpenSpec specifications.
+Review behavior changes in Host Bridge modules, the executable capability and CLI command contracts, CLI command implementations, `schemas/host-bridge.agent-surface.v6.schema.json`, the Rust runtime-derived v6 Agent Surface descriptor, workflow declarations, and relevant OpenSpec specifications.
 
 Review composition and rendering changes in `host-bridge/surfaces.json`, `scripts/host-bridge-surface-model.ts`, `scripts/render-host-bridge-surfaces.ts`, `scripts/host-bridge-workflow-catalog.ts`, `scripts/materialize-host-bridge-surfaces.ts`, `scripts/check-host-bridge-skill-packages.ts`, release-set scripts and schemas, and the Host Bridge release workflow. Review catalog/runtime parity in `src/workflows/manifestContract.ts`, the runtime workflow-control projection, and the official manifests under `workflows_builtin/`.
 

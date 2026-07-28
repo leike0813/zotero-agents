@@ -1,6 +1,6 @@
 ---
 name: manuscript-literature-framing
-description: Draft a LaTeX literature review section. Use this skill when user wants to create an introduction and/or related work section for a research paper. Ensure you can access to the Zotero library through zotero-bridge CLI.
+description: Draft evidence-grounded LaTeX Introduction and Related Work sections from confirmed manuscript intent and Zotero literature. Use when a research paper needs literature framing and positioning.
 ---
 
 # Manuscript Literature Framing
@@ -97,15 +97,31 @@ Actions：
 
 按业务需要使用：
 
-- `topics.list`：列出已有 Topic Synthesis 候选。
-- `topics.get_review_input`：读取已确认 Topic Synthesis 的写作上下文。
-- `reference_index.get`：检查论文 artifact/reference cache readiness 与 citekey 相关元数据。
-- `citation_graph.get_metrics`：识别 core / foundation / frontier papers。
-- `citation_graph.get_slice`：检查局部引用邻域。
-- `paper_artifacts.resolve_topic_digest`：核验特定 topic evidence digest。
-- `list_library_items`、`search_items`、`get_item_detail`：直接查询 Zotero 文献库。
-- `get_item_notes`、`list_note_payloads`、`get_note_payload`：检查选定论文 notes 与 workflow payload。
-- `get_item_attachments`、`prepare_paper_reading_context`：检查原文可用性，少量核验关键论文。
+Stage 2 第一次访问 Zotero 前，读取内置 `zotero-bridge-cli` wrapper skill，
+从 `references/command-catalog.md` 选择语义命令，读取每个所选命令的生成命令卡，
+并用当前二进制的 `surface describe '<canonical command>'` 确认参数、分页和结果
+边界。禁止把同名 MCP tool 或 raw capability 当成 CLI 命令；静态命令卡与 live
+descriptor 不一致时停止并报告 release identity 漂移。
+
+- `synthesis topic list`：列出已有 Topic Synthesis 候选。
+- `synthesis topic get-review-input`：读取已确认 Topic Synthesis 的写作上下文。
+- `synthesis index reference get`：检查论文 artifact/reference cache readiness 与 citekey 相关元数据。
+- `synthesis graph get-metrics`：识别 core / foundation / frontier papers。
+- `synthesis graph get-slice`：检查局部引用邻域。
+- `synthesis artifact resolve-topic-digest`：核验特定 topic evidence digest。
+- `library items list`、`library item search`、`library item get`：直接查询 Zotero 文献库。
+- `library item notes`、`library note payloads`、`library note payload`：检查选定论文 notes 与 workflow payload。
+- `library item attachments`：检查原文附件是否存在以及可用的下载句柄。
+
+需要少量核验关键论文原文时，先用 `library item get` 确认父条目身份，再用
+`library item attachments` 选择匹配的 PDF attachment。只有 attachment 结果或
+命令卡声明可下载的 `fileId` 时才调用 `file download`，并校验返回的 byte count
+与 SHA-256；不得把 Zotero storage path 当作 agent 本地路径。文件句柄过期时从
+原 attachment read 重新取得，不要猜路径或复用已消费句柄。
+
+需要以“没有 topic、条目、note、payload、attachment 或 reference entry”为证据
+时，必须按所选命令卡的 `outputBoundary` 读完对应 cursor/offset；第一页面为空、
+短页或被截断都不构成全量不存在。
 
 如果正式执行中必需的 Zotero 或 Synthesis host 调用不可用，允许绕过当前 gate 执行 `cancel` action。该例外只用于真实 host call 不可用或无法完成的情况；其它阶段仍必须遵循 gate 返回的 `next_action`。
 

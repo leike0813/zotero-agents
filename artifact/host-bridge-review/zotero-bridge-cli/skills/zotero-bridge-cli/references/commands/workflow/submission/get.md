@@ -1,6 +1,6 @@
 # `zotero-bridge workflow submission get`
 
-读取一个活动的 Zotero-managed workflow submission
+Read one active Zotero-managed workflow submission
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SUBMISSION_ID <SUBMISSION_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -24,31 +24,33 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 | Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SUBMISSION_ID | submission_id | positional | yes | — | SUBMISSION_ID | no | — | — | Opaque submission id returned by workflow submit |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor for submission units |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of submission units (1-100) |
 
 ## 调用 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "submission_id": {
-      "type": "string",
-      "description": "Opaque submission id returned by workflow submit",
-      "position": 1
-    },
     "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor for submission units"
+      "description": "Opaque continuation cursor for submission units",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of submission units (1-100)"
+      "description": "Maximum number of submission units (1-100)",
+      "type": "string"
+    },
+    "submission_id": {
+      "description": "Opaque submission id returned by workflow submit",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "submission_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -56,35 +58,38 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "submission_id": {
-      "type": "string",
-      "description": "Opaque submission id returned by workflow submit"
+      "description": "Opaque submission id returned by workflow submit",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "submissionId": {
-      "type": "string"
+    "admitted": {
+      "type": "integer"
     },
-    "workflowId": {
-      "type": "string"
-    },
-    "workflowLabel": {
+    "backendId": {
       "type": "string"
     },
     "backendType": {
@@ -93,29 +98,15 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
         "skillrunner"
       ]
     },
-    "backendId": {
-      "type": "string"
-    },
-    "total": {
-      "type": "integer"
+    "hasMore": {
+      "type": "boolean"
     },
     "initiallySkipped": {
       "type": "integer"
     },
-    "pending": {
+    "limit": {
+      "minimum": 0,
       "type": "integer"
-    },
-    "admitted": {
-      "type": "integer"
-    },
-    "settled": {
-      "type": "integer"
-    },
-    "units": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
     },
     "nextCursor": {
       "type": [
@@ -123,16 +114,33 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
         "null"
       ]
     },
-    "hasMore": {
-      "type": "boolean"
+    "pending": {
+      "type": "integer"
     },
     "returned": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     },
-    "limit": {
-      "type": "integer",
-      "minimum": 0
+    "settled": {
+      "type": "integer"
+    },
+    "submissionId": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "units": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "workflowLabel": {
+      "type": "string"
     }
   },
   "required": [
@@ -146,160 +154,216 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
     "settled",
     "units"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "workflow submission get",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque submission id returned by workflow submit",
+      "id": "submission_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "SUBMISSION_ID",
+      "valueNames": [
+        "SUBMISSION_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor for submission units",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of submission units (1-100)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "submission",
     "get"
   ],
-  "summary": "Read one active Zotero-managed workflow submission",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "submission_id",
+      "required": true,
+      "takesValue": true,
+      "token": "SUBMISSION_ID",
+      "valueNames": [
+        "SUBMISSION_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "none",
   "category": "read",
+  "command": "workflow submission get",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required to inspect one active pending/admitted Host submission.",
+      "direction": "consume",
+      "handle": "submissionId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "submission_id": {
-        "type": "string",
-        "description": "Opaque submission id returned by workflow submit",
-        "position": 1
-      },
       "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor for submission units"
+        "description": "Opaque continuation cursor for submission units",
+        "type": "string"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of submission units (1-100)"
+        "description": "Maximum number of submission units (1-100)",
+        "type": "string"
+      },
+      "submission_id": {
+        "description": "Opaque submission id returned by workflow submit",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "submission_id"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "submission_id",
-      "kind": "positional",
-      "token": "SUBMISSION_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Opaque submission id returned by workflow submit",
-      "valueNames": [
-        "SUBMISSION_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor for submission units",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of submission units (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
+  "operationalAliases": [
+    "workflow submission get",
+    "workflow",
+    "submission",
+    "get",
+    "submission_id",
+    "SUBMISSION_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
-  "argvBindings": [
-    {
-      "property": "submission_id",
-      "kind": "positional",
-      "token": "SUBMISSION_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "SUBMISSION_ID"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
+  "outputBoundary": {
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "units",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
   "payloadSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "submission_id": {
-        "type": "string",
-        "description": "Opaque submission id returned by workflow submit"
+        "description": "Opaque submission id returned by workflow submit",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "submissionId": {
-        "type": "string"
+      "admitted": {
+        "type": "integer"
       },
-      "workflowId": {
-        "type": "string"
-      },
-      "workflowLabel": {
+      "backendId": {
         "type": "string"
       },
       "backendType": {
@@ -308,29 +372,15 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
           "skillrunner"
         ]
       },
-      "backendId": {
-        "type": "string"
-      },
-      "total": {
-        "type": "integer"
+      "hasMore": {
+        "type": "boolean"
       },
       "initiallySkipped": {
         "type": "integer"
       },
-      "pending": {
+      "limit": {
+        "minimum": 0,
         "type": "integer"
-      },
-      "admitted": {
-        "type": "integer"
-      },
-      "settled": {
-        "type": "integer"
-      },
-      "units": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
       },
       "nextCursor": {
         "type": [
@@ -338,16 +388,33 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
           "null"
         ]
       },
-      "hasMore": {
-        "type": "boolean"
+      "pending": {
+        "type": "integer"
       },
       "returned": {
-        "type": "integer",
-        "minimum": 0
+        "minimum": 0,
+        "type": "integer"
       },
-      "limit": {
-        "type": "integer",
-        "minimum": 0
+      "settled": {
+        "type": "integer"
+      },
+      "submissionId": {
+        "type": "string"
+      },
+      "total": {
+        "type": "integer"
+      },
+      "units": {
+        "items": {
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "workflowId": {
+        "type": "string"
+      },
+      "workflowLabel": {
+        "type": "string"
       }
     },
     "required": [
@@ -361,91 +428,48 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
       "settled",
       "units"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "units",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "nextCursor",
-      "hasMore",
-      "returned",
-      "total",
-      "limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "submissionId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required to inspect one active pending/admitted Host submission.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Read one active Zotero-managed workflow submission",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "GET /bridge/v1/workflows/submissions/{submissionId}"
+      "target": "GET /bridge/v2/workflows/submissions/{submissionId}"
     }
-  ],
-  "operationalAliases": [
-    "workflow submission get",
-    "workflow",
-    "submission",
-    "get",
-    "submission_id",
-    "SUBMISSION_ID",
-    "cursor",
-    "CURSOR",
-    "limit",
-    "LIMIT"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `workflow` `submission` `get`.
-- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"units","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- 输出边界： `cursor`；受管详情： {"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"units","strategy":"cursor"}.
 - 分页： `cursor`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `none`.
+- intent 可见性： `visible`.
 - 操作别名： `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -455,21 +479,21 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "submissionId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required to inspect one active pending/admitted Host submission.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "submissionId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -479,22 +503,22 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/workflows/submissions/{submissionId}"
+    "target": "GET /bridge/v2/workflows/submissions/{submissionId}"
   }
 ]
 ```

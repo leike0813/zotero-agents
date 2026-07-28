@@ -1755,8 +1755,8 @@ describe("gui: preference scripts", function () {
             pinPortEnabled: true,
             pinnedPort: 26570,
             portMode: "pinned",
-            endpoint: "http://127.0.0.1:26570/bridge/v1",
-            remoteEndpoint: "http://192.168.1.10:26570/bridge/v1",
+            endpoint: "http://127.0.0.1:26570/bridge/v2",
+            remoteEndpoint: "http://192.168.1.10:26570/bridge/v2",
             tokenMasked: "abc...def",
           },
         };
@@ -1785,8 +1785,8 @@ describe("gui: preference scripts", function () {
             pinPortEnabled: true,
             pinnedPort: 26570,
             portMode: "pinned",
-            endpoint: "http://127.0.0.1:26570/bridge/v1",
-            remoteEndpoint: "http://192.168.1.10:26570/bridge/v1",
+            endpoint: "http://127.0.0.1:26570/bridge/v2",
+            remoteEndpoint: "http://192.168.1.10:26570/bridge/v2",
           },
         };
       }
@@ -1814,7 +1814,7 @@ describe("gui: preference scripts", function () {
     );
     assert.include(
       prefs.hostBridgeEndpointText?.textContent || "",
-      "http://127.0.0.1:26570/bridge/v1",
+      "http://127.0.0.1:26570/bridge/v2",
     );
     assert.match(prefs.mcpServerLed?.className || "", /is-green/);
     assert.include(
@@ -1941,7 +1941,7 @@ describe("gui: preference scripts", function () {
             bindMode: "loopback",
             portMode: "random",
             port: 26571,
-            endpoint: "http://127.0.0.1:26571/bridge/v1",
+            endpoint: "http://127.0.0.1:26571/bridge/v2",
           },
         };
       }
@@ -1970,7 +1970,7 @@ describe("gui: preference scripts", function () {
               bindMode: "loopback",
               portMode: "random",
               port: 26571,
-              endpoint: "http://127.0.0.1:26571/bridge/v1",
+              endpoint: "http://127.0.0.1:26571/bridge/v2",
             },
           },
         };

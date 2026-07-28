@@ -30,21 +30,21 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "workflow": {
-      "type": "string",
-      "description": "Workflow id to describe"
+      "description": "Workflow id to describe",
+      "type": "string"
     },
     "workflow-options": {
-      "type": "string",
-      "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin"
+      "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [
     "workflow"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -56,9 +56,9 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
-  "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
   "additionalProperties": true,
+  "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
+  "type": "object",
   "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
 }
 ```
@@ -67,36 +67,42 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "workflow": {
-      "type": "string",
-      "description": "Workflow id to describe"
+      "description": "Workflow id to describe",
+      "type": "string"
     },
     "workflow_options": {
-      "type": "string",
-      "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin"
+      "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/workflows/describe.",
       "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/workflows/describe.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -121,172 +127,128 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow describe",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow id to describe",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Draft workflow options JSON object, file path, @file, or '-' for stdin",
+      "id": "workflow_options",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-options",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "describe"
   ],
-  "summary": "Describe workflow selection and workflow options",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "workflow-options",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-options",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "overlay",
   "category": "read",
+  "command": "workflow describe",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {
+    "workflow_options": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --workflow-options.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
+        "type": "object",
+        "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
+      },
+      "schemaSource": "inline",
+      "token": "--workflow-options"
+    }
+  },
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "workflow": {
-        "type": "string",
-        "description": "Workflow id to describe"
+        "description": "Workflow id to describe",
+        "type": "string"
       },
       "workflow-options": {
-        "type": "string",
-        "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin"
+        "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
     "required": [
       "workflow"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Workflow id to describe",
-      "valueNames": [
-        "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "workflow_options",
-      "kind": "option",
-      "token": "--workflow-options",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Draft workflow options JSON object, file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "workflow-options",
-      "kind": "option",
-      "token": "--workflow-options",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    }
-  ],
-  "inputSchemas": {
-    "workflow_options": {
-      "token": "--workflow-options",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --workflow-options."
-        }
-      ]
-    }
-  },
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to describe"
-      },
-      "workflow_options": {
-        "type": "string",
-        "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/workflows/describe.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/describe"
-    }
-  ],
   "operationalAliases": [
     "workflow describe",
     "workflow",
@@ -296,9 +258,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "workflow-options",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "workflow": {
+        "description": "Workflow id to describe",
+        "type": "string"
+      },
+      "workflow_options": {
+        "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/workflows/describe.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Describe workflow selection and workflow options",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/workflows/describe"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -306,6 +327,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `overlay`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow describe`, `workflow`, `describe`, `WORKFLOW`, `workflow_options`, `workflow-options`, `JSON_OR_FILE`.
 
@@ -314,9 +336,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -326,8 +348,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -343,11 +365,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -358,7 +380,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/describe"
+    "target": "POST /bridge/v2/workflows/describe"
   }
 ]
 ```

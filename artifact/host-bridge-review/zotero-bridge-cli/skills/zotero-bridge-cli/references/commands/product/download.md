@@ -1,6 +1,6 @@
 # `zotero-bridge product download`
 
-下载一个或全部 Dashboard Product asset
+Download one or all Dashboard Product assets
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] PRODUCT_ID <PRODUCT_ID> [--asset <ASSET>] --output-dir <DIR> [--force]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -32,31 +32,31 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "product_id": {
-      "type": "string",
-      "description": "Dashboard Product id",
-      "position": 1
-    },
     "asset": {
-      "type": "string",
-      "description": "Optional asset id; omit to download all assets"
-    },
-    "output-dir": {
-      "type": "string",
-      "description": "Destination directory"
+      "description": "Optional asset id; omit to download all assets",
+      "type": "string"
     },
     "force": {
-      "type": "boolean",
-      "description": "Allow existing output files to be replaced"
+      "description": "Allow existing output files to be replaced",
+      "type": "boolean"
+    },
+    "output-dir": {
+      "description": "Destination directory",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Dashboard Product id",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "product_id",
     "output-dir"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -64,15 +64,12 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "productId": {
-      "type": "string"
-    },
     "assetId": {
       "type": "string"
     },
@@ -81,12 +78,51 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     },
     "overwrite": {
       "type": "boolean"
+    },
+    "productId": {
+      "type": "string"
     }
   },
   "required": [
     "productId"
   ],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload 组合
+
+以下内容由可执行命令契约定义 base source、fixed value、field mapping 与 closed transform。命令 handler 只向所引用的 Clap argument ID 提供值。
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "product_id",
+      "field": "productId",
+      "required": true,
+      "transform": "trim-string"
+    },
+    {
+      "argument": "asset",
+      "field": "assetId",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "output_dir",
+      "field": "outputDir",
+      "required": true,
+      "transform": "path-string"
+    },
+    {
+      "argument": "force",
+      "field": "overwrite",
+      "required": true,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -94,43 +130,50 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "workflow_products.export"
     },
     "data": {
-      "type": "object",
+      "additionalProperties": true,
       "description": "Result data owned by workflow_products.export.",
       "properties": {
-        "fileId": {
-          "type": "string"
-        },
-        "file": {
-          "type": "object",
-          "properties": {
-            "fileId": {
-              "type": "string"
-            },
-            "path": {
-              "type": "string"
-            },
-            "checksum": {
-              "type": "string"
-            },
-            "bytes": {
-              "type": "integer"
-            }
-          },
-          "additionalProperties": true
-        },
         "delivery": {
-          "type": "object",
+          "additionalProperties": false,
           "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
           "properties": {
+            "bundle": {
+              "additionalProperties": true,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "fileId": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "downloadCommand": {
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
             "mode": {
               "enum": [
                 "local",
@@ -141,369 +184,270 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
             "path": {
               "type": "string"
             },
-            "files": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            },
-            "bundle": {
-              "type": "object",
-              "properties": {
-                "fileId": {
-                  "type": "string"
-                },
-                "displayName": {
-                  "type": "string"
-                },
-                "contentType": {
-                  "type": "string"
-                },
-                "size": {
-                  "type": "integer"
-                }
-              },
-              "additionalProperties": true
-            },
-            "downloadCommand": {
-              "type": "string"
-            },
             "unpackHint": {
               "type": "string"
             }
           },
-          "additionalProperties": false
+          "type": "object"
+        },
+        "file": {
+          "additionalProperties": true,
+          "properties": {
+            "bytes": {
+              "type": "integer"
+            },
+            "checksum": {
+              "type": "string"
+            },
+            "fileId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "fileId": {
+          "type": "string"
         }
       },
-      "additionalProperties": true,
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "product download",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Dashboard Product id",
+      "id": "product_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Optional asset id; omit to download all assets",
+      "id": "asset",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--asset",
+      "valueNames": [
+        "ASSET"
+      ]
+    },
+    {
+      "aliases": [
+        "output"
+      ],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Destination directory",
+      "id": "output_dir",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--output-dir",
+      "valueNames": [
+        "DIR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Allow existing output files to be replaced",
+      "id": "force",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--force",
+      "valueNames": [
+        "FORCE"
+      ]
+    }
+  ],
   "argv": [
     "product",
     "download"
   ],
-  "summary": "Download one or all Dashboard Product assets",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "product_id",
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "asset",
+      "required": false,
+      "takesValue": true,
+      "token": "--asset",
+      "valueNames": [
+        "ASSET"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "output-dir",
+      "required": true,
+      "takesValue": true,
+      "token": "--output-dir",
+      "valueNames": [
+        "DIR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "force",
+      "required": false,
+      "takesValue": false,
+      "token": "--force",
+      "valueNames": [
+        "FORCE"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "read",
+  "command": "product download",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "product_id",
+        "field": "productId",
+        "required": true,
+        "transform": "trim-string"
+      },
+      {
+        "argument": "asset",
+        "field": "assetId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "output_dir",
+        "field": "outputDir",
+        "required": true,
+        "transform": "path-string"
+      },
+      {
+        "argument": "force",
+        "field": "overwrite",
+        "required": true,
+        "transform": "identity"
+      }
+    ]
+  },
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "productId",
+      "lifetime": "caller-owned",
+      "required": true
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "fileId",
+      "lifetime": "short-lived",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "product_id": {
-        "type": "string",
-        "description": "Dashboard Product id",
-        "position": 1
-      },
       "asset": {
-        "type": "string",
-        "description": "Optional asset id; omit to download all assets"
-      },
-      "output-dir": {
-        "type": "string",
-        "description": "Destination directory"
+        "description": "Optional asset id; omit to download all assets",
+        "type": "string"
       },
       "force": {
-        "type": "boolean",
-        "description": "Allow existing output files to be replaced"
+        "description": "Allow existing output files to be replaced",
+        "type": "boolean"
+      },
+      "output-dir": {
+        "description": "Destination directory",
+        "type": "string"
+      },
+      "product_id": {
+        "description": "Dashboard Product id",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "product_id",
       "output-dir"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Dashboard Product id",
-      "valueNames": [
-        "PRODUCT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "asset",
-      "kind": "option",
-      "token": "--asset",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Optional asset id; omit to download all assets",
-      "valueNames": [
-        "ASSET"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "output_dir",
-      "kind": "option",
-      "token": "--output-dir",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Destination directory",
-      "valueNames": [
-        "DIR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [
-        "output"
-      ],
-      "defaultValues": []
-    },
-    {
-      "id": "force",
-      "kind": "option",
-      "token": "--force",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Allow existing output files to be replaced",
-      "valueNames": [
-        "FORCE"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "PRODUCT_ID"
-      ]
-    },
-    {
-      "property": "asset",
-      "kind": "option",
-      "token": "--asset",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "ASSET"
-      ]
-    },
-    {
-      "property": "output-dir",
-      "kind": "option",
-      "token": "--output-dir",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "DIR"
-      ]
-    },
-    {
-      "property": "force",
-      "kind": "option",
-      "token": "--force",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "FORCE"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "productId": {
-        "type": "string"
-      },
-      "assetId": {
-        "type": "string"
-      },
-      "outputDir": {
-        "type": "string"
-      },
-      "overwrite": {
-        "type": "boolean"
-      }
-    },
-    "required": [
-      "productId"
-    ],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by workflow_products.export.",
-        "properties": {
-          "fileId": {
-            "type": "string"
-          },
-          "file": {
-            "type": "object",
-            "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
-                "type": "object",
-                "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer"
-                  }
-                },
-                "additionalProperties": true
-              },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "productId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    },
-    {
-      "handle": "fileId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "short-lived"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "command-result",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "workflow_products.export"
-    }
-  ],
   "operationalAliases": [
     "product download",
     "product",
@@ -518,26 +462,174 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     "force",
     "FORCE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "assetId": {
+        "type": "string"
+      },
+      "outputDir": {
+        "type": "string"
+      },
+      "overwrite": {
+        "type": "boolean"
+      },
+      "productId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "productId"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "command-result",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "workflow_products.export"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by workflow_products.export.",
+        "properties": {
+          "delivery": {
+            "additionalProperties": false,
+            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+            "properties": {
+              "bundle": {
+                "additionalProperties": true,
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "files": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "mode": {
+                "enum": [
+                  "local",
+                  "bridge-download",
+                  "bundle"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "file": {
+            "additionalProperties": true,
+            "properties": {
+              "bytes": {
+                "type": "integer"
+              },
+              "checksum": {
+                "type": "string"
+              },
+              "fileId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Download one or all Dashboard Product assets",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "workflow_products.export"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `product` `download`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `product download`, `product`, `download`, `product_id`, `PRODUCT_ID`, `asset`, `ASSET`, `output_dir`, `output-dir`, `DIR`, `force`, `FORCE`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -547,28 +639,28 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "productId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "productId",
+    "lifetime": "caller-owned",
+    "required": true
   },
   {
-    "handle": "fileId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "short-lived"
+    "direction": "produce",
+    "handle": "fileId",
+    "lifetime": "short-lived",
+    "required": false
   }
 ]
 ```
@@ -578,16 +670,16 @@ zotero-bridge product download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "command-result",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "command-result",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

@@ -31,29 +31,29 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
+    "cursor": {
+      "description": "Opaque continuation cursor",
+      "type": "string"
+    },
     "item_refs": {
-      "type": "array",
+      "description": "Zotero item refs",
       "items": {
         "type": "string"
       },
-      "description": "Zotero item refs",
-      "position": 1
-    },
-    "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
+      "position": 1,
+      "type": "array"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of entries (1-100)"
+      "description": "Maximum number of entries (1-100)",
+      "type": "string"
     }
   },
   "required": [
     "item_refs"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -65,74 +65,80 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "item_refs": {
-      "type": "string",
-      "description": "Zotero item refs"
+      "description": "Zotero item refs",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
-    "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/context/selection/open.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-    },
-    "target": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array"
-        }
-      },
-      "additionalProperties": true
-    },
     "pagination": {
-      "type": "object",
+      "additionalProperties": true,
       "properties": {
         "items": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
+            "hasMore": {
+              "type": "boolean"
+            },
+            "limit": {
+              "minimum": 0,
+              "type": "integer"
+            },
             "nextCursor": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "hasMore": {
-              "type": "boolean"
-            },
             "returned": {
-              "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "type": "integer"
             },
             "total": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "type": "integer"
             }
           },
-          "additionalProperties": true
+          "type": "object"
         }
       },
-      "additionalProperties": true
+      "type": "object"
+    },
+    "response": {
+      "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/context/selection/open.",
+      "type": "object",
+      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "target": {
+      "additionalProperties": true,
+      "properties": {
+        "items": {
+          "type": "array"
+        }
+      },
+      "type": "object"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -147,246 +153,152 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "context selection open",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item refs",
+      "id": "item_refs",
+      "kind": "positional",
+      "numArgs": "1..",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "ITEM_REFS",
+      "valueNames": [
+        "ITEM_REFS"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "context",
     "selection",
     "open"
   ],
-  "summary": "Open one or more Zotero items as the active selection",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "item_refs",
+      "required": true,
+      "takesValue": true,
+      "token": "ITEM_REFS",
+      "valueNames": [
+        "ITEM_REFS"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "navigation",
+  "command": "context selection open",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change ui navigation state.",
+      "kind": "ui-navigation",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "itemRef",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
+      "cursor": {
+        "description": "Opaque continuation cursor",
+        "type": "string"
+      },
       "item_refs": {
-        "type": "array",
+        "description": "Zotero item refs",
         "items": {
           "type": "string"
         },
-        "description": "Zotero item refs",
-        "position": 1
-      },
-      "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
+        "position": 1,
+        "type": "array"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of entries (1-100)"
+        "description": "Maximum number of entries (1-100)",
+        "type": "string"
       }
     },
     "required": [
       "item_refs"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "item_refs",
-      "kind": "positional",
-      "token": "ITEM_REFS",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Zotero item refs",
-      "valueNames": [
-        "ITEM_REFS"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "numArgs": "1..",
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of entries (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "item_refs",
-      "kind": "positional",
-      "token": "ITEM_REFS",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "ITEM_REFS"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "item_refs": {
-        "type": "string",
-        "description": "Zotero item refs"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/context/selection/open.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      },
-      "target": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array"
-          }
-        },
-        "additionalProperties": true
-      },
-      "pagination": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "object",
-            "properties": {
-              "nextCursor": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "hasMore": {
-                "type": "boolean"
-              },
-              "returned": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "total": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "additionalProperties": true
-          }
-        },
-        "additionalProperties": true
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "target.items",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "pagination.items.nextCursor",
-      "pagination.items.hasMore",
-      "pagination.items.returned",
-      "pagination.items.total",
-      "pagination.items.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "ui-navigation",
-      "stateChanged": true,
-      "description": "May change ui navigation state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "itemRef",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/context/selection/open"
-    }
-  ],
   "operationalAliases": [
     "context selection open",
     "context",
@@ -399,16 +311,125 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "pagination.items.nextCursor",
+      "pagination.items.hasMore",
+      "pagination.items.returned",
+      "pagination.items.total",
+      "pagination.items.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "target.items",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "item_refs": {
+        "description": "Zotero item refs",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "pagination": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "hasMore": {
+                "type": "boolean"
+              },
+              "limit": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/context/selection/open.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "target": {
+        "additionalProperties": true,
+        "properties": {
+          "items": {
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Open one or more Zotero items as the active selection",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/context/selection/open"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `context` `selection` `open`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"target.items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["pagination.items.nextCursor","pagination.items.hasMore","pagination.items.returned","pagination.items.total","pagination.items.limit"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["pagination.items.nextCursor","pagination.items.hasMore","pagination.items.returned","pagination.items.total","pagination.items.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"target.items","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `navigation`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `context selection open`, `context`, `selection`, `open`, `item_refs`, `ITEM_REFS`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
@@ -417,9 +438,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change ui navigation state.",
     "kind": "ui-navigation",
-    "stateChanged": true,
-    "description": "May change ui navigation state."
+    "stateChanged": true
   }
 ]
 ```
@@ -429,8 +450,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -439,11 +460,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "itemRef",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "itemRef",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -453,11 +474,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
@@ -468,7 +489,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/context/selection/open"
+    "target": "POST /bridge/v2/context/selection/open"
   }
 ]
 ```

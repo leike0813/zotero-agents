@@ -30,22 +30,22 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "capability": {
-      "type": "string",
       "description": "Capability name, for example library.get_item_detail",
-      "position": 1
+      "position": 1,
+      "type": "string"
     },
     "input": {
-      "type": "string",
-      "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [
     "capability"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -57,9 +57,9 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
-  "description": "The selected capability owns this input object.",
   "additionalProperties": true,
+  "description": "The selected capability owns this input object.",
+  "type": "object",
   "x-openPropertiesReason": "The capability named by the positional command argument owns its input vocabulary."
 }
 ```
@@ -68,36 +68,42 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "capability": {
-      "type": "string",
-      "description": "Capability name, for example library.get_item_detail"
+      "description": "Capability name, for example library.get_item_detail",
+      "type": "string"
     },
     "input": {
-      "type": "string",
-      "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/call.",
       "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/call.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -122,175 +128,131 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "call",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Capability name, for example library.get_item_detail",
+      "id": "capability",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "CAPABILITY",
+      "valueNames": [
+        "CAPABILITY"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "input",
+      "kind": "option",
+      "longHelp": "Capability input. Use inline JSON such as '{\"key\":\"ABC\"}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "call"
   ],
-  "summary": "Advanced diagnostic raw capability call",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "capability",
+      "required": true,
+      "takesValue": true,
+      "token": "CAPABILITY",
+      "valueNames": [
+        "CAPABILITY"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "input",
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "raw",
   "category": "debug",
+  "command": "call",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": true,
+  "inputSchemas": {
+    "input": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --input.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "description": "The selected capability owns this input object.",
+        "type": "object",
+        "x-openPropertiesReason": "The capability named by the positional command argument owns its input vocabulary."
+      },
+      "schemaSource": "inline",
+      "token": "--input"
+    }
+  },
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "capability": {
-        "type": "string",
         "description": "Capability name, for example library.get_item_detail",
-        "position": 1
+        "position": 1,
+        "type": "string"
       },
       "input": {
-        "type": "string",
-        "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin"
+        "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
     "required": [
       "capability"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "capability",
-      "kind": "positional",
-      "token": "CAPABILITY",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Capability name, for example library.get_item_detail",
-      "valueNames": [
-        "CAPABILITY"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Capability input as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Capability input. Use inline JSON such as '{\"key\":\"ABC\"}', a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "capability",
-      "kind": "positional",
-      "token": "CAPABILITY",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "CAPABILITY"
-      ]
-    },
-    {
-      "property": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    }
-  ],
-  "inputSchemas": {
-    "input": {
-      "token": "--input",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "description": "The selected capability owns this input object.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The capability named by the positional command argument owns its input vocabulary."
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --input."
-        }
-      ]
-    }
-  },
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string",
-        "description": "Capability name, for example library.get_item_detail"
-      },
-      "input": {
-        "type": "string",
-        "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/call.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "raw"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "service",
-      "target": "POST /bridge/v1/call"
-    }
-  ],
   "operationalAliases": [
     "call",
     "capability",
@@ -298,9 +260,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "input",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": true
+  "outputBoundary": {
+    "strategy": "raw"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "capability": {
+        "description": "Capability name, for example library.get_item_detail",
+        "type": "string"
+      },
+      "input": {
+        "description": "Capability input as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/call.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Advanced diagnostic raw capability call",
+  "targets": [
+    {
+      "kind": "service",
+      "target": "POST /bridge/v2/call"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -308,6 +329,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `raw`; governed details: {"strategy":"raw"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
+- Structured binding mode: `raw`.
 - Intent visibility: `hidden`.
 - Operational aliases: `call`, `capability`, `CAPABILITY`, `input`, `JSON_OR_FILE`.
 
@@ -316,9 +338,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -328,8 +350,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -345,11 +367,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
@@ -360,7 +382,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "service",
-    "target": "POST /bridge/v1/call"
+    "target": "POST /bridge/v2/call"
   }
 ]
 ```

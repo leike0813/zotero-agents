@@ -30,21 +30,21 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "scope": {
-      "type": "string",
-      "description": "Cache scope"
-    },
     "id": {
-      "type": "string",
-      "description": "Optional opaque target id"
+      "description": "Optional opaque target id",
+      "type": "string"
+    },
+    "scope": {
+      "description": "Cache scope",
+      "type": "string"
     }
   },
   "required": [
     "scope"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -56,36 +56,42 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "scope": {
-      "type": "string",
-      "description": "Cache scope"
-    },
     "id": {
-      "type": "string",
-      "description": "Optional opaque target id"
+      "description": "Optional opaque target id",
+      "type": "string"
+    },
+    "scope": {
+      "description": "Cache scope",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/synthesis/cache/invalidate.",
       "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/synthesis/cache/invalidate.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -100,155 +106,110 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "synthesis cache invalidate",
-  "argv": [
-    "synthesis",
-    "cache",
-    "invalidate"
-  ],
-  "summary": "Invalidate a constrained Synthesis cache scope",
-  "category": "maintenance",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "scope": {
-        "type": "string",
-        "description": "Cache scope"
-      },
-      "id": {
-        "type": "string",
-        "description": "Optional opaque target id"
-      }
-    },
-    "required": [
-      "scope"
-    ],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
   },
   "arguments": [
     {
-      "id": "scope",
-      "kind": "option",
-      "token": "--scope",
-      "takesValue": true,
-      "required": true,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Cache scope",
-      "valueNames": [
-        "SCOPE"
-      ],
+      "id": "scope",
+      "kind": "option",
       "possibleValues": [
         "topic",
         "graph",
         "index"
       ],
-      "conflictsWith": [],
       "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Optional opaque target id",
-      "valueNames": [
-        "ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "scope",
-      "kind": "option",
-      "token": "--scope",
-      "takesValue": true,
       "required": true,
+      "takesValue": true,
+      "token": "--scope",
       "valueNames": [
         "SCOPE"
       ]
     },
     {
-      "property": "id",
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Optional opaque target id",
+      "id": "id",
       "kind": "option",
-      "token": "--id",
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": false,
+      "takesValue": true,
+      "token": "--id",
       "valueNames": [
         "ID"
       ]
     }
   ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "scope": {
-        "type": "string",
-        "description": "Cache scope"
-      },
-      "id": {
-        "type": "string",
-        "description": "Optional opaque target id"
-      }
+  "argv": [
+    "synthesis",
+    "cache",
+    "invalidate"
+  ],
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "scope",
+      "required": true,
+      "takesValue": true,
+      "token": "--scope",
+      "valueNames": [
+        "SCOPE"
+      ]
     },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/synthesis/cache/invalidate.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
+    {
+      "kind": "option",
+      "property": "id",
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "maintenance",
+  "command": "synthesis cache invalidate",
+  "composition": null,
+  "danger": "review",
   "effects": [
     {
+      "description": "May change cache maintenance state.",
       "kind": "cache-maintenance",
-      "stateChanged": true,
-      "description": "May change cache maintenance state."
+      "stateChanged": true
     }
   ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
   "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/synthesis/cache/invalidate"
-    }
-  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "Optional opaque target id",
+        "type": "string"
+      },
+      "scope": {
+        "description": "Cache scope",
+        "type": "string"
+      }
+    },
+    "required": [
+      "scope"
+    ],
+    "type": "object"
+  },
   "operationalAliases": [
     "synthesis cache invalidate",
     "synthesis",
@@ -259,9 +220,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "id",
     "ID"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "Optional opaque target id",
+        "type": "string"
+      },
+      "scope": {
+        "description": "Cache scope",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/synthesis/cache/invalidate.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Invalidate a constrained Synthesis cache scope",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/synthesis/cache/invalidate"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -269,6 +289,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `maintenance`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis cache invalidate`, `synthesis`, `cache`, `invalidate`, `scope`, `SCOPE`, `id`, `ID`.
 
@@ -277,9 +298,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change cache maintenance state.",
     "kind": "cache-maintenance",
-    "stateChanged": true,
-    "description": "May change cache maintenance state."
+    "stateChanged": true
   }
 ]
 ```
@@ -289,8 +310,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
@@ -306,11 +327,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
@@ -321,7 +342,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/synthesis/cache/invalidate"
+    "target": "POST /bridge/v2/synthesis/cache/invalidate"
   }
 ]
 ```

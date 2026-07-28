@@ -1,6 +1,6 @@
 # `zotero-bridge mutation tag add`
 
-向 Zotero item 添加标签
+Add tags to Zotero items
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --items <ITEMS> --tags <TAGS>
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -30,28 +30,28 @@ zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "items": {
-      "type": "array",
+      "description": "Target Zotero item refs",
       "items": {
         "type": "string"
       },
-      "description": "Target Zotero item refs"
+      "type": "array"
     },
     "tags": {
-      "type": "array",
+      "description": "Tags to add or remove",
       "items": {
         "type": "string"
       },
-      "description": "Tags to add or remove"
+      "type": "array"
     }
   },
   "required": [
     "items",
     "tags"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -59,23 +59,252 @@ zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "items": {
-      "type": "string",
-      "description": "Target Zotero item refs"
+  "$defs": {
+    "collectionRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        }
+      ]
+    },
+    "creator": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "firstName"
+          ]
+        },
+        {
+          "required": [
+            "lastName"
+          ]
+        }
+      ],
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "fieldPatch": {
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "objectRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+        }
+      ]
+    },
+    "objectRefs": {
+      "items": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "paper": {
+      "additionalProperties": false,
+      "properties": {
+        "attachLandingUrlOnMissingPdf": {
+          "type": "boolean"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "type": "object"
+        },
+        "identifiers": {
+          "additionalProperties": false,
+          "properties": {
+            "arxiv": {
+              "type": "string"
+            },
+            "doi": {
+              "type": "string"
+            },
+            "isbn": {
+              "type": "string"
+            },
+            "pmid": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "landingUrl": {
+          "type": "string"
+        },
+        "pdfUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemType",
+        "fields",
+        "creators",
+        "identifiers"
+      ],
+      "type": "object"
     },
     "tags": {
-      "type": "string",
-      "description": "Tags to add or remove"
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "targets"
+      ]
+    },
+    {
+      "required": [
+        "items"
+      ]
+    },
+    {
+      "required": [
+        "target"
+      ]
+    },
+    {
+      "required": [
+        "item"
+      ]
+    }
+  ],
+  "properties": {
+    "item": {
+      "$ref": "#/$defs/objectRef"
+    },
+    "items": {
+      "$ref": "#/$defs/objectRefs"
+    },
+    "operation": {
+      "const": "item.addTags"
+    },
+    "tags": {
+      "$ref": "#/$defs/tags"
+    },
+    "target": {
+      "$ref": "#/$defs/objectRef"
+    },
+    "targets": {
+      "$ref": "#/$defs/objectRefs"
+    }
+  },
+  "required": [
+    "operation",
+    "tags"
+  ],
+  "type": "object"
+}
+```
+
+## Payload 组合
+
+以下内容由可执行命令契约定义 base source、fixed value、field mapping 与 closed transform。命令 handler 只向所引用的 Clap argument ID 提供值。
+
+```json
+{
+  "constants": {
+    "operation": "item.addTags"
+  },
+  "mappings": [
+    {
+      "argument": "items",
+      "field": "items",
+      "required": true,
+      "transform": "context-ref-array"
+    },
+    {
+      "argument": "tags",
+      "field": "tags",
+      "required": true,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -83,192 +312,166 @@ zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "mutation.execute"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by mutation.execute.",
       "additionalProperties": true,
+      "description": "Result data owned by mutation.execute.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "mutation tag add",
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Target Zotero item refs",
+      "id": "items",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "--items",
+      "valueNames": [
+        "ITEMS"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Tags to add or remove",
+      "id": "tags",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "--tags",
+      "valueNames": [
+        "TAGS"
+      ]
+    }
+  ],
   "argv": [
     "mutation",
     "tag",
     "add"
   ],
-  "summary": "Add tags to Zotero items",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "items",
+      "required": true,
+      "takesValue": true,
+      "token": "--items",
+      "valueNames": [
+        "ITEMS"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "tags",
+      "required": true,
+      "takesValue": true,
+      "token": "--tags",
+      "valueNames": [
+        "TAGS"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "write",
+  "command": "mutation tag add",
+  "composition": {
+    "constants": {
+      "operation": "item.addTags"
+    },
+    "mappings": [
+      {
+        "argument": "items",
+        "field": "items",
+        "required": true,
+        "transform": "context-ref-array"
+      },
+      {
+        "argument": "tags",
+        "field": "tags",
+        "required": true,
+        "transform": "identity"
+      }
+    ]
+  },
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change zotero library state.",
+      "kind": "zotero-library",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "items": {
-        "type": "array",
+        "description": "Target Zotero item refs",
         "items": {
           "type": "string"
         },
-        "description": "Target Zotero item refs"
+        "type": "array"
       },
       "tags": {
-        "type": "array",
+        "description": "Tags to add or remove",
         "items": {
           "type": "string"
         },
-        "description": "Tags to add or remove"
+        "type": "array"
       }
     },
     "required": [
       "items",
       "tags"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "items",
-      "kind": "option",
-      "token": "--items",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Target Zotero item refs",
-      "valueNames": [
-        "ITEMS"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "tags",
-      "kind": "option",
-      "token": "--tags",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Tags to add or remove",
-      "valueNames": [
-        "TAGS"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "items",
-      "kind": "option",
-      "token": "--items",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "ITEMS"
-      ]
-    },
-    {
-      "property": "tags",
-      "kind": "option",
-      "token": "--tags",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "TAGS"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "items": {
-        "type": "string",
-        "description": "Target Zotero item refs"
-      },
-      "tags": {
-        "type": "string",
-        "description": "Tags to add or remove"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by mutation.execute.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "zotero-library",
-      "stateChanged": true,
-      "description": "May change zotero library state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "mutation.execute"
-    }
-  ],
   "operationalAliases": [
     "mutation tag add",
     "mutation",
@@ -279,26 +482,301 @@ zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     "tags",
     "TAGS"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "$defs": {
+      "collectionRef": {
+        "oneOf": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "type": "object",
+            "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+          }
+        ]
+      },
+      "creator": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "firstName"
+            ]
+          },
+          {
+            "required": [
+              "lastName"
+            ]
+          }
+        ],
+        "properties": {
+          "creatorType": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "fieldPatch": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "minProperties": 1,
+        "type": "object"
+      },
+      "objectRef": {
+        "oneOf": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "type": "object",
+            "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+          }
+        ]
+      },
+      "objectRefs": {
+        "items": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "paper": {
+        "additionalProperties": false,
+        "properties": {
+          "attachLandingUrlOnMissingPdf": {
+            "type": "boolean"
+          },
+          "creators": {
+            "items": {
+              "$ref": "#/$defs/creator"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "properties": {
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          },
+          "identifiers": {
+            "additionalProperties": false,
+            "properties": {
+              "arxiv": {
+                "type": "string"
+              },
+              "doi": {
+                "type": "string"
+              },
+              "isbn": {
+                "type": "string"
+              },
+              "pmid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "itemType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "landingUrl": {
+            "type": "string"
+          },
+          "pdfUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemType",
+          "fields",
+          "creators",
+          "identifiers"
+        ],
+        "type": "object"
+      },
+      "tags": {
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "minItems": 1,
+        "type": "array"
+      }
+    },
+    "additionalProperties": false,
+    "anyOf": [
+      {
+        "required": [
+          "targets"
+        ]
+      },
+      {
+        "required": [
+          "items"
+        ]
+      },
+      {
+        "required": [
+          "target"
+        ]
+      },
+      {
+        "required": [
+          "item"
+        ]
+      }
+    ],
+    "properties": {
+      "item": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "items": {
+        "$ref": "#/$defs/objectRefs"
+      },
+      "operation": {
+        "const": "item.addTags"
+      },
+      "tags": {
+        "$ref": "#/$defs/tags"
+      },
+      "target": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "targets": {
+        "$ref": "#/$defs/objectRefs"
+      }
+    },
+    "required": [
+      "operation",
+      "tags"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "mutation.execute"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by mutation.execute.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Add tags to Zotero items",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "mutation.execute"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `mutation` `tag` `add`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; danger: `review`.
-- 意图可见性： `visible`.
+- 类别： `write`；危险等级： `review`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `mutation tag add`, `mutation`, `tag`, `add`, `items`, `ITEMS`, `tags`, `TAGS`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "May change zotero library state.",
     "kind": "zotero-library",
-    "stateChanged": true,
-    "description": "May change zotero library state."
+    "stateChanged": true
   }
 ]
 ```
@@ -308,12 +786,12 @@ zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -325,16 +803,16 @@ zotero-bridge mutation tag add [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

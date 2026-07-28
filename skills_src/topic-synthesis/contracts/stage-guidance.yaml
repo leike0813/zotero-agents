@@ -77,9 +77,9 @@ stages:
       - "区分 current_linked_papers、saved_triage、source_materials 和后续 resolver diff：旧关联文献是已持久化 topic 的来源集合，saved_triage 是已有单篇判断覆盖，source_materials 只说明 digest/references/citation-analysis 等 source artifacts 可读。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":100}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。"
-        notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
+        notes: "读取 CLI stdout 的 data.data.pagination.papers；若 hasMore=true，保持筛选条件不变并将 nextCursor 回传为 cursor，直到 hasMore=false。需要用缺失作为证据时必须读完对应 section；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
       - "`runtime/payloads/update-audit-report.json` 是本 stage 的当前状态真源。"
       - "library index 用于设计增量 resolver proposal，不要从中手写 resolver result。"
@@ -122,9 +122,9 @@ stages:
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
       - "远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode=\"bridge-download\"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。"
     host_read_commands:
-      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":100}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。"
-        notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
+        notes: "读取 CLI stdout 的 data.data.pagination.papers；若 hasMore=true，保持筛选条件不变并将 nextCursor 回传为 cursor，直到 hasMore=false。需要用缺失作为证据时必须读完对应 section；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
       - "library index 用于设计 resolver，不要从中手写 resolver result。"
     field_guidance:

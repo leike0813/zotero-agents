@@ -20,7 +20,8 @@ export type HostBridgeCliIdentity = {
     | "host-bridge.surface-identity.v1"
     | "host-bridge.surface-identity.v2"
     | "host-bridge.surface-identity.v3"
-    | "host-bridge.surface-identity.v5";
+    | "host-bridge.surface-identity.v5"
+    | "host-bridge.surface-identity.v6";
   protocol: string;
   cliSchema: string;
   version: string;
@@ -226,7 +227,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     );
   }
   const cliIdentity: HostBridgeCliIdentity = {
-    schema: "host-bridge.surface-identity.v5",
+    schema: "host-bridge.surface-identity.v6",
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     version: input.cli.version,
@@ -265,7 +266,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     ]),
   ) as Record<keyof HostBridgeReleaseSetInput["surfaces"], unknown>;
   return {
-    schema: "host-bridge.release-set.v3" as const,
+    schema: "host-bridge.release-set.v4" as const,
     releaseSetId,
     status: "planned" as const,
     payloadDigest,
@@ -353,7 +354,6 @@ export const HOST_BRIDGE_PUBLIC_CONTENT = {
   cliBundle: [
     "skills_builtin/zotero-bridge-cli",
     "cli/zotero-bridge/scripts",
-    "cli/zotero-bridge/src/agent-surface.json",
   ],
   libraryAgent: [
     "skills_builtin/zotero-bridge-cli",
@@ -364,7 +364,6 @@ export const HOST_BRIDGE_PUBLIC_CONTENT = {
     "skills_builtin/zotero-research-synthesis",
     "skills_builtin/zotero-library-curation",
     "cli/zotero-bridge/scripts",
-    "cli/zotero-bridge/src/agent-surface.json",
   ],
   librarianProfile: ["profiles/hermes/zotero-librarian"],
 } as const;

@@ -1733,7 +1733,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         await writeHostBridgeWellKnownProfile({
           endpoint:
             server.bindMode === "lan"
-              ? `http://127.0.0.1:${server.port}/bridge/v1`
+              ? `http://127.0.0.1:${server.port}/bridge/v2`
               : server.endpoint,
           token: rotated.token,
           updatedAt: rotated.rotatedAt,

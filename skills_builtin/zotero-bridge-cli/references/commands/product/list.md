@@ -33,15 +33,9 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow-id": {
-      "type": "string"
-    },
     "backend-id": {
-      "type": "string"
-    },
-    "request-id": {
       "type": "string"
     },
     "cursor": {
@@ -49,10 +43,16 @@ The global options may appear before or after the leaf command. This leaf has no
     },
     "limit": {
       "type": "string"
+    },
+    "request-id": {
+      "type": "string"
+    },
+    "workflow-id": {
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -64,34 +64,75 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflowId": {
-      "type": "string"
-    },
     "backendId": {
       "type": "string"
+    },
+    "cursor": {
+      "minimum": 0,
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "limit": {
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
     },
     "requestId": {
       "type": "string"
     },
-    "cursor": {
-      "type": [
-        "number",
-        "string"
-      ],
-      "minimum": 0
-    },
-    "limit": {
-      "type": [
-        "number",
-        "string"
-      ],
-      "minimum": 1
+    "workflowId": {
+      "type": "string"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "workflow_id",
+      "field": "workflowId",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "backend_id",
+      "field": "backendId",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "request_id",
+      "field": "requestId",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "cursor",
+      "field": "cursor",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "limit",
+      "field": "limit",
+      "required": false,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -99,22 +140,25 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "workflow_products.list"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by workflow_products.list.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by workflow_products.list.",
       "properties": {
-        "products": {
-          "type": "array"
+        "hasMore": {
+          "type": "boolean"
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
         },
         "nextCursor": {
           "type": [
@@ -122,25 +166,28 @@ This command has no structured JSON input parameter.
             "null"
           ]
         },
-        "hasMore": {
-          "type": "boolean"
+        "products": {
+          "type": "array"
         },
         "returned": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -154,293 +201,225 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "product list",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "workflow_id",
+      "id": "workflow_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-id",
+      "valueNames": [
+        "WORKFLOW_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "backend_id",
+      "id": "backend_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--backend-id",
+      "valueNames": [
+        "BACKEND_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "request_id",
+      "id": "request_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--request-id",
+      "valueNames": [
+        "REQUEST_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "cursor",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "limit",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "product",
     "list"
   ],
-  "summary": "List normal Dashboard Products",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-id",
+      "valueNames": [
+        "WORKFLOW_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "backend-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--backend-id",
+      "valueNames": [
+        "BACKEND_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "request-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--request-id",
+      "valueNames": [
+        "REQUEST_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "read",
+  "command": "product list",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "workflow_id",
+        "field": "workflowId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "backend_id",
+        "field": "backendId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "request_id",
+        "field": "requestId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "cursor",
+        "field": "cursor",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "limit",
+        "field": "limit",
+        "required": false,
+        "transform": "identity"
+      }
+    ]
+  },
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "workflow-id": {
+      "backend-id": {
         "type": "string"
       },
-      "backend-id": {
+      "cursor": {
+        "type": "string"
+      },
+      "limit": {
         "type": "string"
       },
       "request-id": {
         "type": "string"
       },
-      "cursor": {
-        "type": "string"
-      },
-      "limit": {
+      "workflow-id": {
         "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "workflow_id",
-      "kind": "option",
-      "token": "--workflow-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "workflow_id",
-      "valueNames": [
-        "WORKFLOW_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "backend_id",
-      "kind": "option",
-      "token": "--backend-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "backend_id",
-      "valueNames": [
-        "BACKEND_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "request_id",
-      "kind": "option",
-      "token": "--request-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "request_id",
-      "valueNames": [
-        "REQUEST_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "limit",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow-id",
-      "kind": "option",
-      "token": "--workflow-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "WORKFLOW_ID"
-      ]
-    },
-    {
-      "property": "backend-id",
-      "kind": "option",
-      "token": "--backend-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "BACKEND_ID"
-      ]
-    },
-    {
-      "property": "request-id",
-      "kind": "option",
-      "token": "--request-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "REQUEST_ID"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "workflowId": {
-        "type": "string"
-      },
-      "backendId": {
-        "type": "string"
-      },
-      "requestId": {
-        "type": "string"
-      },
-      "cursor": {
-        "type": [
-          "number",
-          "string"
-        ],
-        "minimum": 0
-      },
-      "limit": {
-        "type": [
-          "number",
-          "string"
-        ],
-        "minimum": 1
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by workflow_products.list.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "products": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "returned": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "data.products",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total",
-      "data.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "workflow_products.list"
-    }
-  ],
   "operationalAliases": [
     "product list",
     "product",
@@ -459,16 +438,138 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.products",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "backendId": {
+        "type": "string"
+      },
+      "cursor": {
+        "minimum": 0,
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "limit": {
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "requestId": {
+        "type": "string"
+      },
+      "workflowId": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "workflow_products.list"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by workflow_products.list.",
+        "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "limit": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "products": {
+            "type": "array"
+          },
+          "returned": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "List normal Dashboard Products",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "workflow_products.list"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `product` `list`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"data.products","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.products","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `product list`, `product`, `list`, `workflow_id`, `workflow-id`, `WORKFLOW_ID`, `backend_id`, `backend-id`, `BACKEND_ID`, `request_id`, `request-id`, `REQUEST_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
@@ -477,9 +578,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -489,8 +590,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -506,11 +607,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

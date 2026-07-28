@@ -38,6 +38,8 @@ catalog, or CLI prebuild inputs change.
 
 The unified Host Bridge release workflow SHALL run the pinned seven-platform build matrix only when the prepared release plan reports changed CLI binary inputs or an explicit rebuild intent. Version and generated-file changes SHALL be prepared in the source change before publication; CI SHALL not create a version self-commit on `main`.
 
+The CLI build fingerprint SHALL include the exact canonical capability and command contract bytes embedded by Rust and SHALL exclude materialized Agent Surface output that the binary no longer consumes.
+
 #### Scenario: Surface-only change
 
 - **WHEN** only wrapper, Library Agent, Profile, semantic, schema, installer, or generated surface inputs change without changing CLI binary inputs
@@ -62,6 +64,24 @@ The unified Host Bridge release workflow SHALL run the pinned seven-platform bui
 
 - **WHEN** restored or built binaries do not match the prepared fingerprint and checksum set
 - **THEN** publication SHALL fail before creating or advancing any surface target.
+
+#### Scenario: Executable contract changes
+
+- **WHEN** either canonical runtime contract changes
+- **THEN** the CLI build fingerprint SHALL change and a new complete prebuild set SHALL be required before publication.
+
+#### Scenario: Only a generated command card changes
+
+- **WHEN** materialized Agent Surface content changes without a parser or executable contract change
+- **THEN** the CLI build fingerprint SHALL remain unchanged
+- **AND** content validation SHALL still require the derivative to match its source.
+
+### Requirement: Publication SHALL reject contract or derivative drift
+PR and release gates SHALL validate canonical contract structure, handler and command coverage, runtime descriptor parity, and materialized surface parity.
+
+#### Scenario: Source changes without its derivative
+- **WHEN** parser or executable contract source changes without regenerated command content
+- **THEN** publication SHALL fail before any immutable or mutable Host Bridge surface advances.
 
 ### Requirement: Surface Publishing Reuses Latest Prebuilds
 

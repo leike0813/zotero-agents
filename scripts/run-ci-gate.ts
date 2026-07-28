@@ -2,6 +2,12 @@ import { spawn } from "child_process";
 
 type GateName = "pr" | "release";
 
+const BLOCKING_GOVERNANCE_SCRIPTS = [
+  "check:localization-governance",
+  "check:ssot-invariants",
+  "check:host-bridge-content",
+] as const;
+
 function spawnNpm(args: string[]) {
   if (process.platform === "win32") {
     return spawn("cmd.exe", ["/d", "/s", "/c", "npm", ...args], {
@@ -38,21 +44,15 @@ async function main() {
   console.log(
     `[ci-gate] gate=${gate} suite=${suiteCommand} blocking=true start=${new Date().toISOString()}`,
   );
-  const governanceCode = await runNpmScript("check:localization-governance");
-  if (governanceCode !== 0) {
-    console.error(
-      `[ci-gate] gate=${gate} result=failed stage=check-localization-governance exitCode=${governanceCode} blocking=true`,
-    );
-    process.exit(governanceCode);
-    return;
-  }
-  const ssotInvariantCode = await runNpmScript("check:ssot-invariants");
-  if (ssotInvariantCode !== 0) {
-    console.error(
-      `[ci-gate] gate=${gate} result=failed stage=check-ssot-invariants exitCode=${ssotInvariantCode} blocking=true`,
-    );
-    process.exit(ssotInvariantCode);
-    return;
+  for (const scriptName of BLOCKING_GOVERNANCE_SCRIPTS) {
+    const governanceCode = await runNpmScript(scriptName);
+    if (governanceCode !== 0) {
+      console.error(
+        `[ci-gate] gate=${gate} result=failed stage=${scriptName} exitCode=${governanceCode} blocking=true`,
+      );
+      process.exit(governanceCode);
+      return;
+    }
   }
   const exitCode = await runNpmScript(suiteCommand);
   if (exitCode !== 0) {

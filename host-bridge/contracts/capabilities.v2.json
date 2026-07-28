@@ -1,0 +1,3949 @@
+{
+  "schema": "host-bridge.capabilities.v2",
+  "protocol": "host-bridge.v2",
+  "capabilities": {
+    "citation_graph.get_layout": {
+      "category": "citation_graph",
+      "summary": "Return persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query without recomputing layout.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.get_layout.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nodes": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "citation_graph.get_metrics": {
+      "category": "citation_graph",
+      "summary": "Return bounded read-only citation graph metrics, freshness diagnostics, and recommended maintenance commands for selected paper references.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paperRefs": {
+            "type": "array"
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "cursor": {
+            "type": ["number", "string"]
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "sortBy": {
+            "type": "string"
+          },
+          "sort_by": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.get_metrics.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "metrics": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "citation_graph.get_overview": {
+      "category": "citation_graph",
+      "summary": "Return paged read-only Synthesis citation graph overview arrays with summary counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": ["number", "string"]
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "nodeCursor": {
+            "type": ["number", "string"]
+          },
+          "node_cursor": {
+            "type": ["number", "string"]
+          },
+          "nodeLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "node_limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "edgeCursor": {
+            "type": ["number", "string"]
+          },
+          "edge_cursor": {
+            "type": ["number", "string"]
+          },
+          "edgeLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "edge_limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "hoverNodeCursor": {
+            "type": ["number", "string"]
+          },
+          "hover_node_cursor": {
+            "type": ["number", "string"]
+          },
+          "hoverNodeLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "hover_node_limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "hoverEdgeCursor": {
+            "type": ["number", "string"]
+          },
+          "hover_edge_cursor": {
+            "type": ["number", "string"]
+          },
+          "hoverEdgeLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "hover_edge_limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.get_overview.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nodes": {
+            "type": "array"
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "nodes": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": ["string", "null"]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "citation_graph.get_slice": {
+      "category": "citation_graph",
+      "summary": "Return a bounded read-only citation graph slice with freshness diagnostics for selected paper references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.get_slice.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nodes": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "citation_graph.query_cluster": {
+      "category": "citation_graph",
+      "summary": "Return bounded read-only topic-scoped citation graph cluster data for synthesis statistics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_paper_refs": {
+            "type": "array"
+          },
+          "sourcePaperRefs": {
+            "type": "array"
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "paperRefs": {
+            "type": "array"
+          },
+          "paper_ref": {
+            "type": "string"
+          },
+          "paperRef": {
+            "type": "string"
+          },
+          "max_external_nodes": {
+            "type": ["number", "string"],
+            "minimum": 0
+          },
+          "maxExternalNodes": {
+            "type": ["number", "string"],
+            "minimum": 0
+          },
+          "max_nodes": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "maxNodes": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "max_edges": {
+            "type": ["number", "string"],
+            "minimum": 0
+          },
+          "maxEdges": {
+            "type": ["number", "string"],
+            "minimum": 0
+          },
+          "cluster_policy": {
+            "type": "string"
+          },
+          "clusterPolicy": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.query_cluster.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nodes": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "citation_graph.rank_external_references": {
+      "category": "citation_graph",
+      "summary": "Return ranked external references from the persisted citation graph without refreshing graph state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": ["number", "string"]
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "sortBy": {
+            "type": "string"
+          },
+          "sort_by": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.rank_external_references.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "references": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "citation_graph.rank_library_papers": {
+      "category": "citation_graph",
+      "summary": "Return ranked library papers from persisted citation graph metrics without refreshing graph state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paperRefs": {
+            "type": "array"
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "cursor": {
+            "type": ["number", "string"]
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "sortBy": {
+            "type": "string"
+          },
+          "sort_by": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.rank_library_papers.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "papers": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "citation_graph.refresh_metrics": {
+      "category": "citation_graph",
+      "summary": "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.refresh_metrics.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": true,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "citation_graph.update": {
+      "category": "citation_graph",
+      "summary": "Start an independently approved atomic citation-graph update for one library or a bounded paper closure and return a persistent operation handle.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": ["library", "papers"]
+          },
+          "library_id": {
+            "type": ["number", "string"]
+          },
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "paperRefs": {
+            "type": "array"
+          },
+          "expected_reference_basis_hash": {
+            "type": "string"
+          },
+          "expectedReferenceBasisHash": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by citation_graph.update.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": true,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "concepts.query": {
+      "category": "concepts",
+      "summary": "Return bounded read-only Concept KB and alias-index candidates for topic synthesis KG enrichment.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by concepts.query.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "matches": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "context.get_current_view": {
+      "category": "context",
+      "summary": "Return the active Zotero target, library id, selection state, and current item metadata.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by context.get_current_view, GET /bridge/v2/context/current.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "selectedItems": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "context.get_selected_items": {
+      "category": "context",
+      "summary": "Return JSON-safe summaries for the currently selected Zotero items.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by context.get_selected_items, GET /bridge/v2/context/selection.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.acpSkillRun.reapplyResult": {
+      "category": "debug",
+      "summary": "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.acpSkillRun.reapplyResult.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.persistence.snapshot": {
+      "category": "debug",
+      "summary": "Return a debug-only runtime persistence usage and integrity snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.persistence.snapshot.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.skillrunner.connections.snapshot": {
+      "category": "debug",
+      "summary": "Return debug-only SkillRunner connection governor diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "x-openPropertiesReason": "No semantic CLI command narrows this capability result; the handler-owned JSON result remains explicitly open.",
+        "type": "object",
+        "additionalProperties": true
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.status": {
+      "category": "debug",
+      "summary": "Return a debug-only Host Bridge and runtime status snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.status.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "tasks": {
+            "type": "object",
+            "properties": {
+              "recent": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.cache.list": {
+      "category": "debug",
+      "summary": "List debug-only Synthesis sidecar cache basis rows.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.cache.list.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "rows": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.cleanInstallReset": {
+      "category": "debug",
+      "summary": "Dangerous debug operation: reset Synthesis DB state and delete data/synthesis.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.cleanInstallReset.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": true,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.diff": {
+      "category": "debug",
+      "summary": "Compare Zotero payload availability against Synthesis repository caches.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.diff.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "issues": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.operations.list": {
+      "category": "debug",
+      "summary": "List debug-only Synthesis explicit operations and background job rows.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.operations.list.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "rows": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.paper.inspect": {
+      "category": "debug",
+      "summary": "Inspect one paper across Zotero payloads and Synthesis repository caches.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.paper.inspect.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "artifactSidecars": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.profiler.list": {
+      "category": "debug",
+      "summary": "List debug-only Synthesis profiler runs and phase timings.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.profiler.list.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "runs": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.snapshot": {
+      "category": "debug",
+      "summary": "Return a debug-only Synthesis operation, cache, table-count, and UI snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.snapshot.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "cacheBasis": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.synthesis.topic.inspect": {
+      "category": "debug",
+      "summary": "Inspect one topic across artifacts, graph, freshness, and discovery state.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.synthesis.topic.inspect.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "discoveryHints": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.tasks.snapshot": {
+      "category": "debug",
+      "summary": "Return debug-only workflow task and ACP run diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by debug.tasks.snapshot.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "tasks": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "debug.zotero.eval": {
+      "category": "debug",
+      "summary": "Debug-only operation: execute approved JavaScript in the Zotero host context.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "x-openPropertiesReason": "No semantic CLI command narrows this capability result; the handler-owned JSON result remains explicitly open.",
+        "type": "object",
+        "additionalProperties": true
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": false,
+        "debugOnly": true,
+        "dangerous": true,
+        "cacheView": false,
+        "rawOnly": true,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "diagnostic.get_status": {
+      "category": "diagnostic",
+      "summary": "Return a redacted Host Bridge service status snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "x-openPropertiesReason": "No semantic CLI command narrows this capability result; the handler-owned JSON result remains explicitly open.",
+        "type": "object",
+        "additionalProperties": true
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": true,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "insights.get_attention_queue": {
+      "category": "insights",
+      "summary": "Return read-only attention items for graph metrics, reference index, and paper artifact readiness.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by insights.get_attention_queue.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "library_index.get": {
+      "category": "library_index",
+      "summary": "Return paginated compact Synthesis library index pages derived from Zotero library facts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "cursor": {
+            "type": ["number", "string"]
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "includeTags": {
+            "type": "boolean"
+          },
+          "includeCollections": {
+            "type": "boolean"
+          },
+          "includeItems": {
+            "type": "boolean"
+          },
+          "tagCursor": {
+            "type": ["number", "string"]
+          },
+          "tagLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "collectionCursor": {
+            "type": ["number", "string"]
+          },
+          "collectionLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "topicCursor": {
+            "type": ["number", "string"]
+          },
+          "topicLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "registryCursor": {
+            "type": ["number", "string"]
+          },
+          "registryLimit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library_index.get.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "papers": {
+            "type": "array"
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "papers": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": ["string", "null"]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "library.export_annotations": {
+      "category": "library",
+      "summary": "Export reader annotations for one Zotero item as markdown or JSON.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.export_annotations.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "library.get_item_attachments": {
+      "category": "library",
+      "summary": "Return child attachment metadata with broker-issued download handles when available.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "id": {
+            "type": ["number", "string"]
+          },
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.get_item_attachments.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "attachments": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "library.get_item_detail": {
+      "category": "library",
+      "summary": "Return detailed JSON-safe metadata for one Zotero item.",
+      "inputSchema": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ref": {},
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "id": {
+                "type": ["integer", "string"]
+              },
+              "libraryId": {
+                "type": ["integer", "string"]
+              }
+            },
+            "anyOf": [
+              {
+                "required": ["ref"]
+              },
+              {
+                "required": ["key"]
+              },
+              {
+                "required": ["id"]
+              }
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.get_item_detail.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "library.get_item_notes": {
+      "category": "library",
+      "summary": "Return bounded child note summaries for one Zotero item.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.get_item_notes.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "library.get_note_detail": {
+      "category": "library",
+      "summary": "Read one Zotero note body in bounded chunks.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.get_note_detail.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "library.get_note_payload": {
+      "category": "library",
+      "summary": "Decode one workflow payload from one Zotero note.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.get_note_payload.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "library.list_annotations": {
+      "category": "library",
+      "summary": "List reader annotations for one Zotero item when the Zotero runtime exposes them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "id": {
+            "type": ["number", "string"]
+          },
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.list_annotations.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "annotations": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "library.list_items": {
+      "category": "library",
+      "summary": "List compact parent Zotero library item summaries with bounded pagination and filters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "collection": {},
+          "collectionId": {
+            "type": ["number", "string"]
+          },
+          "collectionKey": {
+            "type": "string"
+          },
+          "collectionLibraryId": {
+            "type": ["number", "string"]
+          },
+          "tag": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.list_items.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "library.list_note_payloads": {
+      "category": "library",
+      "summary": "List workflow note payloads from embedded attachments and note payload blocks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "id": {
+            "type": ["number", "string"]
+          },
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.list_note_payloads.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "payloads": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "library.readiness_audit": {
+      "category": "library",
+      "summary": "Return paginated read-only library readiness for missing PDF, source Markdown, and literature-analysis artifacts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "collection": {},
+          "collectionId": {
+            "type": ["number", "string"]
+          },
+          "collectionKey": {
+            "type": "string"
+          },
+          "collectionLibraryId": {
+            "type": ["number", "string"]
+          },
+          "tag": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "checks": {},
+          "missingOnly": {
+            "type": ["boolean", "string", "number"]
+          },
+          "missing_only": {
+            "type": ["boolean", "string", "number"]
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.readiness_audit.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "library.search_items": {
+      "category": "library",
+      "summary": "Search regular Zotero library items by bounded text query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "libraryId": {
+            "type": ["number", "string"]
+          }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Bounded search results returned by library.search_items.",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "x-openPropertiesReason": "Zotero item DTO fields are owned by the library broker and remain JSON-safe."
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": ["items", "truncated"],
+        "additionalProperties": false
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "library.sync_snapshot": {
+      "category": "library",
+      "summary": "Return a paginated Zotero library metadata snapshot for local librarian indexes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "collection": {},
+          "collectionId": {
+            "type": ["number", "string"]
+          },
+          "collectionKey": {
+            "type": "string"
+          },
+          "collectionLibraryId": {
+            "type": ["number", "string"]
+          },
+          "tag": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by library.sync_snapshot.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "mutation.execute": {
+      "category": "mutation",
+      "summary": "Execute a supported Zotero mutation after Zotero-side approval.",
+      "inputSchema": {
+        "$defs": {
+          "objectRef": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": true,
+                "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+              }
+            ]
+          },
+          "objectRefs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/objectRef"
+            }
+          },
+          "collectionRef": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": true,
+                "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+              }
+            ]
+          },
+          "fieldPatch": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": ["string", "number", "boolean", "null"]
+            }
+          },
+          "tags": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "creator": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              },
+              "creatorType": {
+                "type": "string"
+              }
+            },
+            "anyOf": [
+              {
+                "required": ["name"]
+              },
+              {
+                "required": ["firstName"]
+              },
+              {
+                "required": ["lastName"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "paper": {
+            "type": "object",
+            "properties": {
+              "itemType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["title"],
+                "additionalProperties": {
+                  "type": ["string", "number", "boolean", "null"]
+                }
+              },
+              "creators": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "$ref": "#/$defs/creator"
+                }
+              },
+              "identifiers": {
+                "type": "object",
+                "properties": {
+                  "doi": {
+                    "type": "string"
+                  },
+                  "arxiv": {
+                    "type": "string"
+                  },
+                  "pmid": {
+                    "type": "string"
+                  },
+                  "isbn": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "landingUrl": {
+                "type": "string"
+              },
+              "pdfUrl": {
+                "type": "string"
+              },
+              "attachLandingUrlOnMissingPdf": {
+                "type": "boolean"
+              }
+            },
+            "required": ["itemType", "fields", "creators", "identifiers"],
+            "additionalProperties": false
+          }
+        },
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "item.updateFields"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "item": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "fields": {
+                "$ref": "#/$defs/fieldPatch"
+              }
+            },
+            "required": ["operation", "fields"],
+            "anyOf": [
+              {
+                "required": ["target"]
+              },
+              {
+                "required": ["item"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "enum": ["item.addTags", "item.removeTags"]
+              },
+              "targets": {
+                "$ref": "#/$defs/objectRefs"
+              },
+              "items": {
+                "$ref": "#/$defs/objectRefs"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "item": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "tags": {
+                "$ref": "#/$defs/tags"
+              }
+            },
+            "required": ["operation", "tags"],
+            "anyOf": [
+              {
+                "required": ["targets"]
+              },
+              {
+                "required": ["items"]
+              },
+              {
+                "required": ["target"]
+              },
+              {
+                "required": ["item"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "item.attachFile"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "item": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "fileId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              }
+            },
+            "required": ["operation", "fileId"],
+            "anyOf": [
+              {
+                "required": ["target"]
+              },
+              {
+                "required": ["item"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "note.createChild"
+              },
+              "parent": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "content": {
+                "type": "string"
+              },
+              "noteKind": {
+                "type": "string"
+              }
+            },
+            "required": ["operation", "content"],
+            "anyOf": [
+              {
+                "required": ["parent"]
+              },
+              {
+                "required": ["target"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "note.update"
+              },
+              "note": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": ["operation", "content"],
+            "anyOf": [
+              {
+                "required": ["note"]
+              },
+              {
+                "required": ["target"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "note.upsertPayload"
+              },
+              "note": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "payloadType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "payload": {},
+              "payloadFormat": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              },
+              "noteKind": {
+                "type": "string"
+              }
+            },
+            "required": ["operation", "payloadType"],
+            "anyOf": [
+              {
+                "required": ["note"]
+              },
+              {
+                "required": ["target"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "literature.ingest"
+              },
+              "paper": {
+                "$ref": "#/$defs/paper"
+              },
+              "collection": {
+                "$ref": "#/$defs/collectionRef"
+              }
+            },
+            "required": ["operation", "paper"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "collection.create"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "collectionName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "libraryId": {
+                "type": ["number", "string"]
+              },
+              "libraryID": {
+                "type": ["number", "string"]
+              }
+            },
+            "required": ["operation"],
+            "anyOf": [
+              {
+                "required": ["name"]
+              },
+              {
+                "required": ["collectionName"]
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "enum": ["collection.addItems", "collection.removeItems"]
+              },
+              "collection": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "targets": {
+                "$ref": "#/$defs/objectRefs"
+              },
+              "items": {
+                "$ref": "#/$defs/objectRefs"
+              }
+            },
+            "required": ["operation", "collection"],
+            "anyOf": [
+              {
+                "required": ["targets"]
+              },
+              {
+                "required": ["items"]
+              }
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by mutation.execute.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "mutation.preview": {
+      "category": "mutation",
+      "summary": "Preview a supported Zotero mutation without executing it.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "Mutation operation fields are discriminated and validated by the mutation broker after the capability boundary."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by mutation.preview.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "paper_artifacts.export_filtered": {
+      "category": "paper_artifacts",
+      "summary": "Export bounded filtered paper artifacts into the ACP run workspace.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by paper_artifacts.export_filtered.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
+    "paper_artifacts.get_manifest": {
+      "category": "paper_artifacts",
+      "summary": "Return available Synthesis paper artifact descriptors for selected paper references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by paper_artifacts.get_manifest.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "papers": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "paper_artifacts.read": {
+      "category": "paper_artifacts",
+      "summary": "Read bounded Synthesis paper artifacts for selected paper references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by paper_artifacts.read.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "paper_artifacts.resolve_topic_digest": {
+      "category": "paper_artifacts",
+      "summary": "Resolve one topic paper digest artifact for reading or diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by paper_artifacts.resolve_topic_digest.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "reference_index.get": {
+      "category": "reference_index",
+      "summary": "Return bounded read-only reference index metadata and diagnostics for selected source references.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by reference_index.get.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "entries": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": true,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "reference_sidecar.refresh": {
+      "category": "reference_index",
+      "summary": "Start an independently approved reference-sidecar refresh for one library or a bounded same-library paper-ref scope and return a persistent operation handle.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": ["library", "papers"]
+          },
+          "library_id": {
+            "type": ["number", "string"]
+          },
+          "libraryId": {
+            "type": ["number", "string"]
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "paperRefs": {
+            "type": "array"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by reference_sidecar.refresh.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": true,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "resolvers.resolve": {
+      "category": "resolvers",
+      "summary": "Resolve a topic resolver into a deterministic paper workset and diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by resolvers.resolve.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "candidates": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "schemas.get": {
+      "category": "schemas",
+      "summary": "Return Synthesis Layer schema metadata for diagnostic and validation workflows.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by schemas.get.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "bounded-diagnostic"
+      }
+    },
+    "synthesis.operation.get": {
+      "category": "diagnostic",
+      "summary": "Read one persistent public Synthesis maintenance operation and its terminal receipt without mutating operation state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by synthesis.operation.get, GET /bridge/v2/synthesis/cache/status.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    },
+    "topics.find_by_paper_ref": {
+      "category": "topics",
+      "summary": "Return active Synthesis topics associated with selected paper references from artifact dependency state.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by topics.find_by_paper_ref.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "topics.get_context": {
+      "category": "topics",
+      "summary": "Return one topic context as digest, semantic, audit, or full view; large view results may be written to outputPath.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topicId": {
+            "type": "string"
+          },
+          "topic_id": {
+            "type": "string"
+          },
+          "view": {
+            "type": "string",
+            "enum": ["digest", "semantic", "audit", "full"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["create", "update"]
+          },
+          "language": {
+            "type": "string"
+          },
+          "updateScope": {
+            "type": "string"
+          },
+          "update_scope": {
+            "type": "string"
+          },
+          "updateMode": {
+            "type": "string"
+          },
+          "update_mode": {
+            "type": "string"
+          },
+          "updateReason": {
+            "type": "string"
+          },
+          "update_reason": {
+            "type": "string"
+          },
+          "includeFull": {
+            "type": "boolean"
+          },
+          "include_full": {
+            "type": "boolean"
+          },
+          "includeMarkdown": {
+            "type": "boolean"
+          },
+          "include_markdown": {
+            "type": "boolean"
+          },
+          "includeArtifact": {
+            "type": "boolean"
+          },
+          "include_artifact": {
+            "type": "boolean"
+          },
+          "includeManifest": {
+            "type": "boolean"
+          },
+          "include_manifest": {
+            "type": "boolean"
+          },
+          "outputPath": {
+            "type": "string"
+          },
+          "output_path": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by topics.get_context.",
+        "properties": {
+          "file": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "checksum": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "delivery": {
+            "type": "object",
+            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+            "properties": {
+              "mode": {
+                "enum": ["local", "bridge-download", "bundle"]
+              },
+              "path": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
+    "topics.get_report": {
+      "category": "topics",
+      "summary": "Return one topic synthesis report markdown body from runtime synthesis_report.body.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by topics.get_report.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "topics.get_review_input": {
+      "category": "topics",
+      "summary": "Return structured Synthesis review workflow input.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by topics.get_review_input.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "limit-bounded"
+      }
+    },
+    "topics.list": {
+      "category": "topics",
+      "summary": "List paged Zotero Synthesis Layer topics for duplicate checks and topic selection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": ["number", "string"]
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by topics.list.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "topics": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "state-change",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "workflow_products.export": {
+      "category": "workflow_products",
+      "summary": "Export one or all normal Dashboard Product assets with local or remote delivery.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "outputDir": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "required": ["productId"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by workflow_products.export.",
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "file": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "checksum": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "delivery": {
+            "type": "object",
+            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+            "properties": {
+              "mode": {
+                "enum": ["local", "bridge-download", "bundle"]
+              },
+              "path": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
+    "workflow_products.get": {
+      "category": "workflow_products",
+      "summary": "Return public metadata for one normal Dashboard Product.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "required": ["productId"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by workflow_products.get.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "product": {
+            "type": "object",
+            "properties": {
+              "assets": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "assets": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": ["string", "null"]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "selector-bounded"
+      }
+    },
+    "workflow_products.list": {
+      "category": "workflow_products",
+      "summary": "List normal Dashboard Products with bounded filters and pagination.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workflowId": {
+            "type": "string"
+          },
+          "backendId": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": ["number", "string"],
+            "minimum": 0
+          },
+          "limit": {
+            "type": ["number", "string"],
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by workflow_products.list.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "products": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "paged"
+      }
+    },
+    "workflow_products.read_asset": {
+      "category": "workflow_products",
+      "summary": "Register one normal Dashboard Product asset for opaque file download.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "relativePath": {
+            "type": "string"
+          }
+        },
+        "required": ["productId"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "x-openPropertiesReason": "No semantic CLI command narrows this capability result; the handler-owned JSON result remains explicitly open.",
+        "type": "object",
+        "additionalProperties": true
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": true,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
+    "workflow_products.remove": {
+      "category": "mutation",
+      "summary": "Remove one normal Dashboard Product record while retaining managed assets for persistence cleanup.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          }
+        },
+        "required": ["productId"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Result data owned by workflow_products.remove.",
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      },
+      "effect": "state-change",
+      "approval": "zotero-ui-required",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "unclassified"
+      }
+    }
+  }
+}

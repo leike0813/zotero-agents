@@ -79,6 +79,8 @@
         "token_missing",
         "endpoint_unreachable",
         "auth_failed",
+        "protocol_mismatch",
+        "command_argument_invalid",
         "manifest_invalid",
         "capability_call_failed",
         "expected_local_but_remote",

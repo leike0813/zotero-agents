@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,15 +49,520 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+  "$defs": {
+    "collectionRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        }
+      ]
+    },
+    "creator": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "firstName"
+          ]
+        },
+        {
+          "required": [
+            "lastName"
+          ]
+        }
+      ],
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "fieldPatch": {
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "objectRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+        }
+      ]
+    },
+    "objectRefs": {
+      "items": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "paper": {
+      "additionalProperties": false,
+      "properties": {
+        "attachLandingUrlOnMissingPdf": {
+          "type": "boolean"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "type": "object"
+        },
+        "identifiers": {
+          "additionalProperties": false,
+          "properties": {
+            "arxiv": {
+              "type": "string"
+            },
+            "doi": {
+              "type": "string"
+            },
+            "isbn": {
+              "type": "string"
+            },
+            "pmid": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "landingUrl": {
+          "type": "string"
+        },
+        "pdfUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemType",
+        "fields",
+        "creators",
+        "identifiers"
+      ],
+      "type": "object"
+    },
+    "tags": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "fields": {
+          "$ref": "#/$defs/fieldPatch"
+        },
+        "item": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "operation": {
+          "const": "item.updateFields"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "fields"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "targets"
+          ]
+        },
+        {
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "items": {
+          "$ref": "#/$defs/objectRefs"
+        },
+        "operation": {
+          "enum": [
+            "item.addTags",
+            "item.removeTags"
+          ]
+        },
+        "tags": {
+          "$ref": "#/$defs/tags"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "targets": {
+          "$ref": "#/$defs/objectRefs"
+        }
+      },
+      "required": [
+        "operation",
+        "tags"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "contentType": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "fileId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "item": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "operation": {
+          "const": "item.attachFile"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "fileId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "parent"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "noteKind": {
+          "type": "string"
+        },
+        "operation": {
+          "const": "note.createChild"
+        },
+        "parent": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "note"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "note": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "operation": {
+          "const": "note.update"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "note"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "note": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "noteKind": {
+          "type": "string"
+        },
+        "operation": {
+          "const": "note.upsertPayload"
+        },
+        "payload": {},
+        "payloadFormat": {
+          "type": "string"
+        },
+        "payloadType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "payloadType"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "literature.ingest"
+        },
+        "paper": {
+          "$ref": "#/$defs/paper"
+        }
+      },
+      "required": [
+        "operation",
+        "paper"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "collectionName"
+          ]
+        }
+      ],
+      "properties": {
+        "collectionName": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryID": {
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "libraryId": {
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "const": "collection.create"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "targets"
+          ]
+        },
+        {
+          "required": [
+            "items"
+          ]
+        }
+      ],
+      "properties": {
+        "collection": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "items": {
+          "$ref": "#/$defs/objectRefs"
+        },
+        "operation": {
+          "enum": [
+            "collection.addItems",
+            "collection.removeItems"
+          ]
+        },
+        "targets": {
+          "$ref": "#/$defs/objectRefs"
+        }
+      },
+      "required": [
+        "operation",
+        "collection"
+      ],
+      "type": "object"
+    }
+  ]
 }
 ```
 
@@ -65,38 +570,555 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+  "$defs": {
+    "collectionRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+        }
+      ]
+    },
+    "creator": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "firstName"
+          ]
+        },
+        {
+          "required": [
+            "lastName"
+          ]
+        }
+      ],
+      "properties": {
+        "creatorType": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "fieldPatch": {
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      },
+      "minProperties": 1,
+      "type": "object"
+    },
+    "objectRef": {
+      "oneOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": true,
+          "minProperties": 1,
+          "type": "object",
+          "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+        }
+      ]
+    },
+    "objectRefs": {
+      "items": {
+        "$ref": "#/$defs/objectRef"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "paper": {
+      "additionalProperties": false,
+      "properties": {
+        "attachLandingUrlOnMissingPdf": {
+          "type": "boolean"
+        },
+        "creators": {
+          "items": {
+            "$ref": "#/$defs/creator"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "properties": {
+            "title": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "type": "object"
+        },
+        "identifiers": {
+          "additionalProperties": false,
+          "properties": {
+            "arxiv": {
+              "type": "string"
+            },
+            "doi": {
+              "type": "string"
+            },
+            "isbn": {
+              "type": "string"
+            },
+            "pmid": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "itemType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "landingUrl": {
+          "type": "string"
+        },
+        "pdfUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemType",
+        "fields",
+        "creators",
+        "identifiers"
+      ],
+      "type": "object"
+    },
+    "tags": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "fields": {
+          "$ref": "#/$defs/fieldPatch"
+        },
+        "item": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "operation": {
+          "const": "item.updateFields"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "fields"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "targets"
+          ]
+        },
+        {
+          "required": [
+            "items"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "items": {
+          "$ref": "#/$defs/objectRefs"
+        },
+        "operation": {
+          "enum": [
+            "item.addTags",
+            "item.removeTags"
+          ]
+        },
+        "tags": {
+          "$ref": "#/$defs/tags"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "targets": {
+          "$ref": "#/$defs/objectRefs"
+        }
+      },
+      "required": [
+        "operation",
+        "tags"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "target"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "contentType": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "fileId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "item": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "operation": {
+          "const": "item.attachFile"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "fileId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "parent"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "noteKind": {
+          "type": "string"
+        },
+        "operation": {
+          "const": "note.createChild"
+        },
+        "parent": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "note"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "note": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "operation": {
+          "const": "note.update"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "note"
+          ]
+        },
+        {
+          "required": [
+            "target"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "note": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "noteKind": {
+          "type": "string"
+        },
+        "operation": {
+          "const": "note.upsertPayload"
+        },
+        "payload": {},
+        "payloadFormat": {
+          "type": "string"
+        },
+        "payloadType": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/objectRef"
+        }
+      },
+      "required": [
+        "operation",
+        "payloadType"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "operation": {
+          "const": "literature.ingest"
+        },
+        "paper": {
+          "$ref": "#/$defs/paper"
+        }
+      },
+      "required": [
+        "operation",
+        "paper"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "collectionName"
+          ]
+        }
+      ],
+      "properties": {
+        "collectionName": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryID": {
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "libraryId": {
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "const": "collection.create"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "targets"
+          ]
+        },
+        {
+          "required": [
+            "items"
+          ]
+        }
+      ],
+      "properties": {
+        "collection": {
+          "$ref": "#/$defs/collectionRef"
+        },
+        "items": {
+          "$ref": "#/$defs/objectRefs"
+        },
+        "operation": {
+          "enum": [
+            "collection.addItems",
+            "collection.removeItems"
+          ]
+        },
+        "targets": {
+          "$ref": "#/$defs/objectRefs"
+        }
+      },
+      "required": [
+        "operation",
+        "collection"
+      ],
+      "type": "object"
+    }
+  ]
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "mutation.execute"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by mutation.execute.",
       "additionalProperties": true,
+      "description": "Result data owned by mutation.execute.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -107,7 +1129,7 @@ Required: `false`.
 Minimal JSON shape for --input.
 
 ```console
-zotero-bridge mutation apply --input '{}'
+zotero-bridge mutation apply --input '{"items":["ABC123"],"operation":"item.addTags","tags":["topic:example"]}'
 ```
 
 Prerequisites:
@@ -120,146 +1142,614 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "mutation apply",
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "input",
+      "kind": "option",
+      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "mutation",
     "apply"
   ],
-  "summary": "Apply a Zotero mutation",
-  "category": "write",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "input": {
-        "type": "string",
-        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
   "argvBindings": [
     {
-      "property": "input",
       "kind": "option",
-      "token": "--input",
-      "takesValue": true,
+      "property": "input",
       "required": false,
+      "takesValue": true,
+      "token": "--input",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "binding": "passthrough",
+  "category": "write",
+  "command": "mutation apply",
+  "composition": null,
+  "danger": "review",
+  "effects": [
+    {
+      "description": "May change zotero library state.",
+      "kind": "zotero-library",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "input": {
-      "token": "--input",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "properties": {
-          "input": {
-            "type": "string",
-            "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
       "examples": [
         {
+          "description": "Minimal JSON shape for --input.",
           "kind": "shape-only",
-          "value": {},
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "description": "Minimal JSON shape for --input."
+          "value": {
+            "items": [
+              "ABC123"
+            ],
+            "operation": "item.addTags",
+            "tags": [
+              "topic:example"
+            ]
+          }
         }
-      ]
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "$defs": {
+          "collectionRef": {
+            "oneOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": true,
+                "minProperties": 1,
+                "type": "object",
+                "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+              }
+            ]
+          },
+          "creator": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "firstName"
+                ]
+              },
+              {
+                "required": [
+                  "lastName"
+                ]
+              }
+            ],
+            "properties": {
+              "creatorType": {
+                "type": "string"
+              },
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "fieldPatch": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "minProperties": 1,
+            "type": "object"
+          },
+          "objectRef": {
+            "oneOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": true,
+                "minProperties": 1,
+                "type": "object",
+                "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+              }
+            ]
+          },
+          "objectRefs": {
+            "items": {
+              "$ref": "#/$defs/objectRef"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "paper": {
+            "additionalProperties": false,
+            "properties": {
+              "attachLandingUrlOnMissingPdf": {
+                "type": "boolean"
+              },
+              "creators": {
+                "items": {
+                  "$ref": "#/$defs/creator"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              "fields": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "properties": {
+                  "title": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              },
+              "identifiers": {
+                "additionalProperties": false,
+                "properties": {
+                  "arxiv": {
+                    "type": "string"
+                  },
+                  "doi": {
+                    "type": "string"
+                  },
+                  "isbn": {
+                    "type": "string"
+                  },
+                  "pmid": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "itemType": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "landingUrl": {
+                "type": "string"
+              },
+              "pdfUrl": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "itemType",
+              "fields",
+              "creators",
+              "identifiers"
+            ],
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "target"
+                ]
+              },
+              {
+                "required": [
+                  "item"
+                ]
+              }
+            ],
+            "properties": {
+              "fields": {
+                "$ref": "#/$defs/fieldPatch"
+              },
+              "item": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "operation": {
+                "const": "item.updateFields"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              }
+            },
+            "required": [
+              "operation",
+              "fields"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "targets"
+                ]
+              },
+              {
+                "required": [
+                  "items"
+                ]
+              },
+              {
+                "required": [
+                  "target"
+                ]
+              },
+              {
+                "required": [
+                  "item"
+                ]
+              }
+            ],
+            "properties": {
+              "item": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "items": {
+                "$ref": "#/$defs/objectRefs"
+              },
+              "operation": {
+                "enum": [
+                  "item.addTags",
+                  "item.removeTags"
+                ]
+              },
+              "tags": {
+                "$ref": "#/$defs/tags"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "targets": {
+                "$ref": "#/$defs/objectRefs"
+              }
+            },
+            "required": [
+              "operation",
+              "tags"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "target"
+                ]
+              },
+              {
+                "required": [
+                  "item"
+                ]
+              }
+            ],
+            "properties": {
+              "contentType": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "fileId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "item": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "operation": {
+                "const": "item.attachFile"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              }
+            },
+            "required": [
+              "operation",
+              "fileId"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "parent"
+                ]
+              },
+              {
+                "required": [
+                  "target"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "noteKind": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "note.createChild"
+              },
+              "parent": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              }
+            },
+            "required": [
+              "operation",
+              "content"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "note"
+                ]
+              },
+              {
+                "required": [
+                  "target"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "note": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "operation": {
+                "const": "note.update"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              }
+            },
+            "required": [
+              "operation",
+              "content"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "note"
+                ]
+              },
+              {
+                "required": [
+                  "target"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "note": {
+                "$ref": "#/$defs/objectRef"
+              },
+              "noteKind": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "note.upsertPayload"
+              },
+              "payload": {},
+              "payloadFormat": {
+                "type": "string"
+              },
+              "payloadType": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "target": {
+                "$ref": "#/$defs/objectRef"
+              }
+            },
+            "required": [
+              "operation",
+              "payloadType"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "collection": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "operation": {
+                "const": "literature.ingest"
+              },
+              "paper": {
+                "$ref": "#/$defs/paper"
+              }
+            },
+            "required": [
+              "operation",
+              "paper"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "collectionName"
+                ]
+              }
+            ],
+            "properties": {
+              "collectionName": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "libraryID": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "libraryId": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operation": {
+                "const": "collection.create"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "targets"
+                ]
+              },
+              {
+                "required": [
+                  "items"
+                ]
+              }
+            ],
+            "properties": {
+              "collection": {
+                "$ref": "#/$defs/collectionRef"
+              },
+              "items": {
+                "$ref": "#/$defs/objectRefs"
+              },
+              "operation": {
+                "enum": [
+                  "collection.addItems",
+                  "collection.removeItems"
+                ]
+              },
+              "targets": {
+                "$ref": "#/$defs/objectRefs"
+              }
+            },
+            "required": [
+              "operation",
+              "collection"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "schemaSource": "target-capability",
+      "token": "--input"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "input": {
-        "type": "string",
-        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by mutation.execute.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "zotero-library",
-      "stateChanged": true,
-      "description": "May change zotero library state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "mutation.execute"
-    }
-  ],
   "operationalAliases": [
     "mutation apply",
     "mutation",
@@ -267,9 +1757,580 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "input",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "$defs": {
+      "collectionRef": {
+        "oneOf": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "type": "object",
+            "x-openPropertiesReason": "The Zotero collection-reference resolver owns the supported key, id, name, and library fields."
+          }
+        ]
+      },
+      "creator": {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "firstName"
+            ]
+          },
+          {
+            "required": [
+              "lastName"
+            ]
+          }
+        ],
+        "properties": {
+          "creatorType": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "fieldPatch": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "minProperties": 1,
+        "type": "object"
+      },
+      "objectRef": {
+        "oneOf": [
+          {
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "additionalProperties": true,
+            "minProperties": 1,
+            "type": "object",
+            "x-openPropertiesReason": "The Zotero object-reference resolver owns the supported key, id, and library fields."
+          }
+        ]
+      },
+      "objectRefs": {
+        "items": {
+          "$ref": "#/$defs/objectRef"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "paper": {
+        "additionalProperties": false,
+        "properties": {
+          "attachLandingUrlOnMissingPdf": {
+            "type": "boolean"
+          },
+          "creators": {
+            "items": {
+              "$ref": "#/$defs/creator"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "properties": {
+              "title": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          },
+          "identifiers": {
+            "additionalProperties": false,
+            "properties": {
+              "arxiv": {
+                "type": "string"
+              },
+              "doi": {
+                "type": "string"
+              },
+              "isbn": {
+                "type": "string"
+              },
+              "pmid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "itemType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "landingUrl": {
+            "type": "string"
+          },
+          "pdfUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemType",
+          "fields",
+          "creators",
+          "identifiers"
+        ],
+        "type": "object"
+      },
+      "tags": {
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "minItems": 1,
+        "type": "array"
+      }
+    },
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "item"
+            ]
+          }
+        ],
+        "properties": {
+          "fields": {
+            "$ref": "#/$defs/fieldPatch"
+          },
+          "item": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "operation": {
+            "const": "item.updateFields"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "required": [
+          "operation",
+          "fields"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "targets"
+            ]
+          },
+          {
+            "required": [
+              "items"
+            ]
+          },
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "item"
+            ]
+          }
+        ],
+        "properties": {
+          "item": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "items": {
+            "$ref": "#/$defs/objectRefs"
+          },
+          "operation": {
+            "enum": [
+              "item.addTags",
+              "item.removeTags"
+            ]
+          },
+          "tags": {
+            "$ref": "#/$defs/tags"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "targets": {
+            "$ref": "#/$defs/objectRefs"
+          }
+        },
+        "required": [
+          "operation",
+          "tags"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "item"
+            ]
+          }
+        ],
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "fileId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "item": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "operation": {
+            "const": "item.attachFile"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "required": [
+          "operation",
+          "fileId"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "parent"
+            ]
+          },
+          {
+            "required": [
+              "target"
+            ]
+          }
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "noteKind": {
+            "type": "string"
+          },
+          "operation": {
+            "const": "note.createChild"
+          },
+          "parent": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "required": [
+          "operation",
+          "content"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "note"
+            ]
+          },
+          {
+            "required": [
+              "target"
+            ]
+          }
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "note": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "operation": {
+            "const": "note.update"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "required": [
+          "operation",
+          "content"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "note"
+            ]
+          },
+          {
+            "required": [
+              "target"
+            ]
+          }
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "note": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "noteKind": {
+            "type": "string"
+          },
+          "operation": {
+            "const": "note.upsertPayload"
+          },
+          "payload": {},
+          "payloadFormat": {
+            "type": "string"
+          },
+          "payloadType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/$defs/objectRef"
+          }
+        },
+        "required": [
+          "operation",
+          "payloadType"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "operation": {
+            "const": "literature.ingest"
+          },
+          "paper": {
+            "$ref": "#/$defs/paper"
+          }
+        },
+        "required": [
+          "operation",
+          "paper"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "collectionName"
+            ]
+          }
+        ],
+        "properties": {
+          "collectionName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryID": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "operation": {
+            "const": "collection.create"
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "targets"
+            ]
+          },
+          {
+            "required": [
+              "items"
+            ]
+          }
+        ],
+        "properties": {
+          "collection": {
+            "$ref": "#/$defs/collectionRef"
+          },
+          "items": {
+            "$ref": "#/$defs/objectRefs"
+          },
+          "operation": {
+            "enum": [
+              "collection.addItems",
+              "collection.removeItems"
+            ]
+          },
+          "targets": {
+            "$ref": "#/$defs/objectRefs"
+          }
+        },
+        "required": [
+          "operation",
+          "collection"
+        ],
+        "type": "object"
+      }
+    ]
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "mutation.execute"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by mutation.execute.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Apply a Zotero mutation",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "mutation.execute"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -277,6 +2338,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
 - Operational aliases: `mutation apply`, `mutation`, `apply`, `input`, `JSON_OR_FILE`.
 
@@ -285,9 +2347,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change zotero library state.",
     "kind": "zotero-library",
-    "stateChanged": true,
-    "description": "May change zotero library state."
+    "stateChanged": true
   }
 ]
 ```
@@ -297,8 +2359,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
@@ -314,11 +2376,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```

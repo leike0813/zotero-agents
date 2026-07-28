@@ -29,18 +29,18 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "operation_id": {
-      "type": "string",
       "description": "Operation id returned by or supplied to a state-changing command",
-      "position": 1
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "operation_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -52,64 +52,35 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "operation_id": {
-      "type": "string",
-      "description": "Operation id returned by or supplied to a state-changing command"
+      "description": "Operation id returned by or supplied to a state-changing command",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "schema": {
-      "const": "host-bridge.operation-receipt.v1"
-    },
-    "operationId": {
-      "type": "string"
-    },
-    "requestDigest": {
-      "type": "string"
-    },
     "attemptId": {
       "type": "string"
     },
-    "method": {
-      "type": "string"
-    },
-    "path": {
-      "type": "string"
-    },
-    "state": {
-      "enum": [
-        "in_progress",
-        "completed",
-        "outcome_unknown"
-      ]
-    },
     "createdAt": {
       "type": "string"
-    },
-    "updatedAt": {
-      "type": "string"
-    },
-    "retentionExpiresAt": {
-      "type": "string"
-    },
-    "stateChange": {
-      "enum": [
-        "unchanged",
-        "changed",
-        "unknown"
-      ]
     },
     "handleConsumption": {
       "enum": [
@@ -118,8 +89,43 @@ This command has no structured JSON input parameter.
         "unknown"
       ]
     },
+    "method": {
+      "type": "string"
+    },
+    "operationId": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "requestDigest": {
+      "type": "string"
+    },
     "response": {
       "type": "object"
+    },
+    "retentionExpiresAt": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "host-bridge.operation-receipt.v1"
+    },
+    "state": {
+      "enum": [
+        "in_progress",
+        "completed",
+        "outcome_unknown"
+      ]
+    },
+    "stateChange": {
+      "enum": [
+        "unchanged",
+        "changed",
+        "unknown"
+      ]
+    },
+    "updatedAt": {
+      "type": "string"
     }
   },
   "required": [
@@ -136,7 +142,7 @@ This command has no structured JSON input parameter.
     "stateChange",
     "handleConsumption"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -150,116 +156,124 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "operation get",
-  "argv": [
-    "operation",
-    "get"
-  ],
-  "summary": "Read one durable Zotero operation receipt",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "operation_id": {
-        "type": "string",
-        "description": "Operation id returned by or supplied to a state-changing command",
-        "position": 1
-      }
-    },
-    "required": [
-      "operation_id"
-    ],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "operation_id",
-      "kind": "positional",
-      "token": "OPERATION_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Operation id returned by or supplied to a state-changing command",
-      "valueNames": [
-        "OPERATION_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "operation_id",
+      "id": "operation_id",
       "kind": "positional",
-      "token": "OPERATION_ID",
       "position": 1,
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": true,
+      "takesValue": true,
+      "token": "OPERATION_ID",
       "valueNames": [
         "OPERATION_ID"
       ]
     }
   ],
+  "argv": [
+    "operation",
+    "get"
+  ],
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "operation_id",
+      "required": true,
+      "takesValue": true,
+      "token": "OPERATION_ID",
+      "valueNames": [
+        "OPERATION_ID"
+      ]
+    }
+  ],
+  "binding": "none",
+  "category": "read",
+  "command": "operation get",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "operationId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "operation_id": {
-        "type": "string",
-        "description": "Operation id returned by or supplied to a state-changing command"
+        "description": "Operation id returned by or supplied to a state-changing command",
+        "position": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "operation_id"
+    ],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "operation get",
+    "operation",
+    "get",
+    "operation_id",
+    "OPERATION_ID"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "operation_id": {
+        "description": "Operation id returned by or supplied to a state-changing command",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "schema": {
-        "const": "host-bridge.operation-receipt.v1"
-      },
-      "operationId": {
-        "type": "string"
-      },
-      "requestDigest": {
-        "type": "string"
-      },
       "attemptId": {
         "type": "string"
       },
-      "method": {
-        "type": "string"
-      },
-      "path": {
-        "type": "string"
-      },
-      "state": {
-        "enum": [
-          "in_progress",
-          "completed",
-          "outcome_unknown"
-        ]
-      },
       "createdAt": {
         "type": "string"
-      },
-      "updatedAt": {
-        "type": "string"
-      },
-      "retentionExpiresAt": {
-        "type": "string"
-      },
-      "stateChange": {
-        "enum": [
-          "unchanged",
-          "changed",
-          "unknown"
-        ]
       },
       "handleConsumption": {
         "enum": [
@@ -268,8 +282,43 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "unknown"
         ]
       },
+      "method": {
+        "type": "string"
+      },
+      "operationId": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "requestDigest": {
+        "type": "string"
+      },
       "response": {
         "type": "object"
+      },
+      "retentionExpiresAt": {
+        "type": "string"
+      },
+      "schema": {
+        "const": "host-bridge.operation-receipt.v1"
+      },
+      "state": {
+        "enum": [
+          "in_progress",
+          "completed",
+          "outcome_unknown"
+        ]
+      },
+      "stateChange": {
+        "enum": [
+          "unchanged",
+          "changed",
+          "unknown"
+        ]
+      },
+      "updatedAt": {
+        "type": "string"
       }
     },
     "required": [
@@ -286,58 +335,29 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "stateChange",
       "handleConsumption"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "operationId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Read one durable Zotero operation receipt",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "GET /bridge/v1/operations/{operationId}"
+      "target": "GET /bridge/v2/operations/{operationId}"
     }
-  ],
-  "operationalAliases": [
-    "operation get",
-    "operation",
-    "get",
-    "operation_id",
-    "OPERATION_ID"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -345,6 +365,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `operation get`, `operation`, `get`, `operation_id`, `OPERATION_ID`.
 
@@ -353,9 +374,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -365,8 +386,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -375,11 +396,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "operationId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "operationId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -389,11 +410,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -404,7 +425,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/operations/{operationId}"
+    "target": "GET /bridge/v2/operations/{operationId}"
   }
 ]
 ```

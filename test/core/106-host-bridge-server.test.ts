@@ -130,7 +130,7 @@ describe("host bridge server phase 1", function () {
 
     await handleHostBridgeHttpRequestForTests({
       method: "GET",
-      path: "/bridge/v1/health",
+      path: "/bridge/v2/health",
       headers: {
         "X-Zotero-Bridge-Scope": JSON.stringify({
           kind: "acp-skill-run",
@@ -167,7 +167,7 @@ describe("host bridge server phase 1", function () {
     });
     const raw = rawHttpRequestBytes({
       method: "POST",
-      path: "/bridge/v1/health",
+      path: "/bridge/v2/health",
       headers: {
         "X-Zotero-Bridge-Scope": JSON.stringify({
           kind: "acp-skill-run",
@@ -242,7 +242,7 @@ describe("host bridge server phase 1", function () {
         await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
           inputStream,
         );
-      assert.equal(request.path, "/bridge/v1/health");
+      assert.equal(request.path, "/bridge/v2/health");
       const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics || [];
       assert.equal(
         metrics.find((entry) => entry.name === "host_input_fragment")?.counter
@@ -309,7 +309,7 @@ describe("host bridge server phase 1", function () {
     const parsed = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/health",
+        path: "/bridge/v2/health",
       }),
     );
 
@@ -329,7 +329,7 @@ describe("host bridge server phase 1", function () {
     setPref("hostBridgeToken", "shared-host-access-token");
     const token = configureHostBridgeServerForTests({
       token: "shared-host-access-token",
-      endpoint: "http://127.0.0.1:26570/bridge/v1",
+      endpoint: "http://127.0.0.1:26570/bridge/v2",
     });
 
     const parsed = parseRawHttpResponse(
@@ -360,7 +360,7 @@ describe("host bridge server phase 1", function () {
     const parsed = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
       }),
     );
 
@@ -378,7 +378,7 @@ describe("host bridge server phase 1", function () {
     const parsed = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -409,7 +409,7 @@ describe("host bridge server phase 1", function () {
     });
     assert.deepInclude(parsed.json.result.fileDownloads, {
       supported: true,
-      endpoint: "GET /bridge/v1/files/{fileId}",
+      endpoint: "GET /bridge/v2/files/{fileId}",
       urlTemplate: "{endpoint}/files/{fileId}",
       auth: "bearer",
       supportsRemoteClients: true,
@@ -418,7 +418,7 @@ describe("host bridge server phase 1", function () {
     });
     assert.deepEqual(parsed.json.result.cli, {
       supported: true,
-      schema: "zotero-bridge.cli.v4",
+      schema: "zotero-bridge.cli.v5",
     });
     assert.strictEqual(
       parsed.json.result.auth.tokenMasked,
@@ -426,7 +426,9 @@ describe("host bridge server phase 1", function () {
     );
     assert.notInclude(parsed.body, token);
     assert.notInclude(parsed.body, "localPath");
-    assert.notInclude(parsed.body, "handler");
+    for (const capability of parsed.json.result.capabilities) {
+      assert.notProperty(capability, "handler");
+    }
   });
 
   it("pages the authenticated capability manifest with opaque criteria-bound cursors", async function () {
@@ -439,7 +441,7 @@ describe("host bridge server phase 1", function () {
       const parsed = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "GET",
-          path: `/bridge/v1/manifest?limit=7${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          path: `/bridge/v2/manifest?limit=7${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
           headers: { authorization: `Bearer ${token}` },
         }),
       );
@@ -468,7 +470,7 @@ describe("host bridge server phase 1", function () {
     const invalid = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest?cursor=not-a-cursor",
+        path: "/bridge/v2/manifest?cursor=not-a-cursor",
         headers: { authorization: `Bearer ${token}` },
       }),
     );
@@ -479,13 +481,13 @@ describe("host bridge server phase 1", function () {
   it("serves redacted Host Bridge profile diagnostics for agents", async function () {
     const token = configureHostBridgeServerForTests({
       token: "profile-secret-token",
-      endpoint: "http://127.0.0.1:26570/bridge/v1",
+      endpoint: "http://127.0.0.1:26570/bridge/v2",
     });
 
     const inspect = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/diagnostics/profile",
+        path: "/bridge/v2/diagnostics/profile",
         headers: {
           authorization: `Bearer ${token}`,
           "x-zotero-bridge-connection-mode": "local",
@@ -511,7 +513,7 @@ describe("host bridge server phase 1", function () {
     const diagnose = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/diagnostics/profile/diagnose",
+        path: "/bridge/v2/diagnostics/profile/diagnose",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -546,10 +548,10 @@ describe("host bridge server phase 1", function () {
     const token = configureHostBridgeServerForTests({ token: "upload-token" });
     const raw = await handleHostBridgeHttpRequestForTests({
       method: "POST",
-      path: "/bridge/v1/files/upload",
+      path: "/bridge/v2/files/upload",
       rawRequestBytes: rawHttpRequestBytes({
         method: "POST",
-        path: "/bridge/v1/files/upload",
+        path: "/bridge/v2/files/upload",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/octet-stream",
@@ -569,7 +571,7 @@ describe("host bridge server phase 1", function () {
     const empty = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "POST",
-        path: "/bridge/v1/files/upload",
+        path: "/bridge/v2/files/upload",
         headers: { authorization: `Bearer ${token}` },
         body: "",
       }),
@@ -625,7 +627,7 @@ describe("host bridge server phase 1", function () {
       const current = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "GET",
-          path: "/bridge/v1/context/current",
+          path: "/bridge/v2/context/current",
           headers: auth,
         }),
       );
@@ -635,7 +637,7 @@ describe("host bridge server phase 1", function () {
       const selection = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "GET",
-          path: "/bridge/v1/context/selection",
+          path: "/bridge/v2/context/selection",
           headers: auth,
         }),
       );
@@ -645,7 +647,7 @@ describe("host bridge server phase 1", function () {
       const openedItem = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "POST",
-          path: "/bridge/v1/context/items/open",
+          path: "/bridge/v2/context/items/open",
           headers: auth,
           body: JSON.stringify({ item: `${item.libraryID}:${item.key}` }),
         }),
@@ -660,7 +662,7 @@ describe("host bridge server phase 1", function () {
       const openedNote = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "POST",
-          path: "/bridge/v1/context/notes/open",
+          path: "/bridge/v2/context/notes/open",
           headers: auth,
           body: JSON.stringify({
             note: { key: note.key, libraryId: note.libraryID },
@@ -674,7 +676,7 @@ describe("host bridge server phase 1", function () {
       const openedCollection = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "POST",
-          path: "/bridge/v1/context/collections/open",
+          path: "/bridge/v2/context/collections/open",
           headers: auth,
           body: JSON.stringify({
             key: collection.key,
@@ -691,7 +693,7 @@ describe("host bridge server phase 1", function () {
       const openedSelection = parseRawHttpResponse(
         await handleHostBridgeHttpRequestForTests({
           method: "POST",
-          path: "/bridge/v1/context/selection/open",
+          path: "/bridge/v2/context/selection/open",
           headers: auth,
           body: JSON.stringify({ items: [item.key, { id: note.id }] }),
         }),
@@ -714,7 +716,7 @@ describe("host bridge server phase 1", function () {
     const parsed = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "POST",
-        path: "/bridge/v1/context/items/open",
+        path: "/bridge/v2/context/items/open",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -733,7 +735,7 @@ describe("host bridge server phase 1", function () {
     const oldTokenResponse = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${oldToken}`,
         },
@@ -744,7 +746,7 @@ describe("host bridge server phase 1", function () {
     const newTokenResponse = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${rotated.token}`,
         },
@@ -759,7 +761,7 @@ describe("host bridge server phase 1", function () {
     const missing = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/unknown",
+        path: "/bridge/v2/unknown",
         headers: {
           authorization: "Bearer routing-token",
         },
@@ -772,7 +774,7 @@ describe("host bridge server phase 1", function () {
     const invalidMethod = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "POST",
-        path: "/bridge/v1/health",
+        path: "/bridge/v2/health",
       }),
     );
     assert.strictEqual(invalidMethod.status, 405);
@@ -785,10 +787,10 @@ describe("host bridge server phase 1", function () {
     const parsed = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "POST",
-        path: "/bridge/v1/call",
+        path: "/bridge/v2/call",
         rawRequestBytes: rawHttpRequestBytes({
           method: "POST",
-          path: "/bridge/v1/call",
+          path: "/bridge/v2/call",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json; charset=utf-8",
@@ -870,13 +872,13 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(status.bindMode, "lan");
     assert.isTrue(status.lanEnabled);
     assert.strictEqual(status.host, "0.0.0.0");
-    assert.strictEqual(status.endpoint, "http://127.0.0.1:27655/bridge/v1");
+    assert.strictEqual(status.endpoint, "http://127.0.0.1:27655/bridge/v2");
     assert.isTrue(status.pinPortEnabled);
     assert.strictEqual(status.portMode, "pinned");
     assert.strictEqual(status.port, 27655);
     assert.strictEqual(
       status.remoteEndpoint,
-      "http://192.0.2.25:27655/bridge/v1",
+      "http://192.0.2.25:27655/bridge/v2",
     );
     assert.isFalse(status.remoteEndpointUsesPlaceholder);
     assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
@@ -886,7 +888,7 @@ describe("host bridge server phase 1", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${getPref("hostBridgeToken")}`,
         },
@@ -895,11 +897,11 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(manifest.status, 200);
     assert.strictEqual(
       manifest.json.result.endpoint.url,
-      "http://127.0.0.1:27655/bridge/v1",
+      "http://127.0.0.1:27655/bridge/v2",
     );
     assert.strictEqual(
       manifest.json.result.endpoint.remoteUrl,
-      "http://192.0.2.25:27655/bridge/v1",
+      "http://192.0.2.25:27655/bridge/v2",
     );
     assert.strictEqual(
       manifest.json.result.mcp.endpoint,
@@ -1021,7 +1023,7 @@ describe("host bridge server phase 1", function () {
         protocol: HOST_BRIDGE_PROTOCOL_VERSION,
         host: "127.0.0.1",
         port: 27655,
-        endpoint: "http://127.0.0.1:27655/bridge/v1",
+        endpoint: "http://127.0.0.1:27655/bridge/v2",
         remoteEndpoint: "",
         advertisedHost: "",
         remoteEndpointUsesPlaceholder: true,
@@ -1052,7 +1054,7 @@ describe("host bridge server phase 1", function () {
     }
     assert.strictEqual(result.connectionMode, "local");
     assert.deepEqual(result.env, {
-      ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+      ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
       ZOTERO_BRIDGE_TOKEN: "runtime-token",
       ZOTERO_BRIDGE_CONNECTION_MODE: "local",
     });
@@ -1082,8 +1084,8 @@ describe("host bridge server phase 1", function () {
         protocol: HOST_BRIDGE_PROTOCOL_VERSION,
         host: "0.0.0.0",
         port: 27655,
-        endpoint: "http://127.0.0.1:27655/bridge/v1",
-        remoteEndpoint: "http://192.0.2.25:27655/bridge/v1",
+        endpoint: "http://127.0.0.1:27655/bridge/v2",
+        remoteEndpoint: "http://192.0.2.25:27655/bridge/v2",
         advertisedHost: "192.0.2.25",
         remoteEndpointUsesPlaceholder: false,
         bindMode: "lan",
@@ -1113,7 +1115,7 @@ describe("host bridge server phase 1", function () {
     }
     assert.strictEqual(result.connectionMode, "remote");
     assert.deepEqual(result.env, {
-      ZOTERO_BRIDGE_ENDPOINT: "http://192.0.2.25:27655/bridge/v1",
+      ZOTERO_BRIDGE_ENDPOINT: "http://192.0.2.25:27655/bridge/v2",
       ZOTERO_BRIDGE_TOKEN: "runtime-token",
       ZOTERO_BRIDGE_CONNECTION_MODE: "remote",
     });
@@ -1141,8 +1143,8 @@ describe("host bridge server phase 1", function () {
         protocol: HOST_BRIDGE_PROTOCOL_VERSION,
         host: "0.0.0.0",
         port: 27655,
-        endpoint: "http://127.0.0.1:27655/bridge/v1",
-        remoteEndpoint: "http://<zotero-host-ip>:27655/bridge/v1",
+        endpoint: "http://127.0.0.1:27655/bridge/v2",
+        remoteEndpoint: "http://<zotero-host-ip>:27655/bridge/v2",
         advertisedHost: "<zotero-host-ip>",
         advertisedHostSource: "placeholder",
         remoteEndpointUsesPlaceholder: true,
@@ -1173,7 +1175,7 @@ describe("host bridge server phase 1", function () {
     }
     assert.strictEqual(result.connectionMode, "remote");
     assert.deepEqual(result.env, {
-      ZOTERO_BRIDGE_ENDPOINT: "http://192.168.13.12:27655/bridge/v1",
+      ZOTERO_BRIDGE_ENDPOINT: "http://192.168.13.12:27655/bridge/v2",
       ZOTERO_BRIDGE_TOKEN: "runtime-token",
       ZOTERO_BRIDGE_CONNECTION_MODE: "remote",
     });
@@ -1185,8 +1187,8 @@ describe("host bridge server phase 1", function () {
       protocol: HOST_BRIDGE_PROTOCOL_VERSION,
       host: "0.0.0.0",
       port: 27655,
-      endpoint: "http://127.0.0.1:27655/bridge/v1",
-      remoteEndpoint: "http://192.0.2.25:27655/bridge/v1",
+      endpoint: "http://127.0.0.1:27655/bridge/v2",
+      remoteEndpoint: "http://192.0.2.25:27655/bridge/v2",
       advertisedHost: "192.0.2.25",
       remoteEndpointUsesPlaceholder: false,
       bindMode: "lan",
@@ -1226,7 +1228,7 @@ describe("host bridge server phase 1", function () {
         status: {
           ...baseStatus,
           advertisedHost: "127.0.0.1",
-          remoteEndpoint: "http://127.0.0.1:27655/bridge/v1",
+          remoteEndpoint: "http://127.0.0.1:27655/bridge/v2",
         },
         code: "host_bridge_remote_advertised_host_unreachable",
       },
@@ -1297,7 +1299,7 @@ describe("host bridge server phase 1", function () {
     const masterManifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${master.token}`,
         },
@@ -1315,7 +1317,7 @@ describe("host bridge server phase 1", function () {
     const oldMaster = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${master.token}`,
         },
@@ -1326,7 +1328,7 @@ describe("host bridge server phase 1", function () {
     const newMaster = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${rotated.token}`,
         },
@@ -1337,7 +1339,7 @@ describe("host bridge server phase 1", function () {
     const local = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v2/manifest",
         headers: {
           authorization: `Bearer ${localToken}`,
         },
@@ -1462,7 +1464,7 @@ describe("host bridge server phase 1", function () {
       assert.strictEqual(status.restartCount, 1);
 
       const profile = readTemporaryWellKnownProfile(profileRoot);
-      assert.strictEqual(profile.endpoint, "http://127.0.0.1:27655/bridge/v1");
+      assert.strictEqual(profile.endpoint, "http://127.0.0.1:27655/bridge/v2");
     });
   });
 

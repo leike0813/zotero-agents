@@ -85,7 +85,7 @@ Zotero host access into generic `runtime_options.env`:
 
 ```json
 {
-  "ZOTERO_BRIDGE_ENDPOINT": "http://<advertisedHost>:<pinnedPort>/bridge/v1",
+  "ZOTERO_BRIDGE_ENDPOINT": "http://<advertisedHost>:<pinnedPort>/bridge/v2",
   "ZOTERO_BRIDGE_TOKEN": "<current-host-bridge-token>",
   "ZOTERO_BRIDGE_CONNECTION_MODE": "local|remote",
   "ZOTERO_BRIDGE_SCOPE": "{\"kind\":\"skillrunner-run\",\"requestId\":\"<request-id>\",\"runId\":\"<request-id>\"}"
@@ -164,7 +164,7 @@ stored under provider-managed namespaces such as `result/<skillId>.n/` and
 // schema: zotero-bridge.profile.v1
 {
   schema: "zotero-bridge.profile.v1",
-  protocol: "host-bridge.v1",
+  protocol: "host-bridge.v2",
   endpoint: string,
   auth: { type: "bearer", tokenEnv: "ZOTERO_BRIDGE_TOKEN" },
   scope: {

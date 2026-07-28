@@ -30,24 +30,24 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
+    "client-id": {
+      "description": "Best-effort Zotero notification client id",
+      "type": "string"
+    },
     "event": {
-      "type": "array",
+      "description": "Notification event id",
       "items": {
         "type": "string"
       },
-      "description": "Notification event id"
-    },
-    "client-id": {
-      "type": "string",
-      "description": "Best-effort Zotero notification client id"
+      "type": "array"
     }
   },
   "required": [
     "event"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -59,36 +59,42 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "event": {
-      "type": "string",
-      "description": "Notification event id"
-    },
     "client_id": {
-      "type": "string",
-      "description": "Best-effort Zotero notification client id"
+      "description": "Best-effort Zotero notification client id",
+      "type": "string"
+    },
+    "event": {
+      "description": "Notification event id",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/notifications/ack.",
       "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/notifications/ack.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -103,162 +109,117 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "run notification ack",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Notification event id",
+      "id": "events",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "--event",
+      "valueNames": [
+        "EVENTS"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Best-effort Zotero notification client id",
+      "id": "client_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--client-id",
+      "valueNames": [
+        "CLIENT_ID"
+      ]
+    }
+  ],
   "argv": [
     "run",
     "notification",
     "ack"
   ],
-  "summary": "Acknowledge workflow notification inbox events",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "event",
+      "required": true,
+      "takesValue": true,
+      "token": "--event",
+      "valueNames": [
+        "EVENTS"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "client-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--client-id",
+      "valueNames": [
+        "CLIENT_ID"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "write",
+  "command": "run notification ack",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "eventId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
+      "client-id": {
+        "description": "Best-effort Zotero notification client id",
+        "type": "string"
+      },
       "event": {
-        "type": "array",
+        "description": "Notification event id",
         "items": {
           "type": "string"
         },
-        "description": "Notification event id"
-      },
-      "client-id": {
-        "type": "string",
-        "description": "Best-effort Zotero notification client id"
+        "type": "array"
       }
     },
     "required": [
       "event"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "events",
-      "kind": "option",
-      "token": "--event",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Notification event id",
-      "valueNames": [
-        "EVENTS"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "client_id",
-      "kind": "option",
-      "token": "--client-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Best-effort Zotero notification client id",
-      "valueNames": [
-        "CLIENT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "event",
-      "kind": "option",
-      "token": "--event",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "EVENTS"
-      ]
-    },
-    {
-      "property": "client-id",
-      "kind": "option",
-      "token": "--client-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CLIENT_ID"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "event": {
-        "type": "string",
-        "description": "Notification event id"
-      },
-      "client_id": {
-        "type": "string",
-        "description": "Best-effort Zotero notification client id"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/notifications/ack.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "eventId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/notifications/ack"
-    }
-  ],
   "operationalAliases": [
     "run notification ack",
     "run",
@@ -271,9 +232,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "client-id",
     "CLIENT_ID"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "client_id": {
+        "description": "Best-effort Zotero notification client id",
+        "type": "string"
+      },
+      "event": {
+        "description": "Notification event id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/notifications/ack.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Acknowledge workflow notification inbox events",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/notifications/ack"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -281,6 +301,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `run notification ack`, `run`, `notification`, `ack`, `events`, `event`, `EVENTS`, `client_id`, `client-id`, `CLIENT_ID`.
 
@@ -289,9 +310,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   }
 ]
 ```
@@ -301,8 +322,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -311,11 +332,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "eventId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "eventId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -325,11 +346,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
@@ -340,7 +361,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/notifications/ack"
+    "target": "POST /bridge/v2/notifications/ack"
   }
 ]
 ```

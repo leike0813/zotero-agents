@@ -27,7 +27,7 @@ research tasks, Zotero-side approval, Zotero-managed state, or the public
 bridge topology to decide whether a Skill applies.
 
 Machine contracts keep their established identity. Protocol and schema values
-such as `host-bridge.v1` and `host-bridge.agent-surface.v5`, `/bridge/v1/**`
+such as `host-bridge.v2` and `host-bridge.agent-surface.v6`, `/bridge/v2/**`
 routes, `ZOTERO_BRIDGE_HOST_PROFILE`, `ZOTERO_BRIDGE_HOST_HOME`, and code
 identifiers are not rewritten as prose. The shared agent-language gate checks
 authored surface sources, generated packages, CLI-visible strings, and the
@@ -54,15 +54,20 @@ every direct and inherited component.
 ## Minimum: mechanism contract
 
 Minimum exposes `zotero-bridge` and the offline
-`host-bridge.agent-surface.v5` descriptor. The descriptor contains only
+`host-bridge.agent-surface.v6` descriptor. The descriptor contains only
 operational facts: complete global and local argument metadata, command paths,
 structured input schemas and examples, composed payload and command result
 schemas, effects, approvals, typed handles, recovery rules, targets, summaries,
 and operational aliases. `surface identity`, `surface describe`, and
 `surface search` therefore discover mechanism contracts without selecting a
-research task. The versioned command-contract registry is the payload/result
-fact source shared by the descriptor, `--schema`, help examples, and generated
-command references; Clap remains the argv fact source.
+research task. `host-bridge/contracts/capabilities.v2.json` owns capability
+input/output, effect, approval, and exposure facts.
+`host-bridge/contracts/cli-commands.v2.json` owns each command target, closed
+binding mode, structured-input source, result source, output boundary, and
+operational metadata. The Rust runtime descriptor combines those executable
+contracts with the live Clap command tree; the same descriptor drives
+`--schema`, offline surface discovery, generated command references, and the
+generated mechanism section of the CLI manual.
 
 The `zotero-bridge-cli` Skill is the complete operating contract for this
 layer. Its `SKILL.md` defines the command loop, approval and handle behavior,

@@ -32,6 +32,7 @@ import {
   syncHostBridgeCliPrebuilds,
 } from "../../scripts/sync-host-bridge-cli-prebuilds";
 import { stageHostBridgeCliPrebuildSet } from "../../scripts/stage-host-bridge-cli-prebuilds";
+import { buildHostBridgeAgentSurfaceDescriptor } from "../../scripts/host-bridge-agent-surface";
 import {
   assertLockedHostBridgeCliIdentity,
   assertPrebuildSourceState,
@@ -977,10 +978,8 @@ describe("host bridge cli packaging and install", function () {
     }
   });
 
-  it("renders exhaustive disjoint mechanism command references from the embedded descriptor", async function () {
-    const descriptor = JSON.parse(
-      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
-    );
+  it("renders exhaustive disjoint mechanism command references from the runtime descriptor", async function () {
+    const descriptor = buildHostBridgeAgentSurfaceDescriptor();
     const references = await readCommandReferences(
       "skills_builtin/zotero-bridge-cli",
     );
@@ -1013,9 +1012,7 @@ describe("host bridge cli packaging and install", function () {
   });
 
   it("keeps global controls and leaf-local JSON bindings distinct", async function () {
-    const descriptor = JSON.parse(
-      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
-    ) as {
+    const descriptor = buildHostBridgeAgentSurfaceDescriptor() as {
       globalOptions: Array<{ token: string }>;
       commands: Array<{
         command: string;
@@ -1056,9 +1053,9 @@ describe("host bridge cli packaging and install", function () {
   });
 
   it("renders one intent-first command catalog before detailed command selection", async function () {
-    const descriptor = JSON.parse(
-      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
-    ) as { commands: Array<{ command: string; summary: string }> };
+    const descriptor = buildHostBridgeAgentSurfaceDescriptor() as {
+      commands: Array<{ command: string; summary: string }>;
+    };
     const catalog = await fs.readFile(
       path.join("skills_builtin/zotero-bridge-cli", COMMAND_CATALOG_PATH),
       "utf8",
@@ -1637,7 +1634,7 @@ describe("host bridge cli packaging and install", function () {
     process.env.HOME = root;
     try {
       const result = await writeHostBridgeWellKnownProfile({
-        endpoint: "http://127.0.0.1:26570/bridge/v1",
+        endpoint: "http://127.0.0.1:26570/bridge/v2",
         token: "well-known-token",
         updatedAt: "2026-05-20T00:00:00.000Z",
       });
@@ -1646,7 +1643,7 @@ describe("host bridge cli packaging and install", function () {
       assert.strictEqual(result.path, profilePath);
       const profile = JSON.parse(await fs.readFile(profilePath, "utf8"));
       assert.strictEqual(profile.schema, "zotero-bridge.profile.v1");
-      assert.strictEqual(profile.endpoint, "http://127.0.0.1:26570/bridge/v1");
+      assert.strictEqual(profile.endpoint, "http://127.0.0.1:26570/bridge/v2");
       assert.strictEqual(profile.connectionMode, "local");
       assert.deepInclude(profile.auth, {
         type: "bearer",
@@ -2781,15 +2778,11 @@ describe("host bridge cli packaging and install", function () {
         "cli/zotero-bridge/release.json",
         `${JSON.stringify({ version, buildFingerprint })}\n`,
       );
-      await writeTextFile(
-        root,
-        "cli/zotero-bridge/src/agent-surface.json",
-        `${JSON.stringify({
-          protocol: "host-bridge.v1",
-          cliSchema: "zotero-bridge.cli.v2",
-          commandCatalogChecksum,
-        })}\n`,
-      );
+      const surface = {
+        protocol: "host-bridge.v2",
+        cliSchema: "zotero-bridge.cli.v5",
+        commandCatalogChecksum,
+      };
       await writeBinaryFixture(
         root,
         `addon/bin/linux-arm64/${binary}`,
@@ -2798,8 +2791,8 @@ describe("host bridge cli packaging and install", function () {
             version,
             buildFingerprint,
             commandCatalogChecksum,
-            "host-bridge.v1",
-            "zotero-bridge.cli.v2",
+            "host-bridge.v2",
+            "zotero-bridge.cli.v5",
           ].join("\0"),
         ),
       );
@@ -2809,6 +2802,7 @@ describe("host bridge cli packaging and install", function () {
         root,
         platform: "linux-arm64",
         binary,
+        surface,
       });
       assert.isTrue(current.ok);
 
@@ -2821,6 +2815,7 @@ describe("host bridge cli packaging and install", function () {
         root,
         platform: "linux-arm64",
         binary,
+        surface,
       });
       assert.isFalse(stale.ok);
       assert.include(stale.missing, buildFingerprint);
@@ -2892,9 +2887,31 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "ZOTERO_BRIDGE_TOKEN");
       assert.include(source, "Platform override is not supported");
     }
+    assert.include(installSh, '"protocol": "host-bridge.v2"');
+    assert.notInclude(installSh, '"protocol": "host-bridge.v1"');
     assert.include(wrapperSkill, COMMAND_CATALOG_PATH);
     assert.notMatch(wrapperSkill, /references\/commands\//);
     assert.notInclude(wrapperSkill, "references/operating-contract.md");
+  });
+
+  it("keeps current Host Bridge documentation on the executable v2 identities", async function () {
+    const currentDocumentation = await Promise.all(
+      [
+        "doc/host-bridge-cli.md",
+        "doc/components/host-bridge-agent-surfaces.md",
+        "doc/components/host-bridge-capability-registry.md",
+        "doc/components/host-bridge-lifecycle.md",
+        "doc/components/host-bridge-prompt-injection.md",
+      ].map((file) => fs.readFile(file, "utf8")),
+    );
+
+    for (const source of currentDocumentation) {
+      assert.notMatch(
+        source,
+        /host-bridge\.v1|\/bridge\/v1|host-bridge\.agent-surface\.v5|zotero-bridge\.cli\.(?:v1|v4)/,
+      );
+    }
+    assert.include(currentDocumentation[0], "host-bridge.agent-surface.v6");
   });
 
   it("renders every public Agent Surface command field into the offline command references", async function () {

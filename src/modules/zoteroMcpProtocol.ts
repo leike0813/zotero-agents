@@ -1,11 +1,12 @@
 import { createWorkflowHostApi } from "../workflows/hostApi";
 import { buildMarkdownBackedNoteContent } from "./notePayloadCodec";
 import {
+  executeHostBridgeCapability,
   getHostBridgeCapability,
   listHostBridgeCapabilities,
-  type HostBridgeCapabilityDefinition,
   type ZoteroHostCapabilityBrokerApis,
 } from "./hostBridgeCapabilityRegistry";
+import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import { HostBridgeCursorError } from "./hostBridgePagination";
 import type {
   SynthesisMcpService,
@@ -22,6 +23,7 @@ import type { WorkflowHostApi } from "../workflows/types";
 import type { AcpHostContext } from "./acpTypes";
 import type {
   HostBridgeApprovalRequirement,
+  HostBridgeCapabilityManifestEntry,
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
 import type {
@@ -3298,62 +3300,21 @@ const TOOL_REGISTRY: ToolDefinition[] = [
 const ZOTERO_MCP_QUEUE_NOTICE =
   " Zotero host calls are serialized by the embedded server; do not call Zotero MCP tools concurrently. MCP tools mirror Host Bridge capability names and return { capability, approval, data }. For library scans use library.list_items, and for large notes use library.get_note_detail chunks. After write tools, verify state before retrying. If you receive zotero_mcp_queue_full, zotero_mcp_queue_timeout, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
 
-function openObjectSchema(
-  properties: Record<string, unknown> = {},
-  required: string[] = [],
-): JsonObjectSchema {
-  const schema: JsonObjectSchema = {
-    type: "object",
-    properties,
-    additionalProperties: true,
-  };
-  if (required.length > 0) {
-    schema.required = required;
-  }
-  return schema;
-}
-
 function mcpInputSchemaForCapability(
-  input: HostBridgeCapabilityDefinition["input"],
+  inputSchema: Record<string, unknown>,
 ): JsonObjectSchema {
-  switch (input.type) {
-    case "none":
-      return objectSchema();
-    case "item-ref":
-      return openObjectSchema({
-        ref: {
-          description:
-            'Item reference. Prefer {"key":"ABCD1234","libraryId":1} or {"id":123}.',
-        },
-        id: {
-          type: ["number", "string"],
-          description: "Zotero item or note id.",
-        },
-        key: {
-          type: "string",
-          description: "Zotero item or note key.",
-        },
-        libraryId: {
-          type: ["number", "string"],
-          description: "Zotero library id for key-based refs.",
-        },
-      });
-    case "mutation-preview":
-      return openObjectSchema({
-        operation: {
-          type: "string",
-          description: "Canonical Host Bridge mutation operation.",
-        },
-      });
-    case "object":
-    default:
-      return openObjectSchema(
-        isPlainObject(input.properties) ? input.properties : {},
-        Array.isArray(input.requiredProperties)
-          ? input.requiredProperties.map(String)
-          : [],
-      );
+  if (inputSchema.type === "object") {
+    return inputSchema as JsonObjectSchema;
   }
+  if (Array.isArray(inputSchema.oneOf)) {
+    const objectBranch = inputSchema.oneOf.find(
+      (entry) => isPlainObject(entry) && entry.type === "object",
+    );
+    if (isPlainObject(objectBranch)) {
+      return objectBranch as JsonObjectSchema;
+    }
+  }
+  return objectSchema();
 }
 
 function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
@@ -3367,7 +3328,7 @@ function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
       name: capability.name,
       title: capability.name,
       description: capability.summary,
-      inputSchema: mcpInputSchemaForCapability(capability.input),
+      inputSchema: mcpInputSchemaForCapability(capability.inputSchema),
       handler: async (args, context) =>
         callHostBridgeCapabilityAsMcpTool(capability.name, args, context),
     }));
@@ -3566,7 +3527,7 @@ function summarizeHostBridgeCapabilityResult(
 }
 
 async function requestCapabilityApprovalForMcp(args: {
-  capability: HostBridgeCapabilityDefinition;
+  capability: HostBridgeCapabilityManifestEntry;
   input: Record<string, unknown>;
   context: ToolContext;
 }): Promise<HostBridgeApprovalRequirement | "denied" | "unavailable"> {
@@ -3579,17 +3540,22 @@ async function requestCapabilityApprovalForMcp(args: {
   const previewCapability = getHostBridgeCapability("mutation.preview");
   const preview =
     args.capability.name === "mutation.execute" && previewCapability
-      ? ((await previewCapability.handler(args.input, {
-          getStatus:
-            args.context.options.resolveHostBridgeStatus ||
-            (() =>
-              (args.context.options.resolveMcpStatus?.() ||
-                {}) as HostBridgeStatusSnapshot),
-          connectionMode: "local",
-          resolveHostBridgeApis: () =>
-            resolveHostBridgeApis(args.context.options, args.context.hostApi),
-          resolveSynthesisService: args.context.options.resolveSynthesisService,
-        })) as ZoteroHostMutationPreviewResponse)
+      ? ((await executeHostBridgeCapability(
+          previewCapability.name,
+          args.input,
+          {
+            getStatus:
+              args.context.options.resolveHostBridgeStatus ||
+              (() =>
+                (args.context.options.resolveMcpStatus?.() ||
+                  {}) as HostBridgeStatusSnapshot),
+            connectionMode: "local",
+            resolveHostBridgeApis: () =>
+              resolveHostBridgeApis(args.context.options, args.context.hostApi),
+            resolveSynthesisService:
+              args.context.options.resolveSynthesisService,
+          },
+        )) as ZoteroHostMutationPreviewResponse)
       : ({
           ok: true,
           operation: args.capability.name,
@@ -3637,6 +3603,26 @@ async function callHostBridgeCapabilityAsMcpTool(
     );
   }
   const normalizedInput = normalizeHostBridgeMcpInput(capability.name, input);
+  const violations = validateHostBridgeCapabilityInput(
+    capability.name,
+    normalizedInput,
+  );
+  if (violations.length) {
+    throw new ZoteroMcpToolInputError(
+      `Input for ${capability.name} does not satisfy its executable contract`,
+      {
+        schema: "host-bridge.argument-error.v1",
+        phase: "capability_input",
+        capability: capability.name,
+        violations,
+        truncated: false,
+      },
+    );
+  }
+  const allowedArgs = HOST_BRIDGE_MCP_ALLOWED_ARGS[capability.name];
+  if (allowedArgs) {
+    assertKnownArgs(capability.name, normalizedInput, allowedArgs);
+  }
   const approval = await requestCapabilityApprovalForMcp({
     capability,
     input: normalizedInput,
@@ -3657,13 +3643,9 @@ async function callHostBridgeCapabilityAsMcpTool(
       },
     });
   }
-  const allowedArgs = HOST_BRIDGE_MCP_ALLOWED_ARGS[capability.name];
-  if (allowedArgs) {
-    assertKnownArgs(capability.name, normalizedInput, allowedArgs);
-  }
   let data: unknown;
   try {
-    data = await capability.handler(normalizedInput, {
+    data = await executeHostBridgeCapability(capability.name, normalizedInput, {
       getStatus:
         context.options.resolveHostBridgeStatus ||
         (() =>

@@ -32,31 +32,31 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "product_id": {
-      "type": "string",
-      "description": "Dashboard Product id",
-      "position": 1
-    },
     "asset": {
-      "type": "string",
-      "description": "Optional asset id; omit to download all assets"
-    },
-    "output-dir": {
-      "type": "string",
-      "description": "Destination directory"
+      "description": "Optional asset id; omit to download all assets",
+      "type": "string"
     },
     "force": {
-      "type": "boolean",
-      "description": "Allow existing output files to be replaced"
+      "description": "Allow existing output files to be replaced",
+      "type": "boolean"
+    },
+    "output-dir": {
+      "description": "Destination directory",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Dashboard Product id",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "product_id",
     "output-dir"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -68,11 +68,8 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "productId": {
-      "type": "string"
-    },
     "assetId": {
       "type": "string"
     },
@@ -81,12 +78,51 @@ This command has no structured JSON input parameter.
     },
     "overwrite": {
       "type": "boolean"
+    },
+    "productId": {
+      "type": "string"
     }
   },
   "required": [
     "productId"
   ],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "product_id",
+      "field": "productId",
+      "required": true,
+      "transform": "trim-string"
+    },
+    {
+      "argument": "asset",
+      "field": "assetId",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "output_dir",
+      "field": "outputDir",
+      "required": true,
+      "transform": "path-string"
+    },
+    {
+      "argument": "force",
+      "field": "overwrite",
+      "required": true,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -94,43 +130,50 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "workflow_products.export"
     },
     "data": {
-      "type": "object",
+      "additionalProperties": true,
       "description": "Result data owned by workflow_products.export.",
       "properties": {
-        "fileId": {
-          "type": "string"
-        },
-        "file": {
-          "type": "object",
-          "properties": {
-            "fileId": {
-              "type": "string"
-            },
-            "path": {
-              "type": "string"
-            },
-            "checksum": {
-              "type": "string"
-            },
-            "bytes": {
-              "type": "integer"
-            }
-          },
-          "additionalProperties": true
-        },
         "delivery": {
-          "type": "object",
+          "additionalProperties": false,
           "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
           "properties": {
+            "bundle": {
+              "additionalProperties": true,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "fileId": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "downloadCommand": {
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
             "mode": {
               "enum": [
                 "local",
@@ -141,45 +184,44 @@ This command has no structured JSON input parameter.
             "path": {
               "type": "string"
             },
-            "files": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            },
-            "bundle": {
-              "type": "object",
-              "properties": {
-                "fileId": {
-                  "type": "string"
-                },
-                "displayName": {
-                  "type": "string"
-                },
-                "contentType": {
-                  "type": "string"
-                },
-                "size": {
-                  "type": "integer"
-                }
-              },
-              "additionalProperties": true
-            },
-            "downloadCommand": {
-              "type": "string"
-            },
             "unpackHint": {
               "type": "string"
             }
           },
-          "additionalProperties": false
+          "type": "object"
+        },
+        "file": {
+          "additionalProperties": true,
+          "properties": {
+            "bytes": {
+              "type": "integer"
+            },
+            "checksum": {
+              "type": "string"
+            },
+            "fileId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "fileId": {
+          "type": "string"
         }
       },
-      "additionalProperties": true,
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -193,317 +235,219 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "product download",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Dashboard Product id",
+      "id": "product_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Optional asset id; omit to download all assets",
+      "id": "asset",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--asset",
+      "valueNames": [
+        "ASSET"
+      ]
+    },
+    {
+      "aliases": [
+        "output"
+      ],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Destination directory",
+      "id": "output_dir",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--output-dir",
+      "valueNames": [
+        "DIR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Allow existing output files to be replaced",
+      "id": "force",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--force",
+      "valueNames": [
+        "FORCE"
+      ]
+    }
+  ],
   "argv": [
     "product",
     "download"
   ],
-  "summary": "Download one or all Dashboard Product assets",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "product_id",
+      "required": true,
+      "takesValue": true,
+      "token": "PRODUCT_ID",
+      "valueNames": [
+        "PRODUCT_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "asset",
+      "required": false,
+      "takesValue": true,
+      "token": "--asset",
+      "valueNames": [
+        "ASSET"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "output-dir",
+      "required": true,
+      "takesValue": true,
+      "token": "--output-dir",
+      "valueNames": [
+        "DIR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "force",
+      "required": false,
+      "takesValue": false,
+      "token": "--force",
+      "valueNames": [
+        "FORCE"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "read",
+  "command": "product download",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "product_id",
+        "field": "productId",
+        "required": true,
+        "transform": "trim-string"
+      },
+      {
+        "argument": "asset",
+        "field": "assetId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "output_dir",
+        "field": "outputDir",
+        "required": true,
+        "transform": "path-string"
+      },
+      {
+        "argument": "force",
+        "field": "overwrite",
+        "required": true,
+        "transform": "identity"
+      }
+    ]
+  },
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "productId",
+      "lifetime": "caller-owned",
+      "required": true
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "fileId",
+      "lifetime": "short-lived",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "product_id": {
-        "type": "string",
-        "description": "Dashboard Product id",
-        "position": 1
-      },
       "asset": {
-        "type": "string",
-        "description": "Optional asset id; omit to download all assets"
-      },
-      "output-dir": {
-        "type": "string",
-        "description": "Destination directory"
+        "description": "Optional asset id; omit to download all assets",
+        "type": "string"
       },
       "force": {
-        "type": "boolean",
-        "description": "Allow existing output files to be replaced"
+        "description": "Allow existing output files to be replaced",
+        "type": "boolean"
+      },
+      "output-dir": {
+        "description": "Destination directory",
+        "type": "string"
+      },
+      "product_id": {
+        "description": "Dashboard Product id",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "product_id",
       "output-dir"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Dashboard Product id",
-      "valueNames": [
-        "PRODUCT_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "asset",
-      "kind": "option",
-      "token": "--asset",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Optional asset id; omit to download all assets",
-      "valueNames": [
-        "ASSET"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "output_dir",
-      "kind": "option",
-      "token": "--output-dir",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Destination directory",
-      "valueNames": [
-        "DIR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [
-        "output"
-      ],
-      "defaultValues": []
-    },
-    {
-      "id": "force",
-      "kind": "option",
-      "token": "--force",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Allow existing output files to be replaced",
-      "valueNames": [
-        "FORCE"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "product_id",
-      "kind": "positional",
-      "token": "PRODUCT_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "PRODUCT_ID"
-      ]
-    },
-    {
-      "property": "asset",
-      "kind": "option",
-      "token": "--asset",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "ASSET"
-      ]
-    },
-    {
-      "property": "output-dir",
-      "kind": "option",
-      "token": "--output-dir",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "DIR"
-      ]
-    },
-    {
-      "property": "force",
-      "kind": "option",
-      "token": "--force",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "FORCE"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "productId": {
-        "type": "string"
-      },
-      "assetId": {
-        "type": "string"
-      },
-      "outputDir": {
-        "type": "string"
-      },
-      "overwrite": {
-        "type": "boolean"
-      }
-    },
-    "required": [
-      "productId"
-    ],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by workflow_products.export.",
-        "properties": {
-          "fileId": {
-            "type": "string"
-          },
-          "file": {
-            "type": "object",
-            "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
-                "type": "object",
-                "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer"
-                  }
-                },
-                "additionalProperties": true
-              },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "productId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    },
-    {
-      "handle": "fileId",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "short-lived"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "command-result",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "workflow_products.export"
-    }
-  ],
   "operationalAliases": [
     "product download",
     "product",
@@ -518,9 +462,155 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "force",
     "FORCE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "assetId": {
+        "type": "string"
+      },
+      "outputDir": {
+        "type": "string"
+      },
+      "overwrite": {
+        "type": "boolean"
+      },
+      "productId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "productId"
+    ],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "command-result",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "workflow_products.export"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by workflow_products.export.",
+        "properties": {
+          "delivery": {
+            "additionalProperties": false,
+            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+            "properties": {
+              "bundle": {
+                "additionalProperties": true,
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "files": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "mode": {
+                "enum": [
+                  "local",
+                  "bridge-download",
+                  "bundle"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "file": {
+            "additionalProperties": true,
+            "properties": {
+              "bytes": {
+                "type": "integer"
+              },
+              "checksum": {
+                "type": "string"
+              },
+              "fileId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Download one or all Dashboard Product assets",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "workflow_products.export"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -528,6 +618,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `product download`, `product`, `download`, `product_id`, `PRODUCT_ID`, `asset`, `ASSET`, `output_dir`, `output-dir`, `DIR`, `force`, `FORCE`.
 
@@ -536,9 +627,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -548,8 +639,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -558,18 +649,18 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "productId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "productId",
+    "lifetime": "caller-owned",
+    "required": true
   },
   {
-    "handle": "fileId",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "short-lived"
+    "direction": "produce",
+    "handle": "fileId",
+    "lifetime": "short-lived",
+    "required": false
   }
 ]
 ```
@@ -579,11 +670,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "command-result",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "command-result",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

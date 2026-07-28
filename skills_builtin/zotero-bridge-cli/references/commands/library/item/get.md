@@ -31,28 +31,13 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "key": {
-      "type": "string",
-      "description": "Zotero item key"
-    },
-    "id": {
-      "type": "string",
-      "description": "Zotero item numeric id"
-    },
-    "library-id": {
-      "type": "string",
-      "description": "Zotero library id for key lookup"
-    }
-  },
-  "required": [],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "key",
-          "id"
+          "id",
+          "key"
         ]
       }
     },
@@ -71,7 +56,22 @@ The global options may appear before or after the leaf command. This leaf has no
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "id": {
+      "description": "Zotero item numeric id",
+      "type": "string"
+    },
+    "key": {
+      "description": "Zotero item key",
+      "type": "string"
+    },
+    "library-id": {
+      "description": "Zotero library id for key lookup",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
 }
 ```
 
@@ -83,23 +83,85 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "key": {
-      "type": "string",
-      "description": "Zotero item key"
+  "oneOf": [
+    {
+      "minLength": 1,
+      "type": "string"
     },
-    "id": {
-      "type": "string",
-      "description": "Zotero item numeric id"
+    {
+      "type": "integer"
     },
-    "library_id": {
-      "type": "string",
-      "description": "Zotero library id for key lookup"
+    {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "ref"
+          ]
+        },
+        {
+          "required": [
+            "key"
+          ]
+        },
+        {
+          "required": [
+            "id"
+          ]
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "libraryId": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "ref": {}
+      },
+      "type": "object"
     }
-  },
-  "required": [],
-  "additionalProperties": false
+  ]
+}
+```
+
+## Payload composition
+
+The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs.
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "key",
+      "field": "key",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "id",
+      "field": "id",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "library_id",
+      "field": "libraryId",
+      "required": false,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -107,22 +169,28 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "library.get_item_detail"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by library.get_item_detail.",
       "additionalProperties": true,
+      "description": "Result data owned by library.get_item_detail.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -136,38 +204,150 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "library item get",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "id"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item key",
+      "id": "key",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--key",
+      "valueNames": [
+        "KEY"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "key"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item numeric id",
+      "id": "id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero library id for key lookup",
+      "id": "library_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--library-id",
+      "valueNames": [
+        "LIBRARY_ID"
+      ]
+    }
+  ],
   "argv": [
     "library",
     "item",
     "get"
   ],
-  "summary": "Get detailed metadata for one Zotero item",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "key": {
-        "type": "string",
-        "description": "Zotero item key"
-      },
-      "id": {
-        "type": "string",
-        "description": "Zotero item numeric id"
-      },
-      "library-id": {
-        "type": "string",
-        "description": "Zotero library id for key lookup"
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "key",
+      "required": false,
+      "takesValue": true,
+      "token": "--key",
+      "valueNames": [
+        "KEY"
+      ]
     },
-    "required": [],
+    {
+      "kind": "option",
+      "property": "id",
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "library-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--library-id",
+      "valueNames": [
+        "LIBRARY_ID"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "read",
+  "command": "library item get",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "key",
+        "field": "key",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "id",
+        "field": "id",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "library_id",
+        "field": "libraryId",
+        "required": false,
+        "transform": "identity"
+      }
+    ]
+  },
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "key",
-            "id"
+            "id",
+            "key"
           ]
         }
       },
@@ -186,167 +366,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "key",
-      "kind": "option",
-      "token": "--key",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero item key",
-      "valueNames": [
-        "KEY"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "id"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero item numeric id",
-      "valueNames": [
-        "ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "key"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "library_id",
-      "kind": "option",
-      "token": "--library-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero library id for key lookup",
-      "valueNames": [
-        "LIBRARY_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "key",
-      "kind": "option",
-      "token": "--key",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "KEY"
-      ]
-    },
-    {
-      "property": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "ID"
-      ]
-    },
-    {
-      "property": "library-id",
-      "kind": "option",
-      "token": "--library-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIBRARY_ID"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "key": {
-        "type": "string",
-        "description": "Zotero item key"
-      },
       "id": {
-        "type": "string",
-        "description": "Zotero item numeric id"
+        "description": "Zotero item numeric id",
+        "type": "string"
       },
-      "library_id": {
-        "type": "string",
-        "description": "Zotero library id for key lookup"
+      "key": {
+        "description": "Zotero item key",
+        "type": "string"
+      },
+      "library-id": {
+        "description": "Zotero library id for key lookup",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by library.get_item_detail.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "library.get_item_detail"
-    }
-  ],
   "operationalAliases": [
     "library item get",
     "library",
@@ -360,9 +396,115 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "library-id",
     "LIBRARY_ID"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "oneOf": [
+      {
+        "minLength": 1,
+        "type": "string"
+      },
+      {
+        "type": "integer"
+      },
+      {
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "ref"
+            ]
+          },
+          {
+            "required": [
+              "key"
+            ]
+          },
+          {
+            "required": [
+              "id"
+            ]
+          }
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "ref": {}
+        },
+        "type": "object"
+      }
+    ]
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "library.get_item_detail"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by library.get_item_detail.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Get detailed metadata for one Zotero item",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "library.get_item_detail"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -370,6 +512,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `library item get`, `library`, `item`, `get`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`.
 
@@ -378,9 +521,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -390,8 +533,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -407,11 +550,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

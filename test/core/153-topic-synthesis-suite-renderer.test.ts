@@ -909,12 +909,12 @@ describe("Topic synthesis suite renderer", function () {
     );
     assert.include(
       createSkill,
-      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":100}\'',
     );
     assert.include(updateSkill, "runtime/payloads/update-audit-report.json");
     assert.include(
       updateSkill,
-      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":100}\'',
     );
   });
 

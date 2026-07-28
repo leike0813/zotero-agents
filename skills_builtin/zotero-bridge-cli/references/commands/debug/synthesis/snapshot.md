@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "input": {
-      "type": "string",
-      "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,15 +49,9 @@ Required: `false`.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "input": {
-      "type": "string",
-      "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
@@ -65,83 +59,107 @@ Required: `false`.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "input": {
-      "type": "string",
-      "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "debug.synthesis.snapshot"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by debug.synthesis.snapshot.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by debug.synthesis.snapshot.",
       "properties": {
         "cacheBasis": {
           "type": "array"
         },
-        "truncated": {
-          "type": "boolean"
-        },
         "delivery": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
             "bundle": {
-              "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "fileId": {
+                "contentType": {
+                  "type": "string"
+                },
+                "createdAt": {
                   "type": "string"
                 },
                 "displayName": {
                   "type": "string"
                 },
-                "contentType": {
+                "expiresAt": {
                   "type": "string"
                 },
-                "size": {
-                  "type": "integer",
-                  "minimum": 0
+                "fileId": {
+                  "type": "string"
+                },
+                "owner": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
                 },
                 "sha256": {
                   "type": "string"
                 },
-                "expiresAt": {
-                  "type": "string"
+                "size": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceKind": {
+                  "enum": [
+                    "zotero-attachment",
+                    "workflow-artifact",
+                    "bridge-export",
+                    "bridge-upload"
+                  ]
                 }
               },
               "required": [
                 "fileId",
+                "sourceKind",
                 "displayName",
                 "contentType",
+                "createdAt",
                 "expiresAt"
               ],
-              "additionalProperties": false
+              "type": "object"
             }
           },
-          "additionalProperties": true
+          "type": "object"
+        },
+        "truncated": {
+          "type": "boolean"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -165,196 +183,95 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "debug synthesis snapshot",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "input",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "debug",
     "synthesis",
     "snapshot"
   ],
-  "summary": "Read a debug-only Synthesis snapshot",
-  "category": "debug",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "input": {
-        "type": "string",
-        "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
   "argvBindings": [
     {
-      "property": "input",
       "kind": "option",
-      "token": "--input",
-      "takesValue": true,
+      "property": "input",
       "required": false,
+      "takesValue": true,
+      "token": "--input",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "binding": "passthrough",
+  "category": "debug",
+  "command": "debug synthesis snapshot",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": true,
   "inputSchemas": {
     "input": {
-      "token": "--input",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "properties": {
-          "input": {
-            "type": "string",
-            "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
       "examples": [
         {
+          "description": "Minimal JSON shape for --input.",
           "kind": "shape-only",
-          "value": {},
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "description": "Minimal JSON shape for --input."
+          "value": {}
         }
-      ]
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "type": "object",
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "schemaSource": "target-capability",
+      "token": "--input"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "input": {
-        "type": "string",
-        "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
+        "description": "Debug capability input as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by debug.synthesis.snapshot.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "cacheBasis": {
-            "type": "array"
-          },
-          "truncated": {
-            "type": "boolean"
-          },
-          "delivery": {
-            "type": "object",
-            "properties": {
-              "bundle": {
-                "type": "object",
-                "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "sha256": {
-                    "type": "string"
-                  },
-                  "expiresAt": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "fileId",
-                  "displayName",
-                  "contentType",
-                  "expiresAt"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "limit",
-    "section": "data.cacheBasis",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "truncatedField": "data.truncated",
-    "fileField": "data.delivery.bundle"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "debug.synthesis.snapshot"
-    }
-  ],
   "operationalAliases": [
     "debug synthesis snapshot",
     "debug",
@@ -363,16 +280,145 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "input",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": true
+  "outputBoundary": {
+    "defaultLimit": 25,
+    "fileField": "data.delivery.bundle",
+    "maxLimit": 100,
+    "section": "data.cacheBasis",
+    "strategy": "limit",
+    "truncatedField": "data.truncated"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": true,
+    "type": "object",
+    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "debug.synthesis.snapshot"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by debug.synthesis.snapshot.",
+        "properties": {
+          "cacheBasis": {
+            "type": "array"
+          },
+          "delivery": {
+            "additionalProperties": true,
+            "properties": {
+              "bundle": {
+                "additionalProperties": false,
+                "properties": {
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "additionalProperties": true,
+                    "type": "object",
+                    "x-openPropertiesReason": "File ownership metadata is capability-specific and contains no local path."
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "sourceKind": {
+                    "enum": [
+                      "zotero-attachment",
+                      "workflow-artifact",
+                      "bridge-export",
+                      "bridge-upload"
+                    ]
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "sourceKind",
+                  "displayName",
+                  "contentType",
+                  "createdAt",
+                  "expiresAt"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Read a debug-only Synthesis snapshot",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "debug.synthesis.snapshot"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `debug` `synthesis` `snapshot`.
-- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.cacheBasis","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated","fileField":"data.delivery.bundle"}.
+- Output boundary: `limit`; governed details: {"defaultLimit":25,"fileField":"data.delivery.bundle","maxLimit":100,"section":"data.cacheBasis","strategy":"limit","truncatedField":"data.truncated"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `hidden`.
 - Operational aliases: `debug synthesis snapshot`, `debug`, `synthesis`, `snapshot`, `input`, `JSON_OR_FILE`.
 
@@ -381,9 +427,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -393,8 +439,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -410,11 +456,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```

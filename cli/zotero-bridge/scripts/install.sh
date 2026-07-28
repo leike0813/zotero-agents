@@ -199,7 +199,7 @@ if [ "$write_profile" -eq 1 ]; then
     cat > "$profile_path" <<EOF
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
+  "protocol": "host-bridge.v2",
   "endpoint": "$(json_escape "$endpoint")",
   "connectionMode": "$(json_escape "$connection_mode")",
   "auth": {

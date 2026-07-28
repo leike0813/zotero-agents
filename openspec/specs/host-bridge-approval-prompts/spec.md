@@ -106,3 +106,29 @@ Scoped Host Bridge write requests delivered to ACP Chat or ACP Skills SHALL carr
 - **WHEN** a Host Bridge mutation reaches an ACP owner permission surface
 - **THEN** the approval card SHALL use the Zotero write review presentation
 - **AND** its original Host Bridge source identifier SHALL remain unchanged.
+
+### Requirement: Capability approval SHALL be selected from the executable contract
+Host Bridge SHALL validate capability input before selecting the capability's effect and approval policy from the canonical contract. Capability handlers, CLI metadata, and surface renderers SHALL NOT maintain independent approval classifications.
+
+#### Scenario: Invalid write input arrives
+- **WHEN** a write capability receives invalid input
+- **THEN** Host Bridge SHALL reject the input before creating an approval request
+- **AND** no handler or mutation path SHALL execute.
+
+#### Scenario: Valid capability arrives
+- **WHEN** a capability receives valid input
+- **THEN** the dispatcher SHALL apply the effect and approval policy declared for that capability
+- **AND** the handler SHALL not be able to weaken or bypass the selected policy.
+
+### Requirement: Host Bridge SHALL reject invalid write input before approval
+Host Bridge SHALL validate capability input structurally before evaluating approval policy. Invalid input SHALL produce a structured error without requesting approval, invoking handlers, or mutating state.
+
+#### Scenario: Missing required field
+- **WHEN** capability input omits a required field
+- **THEN** Host Bridge SHALL return a structured invalid input error
+- **AND** SHALL NOT create an approval request.
+
+#### Scenario: Undeclared field present
+- **WHEN** capability input contains a field not declared in the capability input Schema
+- **THEN** Host Bridge SHALL return a structured invalid input error listing the undeclared field
+- **AND** SHALL NOT invoke the handler.

@@ -1,6 +1,6 @@
 # `zotero-bridge surface describe`
 
-描述一条 canonical command
+Describe one canonical command
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge surface describe [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] COMMAND <COMMAND> [--json]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -30,25 +30,25 @@ zotero-bridge surface describe [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "command": {
-      "type": "array",
+      "description": "Canonical command, for example workflow submit",
       "items": {
         "type": "string"
       },
-      "description": "Canonical command, for example workflow submit",
-      "position": 1
+      "position": 1,
+      "type": "array"
     },
     "json": {
-      "type": "boolean",
-      "description": "Emit JSON (the CLI output contract is always JSON)"
+      "description": "Emit JSON (the CLI output contract is always JSON)",
+      "type": "boolean"
     }
   },
   "required": [
     "command"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -56,199 +56,165 @@ zotero-bridge surface describe [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "command": {
-      "type": "string",
-      "description": "Canonical command, for example workflow submit"
+      "description": "Canonical command, for example workflow submit",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
       "additionalProperties": true,
+      "description": "Response object returned by the derived host-bridge.agent-surface.v6.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "surface describe",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Canonical command, for example workflow submit",
+      "id": "command",
+      "kind": "positional",
+      "numArgs": "1..",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "COMMAND",
+      "valueNames": [
+        "COMMAND"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Emit JSON (the CLI output contract is always JSON)",
+      "id": "json",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--json",
+      "valueNames": [
+        "JSON"
+      ]
+    }
+  ],
   "argv": [
     "surface",
     "describe"
   ],
-  "summary": "Describe one canonical command",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "command",
+      "required": true,
+      "takesValue": true,
+      "token": "COMMAND",
+      "valueNames": [
+        "COMMAND"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "json",
+      "required": false,
+      "takesValue": false,
+      "token": "--json",
+      "valueNames": [
+        "JSON"
+      ]
+    }
+  ],
+  "binding": "none",
   "category": "read",
+  "command": "surface describe",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "command": {
-        "type": "array",
+        "description": "Canonical command, for example workflow submit",
         "items": {
           "type": "string"
         },
-        "description": "Canonical command, for example workflow submit",
-        "position": 1
+        "position": 1,
+        "type": "array"
       },
       "json": {
-        "type": "boolean",
-        "description": "Emit JSON (the CLI output contract is always JSON)"
+        "description": "Emit JSON (the CLI output contract is always JSON)",
+        "type": "boolean"
       }
     },
     "required": [
       "command"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "command",
-      "kind": "positional",
-      "token": "COMMAND",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Canonical command, for example workflow submit",
-      "valueNames": [
-        "COMMAND"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "numArgs": "1..",
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "json",
-      "kind": "option",
-      "token": "--json",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Emit JSON (the CLI output contract is always JSON)",
-      "valueNames": [
-        "JSON"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "command",
-      "kind": "positional",
-      "token": "COMMAND",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "COMMAND"
-      ]
-    },
-    {
-      "property": "json",
-      "kind": "option",
-      "token": "--json",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "JSON"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "command": {
-        "type": "string",
-        "description": "Canonical command, for example workflow submit"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true."
-    }
-  ],
-  "targets": [
-    {
-      "kind": "service",
-      "target": "embedded host-bridge.agent-surface.v5"
-    }
-  ],
   "operationalAliases": [
     "surface describe",
     "surface",
@@ -258,26 +224,82 @@ zotero-bridge surface describe [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     "json",
     "JSON"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "description": "Canonical command, for example workflow submit",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by the derived host-bridge.agent-surface.v6.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Describe one canonical command",
+  "targets": [
+    {
+      "kind": "service",
+      "target": "embedded host-bridge.agent-surface.v6"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `surface` `describe`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `none`.
+- intent 可见性： `visible`.
 - 操作别名： `surface describe`, `surface`, `describe`, `command`, `COMMAND`, `json`, `JSON`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -287,12 +309,12 @@ zotero-bridge surface describe [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -304,21 +326,21 @@ zotero-bridge surface describe [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
+    "action": "Inspect the error and retry only when retryable is true.",
     "requiresHandles": [],
-    "action": "Inspect the error and retry only when retryable is true."
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "service",
-    "target": "embedded host-bridge.agent-surface.v5"
+    "target": "embedded host-bridge.agent-surface.v6"
   }
 ]
 ```

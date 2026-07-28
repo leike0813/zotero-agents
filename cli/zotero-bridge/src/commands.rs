@@ -21,17 +21,15 @@ use crate::{
         ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
         ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
         DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs,
-        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs,
-        ItemSearchArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
-        LiteratureIngestArgs, MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
-        MutationCollectionCreateArgs, MutationCollectionItemsArgs, MutationCommand,
-        MutationItemArgs, MutationItemAttachFileArgs, MutationItemCommand, MutationItemUpdateArgs,
-        MutationNoteArgs, MutationNoteCommand, MutationNoteCreateArgs, MutationNotePayloadArgs,
-        MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
-        NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
-        NotificationListArgs, NotificationWaitArgs, OperationArgs, OperationCommand,
-        PageArgs, PaperArtifactsArgs, PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs,
-        ProductCommand, ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
+        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs,
+        ItemRefArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
+        MutationArgs, MutationCollectionArgs, MutationCollectionCommand, MutationCommand,
+        MutationItemArgs, MutationItemCommand, MutationNoteArgs, MutationNoteCommand,
+        MutationTagArgs, MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs,
+        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
+        NotificationWaitArgs, OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs,
+        PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs, ProductCommand,
+        ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
         ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
         RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
         SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
@@ -50,10 +48,11 @@ use crate::{
     },
     client,
     config::BridgeConfig,
+    contract,
     error::{CliError, ErrorCategory},
 };
 
-const PROTOCOL: &str = "host-bridge.v1";
+const PROTOCOL: &str = "host-bridge.v2";
 const AGENT_RUN_OUTPUT_CONTRACT_SCHEMA: &str = "zotero-bridge.agent-run.output-contract.v1";
 const MAX_BUNDLE_ENTRIES: usize = 4096;
 const MAX_BUNDLE_JSON_BYTES: u64 = 16 * 1024 * 1024;
@@ -123,40 +122,28 @@ fn bridge_backend_status(
 }
 
 pub fn call(config: &BridgeConfig, args: CallArgs) -> Result<Value, CliError> {
-    let input = read_json_arg(args.input.as_deref())?;
+    let input = read_contract_json_arg("input", args.input.as_deref())?;
     client::call(config, &args.capability, input)
 }
 
 pub fn item(config: &BridgeConfig, args: ItemArgs) -> Result<Value, CliError> {
     match args.command {
-        ItemCommand::Search(args) => {
-            call_capability(config, "library.search_items", item_search_input(args)?)
-        }
-        ItemCommand::Get(args) => {
-            call_capability(config, "library.get_item_detail", item_ref(args)?)
-        }
-        ItemCommand::Notes(args) => {
-            call_capability(config, "library.get_item_notes", item_notes_input(args)?)
-        }
-        ItemCommand::Attachments(args) => {
-            call_capability(config, "library.get_item_attachments", item_page_input(args)?)
-        }
+        ItemCommand::Search(args) => call_structured(
+            config,
+            "query",
+            read_contract_json_arg("query", Some(&args.query))?,
+        ),
+        ItemCommand::Get(args) => client::call_current(config, item_ref_arguments(args)?),
+        ItemCommand::Notes(args) => client::call_current(config, item_notes_arguments(args)?),
+        ItemCommand::Attachments(args) => client::call_current(config, item_page_arguments(args)?),
     }
 }
 
 pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
     match args.command {
-        NoteCommand::Get(args) => {
-            call_capability(config, "library.get_note_detail", note_detail_input(args)?)
-        }
-        NoteCommand::Payloads(args) => {
-            call_capability(config, "library.list_note_payloads", item_page_input(args)?)
-        }
-        NoteCommand::Payload(args) => call_capability(
-            config,
-            "library.get_note_payload",
-            note_payload_input(args)?,
-        ),
+        NoteCommand::Get(args) => client::call_current(config, note_detail_arguments(args)?),
+        NoteCommand::Payloads(args) => client::call_current(config, item_page_arguments(args)?),
+        NoteCommand::Payload(args) => client::call_current(config, note_payload_arguments(args)?),
     }
 }
 
@@ -164,43 +151,33 @@ pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliErr
     match args.command {
         LibraryCommand::Items(args) => match args.command {
             LibraryItemsCommand::List(input) => {
-                call_capability(config, "library.list_items", bridge_query(input)?)
+                call_structured(config, "query", bridge_query(input)?)
             }
         },
         LibraryCommand::Item(args) => item(config, args),
         LibraryCommand::Note(args) => note(config, args),
         LibraryCommand::Annotation(args) => annotation(config, args),
-        LibraryCommand::Snapshot(input) => {
-            call_capability(config, "library.sync_snapshot", bridge_query(input)?)
+        LibraryCommand::Snapshot(input) => call_structured(config, "query", bridge_query(input)?),
+        LibraryCommand::Readiness(args) => {
+            call_structured(config, "query", library_readiness_query(args.command)?)
         }
-        LibraryCommand::Readiness(args) => call_capability(
-            config,
-            "library.readiness_audit",
-            library_readiness_input(args.command)?,
-        ),
     }
 }
 
 pub fn annotation(config: &BridgeConfig, args: AnnotationArgs) -> Result<Value, CliError> {
     match args.command {
-        AnnotationCommand::List(args) => call_capability(
-            config,
-            "library.list_annotations",
-            annotation_item_input(args)?,
-        ),
-        AnnotationCommand::Export(args) => call_capability(
-            config,
-            "library.export_annotations",
-            annotation_export_input(args)?,
-        ),
+        AnnotationCommand::List(args) => {
+            client::call_current(config, annotation_item_arguments(args))
+        }
+        AnnotationCommand::Export(args) => {
+            client::call_current(config, annotation_export_arguments(args))
+        }
     }
 }
 
 pub fn context(config: &BridgeConfig, args: ContextArgs) -> Result<Value, CliError> {
     match args.command {
-        ContextCommand::Current(args) => {
-            client::get(config, &page_path("/context/current", args))
-        }
+        ContextCommand::Current(args) => client::get(config, &page_path("/context/current", args)),
         ContextCommand::Selection(args) => match args.command {
             ContextSelectionCommand::Get(args) => {
                 client::get(config, &page_path("/context/selection", args))
@@ -244,12 +221,12 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
             SynthesisIndexCommand::Status => client::get(config, "/synthesis/index/status"),
             SynthesisIndexCommand::Library(args) => match args.command {
                 SynthesisIndexGetCommand::Get(input) => {
-                    call_capability(config, "library_index.get", bridge_query(input)?)
+                    call_structured(config, "query", bridge_query(input)?)
                 }
             },
             SynthesisIndexCommand::Reference(args) => match args.command {
                 SynthesisIndexGetCommand::Get(input) => {
-                    call_capability(config, "reference_index.get", bridge_query(input)?)
+                    call_structured(config, "query", bridge_query(input)?)
                 }
             },
         },
@@ -264,7 +241,7 @@ fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Va
     match args.command {
         SynthesisCacheCommand::Status(args) => {
             if let Some(operation_id) = args.operation_id {
-                return call_capability(
+                return call_declared_capability(
                     config,
                     "synthesis.operation.get",
                     json!({ "operation_id": operation_id }),
@@ -273,7 +250,7 @@ fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Va
             client::get(config, "/synthesis/cache/status")
         }
         SynthesisCacheCommand::RefreshReferenceSidecar(input) => {
-            call_capability(config, "reference_sidecar.refresh", bridge_input(input)?)
+            call_structured(config, "input", bridge_input(input)?)
         }
         SynthesisCacheCommand::Invalidate(args) => client::post(
             config,
@@ -285,136 +262,135 @@ fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Va
 
 pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliError> {
     match args.command {
-        MutationCommand::Preview(input) => {
-            call_capability(config, "mutation.preview", bridge_input(input)?)
+        MutationCommand::Preview(input) | MutationCommand::Apply(input) => {
+            call_structured(config, "input", bridge_input(input)?)
         }
-        MutationCommand::Apply(input) => {
-            call_capability(config, "mutation.execute", bridge_input(input)?)
-        }
-        MutationCommand::LiteratureIngest(args) => {
-            call_capability(config, "mutation.execute", literature_ingest_input(args)?)
-        }
-        MutationCommand::Tag(args) => {
-            call_capability(config, "mutation.execute", mutation_tag_input(args)?)
-        }
+        MutationCommand::LiteratureIngest(args) => call_structured(
+            config,
+            "input",
+            read_contract_json_arg("input", Some(&args.input))?,
+        ),
+        MutationCommand::Tag(args) => client::call_current(config, mutation_tag_arguments(args)),
         MutationCommand::Collection(args) => {
-            call_capability(config, "mutation.execute", mutation_collection_input(args)?)
+            client::call_current(config, mutation_collection_arguments(args)?)
         }
-        MutationCommand::Item(args) => {
-            call_capability(config, "mutation.execute", mutation_item_input(args)?)
-        }
-        MutationCommand::Note(args) => {
-            call_capability(config, "mutation.execute", mutation_note_input(args)?)
-        }
+        MutationCommand::Item(args) => client::call_current(config, mutation_item_arguments(args)?),
+        MutationCommand::Note(args) => client::call_current(config, mutation_note_arguments(args)?),
     }
 }
 
 pub fn product(config: &BridgeConfig, args: ProductArgs) -> Result<Value, CliError> {
     match args.command {
-        ProductCommand::List(args) => {
-            call_capability(config, "workflow_products.list", product_list_input(args))
+        ProductCommand::List(args) => client::call_current(config, product_list_arguments(args)),
+        ProductCommand::Get(args) => client::call_current(config, product_get_arguments(args)),
+        ProductCommand::Download(args) => {
+            client::call_current(config, product_download_arguments(args))
         }
-        ProductCommand::Get(args) => {
-            call_capability(config, "workflow_products.get", product_get_input(args))
-        }
-        ProductCommand::Download(args) => call_capability(
-            config,
-            "workflow_products.export",
-            product_download_input(args),
-        ),
-        ProductCommand::Remove(args) => {
-            call_capability(config, "workflow_products.remove", product_id_input(args))
-        }
+        ProductCommand::Remove(args) => client::call_current(config, product_id_arguments(args)),
     }
 }
 
-fn product_id_input(args: ProductIdArgs) -> Value {
-    json!({ "productId": args.product_id.trim() })
+fn insert_argument(map: &mut Map<String, Value>, argument: &str, value: Option<Value>) {
+    if let Some(value) = value {
+        map.insert(argument.to_string(), value);
+    }
 }
 
-fn product_get_input(args: ProductGetArgs) -> Value {
-    let mut input = Map::new();
-    input.insert("productId".to_string(), json!(args.product_id.trim()));
-    insert_page(&mut input, args.page);
-    Value::Object(input)
+fn product_id_arguments(args: ProductIdArgs) -> Map<String, Value> {
+    Map::from_iter([("product_id".to_string(), json!(args.product_id))])
 }
 
-fn product_list_input(args: ProductListArgs) -> Value {
-    let mut input = Map::new();
-    push_value(&mut input, "workflowId", args.workflow_id);
-    push_value(&mut input, "backendId", args.backend_id);
-    push_value(&mut input, "requestId", args.request_id);
-    push_value(&mut input, "cursor", args.cursor);
-    insert_u32(&mut input, "limit", args.limit);
-    Value::Object(input)
-}
-
-fn product_download_input(args: ProductDownloadArgs) -> Value {
-    let mut input = Map::new();
-    input.insert("productId".to_string(), json!(args.product_id.trim()));
-    push_value(&mut input, "assetId", args.asset);
-    input.insert(
-        "outputDir".to_string(),
-        json!(args.output_dir.display().to_string()),
+fn product_get_arguments(args: ProductGetArgs) -> Map<String, Value> {
+    let mut arguments = product_id_arguments(ProductIdArgs {
+        product_id: args.product_id,
+    });
+    insert_argument(
+        &mut arguments,
+        "cursor",
+        args.page.cursor.map(Value::String),
     );
-    input.insert("overwrite".to_string(), json!(args.force));
-    Value::Object(input)
+    insert_argument(&mut arguments, "limit", args.page.limit.map(Value::from));
+    arguments
+}
+
+fn product_list_arguments(args: ProductListArgs) -> Map<String, Value> {
+    let mut arguments = Map::new();
+    insert_argument(
+        &mut arguments,
+        "workflow_id",
+        args.workflow_id.map(Value::String),
+    );
+    insert_argument(
+        &mut arguments,
+        "backend_id",
+        args.backend_id.map(Value::String),
+    );
+    insert_argument(
+        &mut arguments,
+        "request_id",
+        args.request_id.map(Value::String),
+    );
+    insert_argument(&mut arguments, "cursor", args.cursor.map(Value::String));
+    insert_argument(&mut arguments, "limit", args.limit.map(Value::from));
+    arguments
+}
+
+fn product_download_arguments(args: ProductDownloadArgs) -> Map<String, Value> {
+    let mut arguments = product_id_arguments(ProductIdArgs {
+        product_id: args.product_id,
+    });
+    insert_argument(&mut arguments, "asset", args.asset.map(Value::String));
+    arguments.insert(
+        "output_dir".to_string(),
+        Value::String(args.output_dir.display().to_string()),
+    );
+    arguments.insert("force".to_string(), Value::Bool(args.force));
+    arguments
 }
 
 pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
-    let capability = topics_capability(&args.command);
     let input = bridge_query(topics_input(args.command))?;
-    call_capability(config, capability, input)
+    call_structured(config, "query", input)
 }
 
 pub fn schemas(config: &BridgeConfig, args: SchemasArgs) -> Result<Value, CliError> {
-    let capability = schemas_capability(&args.command);
     let input = bridge_query(schemas_input(args.command))?;
-    call_capability(config, capability, input)
+    call_structured(config, "query", input)
 }
 
 pub fn concepts(config: &BridgeConfig, args: ConceptsArgs) -> Result<Value, CliError> {
-    let capability = concepts_capability(&args.command);
     let input = bridge_query(concepts_input(args.command))?;
-    call_capability(config, capability, input)
+    call_structured(config, "query", input)
 }
 
 pub fn citation_graph(config: &BridgeConfig, args: CitationGraphArgs) -> Result<Value, CliError> {
     match args.command {
         CitationGraphCommand::RefreshMetrics(input) => {
-            return call_capability(
-                config,
-                "citation_graph.refresh_metrics",
-                bridge_input(input)?,
-            );
+            return call_structured(config, "input", bridge_input(input)?);
         }
         CitationGraphCommand::Update(input) => {
-            return call_capability(config, "citation_graph.update", bridge_input(input)?);
+            return call_structured(config, "input", bridge_input(input)?);
         }
         command => {
-            let capability = citation_graph_capability(&command);
             let input = bridge_query(citation_graph_input(command))?;
-            return call_capability(config, capability, input);
+            return call_structured(config, "query", input);
         }
     }
 }
 
 pub fn resolvers(config: &BridgeConfig, args: ResolversArgs) -> Result<Value, CliError> {
-    let capability = resolvers_capability(&args.command);
     let input = bridge_query(resolvers_input(args.command))?;
-    call_capability(config, capability, input)
+    call_structured(config, "query", input)
 }
 
 pub fn paper_artifacts(config: &BridgeConfig, args: PaperArtifactsArgs) -> Result<Value, CliError> {
-    let capability = paper_artifacts_capability(&args.command);
     let input = bridge_query(paper_artifacts_input(args.command))?;
-    call_capability(config, capability, input)
+    call_structured(config, "query", input)
 }
 
 pub fn insights(config: &BridgeConfig, args: InsightsArgs) -> Result<Value, CliError> {
-    let capability = insights_capability(&args.command);
     let input = bridge_query(insights_input(args.command))?;
-    call_capability(config, capability, input)
+    call_structured(config, "query", input)
 }
 
 pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliError> {
@@ -892,7 +868,11 @@ fn workflow_agent_bundle_inspect(args: WorkflowAgentBundleInspectArgs) -> Result
         .filter_map(|contract| contract.get("agentRequestId").and_then(Value::as_str))
         .collect::<Vec<_>>();
     let criteria = format!("{}\n{}", args.bundle.display(), agent_run_id);
-    let cursor = local_page_cursor(args.page.cursor.as_deref(), "workflow agent-bundle inspect", &criteria)?;
+    let cursor = local_page_cursor(
+        args.page.cursor.as_deref(),
+        "workflow agent-bundle inspect",
+        &criteria,
+    )?;
     let start = cursor
         .as_ref()
         .map(|cursor| {
@@ -920,7 +900,11 @@ fn workflow_agent_bundle_inspect(args: WorkflowAgentBundleInspectArgs) -> Result
             scope: "workflow agent-bundle inspect".to_string(),
             criteria,
             issued_at: now_unix_seconds(),
-            after_key: page_request_ids.last().copied().unwrap_or_default().to_string(),
+            after_key: page_request_ids
+                .last()
+                .copied()
+                .unwrap_or_default()
+                .to_string(),
         };
         encode_hex(&serde_json::to_vec(&cursor).map_err(|_| {
             CliError::internal("cursor_encode_failed", "Could not encode pagination cursor")
@@ -1158,12 +1142,33 @@ pub fn file(config: &BridgeConfig, args: FileArgs) -> Result<Value, CliError> {
 }
 
 pub fn debug(config: &BridgeConfig, args: DebugArgs) -> Result<Value, CliError> {
-    let (capability, input) = debug_capability_and_input(args)?;
-    ensure_debug_capability(config, capability)?;
-    call_capability(config, capability, input)
+    match args.command {
+        DebugCommand::Status => client::call_current(config, Map::new()),
+        DebugCommand::Persistence(input) | DebugCommand::Tasks(input) => {
+            call_structured(config, "input", debug_input(input)?)
+        }
+        DebugCommand::AcpSkillRun(args) => match args.command {
+            DebugAcpSkillRunCommand::ReapplyResult(input) => {
+                call_structured(config, "input", debug_input(input)?)
+            }
+        },
+        DebugCommand::Synthesis(args) => {
+            let input = match args.command {
+                DebugSynthesisCommand::Snapshot(input)
+                | DebugSynthesisCommand::Diff(input)
+                | DebugSynthesisCommand::InspectPaper(input)
+                | DebugSynthesisCommand::InspectTopic(input)
+                | DebugSynthesisCommand::Operations(input)
+                | DebugSynthesisCommand::Profiler(input)
+                | DebugSynthesisCommand::Cache(input)
+                | DebugSynthesisCommand::CleanInstallReset(input) => input,
+            };
+            call_structured(config, "input", debug_input(input)?)
+        }
+    }
 }
 
-fn call_capability(
+fn call_declared_capability(
     config: &BridgeConfig,
     capability: &str,
     input: Value,
@@ -1171,83 +1176,8 @@ fn call_capability(
     client::call(config, capability, input)
 }
 
-fn ensure_debug_capability(config: &BridgeConfig, capability: &str) -> Result<(), CliError> {
-    let manifest = client::manifest(config)?;
-    let found = manifest
-        .get("capabilities")
-        .and_then(Value::as_array)
-        .map(|capabilities| {
-            capabilities
-                .iter()
-                .any(|entry| entry.get("name").and_then(Value::as_str) == Some(capability))
-        })
-        .unwrap_or(false);
-    if found {
-        return Ok(());
-    }
-    Err(CliError::new(
-        "debug_mode_disabled",
-        crate::error::ErrorCategory::Capability,
-        "Zotero Bridge debug capabilities are not exposed; enable hardcoded debug mode and restart Zotero",
-    )
-    .with_details(json!({ "capability": capability })))
-}
-
-fn debug_capability_and_input(args: DebugArgs) -> Result<(&'static str, Value), CliError> {
-    match args.command {
-        DebugCommand::Status => Ok(("debug.status", json!({}))),
-        DebugCommand::Persistence(input) => Ok(("debug.persistence.snapshot", debug_input(input)?)),
-        DebugCommand::Tasks(input) => Ok(("debug.tasks.snapshot", debug_input(input)?)),
-        DebugCommand::AcpSkillRun(args) => match args.command {
-            DebugAcpSkillRunCommand::ReapplyResult(input) => {
-                Ok(("debug.acpSkillRun.reapplyResult", debug_input(input)?))
-            }
-        },
-        DebugCommand::Synthesis(args) => debug_synthesis_capability_and_input(args.command),
-    }
-}
-
-fn debug_synthesis_capability_and_input(
-    command: DebugSynthesisCommand,
-) -> Result<(&'static str, Value), CliError> {
-    match command {
-        DebugSynthesisCommand::Snapshot(input) => {
-            Ok(("debug.synthesis.snapshot", debug_input(input)?))
-        }
-        DebugSynthesisCommand::Diff(input) => Ok(("debug.synthesis.diff", debug_input(input)?)),
-        DebugSynthesisCommand::InspectPaper(input) => {
-            Ok(("debug.synthesis.paper.inspect", debug_input(input)?))
-        }
-        DebugSynthesisCommand::InspectTopic(input) => {
-            Ok(("debug.synthesis.topic.inspect", debug_input(input)?))
-        }
-        DebugSynthesisCommand::Operations(input) => {
-            Ok(("debug.synthesis.operations.list", debug_input(input)?))
-        }
-        DebugSynthesisCommand::Profiler(input) => {
-            Ok(("debug.synthesis.profiler.list", debug_input(input)?))
-        }
-        DebugSynthesisCommand::Cache(input) => {
-            Ok(("debug.synthesis.cache.list", debug_input(input)?))
-        }
-        DebugSynthesisCommand::CleanInstallReset(input) => {
-            Ok(("debug.synthesis.cleanInstallReset", debug_input(input)?))
-        }
-    }
-}
-
 fn debug_input(args: DebugInputArgs) -> Result<Value, CliError> {
-    read_json_arg(args.input.as_deref())
-}
-
-fn topics_capability(command: &TopicsCommand) -> &'static str {
-    match command {
-        TopicsCommand::List(_) => "topics.list",
-        TopicsCommand::FindByPaperRef(_) => "topics.find_by_paper_ref",
-        TopicsCommand::GetContext(_) => "topics.get_context",
-        TopicsCommand::GetReport(_) => "topics.get_report",
-        TopicsCommand::GetReviewInput(_) => "topics.get_review_input",
-    }
+    read_contract_json_arg("input", args.input.as_deref())
 }
 
 fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
@@ -1260,43 +1190,15 @@ fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
     }
 }
 
-fn schemas_capability(command: &SchemasCommand) -> &'static str {
-    match command {
-        SchemasCommand::Get(_) => "schemas.get",
-    }
-}
-
 fn schemas_input(command: SchemasCommand) -> BridgeQueryArgs {
     match command {
         SchemasCommand::Get(args) => args,
     }
 }
 
-fn concepts_capability(command: &ConceptsCommand) -> &'static str {
-    match command {
-        ConceptsCommand::Query(_) => "concepts.query",
-    }
-}
-
 fn concepts_input(command: ConceptsCommand) -> BridgeQueryArgs {
     match command {
         ConceptsCommand::Query(args) => args,
-    }
-}
-
-fn citation_graph_capability(command: &CitationGraphCommand) -> &'static str {
-    match command {
-        CitationGraphCommand::Overview(_) => "citation_graph.get_overview",
-        CitationGraphCommand::QueryCluster(_) => "citation_graph.query_cluster",
-        CitationGraphCommand::GetSlice(_) => "citation_graph.get_slice",
-        CitationGraphCommand::GetLayout(_) => "citation_graph.get_layout",
-        CitationGraphCommand::GetMetrics(_) => "citation_graph.get_metrics",
-        CitationGraphCommand::RankExternalReferences(_) => {
-            "citation_graph.rank_external_references"
-        }
-        CitationGraphCommand::RankLibraryPapers(_) => "citation_graph.rank_library_papers",
-        CitationGraphCommand::RefreshMetrics(_) => "citation_graph.refresh_metrics",
-        CitationGraphCommand::Update(_) => "citation_graph.update",
     }
 }
 
@@ -1315,24 +1217,9 @@ fn citation_graph_input(command: CitationGraphCommand) -> BridgeQueryArgs {
     }
 }
 
-fn resolvers_capability(command: &ResolversCommand) -> &'static str {
-    match command {
-        ResolversCommand::Resolve(_) => "resolvers.resolve",
-    }
-}
-
 fn resolvers_input(command: ResolversCommand) -> BridgeQueryArgs {
     match command {
         ResolversCommand::Resolve(args) => args,
-    }
-}
-
-fn paper_artifacts_capability(command: &PaperArtifactsCommand) -> &'static str {
-    match command {
-        PaperArtifactsCommand::Manifest(_) => "paper_artifacts.get_manifest",
-        PaperArtifactsCommand::Read(_) => "paper_artifacts.read",
-        PaperArtifactsCommand::ExportFiltered(_) => "paper_artifacts.export_filtered",
-        PaperArtifactsCommand::ResolveTopicDigest(_) => "paper_artifacts.resolve_topic_digest",
     }
 }
 
@@ -1345,12 +1232,6 @@ fn paper_artifacts_input(command: PaperArtifactsCommand) -> BridgeQueryArgs {
     }
 }
 
-fn insights_capability(command: &InsightsCommand) -> &'static str {
-    match command {
-        InsightsCommand::AttentionQueue(_) => "insights.get_attention_queue",
-    }
-}
-
 fn insights_input(command: InsightsCommand) -> BridgeQueryArgs {
     match command {
         InsightsCommand::AttentionQueue(args) => args,
@@ -1358,86 +1239,45 @@ fn insights_input(command: InsightsCommand) -> BridgeQueryArgs {
 }
 
 fn bridge_input(args: BridgeInputArgs) -> Result<Value, CliError> {
-    read_json_arg(args.input.as_deref())
+    read_contract_json_arg("input", args.input.as_deref())
 }
 
 fn bridge_query(args: BridgeQueryArgs) -> Result<Value, CliError> {
-    read_json_arg(args.query.as_deref())
+    read_contract_json_arg("query", args.query.as_deref())
 }
 
-fn library_readiness_input(command: LibraryReadinessCommand) -> Result<Value, CliError> {
-    let (input, check) = match command {
-        LibraryReadinessCommand::Audit(input) => return bridge_query(input),
-        LibraryReadinessCommand::MissingPdf(input) => (input, "pdf"),
-        LibraryReadinessCommand::MissingMarkdown(input) => (input, "markdown"),
-        LibraryReadinessCommand::MissingAnalysis(input) => (input, "analysis"),
-    };
-    let mut value = bridge_query(input)?;
-    if !value.is_object() {
-        value = json!({});
+fn call_structured(
+    config: &BridgeConfig,
+    argument_id: &str,
+    input: Value,
+) -> Result<Value, CliError> {
+    client::call_current(config, Map::from_iter([(argument_id.to_string(), input)]))
+}
+
+fn library_readiness_query(command: LibraryReadinessCommand) -> Result<Value, CliError> {
+    match command {
+        LibraryReadinessCommand::Audit(input)
+        | LibraryReadinessCommand::MissingPdf(input)
+        | LibraryReadinessCommand::MissingMarkdown(input)
+        | LibraryReadinessCommand::MissingAnalysis(input) => bridge_query(input),
     }
-    let object = value.as_object_mut().expect("readiness input object");
-    object.insert("checks".to_string(), json!([check]));
-    object.insert("missingOnly".to_string(), Value::Bool(true));
-    Ok(value)
 }
 
-fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError> {
-    let input = read_json_arg(Some(&args.input))?;
-    let mut object = match input {
-        Value::Object(map) => map,
-        _ => {
-            return Err(CliError::validation(
-                "invalid_literature_ingest_input",
-                "mutation literature-ingest input must be a JSON object",
-            ));
-        }
-    };
-    object.insert(
-        "operation".to_string(),
-        Value::String("literature.ingest".to_string()),
+fn annotation_item_arguments(args: AnnotationItemArgs) -> Map<String, Value> {
+    let mut arguments = Map::from_iter([("item".to_string(), Value::String(args.item))]);
+    insert_argument(
+        &mut arguments,
+        "cursor",
+        args.page.cursor.map(Value::String),
     );
-    Ok(Value::Object(object))
+    insert_argument(&mut arguments, "limit", args.page.limit.map(Value::from));
+    arguments
 }
 
-fn merge_operation_input(operation: &str, input: Value) -> Result<Value, CliError> {
-    let mut object = match input {
-        Value::Object(map) => map,
-        _ => {
-            return Err(CliError::validation(
-                "invalid_mutation_input",
-                "Mutation command input must be a JSON object",
-            ));
-        }
-    };
-    object.insert(
-        "operation".to_string(),
-        Value::String(operation.to_string()),
-    );
-    Ok(Value::Object(object))
-}
-
-fn refs_value(values: Vec<String>) -> Result<Value, CliError> {
-    Ok(Value::Array(
-        values
-            .into_iter()
-            .map(|value| context_ref_value(&value))
-            .collect::<Result<Vec<_>, _>>()?,
-    ))
-}
-
-fn annotation_item_input(args: AnnotationItemArgs) -> Result<Value, CliError> {
-    let mut input = Map::new();
-    input.insert("ref".to_string(), context_ref_value(&args.item)?);
-    insert_page(&mut input, args.page);
-    Ok(Value::Object(input))
-}
-
-fn annotation_export_input(args: AnnotationExportArgs) -> Result<Value, CliError> {
-    Ok(json!({
-        "ref": context_ref_value(&args.item)?,
-        "format": args.format.unwrap_or_else(|| "markdown".to_string())
-    }))
+fn annotation_export_arguments(args: AnnotationExportArgs) -> Map<String, Value> {
+    let mut arguments = Map::from_iter([("item".to_string(), Value::String(args.item))]);
+    insert_argument(&mut arguments, "format", args.format.map(Value::String));
+    arguments
 }
 
 fn synthesis_cache_invalidate_input(args: SynthesisCacheInvalidateArgs) -> Value {
@@ -1448,123 +1288,94 @@ fn synthesis_cache_invalidate_input(args: SynthesisCacheInvalidateArgs) -> Value
     input
 }
 
-fn mutation_tag_input(args: MutationTagArgs) -> Result<Value, CliError> {
-    let (operation, input) = match args.command {
-        MutationTagCommand::Add(input) => ("item.addTags", input),
-        MutationTagCommand::Remove(input) => ("item.removeTags", input),
+fn mutation_tag_arguments(args: MutationTagArgs) -> Map<String, Value> {
+    let input = match args.command {
+        MutationTagCommand::Add(input) | MutationTagCommand::Remove(input) => input,
     };
-    mutation_tags_input(operation, input)
+    Map::from_iter([
+        ("items".to_string(), json!(input.items)),
+        ("tags".to_string(), json!(input.tags)),
+    ])
 }
 
-fn mutation_tags_input(operation: &str, args: MutationTagsArgs) -> Result<Value, CliError> {
-    Ok(json!({
-        "operation": operation,
-        "items": refs_value(args.items)?,
-        "tags": args.tags,
-    }))
-}
-
-fn mutation_collection_input(args: MutationCollectionArgs) -> Result<Value, CliError> {
+fn mutation_collection_arguments(
+    args: MutationCollectionArgs,
+) -> Result<Map<String, Value>, CliError> {
     match args.command {
-        MutationCollectionCommand::Create(args) => mutation_collection_create_input(args),
-        MutationCollectionCommand::AddItems(args) => {
-            mutation_collection_items_input("collection.addItems", args)
-        }
-        MutationCollectionCommand::RemoveItems(args) => {
-            mutation_collection_items_input("collection.removeItems", args)
+        MutationCollectionCommand::Create(args) => Ok(Map::from_iter([(
+            "input".to_string(),
+            read_contract_json_arg("input", Some(&args.input))?,
+        )])),
+        MutationCollectionCommand::AddItems(args)
+        | MutationCollectionCommand::RemoveItems(args) => Ok(Map::from_iter([
+            ("collection".to_string(), Value::String(args.collection)),
+            ("items".to_string(), json!(args.items)),
+        ])),
+    }
+}
+
+fn mutation_item_arguments(args: MutationItemArgs) -> Result<Map<String, Value>, CliError> {
+    match args.command {
+        MutationItemCommand::Update(args) => Ok(Map::from_iter([
+            ("item".to_string(), Value::String(args.item)),
+            (
+                "patch".to_string(),
+                read_contract_json_arg("patch", Some(&args.patch))?,
+            ),
+        ])),
+        MutationItemCommand::AttachFile(args) => {
+            let mut arguments = Map::from_iter([
+                ("item".to_string(), Value::String(args.item)),
+                ("file_id".to_string(), Value::String(args.file_id)),
+            ]);
+            insert_argument(
+                &mut arguments,
+                "display_name",
+                args.display_name.map(Value::String),
+            );
+            insert_argument(
+                &mut arguments,
+                "content_type",
+                args.content_type.map(Value::String),
+            );
+            Ok(arguments)
         }
     }
 }
 
-fn mutation_collection_create_input(args: MutationCollectionCreateArgs) -> Result<Value, CliError> {
-    merge_operation_input("collection.create", read_json_arg(Some(&args.input))?)
+fn mutation_note_arguments(args: MutationNoteArgs) -> Result<Map<String, Value>, CliError> {
+    match args.command {
+        MutationNoteCommand::Create(args) => Ok(Map::from_iter([
+            ("item".to_string(), Value::String(args.item)),
+            (
+                "input".to_string(),
+                read_contract_json_arg("input", Some(&args.input))?,
+            ),
+        ])),
+        MutationNoteCommand::Update(args) => Ok(Map::from_iter([
+            ("note".to_string(), Value::String(args.note)),
+            (
+                "input".to_string(),
+                read_contract_json_arg("input", Some(&args.input))?,
+            ),
+        ])),
+        MutationNoteCommand::UpsertPayload(args) => Ok(Map::from_iter([
+            ("note".to_string(), Value::String(args.note)),
+            (
+                "input".to_string(),
+                read_contract_json_arg("input", Some(&args.input))?,
+            ),
+        ])),
+    }
 }
 
-fn mutation_collection_items_input(
-    operation: &str,
-    args: MutationCollectionItemsArgs,
+fn json_object_arg(
+    argument_id: &str,
+    input: Option<&str>,
+    code: &str,
+    message: &str,
 ) -> Result<Value, CliError> {
-    Ok(json!({
-        "operation": operation,
-        "collection": context_ref_value(&args.collection)?,
-        "items": refs_value(args.items)?,
-    }))
-}
-
-fn mutation_item_input(args: MutationItemArgs) -> Result<Value, CliError> {
-    match args.command {
-        MutationItemCommand::Update(args) => mutation_item_update_input(args),
-        MutationItemCommand::AttachFile(args) => mutation_item_attach_file_input(args),
-    }
-}
-
-fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, CliError> {
-    let fields = read_json_arg(Some(&args.patch))?;
-    match fields {
-        Value::Object(_) => Ok(json!({
-            "operation": "item.updateFields",
-            "item": context_ref_value(&args.item)?,
-            "fields": fields,
-        })),
-        _ => Err(CliError::validation(
-            "invalid_item_patch",
-            "Item patch must be a JSON object",
-        )),
-    }
-}
-
-fn mutation_item_attach_file_input(args: MutationItemAttachFileArgs) -> Result<Value, CliError> {
-    let file_id = normalize_file_id(&args.file_id)?;
-    let mut object = Map::new();
-    object.insert(
-        "operation".to_string(),
-        Value::String("item.attachFile".to_string()),
-    );
-    object.insert("item".to_string(), context_ref_value(&args.item)?);
-    object.insert("fileId".to_string(), Value::String(file_id));
-    if let Some(display_name) = args.display_name {
-        object.insert("displayName".to_string(), Value::String(display_name));
-    }
-    if let Some(content_type) = args.content_type {
-        object.insert("contentType".to_string(), Value::String(content_type));
-    }
-    Ok(Value::Object(object))
-}
-
-fn mutation_note_input(args: MutationNoteArgs) -> Result<Value, CliError> {
-    match args.command {
-        MutationNoteCommand::Create(args) => mutation_note_create_input(args),
-        MutationNoteCommand::Update(args) => mutation_note_update_input(args),
-        MutationNoteCommand::UpsertPayload(args) => mutation_note_payload_input(args),
-    }
-}
-
-fn mutation_note_create_input(args: MutationNoteCreateArgs) -> Result<Value, CliError> {
-    let mut input = merge_operation_input("note.createChild", read_json_arg(Some(&args.input))?)?;
-    if let Value::Object(ref mut object) = input {
-        object.insert("parent".to_string(), context_ref_value(&args.item)?);
-    }
-    Ok(input)
-}
-
-fn mutation_note_update_input(args: MutationNoteUpdateArgs) -> Result<Value, CliError> {
-    let mut input = merge_operation_input("note.update", read_json_arg(Some(&args.input))?)?;
-    if let Value::Object(ref mut object) = input {
-        object.insert("note".to_string(), context_ref_value(&args.note)?);
-    }
-    Ok(input)
-}
-
-fn mutation_note_payload_input(args: MutationNotePayloadArgs) -> Result<Value, CliError> {
-    let mut input = merge_operation_input("note.upsertPayload", read_json_arg(Some(&args.input))?)?;
-    if let Value::Object(ref mut object) = input {
-        object.insert("note".to_string(), context_ref_value(&args.note)?);
-    }
-    Ok(input)
-}
-
-fn json_object_arg(input: Option<&str>, code: &str, message: &str) -> Result<Value, CliError> {
-    let value = read_json_arg(input)?;
+    let value = read_contract_json_arg(argument_id, input)?;
     match value {
         Value::Object(_) => Ok(value),
         _ => Err(CliError::validation(code, message)),
@@ -1584,6 +1395,7 @@ fn workflow_id_arg(workflow: &str, command: &str) -> Result<String, CliError> {
 
 fn workflow_options_arg(input: Option<&str>) -> Result<Value, CliError> {
     json_object_arg(
+        "workflow_options",
         input,
         "invalid_workflow_options",
         "Workflow options must be a JSON object",
@@ -1592,6 +1404,7 @@ fn workflow_options_arg(input: Option<&str>) -> Result<Value, CliError> {
 
 fn provider_profile_arg(input: Option<&str>) -> Result<Value, CliError> {
     json_object_arg(
+        "provider_profile",
         input,
         "invalid_provider_profile",
         "Provider profile must be a JSON object",
@@ -1682,7 +1495,7 @@ fn workflow_selection_from(
             format!("Workflow {command} requires --selection or --none"),
         ));
     };
-    let items = read_json_arg(Some(items_input))?;
+    let items = read_contract_json_arg("selection", Some(items_input))?;
     if !items.is_array() {
         return Err(CliError::validation(
             "invalid_workflow_items",
@@ -1992,67 +1805,12 @@ fn skill_run_reply_input(args: SkillRunReplyArgs) -> Value {
     json!({ "message": args.message })
 }
 
-fn context_ref_value(raw: &str) -> Result<Value, CliError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(CliError::validation(
-            "missing_object_ref",
-            "Context navigation requires a Zotero object ref",
-        ));
-    }
-    if trimmed.starts_with('{') {
-        let value: Value = serde_json::from_str(trimmed)
-            .map_err(|error| CliError::validation("invalid_object_ref_json", error.to_string()))?;
-        if !value.is_object() {
-            return Err(CliError::validation(
-                "invalid_object_ref_json",
-                "Object ref JSON must be a JSON object",
-            ));
-        }
-        return Ok(value);
-    }
-    if !is_safe_zotero_object_ref(trimmed) {
-        return Err(CliError::validation(
-            "invalid_object_ref",
-            "Object ref must be a Zotero key, libraryId:itemKey, or JSON object",
-        ));
-    }
-    Ok(Value::String(trimmed.to_string()))
-}
-
-fn is_safe_zotero_object_ref(value: &str) -> bool {
-    if value.contains('/')
-        || value.contains('\\')
-        || value.contains("..")
-        || value.contains('(')
-        || value.contains(')')
-        || value.contains(';')
-        || value.contains('{')
-        || value.contains('}')
-        || value.contains('[')
-        || value.contains(']')
-    {
-        return false;
-    }
-    if let Some((library_id, key)) = value.split_once(':') {
-        return !library_id.is_empty()
-            && library_id.chars().all(|entry| entry.is_ascii_digit())
-            && is_zotero_key_like(key);
-    }
-    !value.contains(':') && is_zotero_key_like(value)
-}
-
-fn is_zotero_key_like(value: &str) -> bool {
-    let length = value.len();
-    (2..=128).contains(&length)
-        && value
-            .chars()
-            .all(|entry| entry.is_ascii_alphanumeric() || entry == '_' || entry == '-')
-}
-
 fn context_object_open_input(field: &str, args: ContextObjectRefArgs) -> Result<Value, CliError> {
     let mut map = Map::new();
-    map.insert(field.to_string(), context_ref_value(&args.object_ref)?);
+    map.insert(
+        field.to_string(),
+        contract::context_ref_value(&args.object_ref)?,
+    );
     Ok(Value::Object(map))
 }
 
@@ -2060,7 +1818,7 @@ fn context_selection_open_input(args: ContextSelectionOpenArgs) -> Result<Value,
     let items = args
         .item_refs
         .iter()
-        .map(|entry| context_ref_value(entry))
+        .map(|entry| contract::context_ref_value(entry))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(json!({ "items": items }))
 }
@@ -2145,7 +1903,10 @@ fn workflow_submission_path(args: WorkflowSubmissionGetArgs) -> Result<String, C
         query.push(("limit".to_string(), limit.to_string()));
     }
     Ok(path_with_query(
-        &format!("/workflows/submissions/{}", percent_encode_path(submission_id)),
+        &format!(
+            "/workflows/submissions/{}",
+            percent_encode_path(submission_id)
+        ),
         query,
     ))
 }
@@ -2324,7 +2085,7 @@ fn merge_agent_run_download_payload(
 }
 
 fn file_download(config: &BridgeConfig, args: FileDownloadArgs) -> Result<Value, CliError> {
-    let file_id = normalize_file_id(&args.file_id)?;
+    let file_id = contract::normalize_file_id(&args.file_id)?;
     let output = args.output;
     if output.exists() && !args.force {
         return Err(CliError::new(
@@ -2420,23 +2181,6 @@ fn download_success_payload(
         "contentType": response.content_type,
         "overwritten": overwritten
     })
-}
-
-fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
-    let file_id = file_id.trim();
-    if file_id.is_empty()
-        || !file_id.starts_with("file-")
-        || file_id.contains('/')
-        || file_id.contains('\\')
-        || file_id.contains("..")
-        || file_id.contains(':')
-    {
-        return Err(CliError::validation(
-            "invalid_file_id",
-            "file commands require a bridge-issued opaque file-* handle, not a path",
-        ));
-    }
-    Ok(file_id.to_string())
 }
 
 fn temp_output_path(output: &Path) -> PathBuf {
@@ -2575,99 +2319,57 @@ fn percent_encode(value: &str, encode_space_as_plus: bool) -> String {
     output
 }
 
-fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {
-    let query = read_json_arg(Some(&args.query))?;
-    let Value::Object(mut query) = query else {
-        return Err(CliError::validation(
-            "invalid_item_search_query",
-            "Item search --query must be a JSON object",
-        ));
-    };
-    let text = query
-        .remove("text")
-        .and_then(|value| value.as_str().map(str::to_string))
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            CliError::validation(
-                "missing_item_search_text",
-                "Item search --query must include non-empty text",
-            )
-        })?;
-    let mut input = Map::new();
-    input.insert("query".to_string(), Value::String(text));
-    if let Some(limit) = query.remove("limit") {
-        let limit = limit
-            .as_u64()
-            .and_then(|value| u32::try_from(value).ok())
-            .ok_or_else(|| {
-                CliError::validation(
-                    "invalid_item_search_limit",
-                    "Item search --query limit must be an unsigned 32-bit integer",
-                )
-            })?;
-        input.insert("limit".to_string(), Value::from(limit));
-    }
-    if let Some(library_id) = query.remove("libraryId") {
-        let library_id = library_id.as_u64().ok_or_else(|| {
-            CliError::validation(
-                "invalid_item_search_library_id",
-                "Item search --query libraryId must be an unsigned integer",
-            )
-        })?;
-        input.insert("libraryId".to_string(), Value::from(library_id));
-    }
-    Ok(Value::Object(input))
+fn item_notes_arguments(args: ItemNotesArgs) -> Result<Map<String, Value>, CliError> {
+    let mut arguments = item_ref_arguments(args.item)?;
+    insert_argument(&mut arguments, "limit", args.limit.map(Value::from));
+    insert_argument(&mut arguments, "cursor", args.cursor.map(Value::String));
+    insert_argument(
+        &mut arguments,
+        "max_excerpt_chars",
+        args.max_excerpt_chars.map(Value::from),
+    );
+    Ok(arguments)
 }
 
-fn item_notes_input(args: ItemNotesArgs) -> Result<Value, CliError> {
-    let mut input = into_object(item_ref(args.item)?);
-    insert_u32(&mut input, "limit", args.limit);
-    push_value(&mut input, "cursor", args.cursor);
-    insert_u32(&mut input, "maxExcerptChars", args.max_excerpt_chars);
-    Ok(Value::Object(input))
+fn item_page_arguments(args: ItemPageArgs) -> Result<Map<String, Value>, CliError> {
+    let mut arguments = item_ref_arguments(args.item)?;
+    insert_argument(
+        &mut arguments,
+        "cursor",
+        args.page.cursor.map(Value::String),
+    );
+    insert_argument(&mut arguments, "limit", args.page.limit.map(Value::from));
+    Ok(arguments)
 }
 
-fn item_page_input(args: ItemPageArgs) -> Result<Value, CliError> {
-    let mut input = into_object(item_ref(args.item)?);
-    insert_page(&mut input, args.page);
-    Ok(Value::Object(input))
+fn note_detail_arguments(args: NoteDetailArgs) -> Result<Map<String, Value>, CliError> {
+    let mut arguments = item_ref_arguments(args.note)?;
+    insert_argument(&mut arguments, "format", args.format.map(Value::String));
+    insert_argument(&mut arguments, "offset", args.offset.map(Value::from));
+    insert_argument(&mut arguments, "max_chars", args.max_chars.map(Value::from));
+    Ok(arguments)
 }
 
-fn insert_page(input: &mut Map<String, Value>, page: PageArgs) {
-    if let Some(cursor) = page.cursor {
-        input.insert("cursor".to_string(), Value::String(cursor));
-    }
-    insert_u32(input, "limit", page.limit);
+fn note_payload_arguments(args: NotePayloadArgs) -> Result<Map<String, Value>, CliError> {
+    let mut arguments = item_ref_arguments(args.note)?;
+    insert_argument(
+        &mut arguments,
+        "payload_type",
+        args.payload_type.map(Value::String),
+    );
+    insert_argument(&mut arguments, "offset", args.offset.map(Value::from));
+    insert_argument(&mut arguments, "max_chars", args.max_chars.map(Value::from));
+    Ok(arguments)
 }
 
-fn note_detail_input(args: NoteDetailArgs) -> Result<Value, CliError> {
-    let mut input = into_object(item_ref(args.note)?);
-    if let Some(format) = args.format {
-        input.insert("format".to_string(), Value::String(format));
-    }
-    insert_u32(&mut input, "offset", args.offset);
-    insert_u32(&mut input, "maxChars", args.max_chars);
-    Ok(Value::Object(input))
-}
-
-fn note_payload_input(args: NotePayloadArgs) -> Result<Value, CliError> {
-    let mut input = into_object(item_ref(args.note)?);
-    if let Some(payload_type) = args.payload_type {
-        input.insert("payloadType".to_string(), Value::String(payload_type));
-    }
-    insert_u32(&mut input, "offset", args.offset);
-    insert_u32(&mut input, "maxChars", args.max_chars);
-    Ok(Value::Object(input))
-}
-
-fn item_ref(args: ItemRefArgs) -> Result<Value, CliError> {
-    let mut input = Map::new();
+fn item_ref_arguments(args: ItemRefArgs) -> Result<Map<String, Value>, CliError> {
+    let mut arguments = Map::new();
     match (args.key, args.id) {
         (Some(key), None) if !key.trim().is_empty() => {
-            input.insert("key".to_string(), Value::String(key));
+            arguments.insert("key".to_string(), Value::String(key));
         }
         (None, Some(id)) => {
-            input.insert("id".to_string(), Value::from(id));
+            arguments.insert("id".to_string(), Value::from(id));
         }
         _ => {
             return Err(CliError::validation(
@@ -2676,36 +2378,12 @@ fn item_ref(args: ItemRefArgs) -> Result<Value, CliError> {
             ));
         }
     }
-    insert_u64(&mut input, "libraryId", args.library_id);
-    Ok(Value::Object(input))
-}
-
-fn into_object(value: Value) -> Map<String, Value> {
-    match value {
-        Value::Object(map) => map,
-        _ => Map::new(),
-    }
-}
-
-fn insert_u32(input: &mut Map<String, Value>, name: &str, value: Option<u32>) {
-    if let Some(value) = value {
-        input.insert(name.to_string(), Value::from(value));
-    }
-}
-
-fn push_value(input: &mut Map<String, Value>, name: &str, value: Option<String>) {
-    if let Some(value) = value
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        input.insert(name.to_string(), Value::String(value));
-    }
-}
-
-fn insert_u64(input: &mut Map<String, Value>, name: &str, value: Option<u64>) {
-    if let Some(value) = value {
-        input.insert(name.to_string(), Value::from(value));
-    }
+    insert_argument(
+        &mut arguments,
+        "library_id",
+        args.library_id.map(Value::from),
+    );
+    Ok(arguments)
 }
 
 fn read_json_arg(input: Option<&str>) -> Result<Value, CliError> {
@@ -2716,34 +2394,75 @@ fn read_json_arg(input: Option<&str>) -> Result<Value, CliError> {
         let mut buffer = String::new();
         std::io::stdin()
             .read_to_string(&mut buffer)
-            .map_err(|error| {
-                CliError::validation("input_stdin_failed", "Failed to read JSON from stdin")
-                    .with_details(json!({ "message": error.to_string() }))
+            .map_err(|_error| {
+                CliError::validation("input_source_invalid", "Failed to read JSON from stdin")
+                    .with_details(json!({
+                        "schema": "host-bridge.argument-error.v1",
+                        "phase": "json_source",
+                        "source": "stdin",
+                        "violations": [{ "reason": "unreadable" }],
+                        "truncated": false
+                    }))
             })?;
         buffer
     } else if let Some(path) = input.strip_prefix('@') {
-        fs::read_to_string(path).map_err(|error| {
-            CliError::validation("input_file_unreadable", "Failed to read JSON input file")
-                .with_details(json!({ "path": path, "message": error.to_string() }))
+        fs::read_to_string(path).map_err(|_error| {
+            CliError::validation("input_source_invalid", "Failed to read JSON input file")
+                .with_details(json!({
+                    "schema": "host-bridge.argument-error.v1",
+                    "phase": "json_source",
+                    "source": "file",
+                    "violations": [{ "reason": "unreadable" }],
+                    "truncated": false
+                }))
         })?
     } else if Path::new(input).exists() {
-        fs::read_to_string(input).map_err(|error| {
-            CliError::validation("input_file_unreadable", "Failed to read JSON input file")
-                .with_details(json!({ "path": input, "message": error.to_string() }))
+        fs::read_to_string(input).map_err(|_error| {
+            CliError::validation("input_source_invalid", "Failed to read JSON input file")
+                .with_details(json!({
+                    "schema": "host-bridge.argument-error.v1",
+                    "phase": "json_source",
+                    "source": "file",
+                    "violations": [{ "reason": "unreadable" }],
+                    "truncated": false
+                }))
         })?
     } else {
         input.to_string()
     };
     serde_json::from_str::<Value>(&text).map_err(|error| {
-        CliError::validation("input_json_invalid", "Input must be valid JSON")
-            .with_details(json!({ "message": error.to_string() }))
+        CliError::validation("input_json_invalid", "Input must be valid JSON").with_details(json!({
+            "schema": "host-bridge.argument-error.v1",
+            "phase": "json_syntax",
+            "source": if input == "-" {
+                "stdin"
+            } else if input.starts_with('@') || Path::new(input).exists() {
+                "file"
+            } else {
+                "inline"
+            },
+            "line": error.line(),
+            "column": error.column(),
+            "violations": [{ "reason": "invalid_json" }],
+            "truncated": false
+        }))
     })
+}
+
+fn read_contract_json_arg(argument_id: &str, input: Option<&str>) -> Result<Value, CliError> {
+    let value = read_json_arg(input)?;
+    contract::validate_current_command_input(argument_id, &value)?;
+    Ok(value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::{BridgeInputArgs, BridgeQueryArgs};
+    use crate::args::{
+        BridgeInputArgs, BridgeQueryArgs, ItemSearchArgs, LiteratureIngestArgs,
+        MutationCollectionItemsArgs, MutationItemAttachFileArgs, MutationItemUpdateArgs,
+        MutationNoteCreateArgs, MutationTagsArgs,
+    };
     use std::io::Write;
 
     fn write_test_zip(path: &Path, entries: &[(String, Vec<u8>)]) {
@@ -2758,10 +2477,118 @@ mod tests {
         archive.finish().unwrap();
     }
 
+    fn compose_current(arguments: Map<String, Value>) -> Result<Value, CliError> {
+        let command = contract::current_command().unwrap();
+        contract::compose_command_payload(&command, &arguments)
+    }
+
+    fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {
+        read_contract_json_arg("query", Some(&args.query))
+    }
+
+    fn item_ref(args: ItemRefArgs) -> Result<Value, CliError> {
+        contract::compose_command_payload("library item get", &item_ref_arguments(args)?)
+    }
+
+    fn library_readiness_input(command: LibraryReadinessCommand) -> Result<Value, CliError> {
+        let query = library_readiness_query(command)?;
+        compose_current(Map::from_iter([("query".to_string(), query)]))
+    }
+
+    fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError> {
+        let input = read_contract_json_arg("input", Some(&args.input))?;
+        compose_current(Map::from_iter([("input".to_string(), input)]))
+    }
+
+    fn mutation_tag_input(args: MutationTagArgs) -> Result<Value, CliError> {
+        let command = match args.command {
+            MutationTagCommand::Add(_) => "mutation tag add",
+            MutationTagCommand::Remove(_) => "mutation tag remove",
+        };
+        contract::compose_command_payload(command, &mutation_tag_arguments(args))
+    }
+
+    fn mutation_collection_items_input(
+        operation: &str,
+        args: MutationCollectionItemsArgs,
+    ) -> Result<Value, CliError> {
+        let command = match operation {
+            "collection.addItems" => "mutation collection add-items",
+            "collection.removeItems" => "mutation collection remove-items",
+            _ => panic!("unexpected collection mutation"),
+        };
+        contract::compose_command_payload(
+            command,
+            &Map::from_iter([
+                ("collection".to_string(), Value::String(args.collection)),
+                ("items".to_string(), json!(args.items)),
+            ]),
+        )
+    }
+
+    fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, CliError> {
+        let patch = read_contract_json_arg("patch", Some(&args.patch))?;
+        compose_current(Map::from_iter([
+            ("item".to_string(), Value::String(args.item)),
+            ("patch".to_string(), patch),
+        ]))
+    }
+
+    fn mutation_note_create_input(args: MutationNoteCreateArgs) -> Result<Value, CliError> {
+        let input = read_contract_json_arg("input", Some(&args.input))?;
+        compose_current(Map::from_iter([
+            ("item".to_string(), Value::String(args.item)),
+            ("input".to_string(), input),
+        ]))
+    }
+
+    fn mutation_item_attach_file_input(
+        args: MutationItemAttachFileArgs,
+    ) -> Result<Value, CliError> {
+        let mut arguments = Map::from_iter([
+            ("item".to_string(), Value::String(args.item)),
+            ("file_id".to_string(), Value::String(args.file_id)),
+        ]);
+        insert_argument(
+            &mut arguments,
+            "display_name",
+            args.display_name.map(Value::String),
+        );
+        insert_argument(
+            &mut arguments,
+            "content_type",
+            args.content_type.map(Value::String),
+        );
+        contract::compose_command_payload("mutation item attach-file", &arguments)
+    }
+
+    fn context_ref_value(raw: &str) -> Result<Value, CliError> {
+        contract::context_ref_value(raw)
+    }
+
+    fn annotation_item_input(args: AnnotationItemArgs) -> Result<Value, CliError> {
+        contract::compose_command_payload(
+            "library annotation list",
+            &annotation_item_arguments(args),
+        )
+    }
+
+    fn annotation_export_input(args: AnnotationExportArgs) -> Result<Value, CliError> {
+        contract::compose_command_payload(
+            "library annotation export",
+            &annotation_export_arguments(args),
+        )
+    }
+
+    fn normalize_file_id(raw: &str) -> Result<String, CliError> {
+        contract::normalize_file_id(raw)
+    }
+
     #[test]
-    fn maps_item_search_json_query_to_bridge_input() {
+    fn passes_item_search_query_object_without_field_translation() {
+        contract::set_current_command("library item search");
         let input = item_search_input(ItemSearchArgs {
-            query: "{\"text\":\"graph\",\"limit\":5,\"libraryId\":1}".to_string(),
+            query: "{\"query\":\"graph\",\"limit\":5,\"libraryId\":1}".to_string(),
         });
         assert_eq!(
             input.unwrap(),
@@ -2770,6 +2597,24 @@ mod tests {
                 "limit": 5,
                 "libraryId": 1
             })
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_item_search_text_field() {
+        contract::set_current_command("library item search");
+        let error = item_search_input(ItemSearchArgs {
+            query: "{\"text\":\"graph\"}".to_string(),
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code, "command_input_invalid");
+        assert_eq!(
+            error
+                .details
+                .as_ref()
+                .and_then(|details| details["violations"][0]["property"].as_str()),
+            Some("text")
         );
     }
 
@@ -2812,183 +2657,118 @@ mod tests {
 
     #[test]
     fn maps_domain_subcommands_to_capabilities() {
-        let query = || BridgeQueryArgs { query: None };
-        assert_eq!(
-            topics_capability(&TopicsCommand::List(query())),
-            "topics.list"
-        );
-        assert_eq!(
-            topics_capability(&TopicsCommand::FindByPaperRef(query())),
-            "topics.find_by_paper_ref"
-        );
-        assert_eq!(
-            topics_capability(&TopicsCommand::GetContext(query())),
-            "topics.get_context"
-        );
-        assert_eq!(
-            topics_capability(&TopicsCommand::GetReport(query())),
-            "topics.get_report"
-        );
-        assert_eq!(
-            topics_capability(&TopicsCommand::GetReviewInput(query())),
-            "topics.get_review_input"
-        );
-        assert_eq!(
-            schemas_capability(&SchemasCommand::Get(query())),
-            "schemas.get"
-        );
-        assert_eq!(
-            concepts_capability(&ConceptsCommand::Query(query())),
-            "concepts.query"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::Overview(query())),
-            "citation_graph.get_overview"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::QueryCluster(query())),
-            "citation_graph.query_cluster"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::GetSlice(query())),
-            "citation_graph.get_slice"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::GetLayout(query())),
-            "citation_graph.get_layout"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::GetMetrics(query())),
-            "citation_graph.get_metrics"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::RankExternalReferences(query())),
-            "citation_graph.rank_external_references"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::RankLibraryPapers(query())),
-            "citation_graph.rank_library_papers"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::RefreshMetrics(BridgeInputArgs {
-                input: None
-            })),
-            "citation_graph.refresh_metrics"
-        );
-        assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::Update(BridgeInputArgs {
-                input: None
-            })),
-            "citation_graph.update"
-        );
-        assert_eq!(
-            resolvers_capability(&ResolversCommand::Resolve(query())),
-            "resolvers.resolve"
-        );
-        assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::Manifest(query())),
-            "paper_artifacts.get_manifest"
-        );
-        assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::Read(query())),
-            "paper_artifacts.read"
-        );
-        assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::ExportFiltered(query())),
-            "paper_artifacts.export_filtered"
-        );
-        assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::ResolveTopicDigest(query())),
-            "paper_artifacts.resolve_topic_digest"
-        );
-        assert_eq!(
-            insights_capability(&InsightsCommand::AttentionQueue(query())),
-            "insights.get_attention_queue"
-        );
+        let cases = [
+            ("synthesis topic list", "topics.list"),
+            (
+                "synthesis topic find-by-paper-ref",
+                "topics.find_by_paper_ref",
+            ),
+            ("synthesis topic get-context", "topics.get_context"),
+            ("synthesis topic get-report", "topics.get_report"),
+            (
+                "synthesis topic get-review-input",
+                "topics.get_review_input",
+            ),
+            ("synthesis schema get", "schemas.get"),
+            ("synthesis concept query", "concepts.query"),
+            ("synthesis graph overview", "citation_graph.get_overview"),
+            (
+                "synthesis graph query-cluster",
+                "citation_graph.query_cluster",
+            ),
+            ("synthesis graph get-slice", "citation_graph.get_slice"),
+            ("synthesis graph get-layout", "citation_graph.get_layout"),
+            ("synthesis graph get-metrics", "citation_graph.get_metrics"),
+            (
+                "synthesis graph rank-external-references",
+                "citation_graph.rank_external_references",
+            ),
+            (
+                "synthesis graph rank-library-papers",
+                "citation_graph.rank_library_papers",
+            ),
+            (
+                "synthesis graph refresh-metrics",
+                "citation_graph.refresh_metrics",
+            ),
+            ("synthesis graph update", "citation_graph.update"),
+            ("synthesis resolver resolve", "resolvers.resolve"),
+            (
+                "synthesis artifact manifest",
+                "paper_artifacts.get_manifest",
+            ),
+            ("synthesis artifact read", "paper_artifacts.read"),
+            (
+                "synthesis artifact export-filtered",
+                "paper_artifacts.export_filtered",
+            ),
+            (
+                "synthesis artifact resolve-topic-digest",
+                "paper_artifacts.resolve_topic_digest",
+            ),
+            (
+                "synthesis insight attention-queue",
+                "insights.get_attention_queue",
+            ),
+        ];
+        for (command, expected) in cases {
+            assert_eq!(
+                contract::command_entry(command)
+                    .unwrap()
+                    .pointer("/target/capability")
+                    .and_then(Value::as_str),
+                Some(expected),
+                "{command}"
+            );
+        }
     }
 
     #[test]
     fn maps_debug_subcommands_to_capabilities() {
-        use crate::args::{
-            DebugAcpSkillRunArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-            DebugSynthesisArgs, DebugSynthesisCommand,
-        };
-
-        let cases = vec![
+        let cases = [
+            ("debug status", "debug.status"),
+            ("debug tasks", "debug.tasks.snapshot"),
+            ("debug persistence", "debug.persistence.snapshot"),
             (
-                DebugArgs {
-                    command: DebugCommand::Status,
-                },
-                "debug.status",
-            ),
-            (
-                DebugArgs {
-                    command: DebugCommand::Persistence(DebugInputArgs { input: None }),
-                },
-                "debug.persistence.snapshot",
-            ),
-            (
-                DebugArgs {
-                    command: DebugCommand::AcpSkillRun(DebugAcpSkillRunArgs {
-                        command: DebugAcpSkillRunCommand::ReapplyResult(DebugInputArgs {
-                            input: None,
-                        }),
-                    }),
-                },
+                "debug acp-skill-run reapply-result",
                 "debug.acpSkillRun.reapplyResult",
             ),
+            ("debug synthesis snapshot", "debug.synthesis.snapshot"),
+            ("debug synthesis diff", "debug.synthesis.diff"),
             (
-                DebugArgs {
-                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Snapshot(DebugInputArgs { input: None }),
-                    }),
-                },
-                "debug.synthesis.snapshot",
+                "debug synthesis inspect-paper",
+                "debug.synthesis.paper.inspect",
             ),
             (
-                DebugArgs {
-                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Operations(DebugInputArgs { input: None }),
-                    }),
-                },
+                "debug synthesis inspect-topic",
+                "debug.synthesis.topic.inspect",
+            ),
+            (
+                "debug synthesis operations",
                 "debug.synthesis.operations.list",
             ),
+            ("debug synthesis profiler", "debug.synthesis.profiler.list"),
+            ("debug synthesis cache", "debug.synthesis.cache.list"),
             (
-                DebugArgs {
-                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Profiler(DebugInputArgs { input: None }),
-                    }),
-                },
-                "debug.synthesis.profiler.list",
-            ),
-            (
-                DebugArgs {
-                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Cache(DebugInputArgs { input: None }),
-                    }),
-                },
-                "debug.synthesis.cache.list",
-            ),
-            (
-                DebugArgs {
-                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::CleanInstallReset(DebugInputArgs {
-                            input: Some("{\"confirm\":true}".to_string()),
-                        }),
-                    }),
-                },
+                "debug synthesis clean-install-reset",
                 "debug.synthesis.cleanInstallReset",
             ),
         ];
-
-        for (args, capability) in cases {
-            let (actual, _input) = debug_capability_and_input(args).unwrap();
-            assert_eq!(actual, capability);
+        for (command, expected) in cases {
+            assert_eq!(
+                contract::command_entry(command)
+                    .unwrap()
+                    .pointer("/target/capability")
+                    .and_then(Value::as_str),
+                Some(expected),
+                "{command}"
+            );
         }
     }
 
     #[test]
     fn reads_bridge_inline_and_file_inputs() {
+        contract::set_current_command("mutation preview");
         let inline = bridge_input(BridgeInputArgs {
             input: Some("{\"cursor\":1}".to_string()),
         })
@@ -3010,12 +2790,14 @@ mod tests {
 
     #[test]
     fn builds_library_readiness_missing_inputs() {
+        contract::set_current_command("library readiness audit");
         let audit = library_readiness_input(LibraryReadinessCommand::Audit(BridgeQueryArgs {
             query: Some("{\"limit\":25,\"checks\":[\"pdf\",\"analysis\"]}".to_string()),
         }))
         .unwrap();
         assert_eq!(audit, json!({ "limit": 25, "checks": ["pdf", "analysis"] }));
 
+        contract::set_current_command("library readiness missing-markdown");
         let missing_markdown =
             library_readiness_input(LibraryReadinessCommand::MissingMarkdown(BridgeQueryArgs {
                 query: Some("{\"collectionKey\":\"COLL\",\"limit\":10}".to_string()),
@@ -3034,6 +2816,7 @@ mod tests {
 
     #[test]
     fn builds_literature_ingest_mutation_input() {
+        contract::set_current_command("mutation literature-ingest");
         let input = literature_ingest_input(LiteratureIngestArgs {
             input: "{\"paper\":{\"itemType\":\"thesis\",\"fields\":{\"title\":\"Bridge Paper\",\"university\":\"Example University\"},\"creators\":[{\"name\":\"欧阳明\",\"creatorType\":\"author\"}],\"identifiers\":{},\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
         })
@@ -3065,6 +2848,7 @@ mod tests {
 
     #[test]
     fn literature_ingest_reuses_file_input_parser() {
+        contract::set_current_command("mutation literature-ingest");
         let path = std::env::temp_dir().join(format!(
             "zotero-bridge-literature-ingest-input-{}.json",
             std::process::id()
@@ -3096,11 +2880,12 @@ mod tests {
 
     #[test]
     fn rejects_non_object_literature_ingest_input() {
+        contract::set_current_command("mutation literature-ingest");
         let error = literature_ingest_input(LiteratureIngestArgs {
             input: "[]".to_string(),
         })
         .unwrap_err();
-        assert_eq!(error.code, "invalid_literature_ingest_input");
+        assert_eq!(error.code, "command_input_invalid");
     }
 
     #[test]
@@ -3134,6 +2919,7 @@ mod tests {
                 "items": ["ABC123"]
             })
         );
+        contract::set_current_command("mutation item update");
         assert_eq!(
             mutation_item_update_input(MutationItemUpdateArgs {
                 item: "ABC123".to_string(),
@@ -3146,6 +2932,7 @@ mod tests {
                 "fields": { "title": "Updated" }
             })
         );
+        contract::set_current_command("mutation note create");
         assert_eq!(
             mutation_note_create_input(MutationNoteCreateArgs {
                 item: "ABC123".to_string(),
@@ -3207,7 +2994,11 @@ mod tests {
             content_type: None,
         })
         .unwrap_err();
-        assert_eq!(attach_error.code, "invalid_file_id");
+        assert_eq!(attach_error.code, "command_payload_composition_failed");
+        assert_eq!(
+            attach_error.details.as_ref().unwrap()["argumentId"],
+            "file_id"
+        );
 
         let non_handle_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
             item: "ABC123".to_string(),
@@ -3216,7 +3007,7 @@ mod tests {
             content_type: None,
         })
         .unwrap_err();
-        assert_eq!(non_handle_error.code, "invalid_file_id");
+        assert_eq!(non_handle_error.code, "command_payload_composition_failed");
     }
 
     #[test]
@@ -3244,6 +3035,7 @@ mod tests {
 
     #[test]
     fn maps_workflow_submit_to_bridge_input() {
+        contract::set_current_command("workflow submit");
         let input = workflow_submit_input(WorkflowSubmitArgs {
             workflow: "topic-synthesis".to_string(),
             selection: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
@@ -3290,6 +3082,7 @@ mod tests {
 
     #[test]
     fn maps_workflow_submit_none_selection() {
+        contract::set_current_command("workflow submit");
         let input = workflow_submit_input(WorkflowSubmitArgs {
             workflow: "global-workflow".to_string(),
             selection: None,
@@ -3314,6 +3107,7 @@ mod tests {
 
     #[test]
     fn maps_workflow_agent_run_to_bridge_input() {
+        contract::set_current_command("workflow agent-run");
         let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
             workflow: "topic-synthesis".to_string(),
             selection: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
@@ -3366,6 +3160,7 @@ mod tests {
 
     #[test]
     fn maps_workflow_agent_run_items_from_file() {
+        contract::set_current_command("workflow agent-run");
         let path = std::env::temp_dir().join(format!(
             "zotero-bridge-agent-run-items-{}.json",
             std::process::id()
@@ -3384,6 +3179,7 @@ mod tests {
 
     #[test]
     fn maps_workflow_describe_to_bridge_input() {
+        contract::set_current_command("workflow describe");
         let input = workflow_describe_input(WorkflowDescribeArgs {
             workflow: "topic-synthesis".to_string(),
             workflow_options: Some("{\"language\":\"en-US\"}".to_string()),
@@ -3402,6 +3198,7 @@ mod tests {
 
     #[test]
     fn maps_workflow_provider_profile_commands_without_workflow_context() {
+        contract::set_current_command("workflow profile validate");
         assert_eq!(
             workflow_profile_describe_input(WorkflowProfileDescribeArgs {
                 backend: "acp-opencode".to_string(),
@@ -3427,6 +3224,7 @@ mod tests {
 
     #[test]
     fn resolves_default_provider_profile_only_when_explicit_is_absent() {
+        contract::set_current_command("workflow submit");
         let default = Some("{\"backendId\":\"default-backend\"}");
         assert_eq!(
             resolved_provider_profile_arg(Some("{}"), default).unwrap(),
@@ -3687,7 +3485,10 @@ mod tests {
         .unwrap();
         let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: root.clone(),
-            page: PageArgs { cursor: None, limit: None },
+            page: PageArgs {
+                cursor: None,
+                limit: None,
+            },
         })
         .unwrap();
         assert_eq!(inspection["agentRunId"], "agent-run-1");
@@ -3753,7 +3554,10 @@ mod tests {
         );
         let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: handoff_zip,
-            page: PageArgs { cursor: None, limit: None },
+            page: PageArgs {
+                cursor: None,
+                limit: None,
+            },
         })
         .unwrap();
         assert_eq!(inspection["agentRunId"], "agent-run-zip");
@@ -3795,7 +3599,10 @@ mod tests {
         fs::write(&zip, b"PK\x03\x04").unwrap();
         let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: zip.clone(),
-            page: PageArgs { cursor: None, limit: None },
+            page: PageArgs {
+                cursor: None,
+                limit: None,
+            },
         })
         .unwrap_err();
         assert_eq!(error.code, "invalid_bundle_archive");
@@ -3811,7 +3618,10 @@ mod tests {
         write_test_zip(&zip, &[("../outside.json".to_string(), b"{}".to_vec())]);
         let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: zip.clone(),
-            page: PageArgs { cursor: None, limit: None },
+            page: PageArgs {
+                cursor: None,
+                limit: None,
+            },
         })
         .unwrap_err();
         assert_eq!(error.code, "invalid_bundle_path");
@@ -3848,7 +3658,10 @@ mod tests {
         );
         let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: zip.clone(),
-            page: PageArgs { cursor: None, limit: None },
+            page: PageArgs {
+                cursor: None,
+                limit: None,
+            },
         })
         .unwrap_err();
         assert_eq!(error.code, "bundle_entry_too_large");

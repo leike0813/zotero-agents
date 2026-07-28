@@ -1,0 +1,525 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/schemas/host-bridge-cli-command-contracts.v2.schema.json",
+  "title": "Zotero Bridge executable command contracts v2",
+  "type": "object",
+  "required": ["schema", "protocol", "cliSchema", "commands"],
+  "properties": {
+    "schema": {
+      "const": "zotero-bridge.command-contracts.v2"
+    },
+    "protocol": {
+      "const": "host-bridge.v2"
+    },
+    "cliSchema": {
+      "const": "zotero-bridge.cli.v5"
+    },
+    "commands": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/command"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "jsonSchema": {
+      "type": "object"
+    },
+    "example": {
+      "type": "object",
+      "required": ["kind", "value", "prerequisites"],
+      "properties": {
+        "kind": {
+          "enum": ["shape-only", "executable"]
+        },
+        "value": true,
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "required": [
+        "token",
+        "required",
+        "requiredWhen",
+        "schemaSource",
+        "examples"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "requiredWhen": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "schema": {
+          "$ref": "#/$defs/jsonSchema"
+        },
+        "schemaSource": {
+          "enum": ["inline", "target-capability", "composition"]
+        },
+        "examples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/example"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schemaSource": {
+                "const": "inline"
+              }
+            },
+            "required": ["schemaSource"]
+          },
+          "then": {
+            "required": ["schema"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schemaSource": {
+                "enum": ["target-capability", "composition"]
+              }
+            },
+            "required": ["schemaSource"]
+          },
+          "then": {
+            "not": {
+              "required": ["schema"]
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "const": "local"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "capability", "method", "path"],
+          "properties": {
+            "kind": {
+              "const": "capability"
+            },
+            "capability": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "const": "POST"
+            },
+            "path": {
+              "const": "/bridge/v2/call"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "method", "path"],
+          "properties": {
+            "kind": {
+              "const": "dynamic-capability"
+            },
+            "method": {
+              "const": "POST"
+            },
+            "path": {
+              "const": "/bridge/v2/call"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "method", "path"],
+          "properties": {
+            "kind": {
+              "const": "endpoint"
+            },
+            "method": {
+              "enum": ["GET", "POST"]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/bridge/v2/"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "outputBoundary": {
+      "type": "object",
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "enum": ["fixed", "cursor", "offset", "limit", "file", "raw"]
+        },
+        "section": {
+          "type": "string",
+          "minLength": 1
+        },
+        "defaultLimit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxLimit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cursorInput": {
+          "type": "string",
+          "minLength": 1
+        },
+        "continuation": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "truncatedField": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fileField": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "compositionMapping": {
+      "type": "object",
+      "required": ["argument", "field", "transform", "required"],
+      "properties": {
+        "argument": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transform": {
+          "enum": [
+            "identity",
+            "trim-string",
+            "path-string",
+            "context-ref",
+            "context-ref-array",
+            "file-id"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {}
+      },
+      "additionalProperties": false
+    },
+    "composition": {
+      "type": "object",
+      "required": ["constants", "mappings"],
+      "properties": {
+        "base": {
+          "type": "object",
+          "required": ["argument"],
+          "properties": {
+            "argument": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "constants": {
+          "type": "object"
+        },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/compositionMapping"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "command": {
+      "type": "object",
+      "required": [
+        "target",
+        "binding",
+        "approval",
+        "effect",
+        "category",
+        "danger",
+        "inputs",
+        "payloadSchemaSource",
+        "resultSchemaSource",
+        "outputBoundary",
+        "pagination",
+        "effects",
+        "approvalContract",
+        "handleTransitions",
+        "recovery",
+        "operationalAliases",
+        "hiddenFromIntentSearch"
+      ],
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "binding": {
+          "enum": ["passthrough", "overlay", "object", "none", "raw"]
+        },
+        "composition": {
+          "$ref": "#/$defs/composition"
+        },
+        "auxiliaryTargets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          }
+        },
+        "approval": {
+          "enum": ["none", "zotero-ui-required", "contract-selected"]
+        },
+        "effect": {
+          "enum": ["read", "state-change", "contract-selected"]
+        },
+        "category": {
+          "enum": ["read", "navigation", "write", "maintenance", "debug"]
+        },
+        "danger": {
+          "enum": ["none", "review", "high"]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/input"
+          }
+        },
+        "payloadSchema": {
+          "$ref": "#/$defs/jsonSchema"
+        },
+        "payloadSchemaSource": {
+          "enum": ["inline", "target-capability"]
+        },
+        "resultSchema": {
+          "$ref": "#/$defs/jsonSchema"
+        },
+        "resultSchemaSource": {
+          "enum": ["inline", "target-capability-envelope"]
+        },
+        "outputBoundary": {
+          "$ref": "#/$defs/outputBoundary"
+        },
+        "pagination": {
+          "enum": ["none", "cursor", "file"]
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "approvalContract": {
+          "type": "object"
+        },
+        "handleTransitions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "recovery": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "operationalAliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hiddenFromIntentSearch": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "capability"
+                  }
+                },
+                "required": ["kind"]
+              },
+              "binding": {
+                "enum": ["overlay", "object"]
+              }
+            },
+            "required": ["target", "binding"]
+          },
+          "then": {
+            "required": ["composition"]
+          },
+          "else": {
+            "not": {
+              "required": ["composition"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "binding": {
+                "const": "overlay"
+              }
+            },
+            "required": ["binding"]
+          },
+          "then": {
+            "properties": {
+              "composition": {
+                "required": ["base"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "binding": {
+                "const": "object"
+              }
+            },
+            "required": ["binding"]
+          },
+          "then": {
+            "properties": {
+              "composition": {
+                "not": {
+                  "required": ["base"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "payloadSchemaSource": {
+                "const": "inline"
+              }
+            },
+            "required": ["payloadSchemaSource"]
+          },
+          "then": {
+            "required": ["payloadSchema"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "payloadSchemaSource": {
+                "const": "target-capability"
+              }
+            },
+            "required": ["payloadSchemaSource"]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "capability"
+                  }
+                },
+                "required": ["kind"]
+              }
+            },
+            "not": {
+              "required": ["payloadSchema"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resultSchemaSource": {
+                "const": "inline"
+              }
+            },
+            "required": ["resultSchemaSource"]
+          },
+          "then": {
+            "required": ["resultSchema"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resultSchemaSource": {
+                "const": "target-capability-envelope"
+              }
+            },
+            "required": ["resultSchemaSource"]
+          },
+          "then": {
+            "not": {
+              "required": ["resultSchema"]
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -32,34 +32,13 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id to validate"
-    },
-    "selection": {
-      "type": "string",
-      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-    },
-    "none": {
-      "type": "boolean",
-      "description": "Validate a no-selection workflow"
-    },
-    "workflow-options": {
-      "type": "string",
-      "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [
-    "workflow"
-  ],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "selection",
-          "none"
+          "none",
+          "selection"
         ]
       }
     },
@@ -78,7 +57,28 @@ The global options may appear before or after the leaf command. Use `--schema` t
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "none": {
+      "description": "Validate a no-selection workflow",
+      "type": "boolean"
+    },
+    "selection": {
+      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id to validate",
+      "type": "string"
+    },
+    "workflow-options": {
+      "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow"
+  ],
+  "type": "object"
 }
 ```
 
@@ -90,37 +90,17 @@ Required: `false`; condition: Required unless --none is supplied..
 
 ```json
 {
-  "type": "array",
-  "minItems": 1,
   "items": {
     "oneOf": [
       {
-        "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "type": "string"
       },
       {
         "type": "integer"
       },
       {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1
-          },
-          "id": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          },
-          "libraryId": {
-            "type": [
-              "integer",
-              "string"
-            ]
-          }
-        },
+        "additionalProperties": false,
         "anyOf": [
           {
             "required": [
@@ -133,10 +113,30 @@ Required: `false`; condition: Required unless --none is supplied..
             ]
           }
         ],
-        "additionalProperties": false
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "libraryId": {
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
       }
     ]
-  }
+  },
+  "minItems": 1,
+  "type": "array"
 }
 ```
 
@@ -146,9 +146,9 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
-  "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
   "additionalProperties": true,
+  "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
+  "type": "object",
   "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
 }
 ```
@@ -157,40 +157,46 @@ Required: `false`.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "workflow": {
-      "type": "string",
-      "description": "Workflow id to validate"
-    },
     "selection": {
-      "type": "string",
-      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
+      "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "type": "string"
+    },
+    "workflow": {
+      "description": "Workflow id to validate",
+      "type": "string"
     },
     "workflow_options": {
-      "type": "string",
-      "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
+      "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
     "response": {
-      "type": "object",
-      "description": "Response object returned by POST /bridge/v1/workflows/validate.",
       "additionalProperties": true,
+      "description": "Response object returned by POST /bridge/v2/workflows/validate.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
@@ -227,43 +233,251 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow validate",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow id to validate",
+      "id": "workflow",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
+    },
+    {
+      "aliases": [
+        "items"
+      ],
+      "conflictsWith": [
+        "none"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+      "id": "selection",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--selection",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "selection"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Validate a no-selection workflow",
+      "id": "none",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--none",
+      "valueNames": [
+        "NONE"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Workflow options JSON object, file path, @file, or '-' for stdin",
+      "id": "workflow_options",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-options",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "validate"
   ],
-  "summary": "Validate workflow input without starting execution",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to validate"
-      },
-      "selection": {
-        "type": "string",
-        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
-      },
-      "none": {
-        "type": "boolean",
-        "description": "Validate a no-selection workflow"
-      },
-      "workflow-options": {
-        "type": "string",
-        "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "workflow",
+      "required": true,
+      "takesValue": true,
+      "token": "--workflow",
+      "valueNames": [
+        "WORKFLOW"
+      ]
     },
-    "required": [
-      "workflow"
-    ],
+    {
+      "kind": "option",
+      "property": "selection",
+      "required": false,
+      "takesValue": true,
+      "token": "--selection",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "none",
+      "required": false,
+      "takesValue": false,
+      "token": "--none",
+      "valueNames": [
+        "NONE"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "workflow-options",
+      "required": false,
+      "takesValue": true,
+      "token": "--workflow-options",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
+  "binding": "overlay",
+  "category": "read",
+  "command": "workflow validate",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {
+    "selection": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --selection.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": [
+            "example"
+          ]
+        }
+      ],
+      "required": false,
+      "requiredWhen": [
+        "Required unless --none is supplied."
+      ],
+      "schema": {
+        "items": {
+          "oneOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "additionalProperties": false,
+              "anyOf": [
+                {
+                  "required": [
+                    "key"
+                  ]
+                },
+                {
+                  "required": [
+                    "id"
+                  ]
+                }
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "libraryId": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "schemaSource": "inline",
+      "token": "--selection"
+    },
+    "workflow_options": {
+      "examples": [
+        {
+          "description": "Minimal JSON shape for --workflow-options.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
+          ],
+          "value": {}
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
+        "type": "object",
+        "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
+      },
+      "schemaSource": "inline",
+      "token": "--workflow-options"
+    }
+  },
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "selection",
-            "none"
+            "none",
+            "selection"
           ]
         }
       },
@@ -282,284 +496,29 @@ This closed descriptor is the machine-readable command contract returned by `sur
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Workflow id to validate",
-      "valueNames": [
-        "WORKFLOW"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "selection",
-      "kind": "option",
-      "token": "--selection",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "none"
-      ],
-      "repeatable": false,
-      "aliases": [
-        "items"
-      ],
-      "defaultValues": []
-    },
-    {
-      "id": "none",
-      "kind": "option",
-      "token": "--none",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Validate a no-selection workflow",
-      "valueNames": [
-        "NONE"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [
-        "selection"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "workflow_options",
-      "kind": "option",
-      "token": "--workflow-options",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Workflow options JSON object, file path, @file, or '-' for stdin",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "workflow",
-      "kind": "option",
-      "token": "--workflow",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "WORKFLOW"
-      ]
-    },
-    {
-      "property": "selection",
-      "kind": "option",
-      "token": "--selection",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    },
-    {
-      "property": "none",
-      "kind": "option",
-      "token": "--none",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "NONE"
-      ]
-    },
-    {
-      "property": "workflow-options",
-      "kind": "option",
-      "token": "--workflow-options",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "JSON_OR_FILE"
-      ]
-    }
-  ],
-  "inputSchemas": {
-    "selection": {
-      "token": "--selection",
-      "required": false,
-      "requiredWhen": [
-        "Required unless --none is supplied."
-      ],
-      "schema": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "oneOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "id": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                },
-                "libraryId": {
-                  "type": [
-                    "integer",
-                    "string"
-                  ]
-                }
-              },
-              "anyOf": [
-                {
-                  "required": [
-                    "key"
-                  ]
-                },
-                {
-                  "required": [
-                    "id"
-                  ]
-                }
-              ],
-              "additionalProperties": false
-            }
-          ]
-        }
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": [
-            "example"
-          ],
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --selection."
-        }
-      ]
-    },
-    "workflow_options": {
-      "token": "--workflow-options",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "description": "Workflow-declared option values are intentionally open and are validated by the selected workflow.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The selected workflow manifest owns its option vocabulary."
-      },
-      "examples": [
-        {
-          "kind": "shape-only",
-          "value": {},
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "description": "Minimal JSON shape for --workflow-options."
-        }
-      ]
-    }
-  },
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "workflow": {
-        "type": "string",
-        "description": "Workflow id to validate"
+      "none": {
+        "description": "Validate a no-selection workflow",
+        "type": "boolean"
       },
       "selection": {
-        "type": "string",
-        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
+        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+        "type": "string"
       },
-      "workflow_options": {
-        "type": "string",
-        "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
+      "workflow": {
+        "description": "Workflow id to validate",
+        "type": "string"
+      },
+      "workflow-options": {
+        "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
-    "required": [],
-    "additionalProperties": false
+    "required": [
+      "workflow"
+    ],
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by POST /bridge/v1/workflows/validate.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/validate"
-    }
-  ],
   "operationalAliases": [
     "workflow validate",
     "workflow",
@@ -572,9 +531,72 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "workflow_options",
     "workflow-options"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "selection": {
+        "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
+        "type": "string"
+      },
+      "workflow": {
+        "description": "Workflow id to validate",
+        "type": "string"
+      },
+      "workflow_options": {
+        "description": "Workflow options JSON object, file path, @file, or '-' for stdin",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by POST /bridge/v2/workflows/validate.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Validate workflow input without starting execution",
+  "targets": [
+    {
+      "kind": "endpoint",
+      "target": "POST /bridge/v2/workflows/validate"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -582,6 +604,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `overlay`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow validate`, `workflow`, `validate`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`.
 
@@ -590,9 +613,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -602,8 +625,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -619,11 +642,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -634,7 +657,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/validate"
+    "target": "POST /bridge/v2/workflows/validate"
   }
 ]
 ```

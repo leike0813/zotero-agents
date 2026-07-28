@@ -29,18 +29,18 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agent_run_id": {
-      "type": "string",
       "description": "Agent run id returned by workflow agent-run",
-      "position": 1
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "agent_run_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -52,49 +52,55 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agent_run_id": {
-      "type": "string",
-      "description": "Agent run id returned by workflow agent-run"
+      "description": "Agent run id returned by workflow agent-run",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
+    "abandonable": {
+      "type": "boolean"
+    },
+    "abandonedAt": {
+      "type": "string"
+    },
     "agentRunId": {
-      "type": "string"
-    },
-    "workflowId": {
-      "type": "string"
-    },
-    "state": {
       "type": "string"
     },
     "leaseExpiresAt": {
       "type": "string"
     },
-    "retentionExpiresAt": {
-      "type": "string"
-    },
     "renewable": {
-      "type": "boolean"
-    },
-    "abandonable": {
       "type": "boolean"
     },
     "renewedAt": {
       "type": "string"
     },
-    "abandonedAt": {
+    "retentionExpiresAt": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "workflowId": {
       "type": "string"
     }
   },
@@ -107,7 +113,7 @@ This command has no structured JSON input parameter.
     "renewable",
     "abandonable"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -121,101 +127,144 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow agent-renew",
-  "argv": [
-    "workflow",
-    "agent-renew"
-  ],
-  "summary": "Renew an unconsumed agent-run lease",
-  "category": "write",
-  "danger": "review",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "agent_run_id": {
-        "type": "string",
-        "description": "Agent run id returned by workflow agent-run",
-        "position": 1
-      }
-    },
-    "required": [
-      "agent_run_id"
-    ],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "agent_run_id",
-      "kind": "positional",
-      "token": "AGENT_RUN_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Agent run id returned by workflow agent-run",
-      "valueNames": [
-        "AGENT_RUN_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "agent_run_id",
+      "id": "agent_run_id",
       "kind": "positional",
-      "token": "AGENT_RUN_ID",
       "position": 1,
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": true,
+      "takesValue": true,
+      "token": "AGENT_RUN_ID",
       "valueNames": [
         "AGENT_RUN_ID"
       ]
     }
   ],
+  "argv": [
+    "workflow",
+    "agent-renew"
+  ],
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "agent_run_id",
+      "required": true,
+      "takesValue": true,
+      "token": "AGENT_RUN_ID",
+      "valueNames": [
+        "AGENT_RUN_ID"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "write",
+  "command": "workflow agent-renew",
+  "composition": null,
+  "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "agentRunId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "agent_run_id": {
-        "type": "string",
-        "description": "Agent run id returned by workflow agent-run"
+        "description": "Agent run id returned by workflow agent-run",
+        "position": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "agent_run_id"
+    ],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "workflow agent-renew",
+    "workflow",
+    "agent-renew",
+    "agent_run_id",
+    "AGENT_RUN_ID"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "agent_run_id": {
+        "description": "Agent run id returned by workflow agent-run",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
+      "abandonable": {
+        "type": "boolean"
+      },
+      "abandonedAt": {
+        "type": "string"
+      },
       "agentRunId": {
-        "type": "string"
-      },
-      "workflowId": {
-        "type": "string"
-      },
-      "state": {
         "type": "string"
       },
       "leaseExpiresAt": {
         "type": "string"
       },
-      "retentionExpiresAt": {
-        "type": "string"
-      },
       "renewable": {
-        "type": "boolean"
-      },
-      "abandonable": {
         "type": "boolean"
       },
       "renewedAt": {
         "type": "string"
       },
-      "abandonedAt": {
+      "retentionExpiresAt": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      },
+      "workflowId": {
         "type": "string"
       }
     },
@@ -228,58 +277,29 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "renewable",
       "abandonable"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "agentRunId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Renew an unconsumed agent-run lease",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew"
+      "target": "POST /bridge/v2/workflows/agent-runs/{agentRunId}/renew"
     }
-  ],
-  "operationalAliases": [
-    "workflow agent-renew",
-    "workflow",
-    "agent-renew",
-    "agent_run_id",
-    "AGENT_RUN_ID"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
@@ -287,6 +307,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow agent-renew`, `workflow`, `agent-renew`, `agent_run_id`, `AGENT_RUN_ID`.
 
@@ -295,9 +316,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   }
 ]
 ```
@@ -307,8 +328,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -317,11 +338,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "agentRunId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "agentRunId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -331,11 +352,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
@@ -346,7 +367,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew"
+    "target": "POST /bridge/v2/workflows/agent-runs/{agentRunId}/renew"
   }
 ]
 ```

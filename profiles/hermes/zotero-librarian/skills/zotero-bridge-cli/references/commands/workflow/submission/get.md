@@ -31,26 +31,26 @@ The global options may appear before or after the leaf command. This leaf has no
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "submission_id": {
-      "type": "string",
-      "description": "Opaque submission id returned by workflow submit",
-      "position": 1
-    },
     "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor for submission units"
+      "description": "Opaque continuation cursor for submission units",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of submission units (1-100)"
+      "description": "Maximum number of submission units (1-100)",
+      "type": "string"
+    },
+    "submission_id": {
+      "description": "Opaque submission id returned by workflow submit",
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "submission_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -62,31 +62,34 @@ This command has no structured JSON input parameter.
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "submission_id": {
-      "type": "string",
-      "description": "Opaque submission id returned by workflow submit"
+      "description": "Opaque submission id returned by workflow submit",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "submissionId": {
-      "type": "string"
+    "admitted": {
+      "type": "integer"
     },
-    "workflowId": {
-      "type": "string"
-    },
-    "workflowLabel": {
+    "backendId": {
       "type": "string"
     },
     "backendType": {
@@ -95,29 +98,15 @@ This command has no structured JSON input parameter.
         "skillrunner"
       ]
     },
-    "backendId": {
-      "type": "string"
-    },
-    "total": {
-      "type": "integer"
+    "hasMore": {
+      "type": "boolean"
     },
     "initiallySkipped": {
       "type": "integer"
     },
-    "pending": {
+    "limit": {
+      "minimum": 0,
       "type": "integer"
-    },
-    "admitted": {
-      "type": "integer"
-    },
-    "settled": {
-      "type": "integer"
-    },
-    "units": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
     },
     "nextCursor": {
       "type": [
@@ -125,16 +114,33 @@ This command has no structured JSON input parameter.
         "null"
       ]
     },
-    "hasMore": {
-      "type": "boolean"
+    "pending": {
+      "type": "integer"
     },
     "returned": {
-      "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "type": "integer"
     },
-    "limit": {
-      "type": "integer",
-      "minimum": 0
+    "settled": {
+      "type": "integer"
+    },
+    "submissionId": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "units": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "workflowLabel": {
+      "type": "string"
     }
   },
   "required": [
@@ -148,7 +154,7 @@ This command has no structured JSON input parameter.
     "settled",
     "units"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -162,146 +168,202 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "workflow submission get",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque submission id returned by workflow submit",
+      "id": "submission_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "SUBMISSION_ID",
+      "valueNames": [
+        "SUBMISSION_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor for submission units",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of submission units (1-100)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "submission",
     "get"
   ],
-  "summary": "Read one active Zotero-managed workflow submission",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "submission_id",
+      "required": true,
+      "takesValue": true,
+      "token": "SUBMISSION_ID",
+      "valueNames": [
+        "SUBMISSION_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "none",
   "category": "read",
+  "command": "workflow submission get",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required to inspect one active pending/admitted Host submission.",
+      "direction": "consume",
+      "handle": "submissionId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "submission_id": {
-        "type": "string",
-        "description": "Opaque submission id returned by workflow submit",
-        "position": 1
-      },
       "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor for submission units"
+        "description": "Opaque continuation cursor for submission units",
+        "type": "string"
       },
       "limit": {
-        "type": "string",
-        "description": "Maximum number of submission units (1-100)"
+        "description": "Maximum number of submission units (1-100)",
+        "type": "string"
+      },
+      "submission_id": {
+        "description": "Opaque submission id returned by workflow submit",
+        "position": 1,
+        "type": "string"
       }
     },
     "required": [
       "submission_id"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "submission_id",
-      "kind": "positional",
-      "token": "SUBMISSION_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Opaque submission id returned by workflow submit",
-      "valueNames": [
-        "SUBMISSION_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor for submission units",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of submission units (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
+  "operationalAliases": [
+    "workflow submission get",
+    "workflow",
+    "submission",
+    "get",
+    "submission_id",
+    "SUBMISSION_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
-  "argvBindings": [
-    {
-      "property": "submission_id",
-      "kind": "positional",
-      "token": "SUBMISSION_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "SUBMISSION_ID"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
+  "outputBoundary": {
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "units",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
   "payloadSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "submission_id": {
-        "type": "string",
-        "description": "Opaque submission id returned by workflow submit"
+        "description": "Opaque submission id returned by workflow submit",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "submissionId": {
-        "type": "string"
+      "admitted": {
+        "type": "integer"
       },
-      "workflowId": {
-        "type": "string"
-      },
-      "workflowLabel": {
+      "backendId": {
         "type": "string"
       },
       "backendType": {
@@ -310,29 +372,15 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "skillrunner"
         ]
       },
-      "backendId": {
-        "type": "string"
-      },
-      "total": {
-        "type": "integer"
+      "hasMore": {
+        "type": "boolean"
       },
       "initiallySkipped": {
         "type": "integer"
       },
-      "pending": {
+      "limit": {
+        "minimum": 0,
         "type": "integer"
-      },
-      "admitted": {
-        "type": "integer"
-      },
-      "settled": {
-        "type": "integer"
-      },
-      "units": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
       },
       "nextCursor": {
         "type": [
@@ -340,16 +388,33 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "null"
         ]
       },
-      "hasMore": {
-        "type": "boolean"
+      "pending": {
+        "type": "integer"
       },
       "returned": {
-        "type": "integer",
-        "minimum": 0
+        "minimum": 0,
+        "type": "integer"
       },
-      "limit": {
-        "type": "integer",
-        "minimum": 0
+      "settled": {
+        "type": "integer"
+      },
+      "submissionId": {
+        "type": "string"
+      },
+      "total": {
+        "type": "integer"
+      },
+      "units": {
+        "items": {
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "workflowId": {
+        "type": "string"
+      },
+      "workflowLabel": {
+        "type": "string"
       }
     },
     "required": [
@@ -363,81 +428,37 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "settled",
       "units"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "units",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "nextCursor",
-      "hasMore",
-      "returned",
-      "total",
-      "limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "submissionId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required to inspect one active pending/admitted Host submission.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Read one active Zotero-managed workflow submission",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "GET /bridge/v1/workflows/submissions/{submissionId}"
+      "target": "GET /bridge/v2/workflows/submissions/{submissionId}"
     }
-  ],
-  "operationalAliases": [
-    "workflow submission get",
-    "workflow",
-    "submission",
-    "get",
-    "submission_id",
-    "SUBMISSION_ID",
-    "cursor",
-    "CURSOR",
-    "limit",
-    "LIMIT"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `workflow` `submission` `get`.
-- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"units","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- Output boundary: `cursor`; governed details: {"continuation":["nextCursor","hasMore","returned","total","limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"units","strategy":"cursor"}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
@@ -446,9 +467,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -458,8 +479,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -468,11 +489,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "handle": "submissionId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required to inspect one active pending/admitted Host submission.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "submissionId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -482,11 +503,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
@@ -497,7 +518,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/workflows/submissions/{submissionId}"
+    "target": "GET /bridge/v2/workflows/submissions/{submissionId}"
   }
 ]
 ```

@@ -63,6 +63,8 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 
 无论使用哪一种 binding，短小且已审阅的值可用 inline JSON，有意读取 JSON 文件时使用 `@file`，stdin 使用 `-`。已存在的裸路径也会被当作 JSON 文件读取，因此文件解释很重要时应优先使用 `@file`。不得仅因传输语法相同，就把 payload 从 `--query` 移到 `--input`，或反向移动。
 
+参数失败使用 `details.schema: host-bridge.argument-error.v1`，并在 `details.phase` 中标明失败边界。应把 `argv`、`json_source`、`json_syntax`、`command_input`、`payload_composition`、`payload_contract` 与 `command_result` 视为不同故障。遇到 `argv` 时，只能依据 command help 或 `surface describe` 修正已点名的缺失、未知、冲突或无效参数。遇到 `json_source` 与 `json_syntax` 时，先修复选定的 stdin、文件或 inline JSON 源，再查阅领域 schema。遇到 `command_input` 时，检查 `argumentId` 和有界 violations，并对同一叶命令运行 `--schema`；未声明属性不构成重命名或转换字段的许可。遇到 `payload_composition` 时，如果 violation 指向 object ref 或 file id 等可转换值，只修正已点名的 CLI argument；如果声明的 composition 本身缺失或不兼容，应停止并报告 command-contract drift。`payload_contract` 表示 composed payload 与 capability contract 在网络 I/O 前不一致；`command_result` 则表示本地结果或 Host 响应未通过可执行合同，不能当作成功接受。当故障已证明发生在本地时，这三种 phase 都会报告 `stateChange: "unchanged"`；否则应保留返回的 state。violation 条目已经脱敏并设有数量上限；当 `truncated` 为 true 时，应先修正已报告的问题并重新验证，不得要求披露原始 payload。
+
 CLI 没有全局结果输出选项。`file download --output`、`product download --output-dir` 及其 local alias、`workflow agent-run --output-dir` 的 destination 与 overwrite contract 各不相同。只有 selected leaf descriptor 明确声明时，才能使用对应输出选项。
 
 ## Command discovery and invocation

@@ -1,6 +1,6 @@
 # `zotero-bridge surface search`
 
-按 task intent 搜索 canonical command
+Search canonical commands by task intent
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --intent <INTENT> [--limit <LIMIT>] [--include-debug] [--json]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -24,7 +24,7 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 | Token | Id | 类型 | 必填 | 条件必填 | 值 / 数量 | 可重复 | 环境变量 | 冲突 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --intent | intent | option | yes | — | INTENT | no | — | — | Natural-language task intent |
-| --limit | limit | option | no | — | LIMIT; default: 10 | no | — | — | Maximum number of ranked matches (1-100) |
+| --limit | limit | option | no | — | LIMIT; default: 10 | no | — | — | Maximum number of ranked matches (1-20) |
 | --include-debug | include_debug | option | no | — | INCLUDE_DEBUG; values: true, false | no | — | — | Include raw and debug commands in intent recommendations |
 | --json | json | option | no | — | JSON; values: true, false | no | — | — | Emit JSON (the CLI output contract is always JSON) |
 
@@ -32,29 +32,29 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "intent": {
-      "type": "string",
-      "description": "Natural-language task intent"
-    },
-    "limit": {
-      "type": "string",
-      "description": "Maximum number of ranked matches (1-20)"
-    },
     "include-debug": {
-      "type": "boolean",
-      "description": "Include raw and debug commands in intent recommendations"
+      "description": "Include raw and debug commands in intent recommendations",
+      "type": "boolean"
+    },
+    "intent": {
+      "description": "Natural-language task intent",
+      "type": "string"
     },
     "json": {
-      "type": "boolean",
-      "description": "Emit JSON (the CLI output contract is always JSON)"
+      "description": "Emit JSON (the CLI output contract is always JSON)",
+      "type": "boolean"
+    },
+    "limit": {
+      "description": "Maximum number of ranked matches (1-20)",
+      "type": "string"
     }
   },
   "required": [
     "intent"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -62,283 +62,235 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "intent": {
-      "type": "string",
-      "description": "Natural-language task intent"
+      "description": "Natural-language task intent",
+      "type": "string"
     },
     "limit": {
-      "type": "string",
-      "description": "Maximum number of ranked matches (1-100)"
+      "description": "Maximum number of ranked matches (1-100)",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": true,
   "properties": {
-    "response": {
-      "type": "object",
-      "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-    },
     "items": {
       "type": "array"
+    },
+    "response": {
+      "additionalProperties": true,
+      "description": "Response object returned by the derived host-bridge.agent-surface.v6.",
+      "type": "object",
+      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
     },
     "truncated": {
       "type": "boolean"
     }
   },
-  "additionalProperties": true,
+  "type": "object",
   "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "surface search",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Natural-language task intent",
+      "id": "intent",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "--intent",
+      "valueNames": [
+        "INTENT"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [
+        "10"
+      ],
+      "global": false,
+      "help": "Maximum number of ranked matches (1-20)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Include raw and debug commands in intent recommendations",
+      "id": "include_debug",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--include-debug",
+      "valueNames": [
+        "INCLUDE_DEBUG"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Emit JSON (the CLI output contract is always JSON)",
+      "id": "json",
+      "kind": "option",
+      "possibleValues": [
+        "true",
+        "false"
+      ],
+      "repeatable": false,
+      "required": false,
+      "takesValue": false,
+      "token": "--json",
+      "valueNames": [
+        "JSON"
+      ]
+    }
+  ],
   "argv": [
     "surface",
     "search"
   ],
-  "summary": "Search canonical commands by task intent",
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "intent",
+      "required": true,
+      "takesValue": true,
+      "token": "--intent",
+      "valueNames": [
+        "INTENT"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "include-debug",
+      "required": false,
+      "takesValue": false,
+      "token": "--include-debug",
+      "valueNames": [
+        "INCLUDE_DEBUG"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "json",
+      "required": false,
+      "takesValue": false,
+      "token": "--json",
+      "valueNames": [
+        "JSON"
+      ]
+    }
+  ],
+  "binding": "none",
   "category": "read",
+  "command": "surface search",
+  "composition": null,
   "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "intent": {
-        "type": "string",
-        "description": "Natural-language task intent"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of ranked matches (1-20)"
-      },
       "include-debug": {
-        "type": "boolean",
-        "description": "Include raw and debug commands in intent recommendations"
+        "description": "Include raw and debug commands in intent recommendations",
+        "type": "boolean"
+      },
+      "intent": {
+        "description": "Natural-language task intent",
+        "type": "string"
       },
       "json": {
-        "type": "boolean",
-        "description": "Emit JSON (the CLI output contract is always JSON)"
+        "description": "Emit JSON (the CLI output contract is always JSON)",
+        "type": "boolean"
+      },
+      "limit": {
+        "description": "Maximum number of ranked matches (1-20)",
+        "type": "string"
       }
     },
     "required": [
       "intent"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "intent",
-      "kind": "option",
-      "token": "--intent",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Natural-language task intent",
-      "valueNames": [
-        "INTENT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of ranked matches (1-20)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": [
-        "10"
-      ]
-    },
-    {
-      "id": "include_debug",
-      "kind": "option",
-      "token": "--include-debug",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Include raw and debug commands in intent recommendations",
-      "valueNames": [
-        "INCLUDE_DEBUG"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "json",
-      "kind": "option",
-      "token": "--json",
-      "takesValue": false,
-      "required": false,
-      "global": false,
-      "help": "Emit JSON (the CLI output contract is always JSON)",
-      "valueNames": [
-        "JSON"
-      ],
-      "possibleValues": [
-        "true",
-        "false"
-      ],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "intent",
-      "kind": "option",
-      "token": "--intent",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "INTENT"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    },
-    {
-      "property": "include-debug",
-      "kind": "option",
-      "token": "--include-debug",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "INCLUDE_DEBUG"
-      ]
-    },
-    {
-      "property": "json",
-      "kind": "option",
-      "token": "--json",
-      "takesValue": false,
-      "required": false,
-      "valueNames": [
-        "JSON"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
-    "properties": {
-      "intent": {
-        "type": "string",
-        "description": "Natural-language task intent"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of ranked matches (1-100)"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "response": {
-        "type": "object",
-        "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
-      },
-      "items": {
-        "type": "array"
-      },
-      "truncated": {
-        "type": "boolean"
-      }
-    },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
-  },
-  "outputBoundary": {
-    "strategy": "limit",
-    "section": "items",
-    "defaultLimit": 10,
-    "maxLimit": 20,
-    "truncatedField": "truncated"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true."
-    }
-  ],
-  "targets": [
-    {
-      "kind": "service",
-      "target": "embedded host-bridge.agent-surface.v5"
-    }
-  ],
   "operationalAliases": [
     "surface search",
     "surface",
@@ -353,26 +305,96 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
     "json",
     "JSON"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "defaultLimit": 10,
+    "maxLimit": 20,
+    "section": "items",
+    "strategy": "limit",
+    "truncatedField": "truncated"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "intent": {
+        "description": "Natural-language task intent",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of ranked matches (1-100)",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": true,
+    "properties": {
+      "items": {
+        "type": "array"
+      },
+      "response": {
+        "additionalProperties": true,
+        "description": "Response object returned by the derived host-bridge.agent-surface.v6.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "type": "object",
+    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "summary": "Search canonical commands by task intent",
+  "targets": [
+    {
+      "kind": "service",
+      "target": "embedded host-bridge.agent-surface.v6"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `surface` `search`.
-- 输出边界： `limit`; governed details: {"strategy":"limit","section":"items","defaultLimit":10,"maxLimit":20,"truncatedField":"truncated"}.
+- 输出边界： `limit`；受管详情： {"defaultLimit":10,"maxLimit":20,"section":"items","strategy":"limit","truncatedField":"truncated"}.
 - 分页： `none`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `none`.
+- intent 可见性： `visible`.
 - 操作别名： `surface search`, `surface`, `search`, `intent`, `INTENT`, `limit`, `LIMIT`, `include_debug`, `include-debug`, `INCLUDE_DEBUG`, `json`, `JSON`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -382,12 +404,12 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -399,21 +421,21 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
+    "action": "Inspect the error and retry only when retryable is true.",
     "requiresHandles": [],
-    "action": "Inspect the error and retry only when retryable is true."
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "service",
-    "target": "embedded host-bridge.agent-surface.v5"
+    "target": "embedded host-bridge.agent-surface.v6"
   }
 ]
 ```

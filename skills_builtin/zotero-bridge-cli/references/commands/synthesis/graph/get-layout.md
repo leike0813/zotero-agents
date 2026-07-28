@@ -29,15 +29,15 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "query": {
-      "type": "string",
-      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,15 +49,9 @@ Required: `false`.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "query": {
-      "type": "string",
-      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
@@ -65,52 +59,58 @@ Required: `false`.
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "query": {
-      "type": "string",
-      "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
+
+## Payload composition
+
+This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.
+
+`composition`: `null`.
 
 ## Result schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "citation_graph.get_layout"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by citation_graph.get_layout.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by citation_graph.get_layout.",
       "properties": {
-        "nodes": {
-          "type": "array"
-        },
         "diagnostics": {
-          "type": "object",
+          "additionalProperties": true,
           "properties": {
             "truncated": {
               "type": "boolean"
             }
           },
-          "additionalProperties": true
+          "type": "object"
+        },
+        "nodes": {
+          "type": "array"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -134,167 +134,98 @@ This closed descriptor is the machine-readable command contract returned by `sur
 
 ```json
 {
-  "command": "synthesis graph get-layout",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [
+        "input"
+      ],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "query",
+      "kind": "option",
+      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--query",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "synthesis",
     "graph",
     "get-layout"
   ],
-  "summary": "Read persisted citation graph layout coordinates",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "query",
-      "kind": "option",
-      "token": "--query",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [
-        "input"
-      ],
-      "defaultValues": []
-    }
-  ],
   "argvBindings": [
     {
-      "property": "query",
       "kind": "option",
-      "token": "--query",
-      "takesValue": true,
+      "property": "query",
       "required": false,
+      "takesValue": true,
+      "token": "--query",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "binding": "passthrough",
+  "category": "read",
+  "command": "synthesis graph get-layout",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "query": {
-      "token": "--query",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
       "examples": [
         {
+          "description": "Minimal JSON shape for --query.",
           "kind": "shape-only",
-          "value": {},
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "description": "Minimal JSON shape for --query."
+          "value": {}
         }
-      ]
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "type": "object",
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "schemaSource": "target-capability",
+      "token": "--query"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "query": {
-        "type": "string",
-        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin"
+        "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by citation_graph.get_layout.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "nodes": {
-            "type": "array"
-          },
-          "diagnostics": {
-            "type": "object",
-            "properties": {
-              "truncated": {
-                "type": "boolean"
-              }
-            },
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "limit",
-    "section": "data.nodes",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "truncatedField": "data.diagnostics.truncated"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "citation_graph.get_layout"
-    }
-  ],
   "operationalAliases": [
     "synthesis graph get-layout",
     "synthesis",
@@ -303,16 +234,95 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "query",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.nodes",
+    "strategy": "limit",
+    "truncatedField": "data.diagnostics.truncated"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": true,
+    "type": "object",
+    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "citation_graph.get_layout"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by citation_graph.get_layout.",
+        "properties": {
+          "diagnostics": {
+            "additionalProperties": true,
+            "properties": {
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "nodes": {
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Read persisted citation graph layout coordinates",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "citation_graph.get_layout"
+    }
+  ]
 }
 ```
+
+## Parameter failure and recovery contract
+
+Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.
+
+- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
+- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
+- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
+- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
+- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
+- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
 - Canonical argv path: `synthesis` `graph` `get-layout`.
-- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.nodes","defaultLimit":25,"maxLimit":100,"truncatedField":"data.diagnostics.truncated"}.
+- Output boundary: `limit`; governed details: {"defaultLimit":25,"maxLimit":100,"section":"data.nodes","strategy":"limit","truncatedField":"data.diagnostics.truncated"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
+- Structured binding mode: `passthrough`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis graph get-layout`, `synthesis`, `graph`, `get-layout`, `query`, `JSON_OR_FILE`.
 
@@ -321,9 +331,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -333,8 +343,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
@@ -350,11 +360,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```

@@ -47,6 +47,7 @@ export type HostBridgeErrorCode =
   | "collection_not_found"
   | "context_navigation_failed"
   | "invalid_capability_input"
+  | "capability_output_contract_violation"
   | "synthesis_maintenance_idempotency_conflict"
   | "invalid_library_cursor"
   | "invalid_host_bridge_cursor"
@@ -218,11 +219,22 @@ export type HostBridgeCapabilityManifestEntry = {
   summary: string;
   approval: HostBridgeApprovalRequirement;
   requestEffect: "read" | "state-change";
-  input: {
-    type: "none" | "object" | "item-ref" | "mutation-preview";
-    required: boolean;
-    properties?: Record<string, unknown>;
-    requiredProperties?: string[];
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  exposure: {
+    public: boolean;
+    debugOnly: boolean;
+    dangerous: boolean;
+    cacheView: boolean;
+    rawOnly: boolean;
+    mcpMirror: boolean;
+    responseSizing:
+      | "paged"
+      | "limit-bounded"
+      | "selector-bounded"
+      | "file-output"
+      | "bounded-diagnostic"
+      | "unclassified";
   };
 };
 
