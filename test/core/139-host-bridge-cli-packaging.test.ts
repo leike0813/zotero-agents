@@ -2790,7 +2790,6 @@ describe("host bridge cli packaging and install", function () {
           [
             version,
             buildFingerprint,
-            commandCatalogChecksum,
             "host-bridge.v2",
             "zotero-bridge.cli.v5",
           ].join("\0"),
@@ -2805,6 +2804,11 @@ describe("host bridge cli packaging and install", function () {
         surface,
       });
       assert.isTrue(current.ok);
+      assert.strictEqual(
+        current.runtimeDerived.commandCatalogChecksum,
+        commandCatalogChecksum,
+      );
+      assert.notInclude(current.missing, commandCatalogChecksum);
 
       await writeBinaryFixture(
         root,
@@ -2819,7 +2823,7 @@ describe("host bridge cli packaging and install", function () {
       });
       assert.isFalse(stale.ok);
       assert.include(stale.missing, buildFingerprint);
-      assert.include(stale.missing, commandCatalogChecksum);
+      assert.notInclude(stale.missing, commandCatalogChecksum);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

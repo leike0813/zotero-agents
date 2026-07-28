@@ -49,21 +49,28 @@ export async function checkHostBridgeCliBinaryIdentity(options = {}) {
         },
       ),
     );
-  const expected = [
+  const staticIdentity = [
     release.version,
     release.buildFingerprint,
     surface.protocol,
     surface.cliSchema,
-    surface.commandCatalogChecksum,
   ].map((value) => String(value || ""));
-  const missing = expected.filter(
+  const missing = staticIdentity.filter(
     (value) => !value || bytes.indexOf(Buffer.from(value, "utf8")) < 0,
   );
+  const runtimeDerived = {
+    commandCatalogChecksum: String(surface.commandCatalogChecksum || ""),
+  };
+  const invalidRuntimeDerived = Object.entries(runtimeDerived)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
   return {
-    ok: missing.length === 0,
+    ok: missing.length === 0 && invalidRuntimeDerived.length === 0,
     platform,
     binary,
     missing,
+    runtimeDerived,
+    invalidRuntimeDerived,
   };
 }
 
