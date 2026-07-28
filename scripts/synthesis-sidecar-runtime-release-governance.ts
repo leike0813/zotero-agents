@@ -79,7 +79,9 @@ export function readSynthesisSidecarRuntimeBuildRecipe(
       !target.binary.trim() ||
       typeof target.useZig !== "boolean" ||
       typeof target.nativeSmoke !== "boolean" ||
-      target.useZig !== target.platform.startsWith("linux-")
+      target.useZig !==
+        (target.platform.startsWith("linux-") &&
+          target.platform !== "linux-arm64")
     ) {
       throw new Error(
         "Synthesis sidecar build recipe contains an invalid target",

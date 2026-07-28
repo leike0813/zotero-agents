@@ -60,7 +60,7 @@
       "platform": "linux-arm64",
       "target": "aarch64-unknown-linux-gnu",
       "binary": "synthesis-sidecar",
-      "useZig": true,
+      "useZig": false,
       "nativeSmoke": true
     }
   ]

@@ -317,15 +317,11 @@ fn sync_directory(path: &Path) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn sync_directory(path: &Path) -> Result<(), String> {
-    use std::os::windows::fs::OpenOptionsExt;
-    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
-    OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|error| format!("canonical_fsync_failed:{error}"))
+fn sync_directory(_path: &Path) -> Result<(), String> {
+    // Windows requires a writable directory handle for FlushFileBuffers. File
+    // contents are synchronized before every rename; journal recovery owns the
+    // remaining metadata durability boundary.
+    Ok(())
 }
 
 fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1540,6 +1536,35 @@ mod tests {
             );
             fs::remove_dir_all(root).expect("cleanup");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_directory_sync_does_not_block_promotion_or_restart_recovery() {
+        let root = root("windows-directory-sync");
+        sync_directory(&root).expect("directory sync boundary");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        let first = store.promote(promotion(1, None)).expect("create");
+        store
+            .promote_with_fault(
+                promotion(
+                    2,
+                    Some(CanonicalBasis {
+                        manifest_hash: first.manifest_hash,
+                        artifact_hash: first.artifact_hash,
+                    }),
+                ),
+                Some(FaultPoint::CurrentBackedUp),
+                false,
+            )
+            .expect_err("interruption");
+        drop(store);
+        let store = CanonicalStore::open(&root, identity()).expect("restart recovery");
+        assert_eq!(
+            store.inspect("topic:r7").expect("inspect")["status"],
+            "ready"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

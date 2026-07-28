@@ -355,8 +355,16 @@ describe("Synthesis sidecar native runtime packaging", function () {
       recipe.targets
         .filter((target) => target.useZig)
         .map((target) => target.platform),
-      ["linux-x86", "linux-x64", "linux-arm", "linux-arm64"],
+      ["linux-x86", "linux-x64", "linux-arm"],
     );
+    assert.deepInclude(recipe.targets, {
+      runner: "ubuntu-24.04-arm",
+      platform: "linux-arm64",
+      target: "aarch64-unknown-linux-gnu",
+      binary: "synthesis-sidecar",
+      useZig: false,
+      nativeSmoke: true,
+    });
 
     const invalidRecipeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-recipe-"),
@@ -372,6 +380,20 @@ describe("Synthesis sidecar native runtime packaging", function () {
         ...recipe,
         targets: recipe.targets.map((target, index) =>
           index === 0 ? { ...target, target: "invalid-target" } : target,
+        ),
+      }),
+    );
+    assert.throws(() =>
+      readSynthesisSidecarRuntimeBuildRecipe({ root: invalidRecipeRoot }),
+    );
+    fs.writeFileSync(
+      invalidRecipePath,
+      JSON.stringify({
+        ...recipe,
+        targets: recipe.targets.map((target) =>
+          target.platform === "linux-arm64"
+            ? { ...target, useZig: true }
+            : target,
         ),
       }),
     );
@@ -400,6 +422,10 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
     assert.include(workflowSource, "goto-bus-stop/setup-zig@v2");
     assert.include(workflowSource, "cargo install cargo-zigbuild --locked");
+    assert.include(
+      workflowSource,
+      'cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --target "${{ matrix.target }}"',
+    );
     assert.notInclude(workflowSource, "gcc-multilib");
     assert.notInclude(workflowSource, "gcc-arm-linux-gnueabihf");
     assert.include(workflowSource, "--all --check");
@@ -421,6 +447,19 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.notInclude(workflowSource, "node-v24");
     assert.notInclude(workflowSource, "SHASUMS256");
     assert.notInclude(workflowSource, "build-synthesis-rust-sidecar.yml");
+
+    const durableSmokeSource = fs.readFileSync(
+      path.join(ROOT, "scripts/smoke-synthesis-rust-durable-candidate.ts"),
+      "utf8",
+    );
+    assert.notInclude(durableSmokeSource, 'from "node:http"');
+    assert.include(durableSmokeSource, 'from "node:net"');
+    assert.include(durableSmokeSource, 'HTTP/1.1\\r\\n');
+    assert.include(durableSmokeSource, '"content-length": String(body.byteLength)');
+    assert.include(
+      durableSmokeSource,
+      "Health route returned ${healthResponse.status} for ${target}: ${healthResponse.body}",
+    );
   });
 
   it("binds and synchronizes an exact content-addressed seven-target set transactionally", async function () {

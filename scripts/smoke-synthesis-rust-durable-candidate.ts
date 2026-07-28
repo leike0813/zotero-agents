@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import { request as httpRequest } from "node:http";
+import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -143,35 +143,75 @@ async function loopbackRequest(
   } = {},
 ): Promise<LoopbackHttpResponse> {
   const url = new URL(endpoint);
+  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") {
+    throw new Error(`Unsupported loopback endpoint: ${endpoint}`);
+  }
   const body = Buffer.from(options.body || "", "utf8");
+  const port = Number(url.port || "80");
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid loopback port: ${url.port}`);
+  }
+  const headers = {
+    host: `${url.hostname}:${port}`,
+    accept: "application/json",
+    connection: "close",
+    "content-length": String(body.byteLength),
+    ...options.headers,
+  };
+  const request = Buffer.concat([
+    Buffer.from(
+      `${options.method || "GET"} ${url.pathname}${url.search} HTTP/1.1\r\n${Object.entries(
+        headers,
+      )
+        .map(([name, value]) => `${name}: ${value}`)
+        .join("\r\n")}\r\n\r\n`,
+      "utf8",
+    ),
+    body,
+  ]);
   return new Promise((resolve, reject) => {
-    const request = httpRequest(
-      {
-        hostname: url.hostname,
-        port: url.port,
-        method: options.method || "GET",
-        path: `${url.pathname}${url.search}`,
-        headers: {
-          accept: "application/json",
-          connection: "close",
-          "content-length": String(body.byteLength),
-          ...options.headers,
-        },
-      },
-      (response) => {
-        const chunks: Buffer[] = [];
-        response.on("data", (chunk: Buffer) => chunks.push(chunk));
-        response.once("error", reject);
-        response.once("end", () =>
-          resolve({
-            status: response.statusCode || 0,
-            body: Buffer.concat(chunks).toString("utf8"),
-          }),
-        );
-      },
-    );
-    request.once("error", reject);
-    request.end(body);
+    const chunks: Buffer[] = [];
+    const socket = createConnection({ host: url.hostname, port });
+    socket.setTimeout(5_000);
+    socket.once("connect", () => socket.end(request));
+    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+    socket.once("timeout", () => {
+      socket.destroy(new Error("loopback_response_timeout"));
+    });
+    socket.once("error", reject);
+    socket.once("end", () => {
+      const response = Buffer.concat(chunks);
+      const separator = response.indexOf("\r\n\r\n");
+      if (separator < 0) {
+        reject(new Error("loopback_response_headers_invalid"));
+        return;
+      }
+      const [statusLine, ...headerLines] = response
+        .subarray(0, separator)
+        .toString("utf8")
+        .split("\r\n");
+      const status = /^HTTP\/1\.[01] ([0-9]{3})(?: |$)/.exec(statusLine || "");
+      if (!status) {
+        reject(new Error(`loopback_response_status_invalid:${statusLine}`));
+        return;
+      }
+      const headers = Object.fromEntries(
+        headerLines.map((line) => {
+          const separator = line.indexOf(":");
+          return [
+            line.slice(0, separator).toLowerCase(),
+            line.slice(separator + 1).trim(),
+          ];
+        }),
+      );
+      const responseBody = response.subarray(separator + 4);
+      const declaredLength = Number(headers["content-length"] || responseBody.byteLength);
+      if (!Number.isSafeInteger(declaredLength) || declaredLength !== responseBody.byteLength) {
+        reject(new Error("loopback_response_body_invalid"));
+        return;
+      }
+      resolve({ status: Number(status[1]), body: responseBody.toString("utf8") });
+    });
   });
 }
 
@@ -365,7 +405,7 @@ async function main() {
     );
     if (healthResponse.status !== 200) {
       throw new Error(
-        `Health route returned ${healthResponse.status} for ${target}`,
+        `Health route returned ${healthResponse.status} for ${target}: ${healthResponse.body}`,
       );
     }
     const health = responseJson(healthResponse, "health") as Record<

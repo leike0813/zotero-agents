@@ -128,8 +128,8 @@ jobs:
             cargo +${{ needs.plan.outputs.rust_toolchain }} zigbuild --release --locked --target "${{ matrix.target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
             binary="native/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
           else
-            cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
-            binary="native/synthesis-sidecar/target/release/${{ matrix.binary }}"
+            cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --target "${{ matrix.target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            binary="native/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
           fi
           created_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
           npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.platform }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.platform }}"
