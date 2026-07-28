@@ -111,7 +111,7 @@ Rerun the gate after pushing.
 When the gate returns `ready_to_release`, ask for explicit approval to run:
 
 ```powershell
-npm run release -- vX.Y.Z
+npm run release -- vX.Y.Z --yes
 ```
 
 This command is allowed only after the gate confirms:
