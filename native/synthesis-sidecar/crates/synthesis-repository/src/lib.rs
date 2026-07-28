@@ -1573,6 +1573,7 @@ mod tests {
             .expect("operation");
         assert_eq!(operation, "backup-fixture");
         assert_eq!(expected["synt_operation"].as_array().map(Vec::len), Some(1));
+        drop(backup);
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
