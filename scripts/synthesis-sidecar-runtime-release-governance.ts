@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -219,6 +220,34 @@ export async function sha256File(filePath: string) {
   return sha256Bytes(await fs.readFile(filePath));
 }
 
+export function assertSynthesisSidecarRuntimeArchiveLayout(args: {
+  archivePath: string;
+  target: SynthesisSidecarRuntimeTarget;
+}) {
+  const result = spawnSync("tar", ["-tzf", args.archivePath], {
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) {
+    throw (
+      result.error || new Error(`Unable to inspect archive ${args.archivePath}`)
+    );
+  }
+  const entries = result.stdout.split(/\r?\n/).filter(Boolean);
+  if (
+    entries.length === 0 ||
+    entries.some(
+      (entry) =>
+        (entry !== args.target && !entry.startsWith(`${args.target}/`)) ||
+        entry.includes("..") ||
+        entry.startsWith("/"),
+    )
+  ) {
+    throw new Error(
+      `Archive has unsafe or unexpected paths: ${path.basename(args.archivePath)}`,
+    );
+  }
+}
+
 export async function computeSynthesisSidecarRuntimeBuildFingerprint(
   root = process.cwd(),
 ) {
@@ -254,6 +283,7 @@ export async function verifySynthesisSidecarRuntimeBundleDirectory(args: {
   root: string;
   target: SynthesisSidecarRuntimeTarget;
   expectedBuildFingerprint?: string;
+  expectedSourceFingerprint?: string;
   policy?: "candidate" | "production";
   nowMs?: number;
 }) {
@@ -275,6 +305,16 @@ export async function verifySynthesisSidecarRuntimeBundleDirectory(args: {
       code: "build_fingerprint_mismatch",
       expected: args.expectedBuildFingerprint,
       actual: manifest.buildFingerprint,
+    });
+  }
+  if (
+    args.expectedSourceFingerprint &&
+    manifest.provenance.sourceFingerprint !== args.expectedSourceFingerprint
+  ) {
+    diagnostics.push({
+      code: "source_fingerprint_mismatch",
+      expected: args.expectedSourceFingerprint,
+      actual: manifest.provenance.sourceFingerprint,
     });
   }
   if (isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)) {

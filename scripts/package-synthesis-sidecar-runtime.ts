@@ -15,6 +15,7 @@ import {
   computeSynthesisRustSidecarSourceFingerprint,
   computeSynthesisSidecarRuntimeBundleId,
   sha256File,
+  verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
 function argument(name: string) {
@@ -173,6 +174,18 @@ async function main() {
     `${JSON.stringify(manifest, null, 2)}\n`,
     "utf8",
   );
+  const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
+    root: outputRoot,
+    target,
+    expectedBuildFingerprint: build.fingerprint,
+    expectedSourceFingerprint: native.fingerprint,
+    policy: "candidate",
+  });
+  if (!verification.ok) {
+    throw new Error(
+      `Invalid packaged Synthesis sidecar runtime: ${JSON.stringify(verification.diagnostics)}`,
+    );
+  }
   process.stdout.write(
     `${JSON.stringify({
       ok: true,

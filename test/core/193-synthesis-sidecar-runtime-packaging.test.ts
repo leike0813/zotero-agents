@@ -24,7 +24,10 @@ import {
   readSynthesisSidecarRuntimeBuildRecipe,
 } from "../../scripts/synthesis-sidecar-runtime-release-governance";
 import { checkSynthesisSidecarRuntimeFreshness } from "../../scripts/check-synthesis-sidecar-runtime-freshness";
-import { stageSynthesisSidecarRuntimePrebuildSet } from "../../scripts/stage-synthesis-sidecar-runtime-prebuilds";
+import {
+  stageSynthesisSidecarRuntimePrebuildArchives,
+  stageSynthesisSidecarRuntimePrebuildSet,
+} from "../../scripts/stage-synthesis-sidecar-runtime-prebuilds";
 import { syncSynthesisSidecarRuntimePrebuilds } from "../../scripts/sync-synthesis-sidecar-runtime-prebuilds";
 import {
   assertSynthesisSidecarRuntimePrebuildResultIdentity,
@@ -51,6 +54,7 @@ function createBundle(
   options: {
     bundleId?: string;
     buildFingerprint?: string;
+    sourceFingerprint?: string;
     expiresAt?: string | null;
   } = {},
 ) {
@@ -84,7 +88,7 @@ function createBundle(
     createdAt: "2026-07-27T00:00:00.000Z",
     expiresAt: options.expiresAt ?? null,
     provenance: {
-      sourceFingerprint: "c".repeat(64),
+      sourceFingerprint: options.sourceFingerprint || "c".repeat(64),
       toolchain: "nightly-2026-07-25",
       cargoLockSha256: "d".repeat(64),
       licenseInventory: "licenses.json",
@@ -405,6 +409,14 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
     assert.include(workflowSource, "request_id:");
     assert.include(workflowSource, "source_sha:");
+    assert.include(
+      workflowSource,
+      'test "$GITHUB_SHA" = "${{ inputs.source_sha }}"',
+    );
+    assert.include(workflowSource, "rust_source_fingerprint:");
+    assert.include(workflowSource, "SYNTHESIS_RUST_BUILD_FINGERPRINT:");
+    assert.include(workflowSource, "--archive-root=.scaffold/prebuild");
+    assert.notInclude(workflowSource, "mkdir extracted");
     assert.notInclude(workflowSource, "push:");
     assert.notInclude(workflowSource, "node-v24");
     assert.notInclude(workflowSource, "SHASUMS256");
@@ -421,7 +433,10 @@ describe("Synthesis sidecar native runtime packaging", function () {
       writeBundle(
         input,
         target,
-        createBundle(target, { buildFingerprint: build.fingerprint }),
+        createBundle(target, {
+          buildFingerprint: build.fingerprint,
+          sourceFingerprint: "a".repeat(64),
+        }),
       );
     }
     const staged = await stageSynthesisSidecarRuntimePrebuildSet({
@@ -480,6 +495,53 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.isTrue(synced.ok);
     assert.isTrue(
       fs.existsSync(path.join(addon, "linux-arm", "synthesis-sidecar")),
+    );
+
+    const archiveRoot = path.join(root, "archives");
+    fs.mkdirSync(archiveRoot, { recursive: true });
+    for (const archive of staged.archives) {
+      fs.copyFileSync(
+        path.join(store, "sets", staged.aggregate, archive.file),
+        path.join(archiveRoot, archive.file),
+      );
+    }
+    const restaged = await stageSynthesisSidecarRuntimePrebuildArchives({
+      archiveRoot,
+      outputRoot: store,
+      buildFingerprint: build.fingerprint,
+      sourceFingerprint: "a".repeat(64),
+    });
+    assert.equal(restaged.aggregate, staged.aggregate);
+    fs.unlinkSync(path.join(archiveRoot, staged.archives[0]!.file));
+    await stageSynthesisSidecarRuntimePrebuildArchives({
+      archiveRoot,
+      outputRoot: store,
+      buildFingerprint: build.fingerprint,
+      sourceFingerprint: "a".repeat(64),
+    }).then(
+      () => assert.fail("expected missing archive to be rejected"),
+      () => undefined,
+    );
+
+    const sourceMismatchRoot = path.join(root, "source-mismatch");
+    for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
+      writeBundle(
+        sourceMismatchRoot,
+        target,
+        createBundle(target, {
+          buildFingerprint: build.fingerprint,
+          sourceFingerprint: "f".repeat(64),
+        }),
+      );
+    }
+    await stageSynthesisSidecarRuntimePrebuildSet({
+      inputRoot: sourceMismatchRoot,
+      outputRoot: store,
+      buildFingerprint: build.fingerprint,
+      sourceFingerprint: "a".repeat(64),
+    }).then(
+      () => assert.fail("expected source provenance mismatch to be rejected"),
+      () => undefined,
     );
     fs.writeFileSync(
       path.join(store, "sets", staged.aggregate, staged.archives[0]!.file),

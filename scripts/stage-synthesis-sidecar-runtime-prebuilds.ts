@@ -14,6 +14,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
 import {
   computeSynthesisRustSidecarSourceFingerprint,
+  assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
@@ -38,12 +39,28 @@ function run(command: string, args: string[]) {
   }
 }
 
+async function assertExactTargetDirectories(root: string) {
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  const names = entries.map((entry) => entry.name).sort();
+  const expected = [...SYNTHESIS_SIDECAR_RUNTIME_TARGETS].sort();
+  if (
+    names.length !== expected.length ||
+    names.some((name, index) => name !== expected[index]) ||
+    entries.some((entry) => !entry.isDirectory() || entry.isSymbolicLink())
+  ) {
+    throw new Error(
+      "Prebuild input has missing or unexpected target directories",
+    );
+  }
+}
+
 export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
   inputRoot: string;
   outputRoot: string;
   buildFingerprint: string;
   sourceFingerprint: string;
 }) {
+  await assertExactTargetDirectories(args.inputRoot);
   const staging = path.join(args.outputRoot, `.staging-${process.pid}`);
   await fs.rm(staging, { recursive: true, force: true });
   await fs.mkdir(staging, { recursive: true });
@@ -59,6 +76,7 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
       root: bundleRoot,
       target,
       expectedBuildFingerprint: args.buildFingerprint,
+      expectedSourceFingerprint: args.sourceFingerprint,
       policy: "candidate",
     });
     if (!bundle.ok) {
@@ -111,15 +129,73 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
   return { aggregate, setDirectory, archives: manifest.archives };
 }
 
+export async function stageSynthesisSidecarRuntimePrebuildArchives(args: {
+  archiveRoot: string;
+  outputRoot: string;
+  buildFingerprint: string;
+  sourceFingerprint: string;
+}) {
+  const extractedRoot = path.join(args.outputRoot, `.extracted-${process.pid}`);
+  await fs.rm(extractedRoot, { recursive: true, force: true });
+  await fs.mkdir(extractedRoot, { recursive: true });
+  try {
+    const actual = await fs.readdir(args.archiveRoot, { withFileTypes: true });
+    const actualNames = actual.map((entry) => entry.name).sort();
+    const expectedNames = SYNTHESIS_SIDECAR_RUNTIME_TARGETS.map(
+      synthesisSidecarRuntimeArchiveName,
+    ).sort();
+    if (
+      actualNames.length !== expectedNames.length ||
+      actualNames.some((name, index) => name !== expectedNames[index]) ||
+      actual.some((entry) => !entry.isFile() || entry.isSymbolicLink())
+    ) {
+      throw new Error(
+        "Prebuild archive input has missing or unexpected archives",
+      );
+    }
+    for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
+      const archivePath = path.join(
+        args.archiveRoot,
+        synthesisSidecarRuntimeArchiveName(target),
+      );
+      assertSynthesisSidecarRuntimeArchiveLayout({ archivePath, target });
+      run("tar", ["-xzf", archivePath, "-C", extractedRoot]);
+    }
+    return await stageSynthesisSidecarRuntimePrebuildSet({
+      inputRoot: extractedRoot,
+      outputRoot: args.outputRoot,
+      buildFingerprint: args.buildFingerprint,
+      sourceFingerprint: args.sourceFingerprint,
+    });
+  } finally {
+    await fs.rm(extractedRoot, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const root = process.cwd();
   const source = await computeSynthesisRustSidecarSourceFingerprint(root);
-  const result = await stageSynthesisSidecarRuntimePrebuildSet({
-    inputRoot: path.resolve(required("input-root")),
+  const inputRoot = argument("input-root");
+  const archiveRoot = argument("archive-root");
+  if (!!inputRoot === !!archiveRoot) {
+    throw new Error(
+      "Provide exactly one of --input-root=... or --archive-root=...",
+    );
+  }
+  const args = {
     outputRoot: path.resolve(required("output-root")),
     buildFingerprint: required("build-fingerprint"),
     sourceFingerprint: argument("source-fingerprint") || source.fingerprint,
-  });
+  };
+  const result = archiveRoot
+    ? await stageSynthesisSidecarRuntimePrebuildArchives({
+        ...args,
+        archiveRoot: path.resolve(archiveRoot),
+      })
+    : await stageSynthesisSidecarRuntimePrebuildSet({
+        ...args,
+        inputRoot: path.resolve(inputRoot!),
+      });
   process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
 }
 

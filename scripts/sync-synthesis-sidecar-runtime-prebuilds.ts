@@ -11,6 +11,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT,
+  assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
@@ -32,14 +33,6 @@ function run(command: string, args: string[]) {
   const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.error || result.status !== 0)
     throw result.error || new Error(`${command} exited ${result.status}`);
-}
-
-function archiveEntries(archive: string) {
-  const result = spawnSync("tar", ["-tzf", archive], { encoding: "utf8" });
-  if (result.error || result.status !== 0) {
-    throw result.error || new Error(`Unable to inspect archive ${archive}`);
-  }
-  return result.stdout.split(/\r?\n/).filter(Boolean);
 }
 
 async function remoteStore(args: { repo: string; branch: string }) {
@@ -91,26 +84,16 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
       if ((await sha256File(archivePath)) !== archive.sha256) {
         throw new Error(`Archive digest mismatch: ${archive.file}`);
       }
-      const entries = archiveEntries(archivePath);
-      if (
-        entries.length === 0 ||
-        entries.some(
-          (entry) =>
-            (entry !== archive.target &&
-              !entry.startsWith(`${archive.target}/`)) ||
-            entry.includes("..") ||
-            entry.startsWith("/"),
-        )
-      ) {
-        throw new Error(
-          `Archive has unsafe or unexpected paths: ${archive.file}`,
-        );
-      }
+      assertSynthesisSidecarRuntimeArchiveLayout({
+        archivePath,
+        target: archive.target,
+      });
       run("tar", ["-xzf", archivePath, "-C", staging]);
       const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
         root: path.join(staging, archive.target),
         target: archive.target,
         expectedBuildFingerprint: manifest.buildFingerprint,
+        expectedSourceFingerprint: manifest.sourceFingerprint,
       });
       if (!verification.ok)
         throw new Error(

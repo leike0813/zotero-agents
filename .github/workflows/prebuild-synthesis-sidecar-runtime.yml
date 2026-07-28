@@ -30,7 +30,10 @@ jobs:
       rust_toolchain: ${{ steps.recipe.outputs.rust_toolchain }}
       zig_version: ${{ steps.recipe.outputs.zig_version }}
       cargo_zigbuild_version: ${{ steps.recipe.outputs.cargo_zigbuild_version }}
+      rust_source_fingerprint: ${{ steps.fingerprint.outputs.fingerprint }}
     steps:
+      - shell: bash
+        run: test "$GITHUB_SHA" = "${{ inputs.source_sha }}"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_sha }}
@@ -55,6 +58,13 @@ jobs:
           node-version: ${{ steps.recipe.outputs.node_version }}
           cache: npm
       - run: npm ci
+      - id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(({ fingerprint }) => process.stdout.write(fingerprint))')"
+          [[ "$fingerprint" =~ ^[a-f0-9]{64}$ ]]
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Validate sidecar build recipe
         run: npx tsx -e 'import { readSynthesisSidecarRuntimeBuildRecipe } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; readSynthesisSidecarRuntimeBuildRecipe()'
 
@@ -66,6 +76,8 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
+      - shell: bash
+        run: test "$GITHUB_SHA" = "${{ inputs.source_sha }}"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_sha }}
@@ -77,6 +89,13 @@ jobs:
           node-version: ${{ needs.plan.outputs.node_version }}
           cache: npm
       - run: npm ci
+      - id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(({ fingerprint }) => process.stdout.write(fingerprint))')"
+          test "$fingerprint" = "${{ needs.plan.outputs.rust_source_fingerprint }}"
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ needs.plan.outputs.rust_toolchain }}
@@ -89,6 +108,8 @@ jobs:
       - if: matrix.useZig
         run: cargo install cargo-zigbuild --locked --version "${{ needs.plan.outputs.cargo_zigbuild_version }}"
       - name: Verify and package exact candidate
+        env:
+          SYNTHESIS_RUST_BUILD_FINGERPRINT: ${{ steps.fingerprint.outputs.fingerprint }}
         shell: bash
         run: |
           set -euo pipefail
@@ -128,6 +149,8 @@ jobs:
     needs: [plan, prebuild]
     runs-on: ubuntu-24.04
     steps:
+      - shell: bash
+        run: test "$GITHUB_SHA" = "${{ inputs.source_sha }}"
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_sha }}
@@ -148,11 +171,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir extracted
-          for archive in .scaffold/prebuild/*.tar.gz; do tar -xzf "$archive" -C extracted; done
           fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeBuildFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeBuildFingerprint().then(x => process.stdout.write(x.fingerprint))')"
           source_fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(x => process.stdout.write(x.fingerprint))')"
-          npm run prebuild:synthesis-sidecar-runtime -- --input-root=extracted --output-root=prebuild-store --build-fingerprint="$fingerprint" --source-fingerprint="$source_fingerprint"
+          test "$source_fingerprint" = "${{ needs.plan.outputs.rust_source_fingerprint }}"
+          npm run prebuild:synthesis-sidecar-runtime -- --archive-root=.scaffold/prebuild --output-root=prebuild-store --build-fingerprint="$fingerprint" --source-fingerprint="$source_fingerprint"
           aggregate="$(jq -r .aggregate prebuild-store/sets/*/manifest.json)"
           git clone --depth=1 --branch synthesis-sidecar-runtime-prebuilds "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" store
           mkdir -p "store/sets/$aggregate"
