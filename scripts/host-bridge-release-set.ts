@@ -351,10 +351,7 @@ export function contentDigest(root: string, paths: string[]) {
 }
 
 export const HOST_BRIDGE_PUBLIC_CONTENT = {
-  cliBundle: [
-    "skills_builtin/zotero-bridge-cli",
-    "cli/zotero-bridge/scripts",
-  ],
+  cliBundle: ["skills_builtin/zotero-bridge-cli", "cli/zotero-bridge/scripts"],
   libraryAgent: [
     "skills_builtin/zotero-bridge-cli",
     "skills_builtin/zotero-library-agent",
