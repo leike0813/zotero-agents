@@ -76,6 +76,8 @@ jobs:
         run: npx tsx -e 'import { readSynthesisSidecarRuntimeBuildRecipe } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; readSynthesisSidecarRuntimeBuildRecipe()'
       - id: cache
         name: Resolve prebuild artifact cache
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
