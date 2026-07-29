@@ -112,41 +112,48 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
-    if: ${{ !matrix.cacheHit }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - shell: bash
+      - if: ${{ !matrix.cacheHit }}
+        shell: bash
         run: test "$GITHUB_SHA" = "${{ inputs.source_sha }}"
-      - uses: actions/checkout@v4
+      - if: ${{ !matrix.cacheHit }}
+        uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
-      - shell: bash
+      - if: ${{ !matrix.cacheHit }}
+        shell: bash
         run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
-      - uses: actions/setup-node@v4
+      - if: ${{ !matrix.cacheHit }}
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ needs.plan.outputs.node_version }}
           cache: npm
-      - run: npm ci
+      - if: ${{ !matrix.cacheHit }}
+        run: npm ci
       - id: fingerprint
+        if: ${{ !matrix.cacheHit }}
         shell: bash
         run: |
           set -euo pipefail
           fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(({ fingerprint }) => process.stdout.write(fingerprint))')"
           test "$fingerprint" = "${{ needs.plan.outputs.rust_source_fingerprint }}"
           printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+      - if: ${{ !matrix.cacheHit }}
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ needs.plan.outputs.rust_toolchain }}
           components: rustfmt, clippy
           targets: ${{ matrix.target }}
-      - if: matrix.useZig
+      - if: ${{ !matrix.cacheHit && matrix.useZig }}
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ needs.plan.outputs.zig_version }}
-      - if: matrix.useZig
+      - if: ${{ !matrix.cacheHit && matrix.useZig }}
         run: cargo install cargo-zigbuild --locked --version "${{ needs.plan.outputs.cargo_zigbuild_version }}"
       - name: Verify and package exact candidate
+        if: ${{ !matrix.cacheHit }}
         env:
           SYNTHESIS_RUST_BUILD_FINGERPRINT: ${{ steps.fingerprint.outputs.fingerprint }}
         shell: bash
@@ -178,11 +185,24 @@ jobs:
             npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.platform }}"
           fi
           tar -czf ".scaffold/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz" -C .scaffold/synthesis-sidecar-runtime "${{ matrix.platform }}"
-      - uses: actions/upload-artifact@v4
+      - if: ${{ !matrix.cacheHit }}
+        uses: actions/upload-artifact@v4
         with:
           name: synthesis-sidecar-runtime-${{ matrix.platform }}
           path: .scaffold/synthesis-sidecar-runtime-${{ matrix.platform }}.tar.gz
           if-no-files-found: error
+      - if: ${{ matrix.cacheHit }}
+        name: Cache hit for ${{ matrix.platform }} (run ${{ matrix.cacheRunId }})
+        run: |
+          echo "Skipping prebuild for ${{ matrix.platform }}, cache hit satisfied by run ${{ matrix.cacheRunId }} (artifact ${{ matrix.cacheArtifactId }}, ${{ matrix.cacheArtifactSize }} bytes)."
+          mkdir -p .scaffold/prebuild
+          npx tsx scripts/download-synthesis-sidecar-runtime-cache.ts \
+            --run-id="${{ matrix.cacheRunId }}" \
+            --artifact-id="${{ matrix.cacheArtifactId }}" \
+            --archive-url="${{ matrix.cacheArchiveUrl }}" \
+            --artifact-size="${{ matrix.cacheArtifactSize }}" \
+            --target="${{ matrix.platform }}" \
+            --output-root=.scaffold/prebuild
 
   publish-set:
     needs: [plan, prebuild]
@@ -204,28 +224,6 @@ jobs:
           pattern: synthesis-sidecar-runtime-*
           path: .scaffold/prebuild
           merge-multiple: true
-      - name: Hydrate cache-hit platforms from external runs
-        env:
-          GH_TOKEN: ${{ secrets.SYNTHESIS_SIDECAR_RELEASE_TOKEN || github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          jq -r '
-            .platforms
-            | to_entries
-            | .[]
-            | select(.value.hit == true)
-            | "\(.key)\t\(.value.runId)\t\(.value.artifact.artifactId)\t\(.value.artifact.sizeInBytes)\t\(.value.artifact.archiveDownloadUrl)"
-          ' .scaffold/cache-resolution.json | while IFS=$'\t' read -r platform run_id artifact_id artifact_size archive_url; do
-            echo "Cache hit for $platform from run $run_id (artifact $artifact_id, $artifact_size bytes)"
-            npx tsx scripts/download-synthesis-sidecar-runtime-cache.ts \
-              --run-id="$run_id" \
-              --artifact-id="$artifact_id" \
-              --archive-url="$archive_url" \
-              --artifact-size="$artifact_size" \
-              --target="$platform" \
-              --output-root=".scaffold/prebuild"
-          done
       - name: Assemble and publish immutable set
         env:
           REQUEST_ID: ${{ inputs.request_id }}
