@@ -281,7 +281,7 @@ jobs:
               cacheMisses: (.platforms | with_entries(select(.value.hit != true)) | keys),
               cacheSourceRuns: ([.platforms[] | select(.hit == true) | .runId] | unique)
             }
-          ' .scaffold/cache-resolution.json)"
+          ' <<<'${{ needs.plan.outputs.cache_resolution }}')"
           jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "${{ inputs.source_sha }}" --arg request_id "$REQUEST_ID" --arg fingerprint "$fingerprint" --arg aggregate "$aggregate" --arg commit "$commit" --arg run_id "$GITHUB_RUN_ID" --argjson cache "$cache_summary" '{schema:"synthesis-sidecar-runtime-prebuild-result.v2",repository:$repository,workflow:"prebuild-synthesis-sidecar-runtime.yml",runId:($run_id|tonumber),requestId:$request_id,sourceSha:$source_sha,buildFingerprint:$fingerprint,aggregate:$aggregate,prebuildBranch:"synthesis-sidecar-runtime-prebuilds",prebuildCommit:$commit,setPath:("sets/"+$aggregate),cache:$cache}' > prebuild-result.json
       - uses: actions/upload-artifact@v4
         with:
