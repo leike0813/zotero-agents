@@ -31,13 +31,13 @@
 - [x] 5.1 Run strict validation for this change and the modified current specs
 - [x] 5.2 Run production capability, seven surface parity, service-boundary, R9a Core 219-235, and relevant Stage-1 tests
 - [x] 5.3 Run TypeScript package/plugin checks and the production build without starting a development server
-- [ ] 5.4 Run Rust format, clippy, workspace tests, worker/service smoke, and local package freshness/size gates
+- [x] 5.4 Run Rust format, clippy, workspace tests, worker/service smoke, and local package freshness/size gates
 - [x] 5.5 Confirm every required local gate still passes after the change is archived or through the equivalent test-owned archival simulation
 
 ## 6. Pre-Deletion Decision Gate
 
-- [ ] 6.1 Under separate execution authorization, run the read-only seven-platform native candidate for one source/toolchain/lock identity and record target fingerprints and compressed sizes
+- [x] 6.1 Under separate execution authorization, run the read-only seven-platform native candidate for one source/toolchain/lock identity and record target fingerprints and compressed sizes
 - [ ] 6.2 Under separate execution authorization, run the agreed representative clean-machine Zotero checks and bind their outcomes to the same source identity
-- [ ] 6.3 Record candidate evidence as pre-deletion evidence only, with signing, final XPI, upgrade/offline install, release, Stage-1 completion, and Gitee explicitly still pending
+- [x] 6.3 Record candidate evidence as pre-deletion evidence only, with signing, final XPI, upgrade/offline install, release, Stage-1 completion, and Gitee explicitly still pending
 - [x] 6.4 Materialize all seven bundles at `addon/bin/<target>/synthesis-sidecar/`, remove the obsolete sidecar-first root, and verify synchronization preserves sibling native binaries
 - [ ] 6.5 Do not begin `remove-synthesis-plugin-legacy-owner` until sections 1-5 pass and the section 6 decision gate is explicitly accepted

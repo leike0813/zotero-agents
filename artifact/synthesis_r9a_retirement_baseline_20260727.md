@@ -104,9 +104,60 @@ and the post-change Rust source fingerprint is
 `44e45f0fc993bbe0e64fa104ef25f273cdc87351a4ee2242f3b452ae90148545`,
 while this run carries `5136480a...`. The required freshness command therefore
 fails closed on all seven targets, as intended, and this run cannot satisfy the
-final freshness gate for the post-change source. A new seven-platform prebuild
-and representative clean-machine results remain required before the R9b
-decision gate can be accepted.
+final freshness gate for the post-change source. It remains historical
+pre-layout evidence; the post-layout candidate below supersedes it for
+freshness.
+
+## Seven-platform post-layout candidate evidence
+
+The completed build-only candidate is bound to the committed platform-first
+layout and was synchronized from the exact immutable set:
+
+- Repository/ref: `leike0813/zotero-agents`, `dev-refactor`
+- Local and remote source SHA:
+  `e852b0df67204601d18a6a766e3331f9fe789eff`
+- Workflow/run:
+  `prebuild-synthesis-sidecar-runtime.yml`, run
+  [`30441058274`](https://github.com/leike0813/zotero-agents/actions/runs/30441058274)
+- Request ID: `ssp-2026-07-29-dev-refactor-layout-v1`
+- Result schema/artifact:
+  `synthesis-sidecar-runtime-prebuild-result.v2`,
+  `artifact/synthesis_sidecar_prebuild_result_layout_20260729.json`,
+  SHA-256 `3216cd9c4f918374a56b7495a8dc55f1da04fdcc4fb4ed091815968e5b29fda5`
+- Build fingerprint:
+  `9cea52483ab180a82ee19c1a629daf4442974fb72d8f5386386a63335b0aef6c`
+- Rust source fingerprint:
+  `44e45f0fc993bbe0e64fa104ef25f273cdc87351a4ee2242f3b452ae90148545`
+- Cargo lock SHA-256:
+  `ff91fdcf6949880da14c82907b72ae531fdebebf88c391ab3c43c31db6519c54`
+- Aggregate:
+  `522c85fe89b9a4072f81151ddacddf47b7278c33083f79e707e03ef74a70daf1`
+- Prebuild commit:
+  `ee0f2b1f457294f3097076dc46b2eaf6d83bd5b7`
+- Immutable set:
+  `sets/522c85fe89b9a4072f81151ddacddf47b7278c33083f79e707e03ef74a70daf1`
+  on `synthesis-sidecar-runtime-prebuilds`
+- Cache: zero hits; all seven targets were cache misses and were built by this
+  run.
+
+| Target | Bundle ID | Archive bytes | Archive SHA-256 |
+| --- | --- | ---: | --- |
+| `darwin-arm64` | `f27d27779ea82fe81f5b4c726074d9363ad49c8f00213b2f23e7e0dae8ea5fd2` | 2,106,208 | `d6aa7dc475f2d17cdef3e0f07cf49c267cea1d36a34c3e702312d99cb769d99f` |
+| `darwin-x64` | `ad9e5ea0b703552d0e624ed84cbc6ce48e65098fa955c4d76ffb9a1ab446e2ac` | 2,265,932 | `e92fccb1b40c5a5add2b03a8c2cbacdef6c745fc2770fb4c5eec0f6cba44bb48` |
+| `linux-arm` | `7be3b8a24a00ba9cf7a7c725aa42143563537056623ec822631913413e806c4c` | 2,402,644 | `88f7922a759fbed22d23c50f14747192f8d8fcff2fd5237d6ddb9c09fdad1281` |
+| `linux-arm64` | `1c8812d1a9e6505e330e091ac06d970155a2ed92e0d9117833c283fe9debd062` | 2,340,166 | `ff742cb0e84aae42ee037b17297753b388a299113e0be37032ec7a512328c4b5` |
+| `linux-x64` | `bb71348b16ab174ebac448de98bca02aef550cd2fef2c22f4e11ede3d7c7c3e9` | 2,508,265 | `2f6446200d16dd3ed845247789d70c4cbfe886e0bd91e4d15a825451c9071ec7` |
+| `linux-x86` | `46e4af9fefcb8ec99a859e13be4f1f5e8d93a3b084aa26970967cb53d8558019` | 2,617,695 | `04299d2cb68cf274f1a132b4dfac91fc8b0d1e6a3fd1420b40d4708e18affa63` |
+| `win32-x64` | `439dd669a72403db73b5e1dee70efbb730fe5c3ff3799e5c4deeb7c146d04579` | 2,216,047 | `c2ebcec60e2a560bfc260f80425ad051c1dacf982e7dd20cad4f9a115eb8ea43` |
+
+The aggregate archive size is 16,456,957 bytes. The exact result document,
+prebuild branch head, manifest identity, seven archive checksums, seven bundle
+identities, and synchronized provenance all agree. The local freshness gate
+passes for all seven targets after synchronization. This remains pre-deletion
+evidence only: signing, final XPI, upgrade/offline install, release, Stage-1
+completion, and Gitee are pending and are not implied by this candidate.
+Representative clean-machine Zotero results bound to this source identity are
+also still pending, so the R9b decision gate has not been accepted.
 
 ## Downstream dependency boundary
 
