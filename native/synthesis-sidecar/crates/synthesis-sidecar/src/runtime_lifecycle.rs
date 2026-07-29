@@ -1,3 +1,4 @@
+use crate::runtime_file_system::sync_directory;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fs::{self, OpenOptions};
@@ -58,12 +59,34 @@ fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
     file.write_all(&bytes).map_err(|error| error.to_string())?;
     file.write_all(b"\n").map_err(|error| error.to_string())?;
     file.sync_all().map_err(|error| error.to_string())?;
+    drop(file);
+    #[cfg(windows)]
+    {
+        let previous = parent.join(format!(
+            ".{}.previous-{}-{}",
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| "runtime_path_invalid".to_owned())?,
+            std::process::id(),
+            current_time_ms()?
+        ));
+        let replaced = path.exists();
+        if replaced {
+            fs::rename(path, &previous).map_err(|error| error.to_string())?;
+        }
+        if let Err(error) = fs::rename(&temporary, path) {
+            if replaced {
+                let _ = fs::rename(&previous, path);
+            }
+            return Err(error.to_string());
+        }
+        if replaced {
+            fs::remove_file(previous).map_err(|error| error.to_string())?;
+        }
+    }
+    #[cfg(not(windows))]
     fs::rename(&temporary, path).map_err(|error| error.to_string())?;
-    OpenOptions::new()
-        .read(true)
-        .open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| error.to_string())
+    sync_directory(parent)
 }
 
 pub(crate) struct RuntimeOwnership {

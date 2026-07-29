@@ -1,3 +1,4 @@
+use crate::runtime_file_system::sync_directory;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -953,9 +954,7 @@ impl WebDavStateStorePort for FileWebDavStateStore {
             }
             return Err(format!("webdav_state_unavailable:{error}"));
         }
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|_| "webdav_state_unavailable".to_owned())?;
+        sync_directory(parent).map_err(|_| "webdav_state_unavailable".to_owned())?;
         if backup.exists() {
             fs::remove_file(backup).map_err(|_| "webdav_state_unavailable".to_owned())?;
         }
