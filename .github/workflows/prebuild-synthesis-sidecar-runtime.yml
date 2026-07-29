@@ -31,6 +31,8 @@ jobs:
       zig_version: ${{ steps.recipe.outputs.zig_version }}
       cargo_zigbuild_version: ${{ steps.recipe.outputs.cargo_zigbuild_version }}
       rust_source_fingerprint: ${{ steps.fingerprint.outputs.fingerprint }}
+      build_fingerprint: ${{ steps.fingerprint.outputs.build_fingerprint }}
+      cache_resolution: ${{ steps.cache.outputs.resolution }}
     steps:
       - shell: bash
         run: test "$GITHUB_SHA" = "${{ inputs.source_sha }}"
@@ -62,11 +64,47 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(({ fingerprint }) => process.stdout.write(fingerprint))')"
-          [[ "$fingerprint" =~ ^[a-f0-9]{64}$ ]]
-          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+          source_fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(({ fingerprint }) => process.stdout.write(fingerprint))')"
+          [[ "$source_fingerprint" =~ ^[a-f0-9]{64}$ ]]
+          build_fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeBuildFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeBuildFingerprint().then(({ fingerprint }) => process.stdout.write(fingerprint))')"
+          [[ "$build_fingerprint" =~ ^[a-f0-9]{64}$ ]]
+          {
+            printf 'fingerprint=%s\n' "$source_fingerprint"
+            printf 'build_fingerprint=%s\n' "$build_fingerprint"
+          } >> "$GITHUB_OUTPUT"
       - name: Validate sidecar build recipe
         run: npx tsx -e 'import { readSynthesisSidecarRuntimeBuildRecipe } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; readSynthesisSidecarRuntimeBuildRecipe()'
+      - id: cache
+        name: Resolve prebuild artifact cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .scaffold
+          npx tsx scripts/resolve-synthesis-sidecar-runtime-cache.ts \
+            --repo="$GITHUB_REPOSITORY" \
+            --source-sha="${{ inputs.source_sha }}" \
+            --build-fingerprint="${{ steps.fingerprint.outputs.build_fingerprint }}" \
+            --source-fingerprint="${{ steps.fingerprint.outputs.fingerprint }}" \
+            --output=.scaffold/cache-resolution.json
+          jq -e '.schema == "synthesis-sidecar-runtime-cache-resolution.v2"' .scaffold/cache-resolution.json > /dev/null
+          # Inject cache info into build matrix so each prebuild entry can skip
+          # when its platform is already cached.
+          jq -c '
+            $cache[0].platforms as $cache
+            | $recipe_targets
+            | map(. + {
+                cacheHit: ($cache[.platform].hit // false),
+                cacheRunId: ($cache[.platform].runId // null),
+                cacheArtifactId: ($cache[.platform].artifact.artifactId // null),
+                cacheArtifactSize: ($cache[.platform].artifact.sizeInBytes // 0),
+                cacheArchiveUrl: ($cache[.platform].artifact.archiveDownloadUrl // null)
+              })
+          ' \
+            --slurpfile cache .scaffold/cache-resolution.json \
+            --argjson recipe_targets '${{ steps.recipe.outputs.build_matrix }}' \
+            > .scaffold/build-matrix.json
+          echo "build_matrix=$(cat .scaffold/build-matrix.json)" >> "$GITHUB_OUTPUT"
+          echo "resolution=$(jq -c . .scaffold/cache-resolution.json)" >> "$GITHUB_OUTPUT"
 
   prebuild:
     needs: plan
@@ -74,6 +112,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    if: ${{ !matrix.cacheHit }}
     runs-on: ${{ matrix.runner }}
     steps:
       - shell: bash
@@ -165,6 +204,28 @@ jobs:
           pattern: synthesis-sidecar-runtime-*
           path: .scaffold/prebuild
           merge-multiple: true
+      - name: Hydrate cache-hit platforms from external runs
+        env:
+          GH_TOKEN: ${{ secrets.SYNTHESIS_SIDECAR_RELEASE_TOKEN || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -r '
+            .platforms
+            | to_entries
+            | .[]
+            | select(.value.hit == true)
+            | "\(.key)\t\(.value.runId)\t\(.value.artifact.artifactId)\t\(.value.artifact.sizeInBytes)\t\(.value.artifact.archiveDownloadUrl)"
+          ' .scaffold/cache-resolution.json | while IFS=$'\t' read -r platform run_id artifact_id artifact_size archive_url; do
+            echo "Cache hit for $platform from run $run_id (artifact $artifact_id, $artifact_size bytes)"
+            npx tsx scripts/download-synthesis-sidecar-runtime-cache.ts \
+              --run-id="$run_id" \
+              --artifact-id="$artifact_id" \
+              --archive-url="$archive_url" \
+              --artifact-size="$artifact_size" \
+              --target="$platform" \
+              --output-root=".scaffold/prebuild"
+          done
       - name: Assemble and publish immutable set
         env:
           REQUEST_ID: ${{ inputs.request_id }}
@@ -176,15 +237,33 @@ jobs:
           source_fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(x => process.stdout.write(x.fingerprint))')"
           test "$source_fingerprint" = "${{ needs.plan.outputs.rust_source_fingerprint }}"
           npm run prebuild:synthesis-sidecar-runtime -- --archive-root=.scaffold/prebuild --output-root=prebuild-store --build-fingerprint="$fingerprint" --source-fingerprint="$source_fingerprint"
-          aggregate="$(jq -r .aggregate prebuild-store/sets/*/manifest.json)"
-          git clone --depth=1 --branch synthesis-sidecar-runtime-prebuilds "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" store
+          aggregate="$(jq -r '.aggregate // empty' prebuild-store/sets/*/manifest.json | head -1)"
+          if [ -z "$aggregate" ]; then
+            echo "ERROR: staging produced no aggregate"
+            ls -la prebuild-store/sets/ 2>&1 || true
+            exit 1
+          fi
+          git clone --depth=1 --branch synthesis-sidecar-runtime-prebuilds "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" store 2>/dev/null || {
+            git init store
+            git -C store checkout --orphan synthesis-sidecar-runtime-prebuilds
+            git -C store remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          }
           mkdir -p "store/sets/$aggregate"
           cp -a "prebuild-store/sets/$aggregate/." "store/sets/$aggregate/"
           git -C store add "sets/$aggregate"
-          git -C store -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot] commit -m "Synthesis sidecar prebuild $aggregate" || true
-          git -C store push origin HEAD:synthesis-sidecar-runtime-prebuilds
+          if ! git -C store diff --cached --quiet; then
+            git -C store -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot] commit -m "Synthesis sidecar prebuild $aggregate"
+            git -C store push origin HEAD:synthesis-sidecar-runtime-prebuilds
+          fi
           commit="$(git -C store rev-parse HEAD)"
-          jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "${{ inputs.source_sha }}" --arg request_id "$REQUEST_ID" --arg fingerprint "$fingerprint" --arg aggregate "$aggregate" --arg commit "$commit" --arg run_id "$GITHUB_RUN_ID" '{schema:"synthesis-sidecar-runtime-prebuild-result.v1",repository:$repository,workflow:"prebuild-synthesis-sidecar-runtime.yml",runId:($run_id|tonumber),requestId:$request_id,sourceSha:$source_sha,buildFingerprint:$fingerprint,aggregate:$aggregate,prebuildBranch:"synthesis-sidecar-runtime-prebuilds",prebuildCommit:$commit,setPath:("sets/"+$aggregate)}' > prebuild-result.json
+          cache_summary="$(jq -c '
+            {
+              cacheHits: (.platforms | with_entries(select(.value.hit == true)) | keys),
+              cacheMisses: (.platforms | with_entries(select(.value.hit != true)) | keys),
+              cacheSourceRuns: ([.platforms[] | select(.hit == true) | .runId] | unique)
+            }
+          ' .scaffold/cache-resolution.json)"
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "${{ inputs.source_sha }}" --arg request_id "$REQUEST_ID" --arg fingerprint "$fingerprint" --arg aggregate "$aggregate" --arg commit "$commit" --arg run_id "$GITHUB_RUN_ID" --argjson cache "$cache_summary" '{schema:"synthesis-sidecar-runtime-prebuild-result.v2",repository:$repository,workflow:"prebuild-synthesis-sidecar-runtime.yml",runId:($run_id|tonumber),requestId:$request_id,sourceSha:$source_sha,buildFingerprint:$fingerprint,aggregate:$aggregate,prebuildBranch:"synthesis-sidecar-runtime-prebuilds",prebuildCommit:$commit,setPath:("sets/"+$aggregate),cache:$cache}' > prebuild-result.json
       - uses: actions/upload-artifact@v4
         with:
           name: synthesis-sidecar-runtime-prebuild-result

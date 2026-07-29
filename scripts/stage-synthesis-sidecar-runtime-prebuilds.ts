@@ -15,6 +15,7 @@ import {
 import {
   computeSynthesisRustSidecarSourceFingerprint,
   assertSynthesisSidecarRuntimeArchiveLayout,
+  readSynthesisSidecarRuntimeManifest,
   sha256File,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
@@ -108,6 +109,24 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
     throw new Error("Sidecar prebuild aggregate exceeds 75 MiB");
   const aggregate = computeSynthesisSidecarRuntimePrebuildAggregate(archives);
   const setDirectory = path.join(args.outputRoot, "sets", aggregate);
+  const existingManifestPath = path.join(setDirectory, "manifest.json");
+  if (existsSync(existingManifestPath)) {
+    const existing =
+      await readSynthesisSidecarRuntimeManifest(existingManifestPath);
+    if (
+      existing.aggregate === aggregate &&
+      existing.buildFingerprint === args.buildFingerprint &&
+      existing.sourceFingerprint === args.sourceFingerprint
+    ) {
+      await fs.rm(staging, { recursive: true, force: true });
+      return {
+        aggregate,
+        setDirectory,
+        archives: manifest.archives,
+        reused: true,
+      };
+    }
+  }
   const manifest = {
     schema: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_SET_SCHEMA,
     aggregate,
@@ -126,7 +145,12 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
     await fs.rm(staging, { recursive: true, force: true });
     if (!(await fs.stat(setDirectory).catch(() => null))) throw error;
   }
-  return { aggregate, setDirectory, archives: manifest.archives };
+  return {
+    aggregate,
+    setDirectory,
+    archives: manifest.archives,
+    reused: false,
+  };
 }
 
 export async function stageSynthesisSidecarRuntimePrebuildArchives(args: {

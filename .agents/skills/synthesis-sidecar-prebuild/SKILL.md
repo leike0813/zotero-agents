@@ -61,6 +61,41 @@ Use one of the following paths:
    resume the same run and reuse its original result artifact. Do not dispatch
    a replacement run.
 
+## Artif cache reuse
+
+The workflow consults prior workflow runs on the same `source_sha` for a
+content-addressed GHA artifact per platform. Each platform's prebuild matrix
+entry carries a `cacheHit` flag derived from the cache resolution. Cache elision
+rules:
+
+- The cache key is the source SHA. The source SHA uniquely determines the
+  Rust source fingerprint, and the source fingerprint uniquely determines the
+  Rust binaries. Build fingerprint involvement is documentary; the run also
+  validates each cached artifact's manifest before substituting.
+- A platform is marked cache-hit only when a prior run of the same workflow
+  (`prebuild-synthesis-sidecar-runtime.yml`) at the same source SHA uploaded
+  the platform artifact. The artifact must not be expired (GHA 90-day TTL).
+- The prebuild matrix entry skips (`if: ${{ !matrix.cacheHit }}`) when the
+  flag is true. The prebuild bin does not run, and no spurious build lines
+  appear in the run.
+- The `publish-set` job hydrates cache-hit platforms from the prior run via
+  `gh api` + `curl` (the artifact archive is a GHA zip wrapper around the
+  tar.gz; the cache download script unwraps it). It then runs the same
+  staging + publish flow as a non-cache run.
+- The `synthesis-sidecar-runtime-prebuild-result.v2` document carries a
+  `cache` summary with `cacheHits`, `cacheMisses`, and `cacheSourceRuns`, so
+  a follow-up re-dispatch can audit which platform was reused.
+
+Cache misses are silent: a platform whose prior build did not upload an
+artifact (smoke test failure, transient GHA outage, or simply no prior run)
+is rebuilt by the current dispatch. No platform is forced to rebuild when a
+cache hit is available.
+
+The staging step also short-circuits when `sets/<aggregate>/manifest.json`
+already exists on the prebuild branch and matches the expected build and
+source fingerprints. This combines with the artifact cache to let a re-dispatch
+publish in a few seconds when nothing has changed.
+
 ## New dispatch
 
 Only dispatch after the user has explicitly authorized the remote side effect.
@@ -88,7 +123,7 @@ run ID; do not infer result values from branch contents.
 
 ## Result proof
 
-Read `synthesis-sidecar-runtime-prebuild-result.v1` and reject it unless all
+Read `synthesis-sidecar-runtime-prebuild-result.v2` and reject it unless all
 of these are exact matches:
 
 - repository;
@@ -100,7 +135,13 @@ of these are exact matches:
 - prebuild branch;
 - aggregate SHA-256;
 - prebuild commit;
-- `sets/<aggregate>` path.
+- `sets/<aggregate>` path;
+- `cache` summary lists every cache-hit platform with its source run ID.
+
+When a v1-style result document is found (no `cache` field), accept it only
+when the dispatch predates the cache feature and the `synthesis-sidecar` source
+itself has not been re-touched since then. After a workflow change that
+recomputes the build fingerprint, all runs after that point must emit v2.
 
 The result document is the authorization boundary for synchronization. A
 matching branch directory alone is insufficient evidence.
@@ -146,6 +187,7 @@ Keep one compact operation record while working. It must contain:
 - result-artifact path and schema;
 - aggregate, prebuild commit, and immutable set path;
 - archive size and digest for every target;
+- cache-hit summary: source run IDs per platform, retained archive SHA-256;
 - synchronization target root and freshness result.
 
 Use values read from the result and manifest. Do not reconstruct an aggregate
@@ -164,6 +206,10 @@ reported as such.
 | Result identity differs | Stop; the requested set is not proven. |
 | Archive verification differs | Preserve current addon bytes and stop. |
 | Freshness fails after sync | Report the root and diagnostics; do not release. |
+| Cache hit for a platform | Trust the artifact; do not rebuild that platform. |
+| Cache miss for a platform | Rebuild from the current sources and smokes. |
+| Cache manifest fingerprint mismatch | Treat that platform as cache miss and rebuild. |
+| Cache artifact expired (>90 days) | Treat that platform as cache miss and rebuild. |
 
 ## Command discipline
 

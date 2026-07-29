@@ -61,6 +61,8 @@
     "check:synthesis-sidecar-runtime-freshness": "tsx scripts/check-synthesis-sidecar-runtime-freshness.ts",
     "check:synthesis-sidecar-runtime-xpi": "tsx scripts/check-synthesis-sidecar-runtime-xpi.ts",
     "sync:synthesis-sidecar-runtime-prebuilds": "tsx scripts/sync-synthesis-sidecar-runtime-prebuilds.ts",
+    "resolve:synthesis-sidecar-runtime-cache": "tsx scripts/resolve-synthesis-sidecar-runtime-cache.ts",
+    "download:synthesis-sidecar-runtime-cache": "tsx scripts/download-synthesis-sidecar-runtime-cache.ts",
     "prepare:synthesis-sidecar-release": "tsx scripts/prepare-synthesis-sidecar-release.ts",
     "release:synthesis-sidecar:plan": "tsx scripts/synthesis-sidecar-runtime-release-plan.ts",
     "release:synthesis-sidecar:dispatch": "tsx scripts/dispatch-synthesis-sidecar-release.ts",
