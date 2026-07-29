@@ -1,6 +1,6 @@
 use crate::runtime_file_system::sync_directory;
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -938,7 +938,9 @@ impl WebDavStateStorePort for FileWebDavStateStore {
         let bytes =
             serde_json::to_vec(state).map_err(|_| "webdav_sync_state_invalid".to_owned())?;
         fs::write(&pending, bytes).map_err(|_| "webdav_state_unavailable".to_owned())?;
-        fs::File::open(&pending)
+        OpenOptions::new()
+            .write(true)
+            .open(&pending)
             .and_then(|file| file.sync_all())
             .map_err(|_| "webdav_state_unavailable".to_owned())?;
         let backup = self.backup_path();
