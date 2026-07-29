@@ -700,16 +700,17 @@ mod production_admission_tests {
     use serde_json::json;
 
     fn admission() -> Value {
+        let profile_root = std::env::temp_dir().join("synthesis-production-admission");
         json!({
             "schema":"synthesis-production-admission.v1",
             "purpose":"preflight_copy",
             "profileId":"1".repeat(64),
             "supervisorInstanceId":"supervisor-1",
             "cutoverReceiptId":"receipt-1",
-            "cutoverReceiptPath":"/profile/state/synthesis-cutover/receipt.json",
+            "cutoverReceiptPath":profile_root.join("state/synthesis-cutover/receipt.json"),
             "capabilityFingerprint":PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-            "repositoryDbPath":"/profile/state/synthesis.db",
-            "canonicalRoot":"/profile/data/synthesis",
+            "repositoryDbPath":profile_root.join("state/synthesis.db"),
+            "canonicalRoot":profile_root.join("data/synthesis"),
             "reverseHost":{
                 "host":"127.0.0.1",
                 "port":9134,
@@ -752,7 +753,8 @@ mod production_admission_tests {
     fn accepts_only_explicit_production_roots_before_mutation_admission() {
         rebuild_production_admission(&admission().to_string()).unwrap();
         let mut shadow = admission();
-        shadow["repositoryDbPath"] = json!("/profile/runtime/shadow-repository/root/synthesis.db");
+        shadow["repositoryDbPath"] =
+            json!(std::env::temp_dir().join("runtime/shadow-repository/root/synthesis.db"));
         assert_eq!(
             rebuild_production_admission(&shadow.to_string()).unwrap_err(),
             "invalid_production_admission"
