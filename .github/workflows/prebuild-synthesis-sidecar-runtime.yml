@@ -87,23 +87,42 @@ jobs:
             --source-sha="${{ inputs.source_sha }}" \
             --build-fingerprint="${{ steps.fingerprint.outputs.build_fingerprint }}" \
             --source-fingerprint="${{ steps.fingerprint.outputs.fingerprint }}" \
+            --exclude-run-id="$GITHUB_RUN_ID" \
             --output=.scaffold/cache-resolution.json
           jq -e '.schema == "synthesis-sidecar-runtime-cache-resolution.v2"' .scaffold/cache-resolution.json > /dev/null
           # Inject cache info into build matrix so each prebuild entry can skip
-          # when its platform is already cached.
-          jq -c '
-            $cache[0].platforms as $cache
-            | $recipe_targets
-            | map(. + {
-                cacheHit: ($cache[.platform].hit // false),
-                cacheRunId: ($cache[.platform].runId // null),
-                cacheArtifactId: ($cache[.platform].artifact.artifactId // null),
-                cacheArtifactSize: ($cache[.platform].artifact.sizeInBytes // 0),
-                cacheArchiveUrl: ($cache[.platform].artifact.archiveDownloadUrl // null)
-              })
-          ' \
+          # when its platform is already cached. jq chokes on `.cache[.platform].hit`
+          # when the platform contains a hyphen, so use the has() guard.
+          jq -c \
             --slurpfile cache .scaffold/cache-resolution.json \
             --argjson recipe_targets '${{ steps.recipe.outputs.build_matrix }}' \
+            -n '
+              $cache[0].platforms as $cache
+              | $ARGS.named.recipe_targets
+              | map(
+                  . as $entry
+                  | $entry
+                  + (
+                      if ($cache | has($entry.platform)) then
+                        {
+                          cacheHit: $cache[$entry.platform].hit,
+                          cacheRunId: $cache[$entry.platform].runId,
+                          cacheArtifactId: $cache[$entry.platform].artifact.artifactId,
+                          cacheArtifactSize: $cache[$entry.platform].artifact.sizeInBytes,
+                          cacheArchiveUrl: $cache[$entry.platform].artifact.archiveDownloadUrl
+                        }
+                      else
+                        {
+                          cacheHit: false,
+                          cacheRunId: null,
+                          cacheArtifactId: null,
+                          cacheArtifactSize: 0,
+                          cacheArchiveUrl: null
+                        }
+                      end
+                    )
+                )
+            ' \
             > .scaffold/build-matrix.json
           echo "build_matrix=$(cat .scaffold/build-matrix.json)" >> "$GITHUB_OUTPUT"
           echo "resolution=$(jq -c . .scaffold/cache-resolution.json)" >> "$GITHUB_OUTPUT"

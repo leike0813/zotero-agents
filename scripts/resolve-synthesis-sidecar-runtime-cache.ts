@@ -171,7 +171,10 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
     headSha: sourceSha,
     maximum: args.maximumRuns ?? 30,
   });
-  const exploredRunIds = runs.map((run) => run.databaseId);
+  const filteredRuns = args.excludeRunId
+    ? runs.filter((run) => run.databaseId !== args.excludeRunId)
+    : runs;
+  const exploredRunIds = filteredRuns.map((run) => run.databaseId);
 
   const platforms = {} as Record<
     SynthesisSidecarRuntimeTarget,
@@ -186,7 +189,7 @@ export async function resolveSynthesisSidecarRuntimeCache(args: {
     };
   }
 
-  for (const run of runs) {
+  for (const run of filteredRuns) {
     const artifacts = await listRunArtifacts({ repo, runId: run.databaseId });
     for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
       if (platforms[target].hit) continue;
@@ -238,6 +241,14 @@ async function main() {
   const sourceSha = requiredFlag("source-sha", args);
   const buildFingerprint = requiredFlag("build-fingerprint", args);
   const sourceFingerprint = requiredFlag("source-fingerprint", args);
+  const excludeRunId = (() => {
+    const inline = args.find((arg) => arg.startsWith("--exclude-run-id="));
+    if (inline) return Number(inline.slice(17).trim());
+    const index = args.indexOf("--exclude-run-id");
+    if (index < 0) return undefined;
+    const value = Number(args[index + 1]);
+    return Number.isSafeInteger(value) ? value : undefined;
+  })();
   const outputFlag = (() => {
     const inline = args.find((arg) => arg.startsWith("--output="));
     return inline ? inline.slice(9).trim() : "";
@@ -247,6 +258,7 @@ async function main() {
     sourceSha,
     buildFingerprint,
     sourceFingerprint,
+    excludeRunId,
   });
   const serialized = JSON.stringify(resolution, null, 2);
   if (outputFlag) {
