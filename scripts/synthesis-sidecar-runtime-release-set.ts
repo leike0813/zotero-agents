@@ -37,7 +37,8 @@ export function createSynthesisSidecarRuntimeReleaseSet(args: {
       buildFingerprint: prebuild.buildFingerprint,
     },
     materialized: {
-      addonRoot: "addon/bin/synthesis-sidecar",
+      addonRoot: "addon/bin",
+      targetBundleDirectory: "synthesis-sidecar",
       targets: [
         "win32-x64",
         "darwin-x64",

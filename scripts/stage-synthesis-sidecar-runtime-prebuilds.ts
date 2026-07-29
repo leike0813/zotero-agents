@@ -11,12 +11,12 @@ import {
 import {
   SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_SET_SCHEMA,
   computeSynthesisSidecarRuntimePrebuildAggregate,
+  rebuildSynthesisSidecarRuntimePrebuildSet,
   synthesisSidecarRuntimeArchiveName,
 } from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
 import {
   computeSynthesisRustSidecarSourceFingerprint,
   assertSynthesisSidecarRuntimeArchiveLayout,
-  readSynthesisSidecarRuntimeManifest,
   sha256File,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
@@ -112,8 +112,9 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
   const setDirectory = path.join(args.outputRoot, "sets", aggregate);
   const existingManifestPath = path.join(setDirectory, "manifest.json");
   if (existsSync(existingManifestPath)) {
-    const existing =
-      await readSynthesisSidecarRuntimeManifest(existingManifestPath);
+    const existing = rebuildSynthesisSidecarRuntimePrebuildSet(
+      JSON.parse(await fs.readFile(existingManifestPath, "utf8")),
+    );
     if (
       existing.aggregate === aggregate &&
       existing.buildFingerprint === args.buildFingerprint &&
@@ -123,7 +124,7 @@ export async function stageSynthesisSidecarRuntimePrebuildSet(args: {
       return {
         aggregate,
         setDirectory,
-        archives: manifest.archives,
+        archives: existing.archives,
         reused: true,
       };
     }

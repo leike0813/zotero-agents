@@ -8,16 +8,23 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
   isExpiredSynthesisSidecarRuntimeManifest,
   rebuildSynthesisSidecarRuntimeBundleManifest,
+  synthesisSidecarRuntimeTargetBundlePath,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
 } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 
 export const SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG =
   "synthesis-sidecar-runtime-prebuilds";
-export const SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT =
-  "addon/bin/synthesis-sidecar";
+export const SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT = "addon/bin";
 export const SYNTHESIS_SIDECAR_RUNTIME_BUILD_ROOT =
   ".scaffold/synthesis-sidecar-runtime";
+
+export function synthesisSidecarRuntimeAddonBundleRoot(
+  addonRoot: string,
+  target: SynthesisSidecarRuntimeTarget,
+) {
+  return path.join(addonRoot, synthesisSidecarRuntimeTargetBundlePath(target));
+}
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX =
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS;
 export const SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH =

@@ -51,7 +51,7 @@ differential tests, but production supervision accepts only verified
 
 The durable and application parity corpora fix the 51-table/40-index inventory,
 SQLite PRAGMAs, canonical bytes/hashes, fault points, public DTOs, stable codes,
-canonical tree, journal/receipt state and reopen behavior. The five-platform
+canonical tree, journal/receipt state and reopen behavior. The seven-platform
 candidate workflow runs those gates plus the native manifest/lifecycle corpus,
 license inventory, Rust tests and service smoke. It is read-only and does not
 publish or synchronize assets.

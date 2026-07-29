@@ -24,7 +24,7 @@ the repository or build graph.
 - Make source, build, package, freshness, SBOM/provenance, and XPI inventories
   native-only. Node, npm, JavaScript service, D3 runtime, and re-enable switches
   must be absent.
-- Run the final five-platform candidate, size, clean/upgrade/corrupt/crash/offline
+- Run the final seven-platform candidate, size, clean/upgrade/corrupt/crash/offline
   install, backup/restore, and real-machine acceptance gates before declaring
   R9 or Stage 1 complete. This change defines those gates but does not authorize
   release publication or Gitee synchronization.
@@ -61,4 +61,3 @@ None.
   the Rust migration plan.
 - Depends on both `stabilize-synthesis-r9a-retirement-baseline` and
   `remove-synthesis-plugin-legacy-owner`; no release may occur between them.
-

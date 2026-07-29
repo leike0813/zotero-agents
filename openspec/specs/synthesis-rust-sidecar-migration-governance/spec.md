@@ -14,7 +14,7 @@ R8 local gates SHALL run a shared Node/Rust worker-transfer corpus covering life
 
 ### Requirement: Candidate workflow SHALL check worker-transfer ownership before smoke
 
-The five-platform read-only candidate workflow SHALL run the native worker-transfer checker before native smoke and SHALL NOT publish, dispatch a release, or change production ownership.
+The seven-platform read-only candidate workflow SHALL run the native worker-transfer checker before native smoke and SHALL NOT publish, dispatch a release, or change production ownership.
 
 #### Scenario: Candidate workflow is inspected
 - **WHEN** workflow steps are ordered
@@ -23,12 +23,12 @@ The five-platform read-only candidate workflow SHALL run the native worker-trans
 
 ### Requirement: R9a implementation MAY proceed with R8 remote evidence deferred
 
-R8 five-platform remote evidence MAY remain an explicit external debt while R9a artifacts and local implementation proceed. The debt MUST NOT be represented as passing evidence, and R9a SHALL NOT dispatch, publish, sign, synchronize, or declare complete R9/Stage 1 release acceptance.
+R8 seven-platform remote evidence MAY remain an explicit external debt while R9a artifacts and local implementation proceed. The debt MUST NOT be represented as passing evidence, and R9a SHALL NOT dispatch, publish, sign, synchronize, or declare complete R9/Stage 1 release acceptance.
 
 #### Scenario: R9a local acceptance is reported
 - **WHEN** local contracts, cutover rehearsal, tests, and builds pass without R8 remote results
 - **THEN** the report identifies the remote evidence as pending
-- **AND** makes no five-platform, signed-XPI, or real-machine completion claim
+- **AND** makes no seven-platform, signed-XPI, or real-machine completion claim
 
 ### Requirement: R9a and R9b SHALL remain separately auditable
 
@@ -38,4 +38,3 @@ R9a SHALL transfer production ownership and make legacy code unreachable from pr
 - **WHEN** R9a is ready for verification
 - **THEN** production routes contain no legacy fallback
 - **AND** retained oracle source is listed for R9b rather than deleted opportunistically
-

@@ -191,7 +191,7 @@ executing all large operations during package smoke.
 
 Final completion requires one coherent source identity across:
 
-- five native targets;
+- seven native targets;
 - manifest/fingerprint/SBOM/provenance/license and package sizes;
 - final universal XPI inventory and size;
 - clean profile;
@@ -244,7 +244,7 @@ create tags/assets, advance feeds, or run Gitee synchronization.
 7. Run local strict specs, public/corpus tests, TypeScript builds, Rust
    fmt/clippy/workspace tests, package/freshness/license/size checks, and final
    production build.
-8. Under separate execution authorization, run the five-platform, final XPI,
+8. Under separate execution authorization, run the seven-platform, final XPI,
    clean/upgrade/corrupt/crash/offline, restore/runbook, and Zotero 7/9
    real-machine matrix.
 9. Update active docs and the migration plan with actual results; declare R9
@@ -260,4 +260,3 @@ stopped-service restore.
 None. The evidence classification, workspace deletion, reachability-based
 package pruning, native-only gates, final matrix, and publication exclusions
 are fixed.
-

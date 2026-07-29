@@ -1,6 +1,7 @@
 import {
   isExpiredSynthesisSidecarRuntimeManifest,
   rebuildSynthesisSidecarRuntimeBundleManifest,
+  synthesisSidecarRuntimeTargetBundlePath,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
 } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
@@ -23,7 +24,7 @@ function decodeUtf8(bytes: Uint8Array) {
 export function synthesisSidecarRuntimeAssetRoot(
   target: SynthesisSidecarRuntimeTarget,
 ) {
-  return `bin/synthesis-sidecar/${target}`;
+  return `bin/${synthesisSidecarRuntimeTargetBundlePath(target)}`;
 }
 
 async function defaultReadPackagedAsset(relativePath: string) {

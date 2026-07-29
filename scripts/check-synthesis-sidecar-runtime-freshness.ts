@@ -4,6 +4,7 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT,
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
   computeSynthesisSidecarRuntimeBuildFingerprint,
+  synthesisSidecarRuntimeAddonBundleRoot,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -15,7 +16,7 @@ export async function checkSynthesisSidecarRuntimeFreshness(
   const diagnostics: Array<Record<string, unknown>> = [];
   for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX) {
     const result = await verifySynthesisSidecarRuntimeBundleDirectory({
-      root: path.join(assetRoot, target),
+      root: synthesisSidecarRuntimeAddonBundleRoot(assetRoot, target),
       target,
       expectedBuildFingerprint: build.fingerprint,
     }).catch((error) => ({

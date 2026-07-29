@@ -1,0 +1,55 @@
+{
+  "schema": "synthesis-sidecar-runtime-bundle.v3",
+  "bundleId": "106ea046a97c71f144091ba2e376de832597200edfc89c3bc5bdbd869799cf98",
+  "implementation": "rust-native",
+  "serviceVersion": "0.1.0",
+  "protocolVersion": "synthesis-sidecar.v1",
+  "target": "linux-arm",
+  "targetTriple": "armv7-unknown-linux-gnueabihf",
+  "executable": "synthesis-sidecar",
+  "buildFingerprint": "5136480a56dfa1ab8c2d95c7c1cead7221c2e072e36c515bfc3b36be5f3d3335",
+  "capabilities": [
+    "system.handshake",
+    "system.shutdown",
+    "workbench.chrome.read",
+    "topics.canonical.inspect",
+    "compute.citation_graph_layout",
+    "compute.citation_graph_metrics",
+    "compute.citation_graph_build",
+    "compute.citation_graph_build_transfer"
+  ],
+  "createdAt": "2026-07-29T08:57:15.000Z",
+  "expiresAt": null,
+  "provenance": {
+    "sourceFingerprint": "a124776332ad57cbd26f6b226690e88f6466ae88ec5f74e0911043ca8c9401a0",
+    "toolchain": "nightly-2026-07-25",
+    "cargoLockSha256": "ff91fdcf6949880da14c82907b72ae531fdebebf88c391ab3c43c31db6519c54",
+    "licenseInventory": "licenses.json"
+  },
+  "files": [
+    {
+      "path": "LICENSE-AGPL-3.0.txt",
+      "bytes": 34520,
+      "sha256": "76a97c878c9c7a8321bb395c2b44d3fe2f8d81314d219b20138ed0e2dddd5182",
+      "executable": false
+    },
+    {
+      "path": "licenses.json",
+      "bytes": 7098,
+      "sha256": "b8491dbf53b3b6cf016357d011f938d0520caaf90689044ef9aad3a50257b262",
+      "executable": false
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 387,
+      "sha256": "6c091c3306167390df0fe0fab8d06d353bb3503273d40bbdfdcd2a6097a5b9a0",
+      "executable": false
+    },
+    {
+      "path": "synthesis-sidecar",
+      "bytes": 4977908,
+      "sha256": "92fcace5be5d93729e2316434674e2414ad4d0b278c0b4e7b53a9da7ee41ec9f",
+      "executable": true
+    }
+  ]
+}

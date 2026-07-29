@@ -56,11 +56,10 @@
 
 ## 8. Final R9 and Stage-1 Acceptance
 
-- [ ] 8.1 Under separate execution authorization, build and verify all five native targets for one source/toolchain/lock identity, including fingerprints, signatures required by the acceptance environment, SBOM/provenance/licenses, and 15/75 MiB budgets
+- [ ] 8.1 Under separate execution authorization, build and verify all seven native targets for one source/toolchain/lock identity, including fingerprints, signatures required by the acceptance environment, SBOM/provenance/licenses, and 15/75 MiB budgets
 - [ ] 8.2 Assemble and verify the final universal XPI native-only inventory and 100 MiB budget without publishing it
 - [ ] 8.3 Run clean-profile and upgrade-profile Zotero tests, including an existing completed production receipt and data produced before cutover
 - [ ] 8.4 Run corrupt/stale/wrong-platform bundle, offline install, crash/restart/orphan/fuse, post-admission Rust-only repair, owner-conflict, preflight failure, backup/restore, and operator runbook cases
 - [ ] 8.5 Run representative real-machine smoke on Zotero 7 and Zotero 9 across the agreed platform matrix
 - [ ] 8.6 Bind every result to one source identity and report any missing evidence honestly; do not declare R9 or Stage 1 complete while one gate is absent
 - [ ] 8.7 Keep release publication, tag/assets, feed advancement, and Gitee synchronization outside this change unless separately and explicitly authorized
-

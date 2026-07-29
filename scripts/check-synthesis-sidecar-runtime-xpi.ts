@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { synthesisSidecarRuntimeTargetBundlePath } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import { SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX } from "./synthesis-sidecar-runtime-release-governance";
 
 function argument(name: string) {
@@ -61,9 +62,11 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
   const xpi = await findXpi(root);
   const entries = listZipEntries(await fs.readFile(xpi));
   const missing: string[] = [];
-  const forbidden: string[] = [];
+  const forbidden = Array.from(entries).filter((entry) =>
+    entry.startsWith("bin/synthesis-sidecar/"),
+  );
   for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX) {
-    const prefix = `bin/synthesis-sidecar/${target}`;
+    const prefix = `bin/${synthesisSidecarRuntimeTargetBundlePath(target)}`;
     for (const required of [
       `${prefix}/manifest.json`,
       `${prefix}/${

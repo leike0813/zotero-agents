@@ -129,7 +129,7 @@ export default defineConfig({
       "addon/**/*.*",
       "addon/bin/**/*",
       "addon/bin/**/zotero-bridge",
-      "addon/bin/synthesis-sidecar/**/*",
+      "addon/bin/**/synthesis-sidecar/**/*",
     ],
     define: {
       ...pkg.config,

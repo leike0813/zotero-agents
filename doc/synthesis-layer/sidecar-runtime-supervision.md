@@ -175,6 +175,6 @@ client route. The plugin retains only bounded reverse-Host adapters, and Node
 is used only as a differential oracle in tests. The owner transition contains
 no request-level fallback and never shares a live root.
 
-R9b separately governs five-platform and clean-machine acceptance. A passing
+R9b separately governs seven-platform and clean-machine acceptance. A passing
 local smoke or candidate workflow does not publish assets, synchronize
 prebuilds, or authorize release.

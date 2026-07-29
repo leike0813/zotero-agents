@@ -1,4 +1,11 @@
-## ADDED Requirements
+# synthesis-sidecar-runtime-packaging Specification
+
+## Purpose
+
+Defines the native-only sidecar runtime inventory, platform-first add-on
+materialization, and synchronization isolation required for plugin packaging.
+
+## Requirements
 
 ### Requirement: Formal runtime inventory SHALL be native-only
 
@@ -6,7 +13,9 @@ Runtime packages, freshness checks, and XPI checks SHALL contain one native
 Rust executable plus manifest v3, provenance, license inventory, and product
 license for each of `win32-x64`, `darwin-x64`, `darwin-arm64`, `linux-x86`,
 `linux-x64`, `linux-arm`, and `linux-arm64`; they SHALL exclude Node, npm,
-JavaScript service, and D3 runtime files.
+JavaScript service, and D3 runtime files. Add-on and XPI materialization SHALL
+use `bin/<target>/synthesis-sidecar/`, with the bundle namespaced under the same
+platform directory as other native executables.
 
 #### Scenario: Native XPI inventory is inspected
 - **WHEN** a formal XPI candidate is checked
@@ -14,12 +23,8 @@ JavaScript service, and D3 runtime files.
   runtime files and match the committed complete sidecar release evidence
 - **AND** any Node or JavaScript runtime artifact SHALL fail the inventory gate
 
-## REMOVED Requirements
-
-### Requirement: Sidecar runtime bundles have one strict manifest
-**Reason**: The v1 manifest describes the transitional Node runtime and conflicts with native manifest v2.
-**Migration**: Use `synthesis-sidecar-runtime-bundle.v2`; v1 manifests are not installable or rollback-compatible.
-
-### Requirement: Installed runtime snapshots expose verified launch identity
-**Reason**: Node and entrypoint paths are replaced by one verified native executable.
-**Migration**: Consumers use implementation, fingerprints, platform signature, and `executablePath`.
+#### Scenario: Prebuilds are synchronized into an existing add-on tree
+- **WHEN** a complete seven-target set replaces the materialized sidecar bundles
+- **THEN** all seven bundles SHALL advance transactionally
+- **AND** sibling Host Bridge binaries and unrelated native assets SHALL retain
+  their existing bytes

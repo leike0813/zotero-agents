@@ -120,12 +120,15 @@ inputs.
 The freshness gate verifies all seven synchronized directories against the
 current source fingerprint and expiry policy. The XPI gate requires the same
 seven native inventories below
-`bin/synthesis-sidecar/<target>/`, rejects Node, JavaScript service, npm and D3
+`bin/<target>/synthesis-sidecar/`, rejects Node, JavaScript service, npm and D3
 runtime files, and enforces the universal size budget.
 
 Synchronization is a separate, explicit operation. It downloads a complete
-seven-target set, extracts into a staging root, verifies every target, and only
-then replaces `addon/bin/synthesis-sidecar`.
+seven-target set, extracts into a staging root, verifies every target, and then
+transactionally replaces the complete `addon/bin` tree with each bundle at
+`addon/bin/<target>/synthesis-sidecar/`. Existing Host Bridge binaries are
+copied unchanged into the staged tree; the obsolete sidecar-first root is not
+retained.
 Candidate workflow success alone does not authorize synchronization.
 
 ## Migration Boundary

@@ -10,6 +10,7 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   rebuildSynthesisSidecarRuntimePointer,
+  synthesisSidecarRuntimeTargetBundlePath,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
 } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
@@ -109,7 +110,7 @@ function packagedReader(
   target: SynthesisSidecarRuntimeTarget,
   bundle: ReturnType<typeof createBundle>,
 ) {
-  const prefix = `bin/synthesis-sidecar/${target}/`;
+  const prefix = `bin/${synthesisSidecarRuntimeTargetBundlePath(target)}/`;
   return async (relativePath: string) => {
     if (relativePath === `${prefix}manifest.json`) {
       return bytes(`${JSON.stringify(bundle.manifest)}\n`);
@@ -123,8 +124,9 @@ function writeBundle(
   root: string,
   target: SynthesisSidecarRuntimeTarget,
   bundle: ReturnType<typeof createBundle>,
+  relativeRoot = target,
 ) {
-  const targetRoot = path.join(root, target);
+  const targetRoot = path.join(root, relativeRoot);
   fs.mkdirSync(targetRoot, { recursive: true });
   fs.writeFileSync(
     path.join(targetRoot, "manifest.json"),
@@ -133,6 +135,19 @@ function writeBundle(
   for (const [relativePath, value] of bundle.assets) {
     fs.writeFileSync(path.join(targetRoot, relativePath), value);
   }
+}
+
+function writeAddonBundle(
+  root: string,
+  target: SynthesisSidecarRuntimeTarget,
+  bundle: ReturnType<typeof createBundle>,
+) {
+  writeBundle(
+    root,
+    target,
+    bundle,
+    synthesisSidecarRuntimeTargetBundlePath(target),
+  );
 }
 
 describe("Synthesis sidecar native runtime packaging", function () {
@@ -316,7 +331,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
     const build = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
     for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
-      writeBundle(
+      writeAddonBundle(
         assetRoot,
         target,
         createBundle(target, { buildFingerprint: build.fingerprint }),
@@ -454,8 +469,11 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
     assert.notInclude(durableSmokeSource, 'from "node:http"');
     assert.include(durableSmokeSource, 'from "node:net"');
-    assert.include(durableSmokeSource, 'HTTP/1.1\\r\\n');
-    assert.include(durableSmokeSource, '"content-length": String(body.byteLength)');
+    assert.include(durableSmokeSource, "HTTP/1.1\\r\\n");
+    assert.include(
+      durableSmokeSource,
+      '"content-length": String(body.byteLength)',
+    );
     assert.include(
       durableSmokeSource,
       "Health route returned ${healthResponse.status} for ${target}: ${healthResponse.body}",
@@ -466,7 +484,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-prebuild-set-"));
     const input = path.join(root, "input");
     const store = path.join(root, "store");
-    const addon = path.join(root, "addon", "synthesis-sidecar");
+    const addon = path.join(root, "addon", "bin");
     const build = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
     for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
       writeBundle(
@@ -484,8 +502,8 @@ describe("Synthesis sidecar native runtime packaging", function () {
       buildFingerprint: build.fingerprint,
       sourceFingerprint: "a".repeat(64),
     });
-    const result = rebuildSynthesisSidecarRuntimePrebuildResult({
-      schema: "synthesis-sidecar-runtime-prebuild-result.v1",
+    const resultDocument = {
+      schema: "synthesis-sidecar-runtime-prebuild-result.v2",
       repository: "example/zotero-agents",
       workflow: "prebuild-synthesis-sidecar-runtime.yml",
       runId: 42,
@@ -496,7 +514,40 @@ describe("Synthesis sidecar native runtime packaging", function () {
       prebuildBranch: "synthesis-sidecar-runtime-prebuilds",
       prebuildCommit: "c".repeat(40),
       setPath: `sets/${staged.aggregate}`,
-    });
+      cache: {
+        cacheHits: [],
+        cacheMisses: [...SYNTHESIS_SIDECAR_RUNTIME_TARGETS],
+        cacheSourceRuns: [],
+      },
+    };
+    const result = rebuildSynthesisSidecarRuntimePrebuildResult(resultDocument);
+    for (const cache of [
+      {
+        ...resultDocument.cache,
+        cacheMisses: resultDocument.cache.cacheMisses.slice(1),
+      },
+      {
+        ...resultDocument.cache,
+        cacheHits: ["linux-x64"],
+        cacheMisses: [...resultDocument.cache.cacheMisses],
+        cacheSourceRuns: [12],
+      },
+      {
+        ...resultDocument.cache,
+        cacheHits: ["linux-x64"],
+        cacheMisses: resultDocument.cache.cacheMisses.filter(
+          (target) => target !== "linux-x64",
+        ),
+        cacheSourceRuns: [],
+      },
+    ]) {
+      assert.throws(() =>
+        rebuildSynthesisSidecarRuntimePrebuildResult({
+          ...resultDocument,
+          cache,
+        }),
+      );
+    }
     assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
       aggregate: staged.aggregate,
       requestId: "sidecar-test-42",
@@ -524,6 +575,9 @@ describe("Synthesis sidecar native runtime packaging", function () {
         ],
       }),
     );
+    const siblingBinary = path.join(addon, "linux-arm", "zotero-bridge");
+    fs.mkdirSync(path.dirname(siblingBinary), { recursive: true });
+    fs.writeFileSync(siblingBinary, "host-bridge");
     const synced = await syncSynthesisSidecarRuntimePrebuilds({
       aggregate: staged.aggregate,
       storeRoot: store,
@@ -533,7 +587,13 @@ describe("Synthesis sidecar native runtime packaging", function () {
     });
     assert.isTrue(synced.ok);
     assert.isTrue(
-      fs.existsSync(path.join(addon, "linux-arm", "synthesis-sidecar")),
+      fs.existsSync(
+        path.join(addon, "linux-arm", "synthesis-sidecar", "synthesis-sidecar"),
+      ),
+    );
+    assert.equal(fs.readFileSync(siblingBinary, "utf8"), "host-bridge");
+    assert.isFalse(
+      fs.existsSync(path.join(addon, "synthesis-sidecar", "linux-arm")),
     );
 
     const archiveRoot = path.join(root, "archives");
@@ -596,8 +656,11 @@ describe("Synthesis sidecar native runtime packaging", function () {
       () => undefined,
     );
     assert.isTrue(
-      fs.existsSync(path.join(addon, "linux-arm", "synthesis-sidecar")),
+      fs.existsSync(
+        path.join(addon, "linux-arm", "synthesis-sidecar", "synthesis-sidecar"),
+      ),
     );
+    assert.equal(fs.readFileSync(siblingBinary, "utf8"), "host-bridge");
     const initialReceipt = createSynthesisSidecarRuntimeReleaseReceipt({
       releaseSet: {
         schema: "synthesis-sidecar-runtime-release-set.v1",

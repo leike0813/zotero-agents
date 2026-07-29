@@ -36,7 +36,8 @@
 
 ## 6. Pre-Deletion Decision Gate
 
-- [ ] 6.1 Under separate execution authorization, run the read-only five-platform native candidate for one source/toolchain/lock identity and record target fingerprints and compressed sizes
+- [ ] 6.1 Under separate execution authorization, run the read-only seven-platform native candidate for one source/toolchain/lock identity and record target fingerprints and compressed sizes
 - [ ] 6.2 Under separate execution authorization, run the agreed representative clean-machine Zotero checks and bind their outcomes to the same source identity
 - [ ] 6.3 Record candidate evidence as pre-deletion evidence only, with signing, final XPI, upgrade/offline install, release, Stage-1 completion, and Gitee explicitly still pending
-- [ ] 6.4 Do not begin `remove-synthesis-plugin-legacy-owner` until sections 1-5 pass and the section 6 decision gate is explicitly accepted
+- [x] 6.4 Materialize all seven bundles at `addon/bin/<target>/synthesis-sidecar/`, remove the obsolete sidecar-first root, and verify synchronization preserves sibling native binaries
+- [ ] 6.5 Do not begin `remove-synthesis-plugin-legacy-owner` until sections 1-5 pass and the section 6 decision gate is explicitly accepted

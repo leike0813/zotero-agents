@@ -13,6 +13,7 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT,
   assertSynthesisSidecarRuntimeArchiveLayout,
   sha256File,
+  synthesisSidecarRuntimeAddonBundleRoot,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -56,7 +57,7 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
   aggregate: string;
   storeRoot: string;
   addonRoot?: string;
-  result?: unknown;
+  result: unknown;
   expected?: Record<string, unknown>;
 }) {
   const addonRoot = args.addonRoot || SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT;
@@ -66,18 +67,18 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
   );
   if (manifest.aggregate !== args.aggregate)
     throw new Error("Prebuild aggregate mismatch");
-  if (args.result) {
-    const result = rebuildSynthesisSidecarRuntimePrebuildResult(args.result);
-    assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
-      aggregate: args.aggregate,
-      prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
-      ...(args.expected || {}),
-    });
-  }
+  const result = rebuildSynthesisSidecarRuntimePrebuildResult(args.result);
+  assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
+    aggregate: args.aggregate,
+    prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
+    ...(args.expected || {}),
+  });
   const staging = `${addonRoot}.staging-${process.pid}`;
+  const bundleStaging = `${addonRoot}.bundle-staging-${process.pid}`;
   const backup = `${addonRoot}.backup-${process.pid}`;
   await fs.rm(staging, { recursive: true, force: true });
-  await fs.mkdir(staging, { recursive: true });
+  await fs.rm(bundleStaging, { recursive: true, force: true });
+  await fs.mkdir(bundleStaging, { recursive: true });
   try {
     for (const archive of manifest.archives) {
       const archivePath = path.join(setRoot, archive.file);
@@ -88,9 +89,9 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
         archivePath,
         target: archive.target,
       });
-      run("tar", ["-xzf", archivePath, "-C", staging]);
+      run("tar", ["-xzf", archivePath, "-C", bundleStaging]);
       const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
-        root: path.join(staging, archive.target),
+        root: path.join(bundleStaging, archive.target),
         target: archive.target,
         expectedBuildFingerprint: manifest.buildFingerprint,
         expectedSourceFingerprint: manifest.sourceFingerprint,
@@ -100,7 +101,7 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
           `Invalid archive ${archive.file}: ${JSON.stringify(verification.diagnostics)}`,
         );
     }
-    const entries = await fs.readdir(staging);
+    const entries = await fs.readdir(bundleStaging);
     if (
       entries.length !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS.length ||
       entries.some(
@@ -114,11 +115,29 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
         "Prebuild set has missing or unexpected target directories",
       );
     }
-    await fs.rm(backup, { recursive: true, force: true });
     const hadAddon = await fs
       .stat(addonRoot)
       .then(() => true)
       .catch(() => false);
+    if (hadAddon) {
+      await fs.cp(addonRoot, staging, { recursive: true });
+    } else {
+      await fs.mkdir(staging, { recursive: true });
+    }
+    await fs.rm(path.join(staging, "synthesis-sidecar"), {
+      recursive: true,
+      force: true,
+    });
+    for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
+      const targetRoot = synthesisSidecarRuntimeAddonBundleRoot(
+        staging,
+        target,
+      );
+      await fs.mkdir(path.dirname(targetRoot), { recursive: true });
+      await fs.rm(targetRoot, { recursive: true, force: true });
+      await fs.rename(path.join(bundleStaging, target), targetRoot);
+    }
+    await fs.rm(backup, { recursive: true, force: true });
     if (hadAddon) await fs.rename(addonRoot, backup);
     try {
       await fs.mkdir(path.dirname(addonRoot), { recursive: true });
@@ -132,6 +151,8 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
   } catch (error) {
     await fs.rm(staging, { recursive: true, force: true });
     throw error;
+  } finally {
+    await fs.rm(bundleStaging, { recursive: true, force: true });
   }
   return {
     ok: true,
@@ -143,7 +164,7 @@ export async function syncSynthesisSidecarRuntimePrebuilds(args: {
 
 async function main() {
   const aggregate = required("aggregate");
-  const resultPath = argument("result");
+  const resultPath = required("result");
   const storeRoot =
     argument("store-root") ||
     (await remoteStore({
@@ -167,9 +188,7 @@ async function main() {
     addonRoot: argument("addon-root")
       ? path.resolve(argument("addon-root")!)
       : undefined,
-    result: resultPath
-      ? JSON.parse(await fs.readFile(path.resolve(resultPath), "utf8"))
-      : undefined,
+    result: JSON.parse(await fs.readFile(path.resolve(resultPath), "utf8")),
     expected,
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);

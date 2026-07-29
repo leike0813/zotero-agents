@@ -40,7 +40,7 @@ assertions MUST be deleted rather than recreated.
 ### Requirement: R9 and Stage 1 completion SHALL require final acceptance
 
 R9 and Stage 1 SHALL remain incomplete until one source identity passes the
-five-platform native build, fingerprint, SBOM/provenance/license, 15/75 MiB
+seven-platform native build, fingerprint, SBOM/provenance/license, 15/75 MiB
 runtime budgets, final XPI native-only inventory and 100 MiB budget,
 clean/upgrade/corrupt/crash/offline cases, backup/restore and runbook rehearsal,
 and representative Zotero 7 and Zotero 9 real-machine smoke. Passing these
@@ -55,4 +55,3 @@ gates MUST NOT by itself publish a release or authorize Gitee synchronization.
 - **WHEN** every required result is bound to the same approved source identity
 - **THEN** R9 and Stage 1 may be declared complete
 - **AND** release publication remains a separate explicitly authorized action
-

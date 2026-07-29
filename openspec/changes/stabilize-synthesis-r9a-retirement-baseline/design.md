@@ -50,7 +50,7 @@ release workflow.
   location.
 - Delete plugin legacy code, `apps/synthesis-service`, TypeScript packages,
   tests, workflows, or dependencies.
-- Dispatch five-platform workflows, sign or publish an XPI, create a release,
+- Dispatch seven-platform workflows, sign or publish an XPI, create a release,
   or synchronize Gitee.
 
 ## Decisions
@@ -140,16 +140,29 @@ behavior cleanly.
 ### 5. Gate destructive retirement on remote evidence
 
 After local gates pass, R9b implementation may proceed only after evidence
-exists for a five-platform native candidate and at least the representative
+exists for a seven-platform native candidate and at least the representative
 clean-machine profiles agreed for the release milestone. This is a decision
 gate, not an automatic workflow action in this change.
 
-The evidence receipt records commit, toolchain, lock hash, five target
+The evidence receipt records commit, toolchain, lock hash, seven target
 fingerprints, per-target size, workflow run identity, and test outcome. It does
 not claim signing, final XPI, offline install, upgrade, or complete Stage 1
 acceptance; those remain final R9b gates.
 
-### 6. Update only current-state documentation
+### 6. Use one platform-first native asset layout
+
+The add-on SHALL materialize each sidecar bundle at
+`addon/bin/<target>/synthesis-sidecar/`. Host Bridge binaries remain siblings
+under `addon/bin/<target>/`. Synchronization stages the complete `addon/bin`
+tree, replaces only the seven namespaced sidecar bundles, removes the obsolete
+sidecar-first root, and swaps the staged tree transactionally so a failed set
+cannot partially update platforms or delete sibling binaries.
+
+The prebuild archive format remains `<target>/...`; platform-first layout is a
+local add-on/XPI materialization concern and does not introduce a second bundle
+manifest.
+
+### 7. Update only current-state documentation
 
 The Rust migration plan and active Synthesis architecture documents will state
 that:
@@ -187,9 +200,11 @@ that:
 4. Run focused R9a tests, capability/boundary checks, TypeScript checks, Rust
    fmt/clippy/tests, Stage-1 suite, and production build.
 5. Correct the current-state plan and Synthesis architecture documents.
-6. Collect the separately authorized pre-deletion five-platform/clean-machine
+6. Materialize the seven verified bundles under the platform-first add-on
+   layout and verify Host Bridge siblings are preserved.
+7. Collect the separately authorized pre-deletion seven-platform/clean-machine
    evidence and record its receipt.
-7. Only then begin `remove-synthesis-plugin-legacy-owner`.
+8. Only then begin `remove-synthesis-plugin-legacy-owner`.
 
 Rollback is code rollback before either dependent deletion change begins. This
 change changes no production data and requires no data migration. Once a newer

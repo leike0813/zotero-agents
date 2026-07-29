@@ -9,6 +9,8 @@ export const SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA =
 export const SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA =
   "synthesis-sidecar-runtime-pointer.v2" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION = "rust-native" as const;
+export const SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_DIRECTORY =
+  "synthesis-sidecar" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGETS = [
   "win32-x64",
   "darwin-x64",
@@ -21,6 +23,12 @@ export const SYNTHESIS_SIDECAR_RUNTIME_TARGETS = [
 
 export type SynthesisSidecarRuntimeTarget =
   (typeof SYNTHESIS_SIDECAR_RUNTIME_TARGETS)[number];
+
+export function synthesisSidecarRuntimeTargetBundlePath(
+  target: SynthesisSidecarRuntimeTarget,
+) {
+  return `${target}/${SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_DIRECTORY}`;
+}
 
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES = {
   "win32-x64": "x86_64-pc-windows-msvc",

@@ -20,9 +20,11 @@ native owner can be re-verified from current-state contracts alone.
   partial or stale smoke cannot be replayed as complete evidence.
 - Correct the R9 current-state documentation and record the exact retained
   Node/plugin deletion inventory for the two dependent R9b changes.
-- Require one pre-deletion five-platform native candidate gate and representative
+- Require one pre-deletion seven-platform native candidate gate and representative
   clean-machine evidence before destructive retirement begins; this change does
   not dispatch or publish that workflow.
+- Materialize sidecar bundles under the shared platform-first native asset
+  layout without replacing Host Bridge binaries in the same target directory.
 
 ## Capabilities
 
@@ -40,15 +42,18 @@ None.
 - `synthesis-rust-sidecar-migration-governance`: Establish the R9a retirement
   baseline and the pre-deletion remote-evidence gate without claiming release
   completion.
+- `synthesis-sidecar-runtime-packaging`: Align sidecar materialization with the
+  shared `addon/bin/<target>/` native asset layout.
+- `synthesis-sidecar-prebuild-release`: Treat the workflow-emitted v2 result
+  document and its cache summary as the synchronization authorization boundary.
 
 ## Impact
 
 - Affects production capability/surface parity checkers, critical-smoke
   orchestration, activation evidence, existing R9a Core tests, Stage-1 gates,
-  and Synthesis current-state documentation.
+  sidecar materialization, and Synthesis current-state documentation.
 - Does not change public `SynthesisClient` methods, DTOs, persistence formats,
   production ownership, reverse-Host authority, runtime distribution, or
   release state.
 - Is a prerequisite for `remove-synthesis-plugin-legacy-owner` and
   `remove-synthesis-node-sidecar-stack`.
-

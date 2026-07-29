@@ -15,15 +15,15 @@ gates pass without reading active or archived OpenSpec change artifacts.
 ### Requirement: Pre-deletion candidate evidence SHALL be recorded separately
 
 Before destructive R9b deletion begins, the project SHALL record one
-five-platform native candidate result and the agreed representative
+seven-platform native candidate result and the agreed representative
 clean-machine results for the same source identity. The receipt MUST bind the
-source commit, Rust toolchain, Cargo lock identity, five target fingerprints,
+source commit, Rust toolchain, Cargo lock identity, seven target fingerprints,
 per-target compressed sizes, workflow identity, and outcomes. Candidate
 evidence MUST NOT be represented as signing, final XPI, offline-install,
 upgrade, release, or complete Stage-1 acceptance.
 
 #### Scenario: Candidate matrix passes
-- **WHEN** all five native targets and representative clean-machine checks pass for one source identity
+- **WHEN** all seven native targets and representative clean-machine checks pass for one source identity
 - **THEN** the first destructive R9b change may begin
 - **AND** final package and real-machine gates remain pending
 
@@ -43,4 +43,3 @@ remote evidence as passing.
 - **WHEN** code, contract, test, and documentation inventories are compared
 - **THEN** ownership and readiness statements agree with the executable gates
 - **AND** every retained legacy/Node area is assigned to one downstream deletion change
-

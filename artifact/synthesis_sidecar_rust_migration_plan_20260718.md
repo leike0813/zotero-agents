@@ -20,7 +20,7 @@ Stage 1 的 WS0-WS5 已经建立了可迁移的边界：插件侧 `SynthesisClie
 4. Force layout 不追求逐坐标复刻 d3-force；通过显式 `layoutVersion: 2` 完成算法升级。
 5. 迁移期不允许 Node/Rust 共享数据库、canonical root 或 write lease；运行时不提供逐请求 Node fallback。
 6. Rust 切换后只允许兼容 Rust bundle 之间回滚，不支持降级回 Node manifest。
-7. 压缩后的单平台 native runtime 不得超过 15 MiB，五平台总量不得超过 75 MiB，最终 XPI 不得超过 100 MiB。
+7. 压缩后的单平台 native runtime 不得超过 15 MiB，七平台总量不得超过 75 MiB，最终 XPI 不得超过 100 MiB。
 
 这是一份迁移治理总计划，不是一次性大改的实施任务。每个工作流必须由独立 OpenSpec change 承载，并满足自己的 TDD 与退出条件后才能进入下一阶段。
 
@@ -154,7 +154,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 - 必要性与替代方案；
 - license 与供应链来源；
 - `Cargo.lock` 可复现性；
-- 五平台构建支持；
+- 七平台构建支持；
 - stripped/compressed binary 增量；
 - 安全与维护活跃度。
 
@@ -307,7 +307,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **退出条件**：
 
-- 五平台运行 crash/restart、锁竞争、事务回滚和每个 journal phase 的 fault injection；
+- 七平台运行 crash/restart、锁竞争、事务回滚和每个 journal phase 的 fault injection；
 - Node/Rust 使用独立 shadow roots，仅比较结果，不共享 live owner；
 - 每个 application family 都由真实 typed Node/Rust use-case differential 覆盖；enum/inventory、generic command 或 synthetic state row 不计为证据；
 - Workbench、Topic 与后续领域簇的公开 DTO、稳定失败、durable side effects 和 reopen 结果全绿；
@@ -347,21 +347,21 @@ default-client 路由已经组成一次 receipt-bound 原子交接。预 admissi
 失败恢复已验证备份；admission 后失败进入 Rust-only repair，禁止回落到
 插件或 Node owner。Node、生成物和历史测试仅按
 `artifact/synthesis_r9a_retirement_baseline_20260727.md` 的保留清单作为
-差分 oracle/兼容工件存在，不能成为生产路径。R8 五平台远端、签名/XPI
+差分 oracle/兼容工件存在，不能成为生产路径。R8 七平台远端、签名/XPI
 和 clean-machine 实机证据迁入依赖的 R9b 验收，不阻塞本地切换，也不得
 据此宣告发布完成。
 
 **后续边界**：R9b 只能按 `remove-synthesis-plugin-legacy-owner` 与
 `remove-synthesis-node-sidecar-stack` 两个依赖 change 的顺序处理物理删除。
 它们必须复用本 change 的 baseline、corpora、cutover 与 candidate 证据，且
-不得把本地切换、五平台 candidate、签名/XPI、upgrade/offline install、发布
+不得把本地切换、七平台 candidate、签名/XPI、upgrade/offline install、发布
 或 Gitee 同步混为同一项完成声明。
 
 **切换前硬门槛**：
 
 - R1-R8 全部完成；
-- 五平台 native bundle 新鲜、签名、fingerprint、SBOM 与 provenance 合格；
-- 单平台 ≤15 MiB、五平台总量 ≤75 MiB、最终 XPI ≤100 MiB；
+- 七平台 native bundle 新鲜、签名、fingerprint、SBOM 与 provenance 合格；
+- 单平台 ≤15 MiB、七平台总量 ≤75 MiB、最终 XPI ≤100 MiB；
 - clean profile、upgrade profile、corrupt bundle、crash recovery、offline install 实机矩阵通过；
 - 数据备份、迁移前检查、失败恢复和 operator runbook 已演练。
 
@@ -408,15 +408,17 @@ default-client 路由已经组成一次 receipt-bound 原子交接。预 admissi
 - Node oracle 与 Rust candidate 的工具链/fingerprint 写入报告；
 - 接受一个 slice 后，将测试 SSOT 转移到语言中立 corpus，不能永久依赖执行 Node 才能判断 Rust 正确性。
 
-### 8.3 五平台矩阵
+### 8.3 七平台矩阵
 
 - macOS x64
 - macOS arm64
 - Windows x64
+- Linux x86
 - Linux x64
+- Linux arm
 - Linux arm64
 
-R2 起每个 prebuild 必须构建；R7 起 repository/canonical fault tests 必须在五平台执行；R9 前每个平台至少一次 clean-machine Zotero 实机测试。
+R2 起每个 prebuild 必须构建；R7 起 repository/canonical fault tests 必须在七平台执行；R9 前每个平台至少一次 clean-machine Zotero 实机测试。
 
 ## 9. 包体、性能与供应链门槛
 
@@ -425,7 +427,7 @@ R2 起每个 prebuild 必须构建；R7 起 repository/canonical fault tests 必
 | 工件 | 压缩后硬上限 |
 | --- | ---: |
 | 每个 target native runtime | 15 MiB |
-| 五 target runtime 合计 | 75 MiB |
+| 七 target runtime 合计 | 75 MiB |
 | 最终 universal XPI | 100 MiB |
 
 CI 必须同时报告未压缩、stripped 与最终归档大小，并显示相对上一基线的增量。超过任何硬上限直接失败，不以“后续再优化”放行。预算如需调整，必须由独立 change 说明用户价值与替代方案，不能在实现 PR 中顺手放宽。
@@ -500,7 +502,7 @@ manifest v2 表达：
 - `native/synthesis-sidecar/**`
 - language-neutral schemas/corpora 目录（由 R1 确定）
 - Rust build/test/release workflows 与 artifact manifests
-- 五平台 native fault/real-machine evidence
+- 七平台 native fault/real-machine evidence
 
 ### 13.2 逐步修改
 
@@ -528,7 +530,7 @@ manifest v2 表达：
 
 - R1 无法获得跨语言 canonical bytes/hash 一致性；
 - 最小 Rust 骨架已超过单平台 15 MiB；
-- 新依赖不支持五平台、license 不可接受或 provenance 不可复现；
+- 新依赖不支持七平台、license 不可接受或 provenance 不可复现；
 - 某 slice 只能靠 production runtime Node fallback 才能工作；
 - Node/Rust 需要共享 writer、database 或 canonical root 才能比较；
 - worker hang 无法被主 service 可靠终止与隔离；
@@ -542,13 +544,13 @@ manifest v2 表达：
 
 本轮 Rust 迁移只有同时满足以下条件才算完成：
 
-- 五平台交付单一 native executable，不依赖 Node、npm、系统 runtime 或安装后下载；
+- 七平台交付单一 native executable，不依赖 Node、npm、系统 runtime 或安装后下载；
 - 最终 XPI 与各 target runtime 满足硬包体预算；
 - 公开 capability、wire errors、canonical bytes/hash、数据库与 durable recovery 满足已批准兼容契约；
 - Force layout 通过显式 v2 契约完成迁移；
 - bounded CPU work 运行在可替换 worker process，超时/崩溃不会拖死 service；
 - production database/canonical owner 唯一属于 Rust sidecar；
-- clean install、upgrade、offline、损坏 bundle、crash recovery 五平台实机矩阵通过；
+- clean install、upgrade、offline、损坏 bundle、crash recovery 七平台实机矩阵通过；
 - Node service/runtime/worker/D3 runtime、旧 release workflow 与过时插件内实现已经删除；
 - active docs、OpenSpec、build inventory 与真实代码一致；
 - 仅保留兼容 Rust bundle 之间的回滚路径，不存在隐藏 Node fallback。
