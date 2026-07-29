@@ -12,9 +12,19 @@ import {
 } from "../../src/modules/acpSkillSchemaAssets";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { renderLiteratureDeepReadingSkill } from "../../skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill";
+import {
+  startHostBridgeCliFixtureHarness,
+  type HostBridgeCliFixtureHarness,
+} from "../helpers/hostBridgeCliHarness";
 
 const suiteRoot = path.join("skills_src", "literature-deep-reading");
 const skillRoot = path.join("skills_builtin", "literature-deep-reading");
+const activeHarnesses = new Set<HostBridgeCliFixtureHarness>();
+const originalBridgeEnvironment = {
+  bin: process.env.ZOTERO_BRIDGE_BIN,
+  endpoint: process.env.ZOTERO_BRIDGE_ENDPOINT,
+  token: process.env.ZOTERO_BRIDGE_TOKEN,
+};
 
 async function assertFileExists(filePath: string) {
   await fs.access(filePath);
@@ -738,7 +748,7 @@ async function writeFinalReview(
   );
 }
 
-async function installFakeBridge(
+async function installBridgeHarness(
   runRoot: string,
   options?: {
     layoutStatus?: string;
@@ -747,30 +757,18 @@ async function installFakeBridge(
     topicCandidates?: Array<Record<string, unknown>>;
   },
 ) {
-  const binDir = path.join(runRoot, ".zotero-bridge", "bin");
-  await fs.mkdir(binDir, { recursive: true });
+  const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
+  await fs.mkdir(fixtureRoot, { recursive: true });
+  const provider = path.join(fixtureRoot, "host-bridge-provider.cjs");
   await fs.writeFile(
-    path.join(binDir, "fake-zotero-bridge.js"),
+    provider,
     `
 const fs = require("fs");
 const path = require("path");
-const args = process.argv.slice(2);
-if (args.includes("--input")) {
-  console.error("semantic reads must use --query");
-  process.exit(64);
-}
-const queryFlag = args.indexOf("--query");
-const inputArg = queryFlag >= 0 ? args[queryFlag + 1] : "{}";
-let input = {};
-if (inputArg.startsWith("@")) {
-  input = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), inputArg.slice(1)), "utf8"));
-} else {
-  input = JSON.parse(inputArg);
-}
-const command = args.slice(0, queryFlag >= 0 ? queryFlag : args.length).join(" ");
+const { command, input } = JSON.parse(process.argv[2]);
 fs.appendFileSync(path.resolve(process.cwd(), "bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\\n", "utf8");
 function reply(result) {
-  console.log(JSON.stringify({ ok: true, data: { result } }));
+  console.log(JSON.stringify(result));
 }
 const exportTargetArtifacts = ${JSON.stringify(options?.exportTargetArtifacts !== false)};
 const remoteExportFiltered = ${JSON.stringify(options?.remoteExportFiltered || "")};
@@ -846,53 +844,61 @@ function topicSemantic(topicId) {
   };
 }
 if (command === "synthesis index reference get") {
-  reply({
-    rows: [
-      {
-        paper_ref: "1:EIMSDEU3",
-        zoteroItemKey: "EIMSDEU3",
-        title: "Sample Paper",
-        reference_count: 2,
-        unbound_reference_count: 0,
-        artifacts: {
-          digest: { status: "available" },
-          references: { status: "available" },
-          citation_analysis: { status: "available" }
+  const entries = input.cursor ? [] : [
+    {
+      paper_ref: "1:EIMSDEU3",
+      zoteroItemKey: "EIMSDEU3",
+      title: "Sample Paper",
+      reference_count: 2,
+      unbound_reference_count: 0,
+      artifacts: {
+        digest: { status: "available" },
+        references: { status: "available" },
+        citation_analysis: { status: "available" }
+      },
+      references: [
+        {
+          reference_instance_id: "ref-3",
+          reference_index: 3,
+          title: "Reference index bound title",
+          target_paper_ref: "1:B",
+          target_literature_item_id: "1:B",
+          target_title: "Reference index bound title",
+          target_binding: "library",
+          binding_status: "accepted",
+          confidence: "high"
         },
-        references: [
-          {
-            reference_instance_id: "ref-3",
-            reference_index: 3,
-            title: "Reference index bound title",
-            target_paper_ref: "1:B",
-            target_literature_item_id: "1:B",
-            target_title: "Reference index bound title",
-            target_binding: "library",
-            binding_status: "accepted",
-            confidence: "high"
-          },
-          {
-            reference_instance_id: "ref-2",
-            reference_index: 2,
-            title: "External reference title",
-            target_paper_ref: "ext:C",
-            target_title: "External reference title",
-            target_binding: "external",
-            binding_status: "accepted"
-          }
-        ]
-      }
-    ]
+        {
+          reference_instance_id: "ref-2",
+          reference_index: 2,
+          title: "External reference title",
+          target_paper_ref: "ext:C",
+          target_title: "External reference title",
+          target_binding: "external",
+          binding_status: "accepted"
+        }
+      ]
+    }
+  ];
+  reply({
+    entries,
+    nextCursor: input.cursor ? "" : "reference-page-2",
+    hasMore: !input.cursor,
+    returned: entries.length,
+    total: 1,
+    limit: Number(input.limit || 25)
   });
 } else if (command === "synthesis artifact manifest") {
-  const artifacts = [];
+  const papers = [];
   for (const paperRef of input.paper_refs) {
     const types = input.artifact_types || ["digest"];
+    const artifacts = [];
     for (const type of types) {
       artifacts.push({ paperRef, artifact_type: type, payload_type: type === "digest" ? "digest-markdown" : type === "references" ? "references-json" : "citation-analysis-json", status: "available" });
     }
+    papers.push({ paper_ref: paperRef, artifacts });
   }
-  reply({ artifacts, diagnostics: [], total: artifacts.length });
+  reply({ papers, nextCursor: "", hasMore: false, returned: papers.length, total: papers.length, limit: Number(input.limit || 25), diagnostics: [] });
 } else if (command === "synthesis artifact export-filtered") {
   const targetDir = "runtime/payloads/artifacts";
   const manifestFile = "runtime/payloads/paper-artifacts-manifest.json";
@@ -947,7 +953,13 @@ if (command === "synthesis index reference get") {
     status: "available",
     paper_ref: paperRef,
     note_key: "digest-note-" + String(paperRef).replace(/[^A-Za-z0-9_.-]+/g, "_"),
-    digest_markdown: "# Resolved digest for " + paperRef + "\\n\\n## Key idea\\nResolved digest body.",
+    text: "# Resolved digest for " + paperRef + "\\n\\n## Key idea\\nResolved digest body.",
+    offset: Number(input.offset || 0),
+    nextOffset: 80,
+    totalChars: 80,
+    hasMore: false,
+    truncated: false,
+    maxChars: Number(input.maxChars || 16000),
     representative_image: {
       status: "available",
       data_url: "data:image/png;base64,iVBORw0KGgo=",
@@ -1000,7 +1012,7 @@ if (command === "synthesis index reference get") {
       { node_id: "zotero:item:A", title: "Library Paper A", authors: ["Alice Smith", "Bob Lee"], kind: "library", paperRef: "1:A" }
     ],
     edges: [{ edge_id: "edge-1", source: "zotero:item:EIMSDEU3", target: "zotero:item:A", kind: "cites" }],
-    diagnostics: [],
+    diagnostics: { warnings: [], truncated: false },
     truncated: false
   });
 } else if (command === "synthesis graph get-layout") {
@@ -1045,25 +1057,47 @@ if (command === "synthesis index reference get") {
 `,
     "utf8",
   );
-  if (process.platform === "win32") {
-    await fs.writeFile(
-      path.join(binDir, "zotero-bridge.cmd"),
-      '@echo off\r\nnode "%~dp0fake-zotero-bridge.js" %*\r\n',
-      "utf8",
-    );
-  } else {
-    const shim = path.join(binDir, "zotero-bridge");
-    await fs.writeFile(
-      shim,
-      '#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-zotero-bridge.js" "$@"\n',
-      "utf8",
-    );
-    await fs.chmod(shim, 0o755);
-  }
+  const harness = await startHostBridgeCliFixtureHarness({
+    commands: [
+      "synthesis index reference get",
+      "synthesis artifact manifest",
+      "synthesis artifact export-filtered",
+      "synthesis topic find-by-paper-ref",
+      "synthesis artifact resolve-topic-digest",
+      "synthesis topic get-context",
+      "synthesis graph get-slice",
+      "synthesis graph get-layout",
+      "synthesis concept query",
+    ],
+    providerPath: provider,
+    cwd: runRoot,
+  });
+  activeHarnesses.add(harness);
+  process.env.ZOTERO_BRIDGE_BIN = harness.cliPath;
+  process.env.ZOTERO_BRIDGE_ENDPOINT = harness.endpoint;
+  process.env.ZOTERO_BRIDGE_TOKEN = harness.env.ZOTERO_BRIDGE_TOKEN;
+  return harness;
 }
 
 describe("Literature deep reading bootstrap skill", function () {
   this.timeout(30000);
+
+  afterEach(async function () {
+    await Promise.all(
+      Array.from(activeHarnesses, async (harness) => {
+        await harness.close();
+        activeHarnesses.delete(harness);
+      }),
+    );
+    for (const [key, value] of Object.entries({
+      ZOTERO_BRIDGE_BIN: originalBridgeEnvironment.bin,
+      ZOTERO_BRIDGE_ENDPOINT: originalBridgeEnvironment.endpoint,
+      ZOTERO_BRIDGE_TOKEN: originalBridgeEnvironment.token,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
 
   it("resolves Host Bridge CLI from PATH when run-local shim is absent", async function () {
     const tempRoot = await fs.mkdtemp(
@@ -1607,7 +1641,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot, { remoteExportFiltered: "bootstrap" });
+    await installBridgeHarness(runRoot, { remoteExportFiltered: "bootstrap" });
 
     const blocked = runRuntimeAllowFailure(
       ["bootstrap", "--input", "runtime/input.json"],
@@ -1841,7 +1875,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot, {
       main_task: "test method",
@@ -2010,7 +2044,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
 
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
 
@@ -2149,7 +2183,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
 
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot, {
@@ -2342,7 +2376,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
 
     const result = runRuntimeAllowFailure(
       ["bootstrap", "--input", "runtime/input.json"],
@@ -2388,7 +2422,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot, {
       main_task: "test method",
@@ -2530,7 +2564,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     const preflight = JSON.parse(
       await fs.readFile(
@@ -2598,34 +2632,35 @@ describe("Literature deep reading bootstrap skill", function () {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    assert.deepEqual(
-      calls.map((entry) => entry.command),
-      [
-        "synthesis index reference get",
-        "synthesis topic find-by-paper-ref",
-        "synthesis artifact manifest",
-        "synthesis artifact export-filtered",
-        "synthesis topic get-context",
-        "synthesis index reference get",
-        "synthesis artifact manifest",
-        "synthesis artifact export-filtered",
-        "synthesis artifact resolve-topic-digest",
-        "synthesis artifact resolve-topic-digest",
-        "synthesis artifact resolve-topic-digest",
-        "synthesis graph get-slice",
-        "synthesis graph get-layout",
-        "synthesis concept query",
-      ],
-    );
+    const commands = calls.map((entry) => entry.command);
+    for (const command of [
+      "synthesis index reference get",
+      "synthesis topic find-by-paper-ref",
+      "synthesis artifact manifest",
+      "synthesis artifact export-filtered",
+      "synthesis topic get-context",
+      "synthesis artifact resolve-topic-digest",
+      "synthesis graph get-slice",
+      "synthesis graph get-layout",
+      "synthesis concept query",
+    ]) {
+      assert.include(commands, command);
+    }
     const referenceIndexCalls = calls.filter(
       (entry) => entry.command === "synthesis index reference get",
     );
+    assert.lengthOf(referenceIndexCalls, 4);
     assert.isTrue(
       referenceIndexCalls.every(
         (entry) =>
           entry.input.includeReferences === true &&
-          entry.input.referenceSourceRefs?.[0] === "1:EIMSDEU3",
+          entry.input.referenceSourceRefs?.[0] === "1:EIMSDEU3" &&
+          entry.input.limit === 100,
       ),
+    );
+    assert.deepEqual(
+      referenceIndexCalls.map((entry) => entry.input.cursor || ""),
+      ["", "reference-page-2", "", "reference-page-2"],
     );
     const layoutCall = calls.find(
       (entry) => entry.command === "synthesis graph get-layout",
@@ -2712,7 +2747,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot, {
+    await installBridgeHarness(runRoot, {
       remoteExportFiltered: "referenceDigests",
     });
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
@@ -2798,7 +2833,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot, {
+    await installBridgeHarness(runRoot, {
       topicCandidates: [
         {
           topic_id: "object-detection",
@@ -2842,7 +2877,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot, {
+    await installBridgeHarness(runRoot, {
       topicCandidates: [
         {
           topic_id: "object-detection",
@@ -2952,7 +2987,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     const readingBlocksPath = path.join(
       runRoot,
@@ -3245,7 +3280,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -3347,7 +3382,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
 
     await writeContextRequest(runRoot);
@@ -3442,7 +3477,7 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -4195,7 +4230,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -4294,7 +4329,7 @@ describe("Literature deep reading bootstrap skill", function () {
         ),
         "utf8",
       );
-      await installFakeBridge(runRoot);
+      await installBridgeHarness(runRoot);
       runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
       await writeContextRequest(runRoot);
       runRuntime(
@@ -4364,7 +4399,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -4428,7 +4463,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot, { layoutStatus: "missing" });
+    await installBridgeHarness(runRoot, { layoutStatus: "missing" });
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -4657,7 +4692,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -4707,7 +4742,7 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
+    await installBridgeHarness(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(

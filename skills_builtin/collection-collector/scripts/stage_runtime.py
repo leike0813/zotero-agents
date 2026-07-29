@@ -308,8 +308,8 @@ def rows_from_page(value: Any, keys: Iterable[str]) -> list[dict[str, Any]]:
 def page_cursor(value: Any) -> tuple[bool, Any]:
     if not isinstance(value, dict):
         return False, None
-    has_more = value.get("hasMore") is True or value.get("has_more") is True
-    next_cursor = value.get("nextCursor", value.get("next_cursor"))
+    has_more = value.get("hasMore") is True
+    next_cursor = value.get("nextCursor")
     return has_more and next_cursor is not None, next_cursor
 
 
@@ -324,7 +324,7 @@ def page_bridge(
     rows: list[dict[str, Any]] = []
     cursor: Any = "0"
     for _ in range(10000):
-        payload = {**base_payload, "cursor": cursor, "limit": 200}
+        payload = {**base_payload, "cursor": cursor, "limit": 100}
         page = run_bridge(conn, run_root, operation, args, payload)
         rows.extend(rows_from_page(page, row_keys))
         has_more, cursor = page_cursor(page)

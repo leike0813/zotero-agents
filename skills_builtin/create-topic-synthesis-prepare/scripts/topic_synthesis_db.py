@@ -1206,7 +1206,7 @@ def resolver_contains(base: Any, proposal: Any, path: str = "$") -> list[str]:
 
 
 def resolve_paper_refs(resolved: dict) -> list[str]:
-    return [clean_text(paper.get("paper_ref")) for paper in extract_papers(resolved) if clean_text(paper.get("paper_ref"))]
+    return [clean_text(paper.get("paper_ref")) for paper in extract_resolver_candidates(resolved) if clean_text(paper.get("paper_ref"))]
 
 
 def diff_linked_and_resolved_refs(linked_refs: list[str], updated_refs: list[str]) -> dict:
@@ -1221,28 +1221,29 @@ def diff_linked_and_resolved_refs(linked_refs: list[str], updated_refs: list[str
     }
 
 
-def extract_papers(resolved: dict) -> list[dict]:
+def extract_resolver_candidates(resolved: dict) -> list[dict]:
+    candidates = resolved.get("candidates")
+    if isinstance(candidates, list):
+        return [paper for paper in candidates if isinstance(paper, dict)]
+    raise ValueError("resolver result did not contain candidates[]")
+
+
+def extract_resolved_papers(resolved: dict) -> list[dict]:
     papers = resolved.get("papers")
     if isinstance(papers, list):
         return [paper for paper in papers if isinstance(paper, dict)]
-    result = resolved.get("result")
-    if isinstance(result, dict) and isinstance(result.get("papers"), list):
-        return [paper for paper in result["papers"] if isinstance(paper, dict)]
-    raise ValueError("resolver result did not contain papers[]")
+    return []
 
 
-def maybe_extract_papers(value: Any) -> list[dict]:
+def maybe_extract_resolved_papers(value: Any) -> list[dict]:
     if not isinstance(value, dict):
         return []
-    try:
-        return extract_papers(value)
-    except ValueError:
-        return []
+    return extract_resolved_papers(value)
 
 
 def linked_papers_from_audit(audit: dict) -> list[dict]:
     resolved_paper_set = audit.get("resolved_paper_set")
-    papers = maybe_extract_papers(resolved_paper_set)
+    papers = maybe_extract_resolved_papers(resolved_paper_set)
     if papers:
         return papers
     source_papers = audit.get("source_papers")
@@ -1387,7 +1388,7 @@ def run_update_preflight(
         "current_linked_papers": {
             "paper_count": len(linked_refs),
             "paper_refs": linked_refs,
-            "source": "resolved_paper_set" if maybe_extract_papers(as_dict(audit.get("resolved_paper_set"))) else "source_papers",
+            "source": "resolved_paper_set" if maybe_extract_resolved_papers(as_dict(audit.get("resolved_paper_set"))) else "source_papers",
         },
         "current_resolver": resolver,
         "saved_triage": {
@@ -1458,7 +1459,7 @@ def collect_resolver_cascade(
         "resolver-input.json",
     )
     resolved = unwrap_bridge_data(resolver_output)
-    papers = extract_papers(resolved)
+    papers = extract_resolver_candidates(resolved)
     conn.execute("delete from paper_workset")
     conn.commit()
     store_workset(conn, papers)

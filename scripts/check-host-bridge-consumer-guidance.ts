@@ -29,6 +29,21 @@ const CONSUMER_FILES = [
   ...TOPIC_SKILLS,
 ] as const;
 
+const HOST_BRIDGE_RUNTIME_TESTS = [
+  "test/core/133-topic-synthesis-runtime-contract.test.ts",
+  "test/core/155-topic-synthesis-split-runtime.test.ts",
+  "test/core/157-literature-deep-reading-bootstrap.test.ts",
+  "test/core/172-export-research-bundle-skill-runtime.test.ts",
+  "test/core/173-collection-collector-skill-runtime.test.ts",
+] as const;
+
+const FORBIDDEN_FAKE_CLI_MARKERS = [
+  "fake-zotero-bridge",
+  'path.join(runRoot, ".zotero-bridge"',
+  "process.argv.slice(2)",
+  'data: { approval: "none", capability:',
+] as const;
+
 const MANUSCRIPT_COMMANDS = [
   "synthesis topic list",
   "synthesis topic get-review-input",
@@ -97,6 +112,21 @@ export function findHostBridgeConsumerGuidanceViolations(root = process.cwd()) {
   for (const file of files) {
     if (file.content.includes("references/host-bridge-cli.md")) {
       violations.push(`${file.path}: points to removed wrapper reference`);
+    }
+  }
+
+  for (const test of loadFiles(root, HOST_BRIDGE_RUNTIME_TESTS)) {
+    if (!test.content.includes("startHostBridgeCliFixtureHarness")) {
+      violations.push(
+        `${test.path}: Host Bridge runtime test does not use the shared real-CLI harness`,
+      );
+    }
+    for (const marker of FORBIDDEN_FAKE_CLI_MARKERS) {
+      if (test.content.includes(marker)) {
+        violations.push(
+          `${test.path}: contains forbidden handwritten CLI surface marker ${marker}`,
+        );
+      }
     }
   }
 

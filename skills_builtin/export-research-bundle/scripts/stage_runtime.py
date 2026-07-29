@@ -358,6 +358,15 @@ def run_bridge_query(
     return run_bridge_args(run_root, [*command, "--query", f"@{relative}"], call_name)
 
 
+def next_page_cursor(data: Any, current_cursor: str) -> str | None:
+    if not isinstance(data, dict) or data.get("hasMore") is not True:
+        return None
+    next_cursor = clean(data.get("nextCursor"))
+    if not next_cursor or next_cursor == current_cursor:
+        raise RuntimeError("Host Bridge paged response declared hasMore without a new nextCursor")
+    return next_cursor
+
+
 def page_topic_inventory(run_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     cursor = "0"
@@ -372,10 +381,8 @@ def page_topic_inventory(run_root: Path) -> list[dict[str, Any]]:
         if not isinstance(data, dict):
             break
         rows.extend(entry for entry in data.get("topics", []) if isinstance(entry, dict))
-        if not data.get("has_more"):
-            break
-        next_cursor = clean(data.get("next_cursor") or data.get("nextCursor"))
-        if not next_cursor or next_cursor == cursor:
+        next_cursor = next_page_cursor(data, cursor)
+        if next_cursor is None:
             break
         cursor = next_cursor
         page += 1
@@ -601,7 +608,7 @@ def run_stage_20(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             result = run_bridge_query(
                 run_root,
                 ["library", "item", "search"],
-                {"text": query, "limit": 50},
+                {"query": query, "limit": 50},
                 f"stage20-library-search-{index + 1}",
             )
             successful_searches += 1
@@ -819,10 +826,8 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
                     {"sourceRefs": refs, "cursor": cursor, "limit": 100},
                     f"stage40-reference-index-{page + 1}",
                 )
-                if not isinstance(index_data, dict) or not index_data.get("has_more"):
-                    break
-                next_cursor = clean(index_data.get("next_cursor") or index_data.get("nextCursor"))
-                if not next_cursor or next_cursor == cursor:
+                next_cursor = next_page_cursor(index_data, cursor)
+                if next_cursor is None:
                     break
                 cursor = next_cursor
                 page += 1
@@ -1012,13 +1017,11 @@ def page_graph_metrics(run_root: Path, refs: list[str]) -> tuple[dict[str, dict[
         status = clean(data.get("status")) or "missing"
         graph_hash = clean(data.get("graph_hash"))
         available = bool(data.get("ok")) and status == "ready" and not bool((data.get("diagnostics") or {}).get("stale"))
-        for row in data.get("items", []):
+        for row in data.get("metrics", []):
             if isinstance(row, dict) and clean(row.get("paper_ref")):
                 items[clean(row.get("paper_ref"))] = row
-        if not data.get("hasMore") and not data.get("has_more"):
-            break
-        next_cursor = clean(data.get("nextCursor") or data.get("next_cursor"))
-        if not next_cursor or next_cursor == cursor:
+        next_cursor = next_page_cursor(data, cursor)
+        if next_cursor is None:
             break
         cursor = next_cursor
         page += 1

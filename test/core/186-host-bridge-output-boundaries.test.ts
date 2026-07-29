@@ -5,8 +5,11 @@ import {
   chunkHostBridgeText,
   paginateHostBridgeRows,
 } from "../../src/modules/hostBridgePagination";
+import { withHostBridgeCliHarness } from "../helpers/hostBridgeCliHarness";
 
 describe("Host Bridge output boundaries", function () {
+  this.timeout(120_000);
+
   const rows = Array.from({ length: 7 }, (_, index) => ({
     id: `row-${index + 1}`,
     value: index + 1,
@@ -175,5 +178,97 @@ describe("Host Bridge output boundaries", function () {
       truncated: false,
       maxChars: 8_000,
     });
+  });
+
+  it("runs the current contract-built CLI in front of contract-checked mocks", async function () {
+    await withHostBridgeCliHarness(
+      {
+        "synthesis resolver resolve": ({ input }) => ({
+          candidates: [{ paper_ref: "1:CURRENT" }],
+          nextCursor: "",
+          hasMore: false,
+          returned: 1,
+          total: 1,
+          limit: Number(input.limit || 25),
+        }),
+      },
+      async (harness) => {
+        const identity = await harness.runCli(["surface", "identity"]);
+        assert.equal(identity.exitCode, 0);
+        assert.equal(
+          (identity.output.data as Record<string, unknown>).buildFingerprint,
+          harness.buildFingerprint,
+        );
+
+        const current = await harness.runCli([
+          "synthesis",
+          "resolver",
+          "resolve",
+          "--query",
+          JSON.stringify({ paper_refs: ["1:CURRENT"], limit: 1 }),
+        ]);
+        assert.equal(current.exitCode, 0);
+        assert.deepInclude(current.output, { ok: true });
+        assert.deepInclude(current.output.meta as Record<string, unknown>, {
+          cli: "zotero-bridge",
+          schema: "zotero-bridge.cli.v5",
+        });
+        assert.deepEqual(
+          (
+            (current.output.data as Record<string, unknown>).data as Record<
+              string,
+              unknown
+            >
+          ).candidates,
+          [{ paper_ref: "1:CURRENT" }],
+        );
+        assert.deepInclude(harness.requests[0], {
+          command: "synthesis resolver resolve",
+          capability: "resolvers.resolve",
+          input: { paper_refs: ["1:CURRENT"], limit: 1 },
+        });
+
+        const requestCount = harness.requests.length;
+        const oversized = await harness.runCli([
+          "synthesis",
+          "resolver",
+          "resolve",
+          "--query",
+          JSON.stringify({ limit: 101 }),
+        ]);
+        assert.notEqual(oversized.exitCode, 0);
+        assert.equal(harness.requests.length, requestCount + 1);
+        assert.deepEqual(harness.requests.at(-1)?.input, { limit: 101 });
+      },
+    );
+  });
+
+  it("refuses mock DTOs that omit the current SSOT output section", async function () {
+    await withHostBridgeCliHarness(
+      {
+        "synthesis resolver resolve": () => ({
+          papers: [{ paper_ref: "1:STALE" }],
+          nextCursor: "",
+          hasMore: false,
+          returned: 1,
+          total: 1,
+          limit: 25,
+        }),
+      },
+      async (harness) => {
+        const result = await harness.runCli([
+          "synthesis",
+          "resolver",
+          "resolve",
+          "--query",
+          "{}",
+        ]);
+        assert.notEqual(result.exitCode, 0);
+        assert.include(
+          JSON.stringify(result.output),
+          "missing SSOT output section data.candidates",
+        );
+      },
+    );
   });
 });
