@@ -4,6 +4,7 @@ import path from "path";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
 import {
+  drainDefaultSynthesisClientGeneration,
   getFreshDefaultSynthesisClient,
   getDefaultSynthesisClient,
   invalidateDefaultSynthesisClient,
@@ -217,6 +218,15 @@ describe("Synthesis lifecycle client consumers", function () {
     invalidateDefaultSynthesisClient();
   });
 
+  it("drains a cutover generation without entering terminal shutdown", async function () {
+    const first = await getDefaultSynthesisClient();
+
+    await drainDefaultSynthesisClientGeneration();
+
+    const second = await getDefaultSynthesisClient();
+    assert.notStrictEqual(second, first);
+  });
+
   it("keeps the default production factory native-only", function () {
     const source = fs.readFileSync(
       path.join(ROOT, "src/modules/synthesisClient/defaultClient.ts"),
@@ -287,10 +297,10 @@ describe("Synthesis lifecycle client consumers", function () {
     const workflow = createWorkflowSynthesisHostApi({
       notifyChanged() {},
     });
-    assert.deepEqual(
-      await workflow.getTopicReport({ topicId: "topic-1" }),
-      { topicId: "topic-1", status: "ready" },
-    );
+    assert.deepEqual(await workflow.getTopicReport({ topicId: "topic-1" }), {
+      topicId: "topic-1",
+      status: "ready",
+    });
     assert.lengthOf(
       (
         await resolveWorkflowParameterOptionsSource({
@@ -324,10 +334,7 @@ describe("Synthesis lifecycle client consumers", function () {
         arguments: { topicId: "topic-1" },
       },
     })) as any;
-    assert.equal(
-      mcp.result.structuredContent.data.topicId,
-      "topic-1",
-    );
+    assert.equal(mcp.result.structuredContent.data.topicId, "topic-1");
     assert.deepEqual(
       [...new Set(calls.map((call) => call.serviceInstanceId))],
       ["native-production-1"],

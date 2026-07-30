@@ -3014,6 +3014,27 @@ th {
     0 0 0 2px rgba(220, 38, 38, 0.62);
 }
 
+.sidecar-failure-card {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--zs-danger, #b42318);
+  border-radius: 8px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow);
+}
+
+.sidecar-failure-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .graph-layout-banner {
   position: absolute;
   inset-block-start: 64px;

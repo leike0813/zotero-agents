@@ -51,9 +51,7 @@ async function criticalSmoke(
   };
 }
 
-function harness(
-  overrides: Partial<SynthesisCutoverCoordinatorDeps> = {},
-): {
+function harness(overrides: Partial<SynthesisCutoverCoordinatorDeps> = {}): {
   deps: SynthesisCutoverCoordinatorDeps;
   events: string[];
   receipts: SynthesisCutoverReceipt[];
@@ -76,6 +74,7 @@ function harness(
     createVerifiedBackup: async () => {
       events.push("backup");
       return {
+        sourceOwner: "legacy-plugin",
         backupId: BACKUP_ID,
         sourceSchemaVersion: "v1",
         targetSchemaVersion: "v1",
@@ -237,13 +236,23 @@ describe("Synthesis production cutover coordinator", function () {
     const completed = await coordinator(completedState.deps).run();
     const state = harness({
       readReceipt: async () => completed.receipt,
+      acquireNativeOwner: async () => {
+        state.events.push("owner");
+        return { serviceInstanceId: "service-2" };
+      },
     });
 
     const result = await coordinator(state.deps).run();
 
     assert.equal(result.receipt.receiptId, completed.receipt.receiptId);
-    assert.deepEqual(state.events, ["owner", "smoke"]);
-    assert.isEmpty(state.receipts);
+    assert.equal(result.receipt.serviceInstanceId, "service-2");
+    assert.deepEqual(state.events, [
+      "owner",
+      "smoke",
+      "enable",
+      "receipt:mutation_enabled",
+    ]);
+    assert.lengthOf(state.receipts, 1);
   });
 
   it("starts one background cutover and shuts down in owner order", async function () {
@@ -352,10 +361,14 @@ describe("Synthesis production critical-smoke evidence", function () {
       [{ ...complete[0]!, id: "unknown" }, ...complete.slice(1)],
     ]) {
       assert.match(
-        String(await failureOf(createSynthesisProductionSmokeEvidence({
-          ...shared,
-          results: results as never,
-        }))),
+        String(
+          await failureOf(
+            createSynthesisProductionSmokeEvidence({
+              ...shared,
+              results: results as never,
+            }),
+          ),
+        ),
         /synthesis_production_smoke_roster_incomplete/,
       );
     }

@@ -493,7 +493,11 @@ fn workbench_surface_from_compat(
     let surface = surface
         .as_str()
         .ok_or_else(|| "invalid_request".to_owned())?;
-    if !matches!(surface, "index" | "review" | "topic" | "maintenance") || !state.is_object() {
+    if !matches!(
+        surface,
+        "home" | "topics" | "index" | "review" | "graph" | "tags" | "concepts" | "reader"
+    ) || !state.is_object()
+    {
         return Err("invalid_request".into());
     }
     // The native surface currently owns the coherent operational projection.

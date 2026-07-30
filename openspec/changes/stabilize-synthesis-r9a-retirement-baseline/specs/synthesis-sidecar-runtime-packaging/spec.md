@@ -21,3 +21,13 @@ the same platform directory as other native executables.
 - **THEN** all seven bundles SHALL advance transactionally
 - **AND** sibling Host Bridge binaries and unrelated native assets SHALL retain
   their existing bytes
+
+### Requirement: Runtime paths SHALL be expanded exactly once
+
+Installer, supervisor, and lifecycle paths SHALL share one expanded runtime
+path object rooted at `runtime/synthesis/service-runtime`.
+
+#### Scenario: Production runtime starts
+- **WHEN** the packaged bundle is installed and a profile session is created
+- **THEN** active pointers, versions, profiles, sessions, and discovery use the same single runtime root
+- **AND** no `synthesis/service-runtime/synthesis/service-runtime` path is read or written

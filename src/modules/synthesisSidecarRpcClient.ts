@@ -92,23 +92,42 @@ async function readBoundedResponse(response: Response, maxBytes: number) {
 }
 
 function composedSignal(parent: AbortSignal | undefined, timeoutMs: number) {
-  const controller = new AbortController();
+  const AbortControllerCtor = (
+    globalThis as {
+      AbortController?: typeof AbortController;
+    }
+  ).AbortController;
+  const controller =
+    typeof AbortControllerCtor === "function"
+      ? new AbortControllerCtor()
+      : undefined;
   let timedOut = false;
-  const abort = () => controller.abort(parent?.reason);
+  let rejectBoundary: (reason: Error) => void = () => undefined;
+  const boundary = new Promise<never>((_resolve, reject) => {
+    rejectBoundary = reject;
+  });
+  const abort = () => {
+    controller?.abort(parent?.reason);
+    rejectBoundary(new Error("sidecar_rpc_canceled"));
+  };
   if (parent?.aborted) {
     abort();
   } else {
     parent?.addEventListener("abort", abort, { once: true });
   }
-  const timeout = setTimeout(() => {
+  const timeout = globalThis.setTimeout(() => {
     timedOut = true;
-    controller.abort(new Error("sidecar_rpc_timeout"));
+    controller?.abort(new Error("sidecar_rpc_timeout"));
+    rejectBoundary(new Error("sidecar_rpc_timeout"));
   }, timeoutMs);
   return {
-    signal: controller.signal,
+    signal: controller?.signal,
+    race<T>(task: Promise<T>) {
+      return Promise.race([task, boundary]);
+    },
     timedOut: () => timedOut,
     dispose() {
-      clearTimeout(timeout);
+      globalThis.clearTimeout(timeout);
       parent?.removeEventListener("abort", abort);
     },
   };
@@ -173,23 +192,27 @@ export function createSynthesisSidecarRpcClient(options?: {
         args.deadlineMs ?? defaultDeadlineMs,
       );
       try {
-        const response = await fetchImpl(
-          `${args.connection.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${args.connection.clientToken}`,
-              "content-type": "application/json",
+        const response = await deadline.race(
+          fetchImpl(
+            `${args.connection.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,
+            {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${args.connection.clientToken}`,
+                "content-type": "application/json",
+              },
+              body: requestSource,
+              signal: deadline.signal,
             },
-            body: requestSource,
-            signal: deadline.signal,
-          },
+          ),
         );
-        const responseSource = await readBoundedResponse(
-          response,
-          isCompute
-            ? SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes
-            : SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes,
+        const responseSource = await deadline.race(
+          readBoundedResponse(
+            response,
+            isCompute
+              ? SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes
+              : SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes,
+          ),
         );
         let body: {
           ok?: unknown;

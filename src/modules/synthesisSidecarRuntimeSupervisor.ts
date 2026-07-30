@@ -1,8 +1,8 @@
 import {
   SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
   SYNTHESIS_SIDECAR_LEASE_SCHEMA,
-  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
   rebuildSynthesisProductionAdmission,
   rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarDiscovery,
@@ -635,10 +635,7 @@ function createSynthesisSidecarSupervisorCore<
           profilePath || resolveProfilePath(),
         );
         const profileId = await hashText(resolvedProfilePath);
-        if (
-          mode.expectedProfileId &&
-          profileId !== mode.expectedProfileId
-        ) {
+        if (mode.expectedProfileId && profileId !== mode.expectedProfileId) {
           throw new Error("production_admission_profile_mismatch");
         }
         const supervisorInstanceId =
@@ -941,6 +938,13 @@ function createSynthesisSidecarSupervisorCore<
     getSnapshot() {
       return { ...snapshot };
     },
+    getDiagnosticEvidence() {
+      return {
+        snapshot: { ...snapshot },
+        stdoutTail: session?.stdoutTail || "",
+        stderrTail: session?.stderrTail || "",
+      };
+    },
     subscribe(subscriber: (value: SynthesisSidecarSupervisorSnapshot) => void) {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);
@@ -997,11 +1001,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
     async prepareLaunch() {
       return null;
     },
-    launchArguments: ({ configPath }) => [
-      "serve",
-      "--config",
-      configPath,
-    ],
+    launchArguments: ({ configPath }) => ["serve", "--config", configPath],
     timerOwner: "synthesis-sidecar-supervisor",
   });
 }
@@ -1014,8 +1014,7 @@ export function createSynthesisProductionRuntimeSupervisor(
     throw new Error("production_admission_identity_mismatch");
   }
   const controlClient =
-    options.controlClient ||
-    createSynthesisProductionSidecarControlClient();
+    options.controlClient || createSynthesisProductionSidecarControlClient();
   const supervisor = createSynthesisSidecarSupervisorCore<
     SynthesisProductionDiscovery,
     SynthesisProductionSidecarControlConnection
@@ -1024,8 +1023,7 @@ export function createSynthesisProductionRuntimeSupervisor(
     validateAuthority(discovery) {
       if (
         discovery.ownerMode !== "production" ||
-        discovery.capabilityFingerprint !==
-          admission.capabilityFingerprint ||
+        discovery.capabilityFingerprint !== admission.capabilityFingerprint ||
         discovery.cutoverReceiptId !== admission.cutoverReceiptId
       ) {
         throw new Error("sidecar_discovery_identity_mismatch");
@@ -1062,9 +1060,7 @@ export function createSynthesisProductionRuntimeSupervisor(
   });
   return {
     ...supervisor,
-    async activate(
-      evidence: Parameters<typeof controlClient.activate>[1],
-    ) {
+    async activate(evidence: Parameters<typeof controlClient.activate>[1]) {
       const connection = supervisor.getReadyConnection();
       if (!connection) {
         throw new Error("sidecar_not_ready");
@@ -1149,19 +1145,17 @@ export function activateSynthesisProductionRuntime(
 
 export function getReadySynthesisProductionControlConnection() {
   const connection = productionSupervisor?.getReadyConnection() ?? null;
-  const readyCapabilities =
-    connection?.discovery.readyClientCapabilities as
-      | readonly string[]
-      | undefined;
+  const readyCapabilities = connection?.discovery.readyClientCapabilities as
+    | readonly string[]
+    | undefined;
   const requiredCapabilities =
-    SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES as readonly string[];
+    SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES as readonly string[];
   if (
     !connection ||
     connection.discovery.mutationEnabled !== true ||
     readyCapabilities?.length !== requiredCapabilities.length ||
     !requiredCapabilities.every(
-      (capability, index) =>
-        readyCapabilities[index] === capability,
+      (capability, index) => readyCapabilities[index] === capability,
     )
   ) {
     return null;

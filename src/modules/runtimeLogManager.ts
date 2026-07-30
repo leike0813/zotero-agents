@@ -287,6 +287,7 @@ export type RuntimeIssueDiagnosticBundleV1 = {
     includesDebug: boolean;
     includesRawEntries: boolean;
   };
+  debugContext?: Record<string, unknown>;
   developerRawEntries?: Array<Record<string, unknown>>;
   performanceProfiles?: AcpRuntimePerformanceSnapshot;
 };
@@ -372,6 +373,7 @@ const entryByteSizes = new Map<string, number>();
 const serializedEntries = new Map<string, string>();
 let estimatedBytes = 0;
 const listeners = new Set<RuntimeLogListener>();
+const runtimeIssueDebugContextProviders = new Map<string, () => unknown>();
 const allowedLevels = new Set<RuntimeLogLevel>(DEFAULT_ALLOWED_LEVELS);
 let diagnosticMode = false;
 let hydrated = false;
@@ -1411,6 +1413,21 @@ export function subscribeRuntimeLogs(listener: RuntimeLogListener) {
   };
 }
 
+export function registerRuntimeIssueDebugContextProvider(
+  key: string,
+  provider: (() => unknown) | null,
+) {
+  const normalized = String(key || "").trim();
+  if (!normalized) {
+    throw new Error("runtime_issue_debug_context_key_required");
+  }
+  if (provider) {
+    runtimeIssueDebugContextProviders.set(normalized, provider);
+  } else {
+    runtimeIssueDebugContextProviders.delete(normalized);
+  }
+}
+
 export function formatRuntimeLogsAsPrettyJson(
   entriesToFormat: RuntimeLogEntry[],
 ) {
@@ -1950,6 +1967,21 @@ export function buildRuntimeIssueDiagnosticBundle(
     (performanceProfiles.active.length > 0 ||
       performanceProfiles.completed.length > 0 ||
       performanceProfiles.global.metrics.length > 0);
+  const debugContext: Record<string, unknown> = {};
+  if (isDebugModeEnabled()) {
+    for (const [key, provider] of runtimeIssueDebugContextProviders) {
+      try {
+        const value = provider();
+        if (typeof value !== "undefined") {
+          debugContext[key] = sanitizeValue(value, key);
+        }
+      } catch {
+        debugContext[key] = {
+          status: "unavailable",
+        };
+      }
+    }
+  }
   const bundle: RuntimeIssueDiagnosticBundleV1 = {
     schemaVersion: "runtime-issue-diagnostic-bundle/v1",
     generatedAt: new Date().toISOString(),
@@ -2003,6 +2035,7 @@ export function buildRuntimeIssueDiagnosticBundle(
       includesDebug: args.includeDebug === true,
       includesRawEntries: args.includeRawEntries === true,
     },
+    ...(Object.keys(debugContext).length > 0 ? { debugContext } : {}),
     ...(includePerformanceProfiles ? { performanceProfiles } : {}),
   };
   if (args.includeRawEntries === true) {

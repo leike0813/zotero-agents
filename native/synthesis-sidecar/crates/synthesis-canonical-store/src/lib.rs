@@ -675,6 +675,18 @@ impl CanonicalStore {
         Self::open_root(root.to_owned(), identity, PRODUCTION_IDENTITY_SCHEMA)
     }
 
+    pub fn initialize_production(root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
+        if !root.is_absolute()
+            || root.file_name().and_then(|value| value.to_str()) != Some("synthesis")
+        {
+            return Err("canonical_production_path_invalid".into());
+        }
+        if root.exists() {
+            return Err("canonical_production_root_exists".into());
+        }
+        Self::open_root(root.to_owned(), identity, PRODUCTION_IDENTITY_SCHEMA)
+    }
+
     fn open_root(
         root: PathBuf,
         identity: CanonicalIdentity,
@@ -1407,6 +1419,22 @@ mod tests {
         assert_eq!(store.root(), production_root);
         assert!(!parent.join("shadow-canonical").exists());
         store.close().expect("close");
+        fs::remove_dir_all(parent).expect("cleanup");
+    }
+
+    #[test]
+    fn production_initialize_creates_the_explicit_root_once() {
+        let parent = root("production-initialize");
+        let production_root = parent.join("data").join("synthesis");
+        let store = CanonicalStore::initialize_production(&production_root, identity())
+            .expect("initialize production");
+        assert_eq!(store.root(), production_root);
+        assert!(production_root.join("identity.json").is_file());
+        store.close().expect("close");
+        assert_eq!(
+            CanonicalStore::initialize_production(&production_root, identity(),).unwrap_err(),
+            "canonical_production_root_exists"
+        );
         fs::remove_dir_all(parent).expect("cleanup");
     }
 

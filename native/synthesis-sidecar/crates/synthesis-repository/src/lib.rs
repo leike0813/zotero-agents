@@ -384,6 +384,31 @@ impl Repository {
         )
     }
 
+    pub fn initialize_production(
+        database_path: &Path,
+        identity: RepositoryIdentity,
+    ) -> Result<Self, String> {
+        validate_identity_part(&identity.profile_id)?;
+        validate_identity_part(&identity.data_root_id)?;
+        if !database_path.is_absolute()
+            || database_path.file_name().and_then(|value| value.to_str()) != Some("synthesis.db")
+        {
+            return Err("repository_production_path_invalid".into());
+        }
+        if database_path.exists() {
+            return Err("repository_production_database_exists".into());
+        }
+        let parent = database_path
+            .parent()
+            .ok_or_else(|| "repository_production_path_invalid".to_owned())?;
+        fs::create_dir_all(parent).map_err(|error| format!("repository_root_create:{error}"))?;
+        Self::open_database(
+            database_path.to_owned(),
+            stable_id_for_schema(PRODUCTION_IDENTITY_SCHEMA, &identity),
+            "",
+        )
+    }
+
     fn open_internal(
         profile_runtime_root: &Path,
         identity: RepositoryIdentity,
@@ -1303,6 +1328,22 @@ mod tests {
         assert_eq!(repository.database_path(), database_path);
         assert!(!root.join("shadow-repository").exists());
         repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn production_initialize_creates_the_explicit_database_once() {
+        let root = root("production-initialize");
+        let database_path = root.join("state").join("synthesis.db");
+        let repository = Repository::initialize_production(&database_path, identity())
+            .expect("initialize production");
+        assert_eq!(repository.database_path(), database_path);
+        assert!(repository.database_path().is_file());
+        repository.close().expect("close");
+        assert_eq!(
+            Repository::initialize_production(&database_path, identity(),).unwrap_err(),
+            "repository_production_database_exists"
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -2137,6 +2137,31 @@ function setGraphSurfaceActive(active: boolean) {
 }
 
 function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
+  const sidecarFailure = __debug_mode__
+    ? (snapshot.sync?.diagnostics || []).find(
+        (entry) => entry.code === "synthesis_sidecar_startup_failed",
+      )
+    : undefined;
+  if (sidecarFailure) {
+    const card = el("aside", "sidecar-failure-card");
+    const copy = el("div", "sidecar-failure-copy");
+    copy.appendChild(el("strong", "", "Synthesis sidecar failed to start"));
+    copy.appendChild(
+      el(
+        "div",
+        "muted",
+        textValue(
+          sidecarFailure.message,
+          "Open the debug diagnostics for startup evidence.",
+        ),
+      ),
+    );
+    card.appendChild(copy);
+    card.appendChild(
+      makeButton("Open diagnostics", "openSynthesisSidecarDiagnostics", {}),
+    );
+    main.appendChild(card);
+  }
   const graphSurface = ensurePersistentGraphSurface();
   main.appendChild(graphSurface);
   if (snapshot.selectedTab === "graph") {

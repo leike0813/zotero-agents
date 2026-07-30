@@ -9,7 +9,10 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
-import { createSynthesisProductionSidecarControlClient } from "../../src/modules/synthesisSidecarControlClient";
+import {
+  createSynthesisProductionSidecarControlClient,
+  synthesisSidecarControlClientInternalsForTests,
+} from "../../src/modules/synthesisSidecarControlClient";
 import {
   SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS,
   SYNTHESIS_PRODUCTION_SMOKE_ROSTER_VERSION,
@@ -114,6 +117,45 @@ async function expectRejected(promise: Promise<unknown>, message: string) {
 }
 
 describe("Synthesis production sidecar control client", function () {
+  it("keeps bounded control calls available when the Zotero host has no AbortController global", async function () {
+    const runtime = globalThis as typeof globalThis & {
+      AbortController?: typeof AbortController;
+    };
+    const previous = Object.getOwnPropertyDescriptor(
+      runtime,
+      "AbortController",
+    );
+    Object.defineProperty(runtime, "AbortController", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      assert.equal(
+        await synthesisSidecarControlClientInternalsForTests.withDeadline(
+          50,
+          async (signal) => {
+            assert.isUndefined(signal);
+            return "ready";
+          },
+        ),
+        "ready",
+      );
+      await expectRejected(
+        synthesisSidecarControlClientInternalsForTests.withDeadline(
+          1,
+          async () => new Promise(() => undefined),
+        ),
+        "sidecar_control_timeout",
+      );
+    } finally {
+      if (previous) {
+        Object.defineProperty(runtime, "AbortController", previous);
+      } else {
+        delete runtime.AbortController;
+      }
+    }
+  });
+
   it("shares the bounded transport while enforcing production authority on every readiness response", async function () {
     const productionDiscovery = discovery();
     const runtime = identity();

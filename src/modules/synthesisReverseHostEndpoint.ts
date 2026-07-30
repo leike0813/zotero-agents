@@ -11,9 +11,12 @@ import {
   createSynthesisReverseHostBroker,
   type SynthesisReverseHostHandlers,
 } from "./synthesisReverseHostBroker";
+import {
+  beginRuntimeMemoryResponseTransfer,
+  prepareJsonHttpResponse,
+} from "./runtimeHttpResponse";
 
-export const SYNTHESIS_REVERSE_HOST_PATH =
-  "/synthesis/v1/host-call" as const;
+export const SYNTHESIS_REVERSE_HOST_PATH = "/synthesis/v1/host-call" as const;
 
 type HttpRequest = {
   method: string;
@@ -29,10 +32,7 @@ type BrokerDispatch = {
   }): Promise<SynthesisJsonValue>;
 };
 
-function response(
-  status: number,
-  body: SynthesisJsonValue,
-) {
+function response(status: number, body: SynthesisJsonValue) {
   return { status, body };
 }
 
@@ -49,9 +49,7 @@ export async function handleSynthesisReverseHostHttpRequest(
       error: { code: "not_found" },
     });
   }
-  const authorization = String(
-    request.headers.authorization || "",
-  ).trim();
+  const authorization = String(request.headers.authorization || "").trim();
   const prefix = "Bearer ";
   const authorizationToken = authorization.startsWith(prefix)
     ? authorization.slice(prefix.length).trim()
@@ -116,18 +114,11 @@ function parseHttpRequest(bytes: Uint8Array): HttpRequest {
   if (headerEnd < 0) {
     throw new Error("reverse_host_http_framing_invalid");
   }
-  const lines = decodeLatin1(bytes.subarray(0, headerEnd - 4)).split(
-    "\r\n",
+  const lines = decodeLatin1(bytes.subarray(0, headerEnd - 4)).split("\r\n");
+  const [method, path, version, ...extra] = String(lines.shift() || "").split(
+    " ",
   );
-  const [method, path, version, ...extra] = String(
-    lines.shift() || "",
-  ).split(" ");
-  if (
-    extra.length ||
-    !method ||
-    !path ||
-    version !== "HTTP/1.1"
-  ) {
+  if (extra.length || !method || !path || version !== "HTTP/1.1") {
     throw new Error("reverse_host_http_request_invalid");
   }
   const headers: Record<string, string> = {};
@@ -157,7 +148,6 @@ function encodeHttpResponse(args: {
   status: number;
   body: SynthesisJsonValue;
 }) {
-  const body = new TextEncoder().encode(JSON.stringify(args.body));
   const reason =
     args.status === 200
       ? "OK"
@@ -172,13 +162,11 @@ function encodeHttpResponse(args: {
               : args.status === 503
                 ? "Service Unavailable"
                 : "Internal Server Error";
-  const header = new TextEncoder().encode(
-    `HTTP/1.1 ${args.status} ${reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: ${body.byteLength}\r\nConnection: close\r\n\r\n`,
-  );
-  const bytes = new Uint8Array(header.byteLength + body.byteLength);
-  bytes.set(header, 0);
-  bytes.set(body, header.byteLength);
-  return bytes;
+  return prepareJsonHttpResponse({
+    status: args.status,
+    reason,
+    body: args.body,
+  });
 }
 
 function createLoopbackServerSocket() {
@@ -198,28 +186,6 @@ function createLoopbackServerSocket() {
   return socket;
 }
 
-async function writeBytes(output: any, bytes: Uint8Array) {
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
-    const chunk = bytes.subarray(
-      offset,
-      Math.min(bytes.byteLength, offset + chunkSize),
-    );
-    const binary = decodeLatin1(chunk);
-    let written = 0;
-    while (written < binary.length) {
-      const count = Number(
-        output.write(binary.slice(written), binary.length - written),
-      );
-      if (!Number.isFinite(count) || count <= 0) {
-        throw new Error("synthesis_reverse_host_write_failed");
-      }
-      written += count;
-    }
-  }
-  output.flush?.();
-}
-
 type EndpointOptions = {
   profileId: string;
   authorizationToken: string;
@@ -233,9 +199,7 @@ type EndpointOptions = {
   serverSocketFactory?: () => any;
 };
 
-export function createSynthesisReverseHostEndpoint(
-  options: EndpointOptions,
-) {
+export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
   let serviceInstanceId: string | null = null;
   let server: any;
   let active = false;
@@ -247,8 +211,7 @@ export function createSynthesisReverseHostEndpoint(
     now: options.now,
     isHostConnected: options.isHostConnected,
     authorizeCapability: options.authorizeCapability,
-    allowUnboundServiceInstance:
-      options.allowUnboundServiceInstance === true,
+    allowUnboundServiceInstance: options.allowUnboundServiceInstance === true,
     handlers: options.handlers,
   });
 
@@ -270,24 +233,24 @@ export function createSynthesisReverseHostEndpoint(
         request,
         broker,
       );
-      await writeBytes(
-        output,
-        encodeHttpResponse({
+      await beginRuntimeMemoryResponseTransfer({
+        outputStream: output,
+        response: encodeHttpResponse({
           status: result.status,
           body: toSynthesisJsonValue(result.body),
         }),
-      );
+      }).completion;
     } catch {
-      await writeBytes(
-        output,
-        encodeHttpResponse({
+      await beginRuntimeMemoryResponseTransfer({
+        outputStream: output,
+        response: encodeHttpResponse({
           status: 400,
           body: {
             ok: false,
             error: { code: "invalid_request" },
           },
         }),
-      ).catch(() => undefined);
+      }).completion.catch(() => undefined);
     } finally {
       reads.delete(read);
       input.close?.();
@@ -305,9 +268,7 @@ export function createSynthesisReverseHostEndpoint(
           authorizationToken: options.authorizationToken,
         };
       }
-      server = (
-        options.serverSocketFactory ?? createLoopbackServerSocket
-      )();
+      server = (options.serverSocketFactory ?? createLoopbackServerSocket)();
       server.asyncListen({
         onSocketAccepted(_socket: unknown, transport: unknown) {
           if (active) {

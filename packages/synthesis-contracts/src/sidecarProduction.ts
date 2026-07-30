@@ -75,7 +75,7 @@ export type SynthesisCutoverReceipt = {
   receiptId: string;
   profileId: string;
   phase: SynthesisCutoverPhase;
-  sourceOwner: "legacy-plugin";
+  sourceOwner: "legacy-plugin" | "empty-profile";
   targetOwner: "rust-native";
   backupId: string;
   sourceSchemaVersion: string;
@@ -841,7 +841,8 @@ export function rebuildSynthesisCutoverReceipt(
   );
   if (
     record.schema !== SYNTHESIS_CUTOVER_RECEIPT_SCHEMA ||
-    record.sourceOwner !== "legacy-plugin" ||
+    (record.sourceOwner !== "legacy-plugin" &&
+      record.sourceOwner !== "empty-profile") ||
     record.targetOwner !== "rust-native" ||
     !SYNTHESIS_CUTOVER_PHASES.includes(record.phase as SynthesisCutoverPhase) ||
     typeof record.mutationEnabled !== "boolean"
@@ -868,7 +869,7 @@ export function rebuildSynthesisCutoverReceipt(
     ),
     profileId: hash(record.profileId, "synthesisCutoverReceipt.profileId"),
     phase,
-    sourceOwner: "legacy-plugin",
+    sourceOwner: record.sourceOwner,
     targetOwner: "rust-native",
     backupId: hash(record.backupId, "synthesisCutoverReceipt.backupId"),
     sourceSchemaVersion: boundedString(

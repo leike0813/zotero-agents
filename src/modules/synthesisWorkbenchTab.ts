@@ -62,6 +62,8 @@ import {
   BUILTIN_STATUS_FACET,
   isBuiltinStatusTag,
 } from "./synthesis/builtinTagPolicy";
+import { getSynthesisSidecarDiagnosticSnapshot } from "./synthesisSidecarDiagnostics";
+import { openTaskManagerDialog } from "./taskManagerDialog";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -447,15 +449,29 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
 
 function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
   const fallback = buildDefaultSnapshotInput();
-  const message =
+  const fallbackMessage =
     error instanceof Error ? error.message : String(error || "unknown error");
+  const sidecar = getSynthesisSidecarDiagnosticSnapshot();
+  const isSidecarFailure = sidecar?.status === "failed";
+  const message = isSidecarFailure
+    ? [
+        `Synthesis sidecar startup failed during ${sidecar.phase}.`,
+        sidecar.code ? `Code: ${sidecar.code}.` : "",
+        `Attempt: ${sidecar.attemptId}.`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : fallbackMessage;
+  const diagnosticCode = isSidecarFailure
+    ? "synthesis_sidecar_startup_failed"
+    : "synthesis_snapshot_failed";
   return {
     ...fallback,
     sync: {
       status: "check_skipped",
       diagnostics: [
         {
-          code: "synthesis_snapshot_failed",
+          code: diagnosticCode,
           severity: "error",
           message,
         },
@@ -476,7 +492,7 @@ function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
         recommendedCommands: [],
         diagnostics: [
           {
-            code: "synthesis_snapshot_failed",
+            code: diagnosticCode,
             severity: "error",
             message,
           },
@@ -1997,6 +2013,13 @@ function handleAction(
   envelope: SynthesisWorkbenchActionEnvelope,
 ) {
   if (!runtime) {
+    return;
+  }
+  if (envelope.action === "openSynthesisSidecarDiagnostics") {
+    void openTaskManagerDialog({
+      initialTabKey: "synthesis-sidecar",
+      chromeWindow: runtime.window,
+    });
     return;
   }
   const previousState = runtime.state;

@@ -640,7 +640,7 @@ pub fn validate_production_cutover_receipt(
         || receipt.profile_id != admission.profile_id
         || receipt.profile_id != config.profile_id
         || !valid_phase
-        || receipt.source_owner != "legacy-plugin"
+        || (receipt.source_owner != "legacy-plugin" && receipt.source_owner != "empty-profile")
         || receipt.target_owner != "rust-native"
         || !sha256(&receipt.backup_id)
         || !bounded_text(&receipt.source_schema_version, 128)
@@ -802,6 +802,10 @@ mod production_admission_tests {
         value["canonicalRoot"] = json!(root.join("data/synthesis"));
         value["cutoverReceiptPath"] = json!(receipt_path);
         let admission = rebuild_production_admission(&value.to_string()).unwrap();
+        validate_production_cutover_receipt(&admission, &launch_config()).unwrap();
+        let mut empty_profile = receipt.clone();
+        empty_profile["sourceOwner"] = json!("empty-profile");
+        fs::write(&admission.cutover_receipt_path, empty_profile.to_string()).unwrap();
         validate_production_cutover_receipt(&admission, &launch_config()).unwrap();
         let mut invalid = receipt;
         invalid["phase"] = json!("native_owner");

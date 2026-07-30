@@ -175,6 +175,45 @@ that:
 - remote and real-machine evidence remains pending unless an actual receipt is
   present.
 
+### 8. Treat a wholly absent production source as a native empty profile
+
+Before backup, the coordinator classifies the production database and canonical
+root together. A complete pair follows the existing verified legacy backup.
+When both are absent, the packaged Rust executable creates an empty production
+basis through a bounded internal CLI before the same backup, preflight, smoke,
+and activation gates run. A partial pair fails with
+`synthesis_source_state_incomplete`; plugin-side repository construction is not
+an allowed recovery.
+
+The receipt records `sourceOwner=empty-profile` for this branch. Rust production
+open remains strict and never creates a missing live database implicitly.
+
+### 9. Separate cutover drain from terminal plugin shutdown
+
+Cutover invalidates and awaits only the current default-client generation.
+Terminal shutdown remains reserved for add-on shutdown. Startup reconcile is
+owned by the admitted native owner and is not also attempted from the generic
+hook before readiness.
+
+An already admitted profile starts a new native service instance without
+repeating backup or preflight. It reruns the public critical-smoke roster,
+refreshes native activation evidence, and atomically replaces only the
+receipt's volatile service identity and timestamp. The durable basis,
+fingerprints, receipt identity, owner mode, and mutation phase remain
+unchanged. The default client accepts discovery only against the ordered ready
+roster, and Rust Workbench dispatch accepts the eight public surface names from
+the shared contract.
+
+### 10. Publish one debug lifecycle projection
+
+Debug builds maintain one sanitized snapshot keyed by `attemptId` across
+install, source classification, backup/bootstrap, preflight, supervisor,
+handshake, smoke, activation, and client readiness. Workbench shows a compact
+failure entry, Task Manager shows the complete read-only snapshot, runtime
+diagnostic bundles export it under existing redaction policy, and
+`start:direct:build` prints the same structured lifecycle events. Production
+builds exclude the debug projection and process tails.
+
 ## Risks / Trade-offs
 
 - **Corpus partition accidentally omits planning metadata** → Planning change

@@ -12,6 +12,16 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 - Normal Workbench reads must not start library-wide reconciliation or cache refresh.
 - Progress, chrome, client, and debug reads are pure queries: they must not cancel or update a `running` operation. Explicit startup reconciliation is the only lifecycle path that cancels persisted `running` rows as restart orphans.
 
+In debug builds, a failed native startup is projected through one
+attempt-correlated lifecycle snapshot. Every Workbench surface shows the same
+compact failure card and links to the read-only **Synthesis Sidecar** page in
+Task Manager. That page shows the current phase, stable failure code, verified
+bundle/runtime identity, supervisor state, bounded redacted process tails, and
+the structured lifecycle timeline. It offers no retry, restart, repair, or
+mutation action. The same snapshot is included in the existing runtime issue
+diagnostic bundle under its redaction policy; release builds retain neither
+this UI nor process-tail evidence.
+
 ## Surface-Scoped Refresh Architecture
 
 Workbench UI uses three read-model layers:
@@ -19,6 +29,11 @@ Workbench UI uses three read-model layers:
 - Shell: selected tab, navigation, and persistent surface containers.
 - Chrome: statusbar, operation progress, job popover, and local pending action state.
 - Surface: one named content area, one of `home`, `topics`, `index`, `review`, `graph`, `tags`, `concepts`, or `reader`.
+
+The native Workbench route validates exactly those shared public surface
+names. Critical smoke reads `home` through the same route; internal migration
+labels are not accepted as substitutes. Native discovery is client-ready only
+when its advertised ordered roster matches the shared ready-roster contract.
 
 Active Workbench hot paths must use surface-scoped messages:
 

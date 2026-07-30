@@ -175,7 +175,11 @@ export default defineConfig({
       },
       {
         entryPoints: ["src/synthesisWorkbenchApp.ts"],
+        define: {
+          __debug_mode__: String(DEBUG_MODE),
+        },
         bundle: true,
+        minifySyntax: true,
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
       },

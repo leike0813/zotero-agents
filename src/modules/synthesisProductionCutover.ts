@@ -7,6 +7,7 @@ import {
 } from "../../packages/synthesis-contracts/src";
 
 export type SynthesisCutoverBackupBasis = {
+  sourceOwner: SynthesisCutoverReceipt["sourceOwner"];
   backupId: string;
   sourceSchemaVersion: string;
   targetSchemaVersion: string;
@@ -15,8 +16,7 @@ export type SynthesisCutoverBackupBasis = {
 };
 
 export type SynthesisCutoverCoordinatorDeps<
-  BackupBasis extends SynthesisCutoverBackupBasis =
-    SynthesisCutoverBackupBasis,
+  BackupBasis extends SynthesisCutoverBackupBasis = SynthesisCutoverBackupBasis,
 > = {
   now: () => number;
   readReceipt: () => Promise<SynthesisCutoverReceipt | null>;
@@ -51,8 +51,7 @@ export type SynthesisCutoverCoordinatorDeps<
 };
 
 type CoordinatorOptions<
-  BackupBasis extends SynthesisCutoverBackupBasis =
-    SynthesisCutoverBackupBasis,
+  BackupBasis extends SynthesisCutoverBackupBasis = SynthesisCutoverBackupBasis,
 > = {
   profileId: string;
   bundleFingerprint: string;
@@ -60,9 +59,7 @@ type CoordinatorOptions<
   deps: SynthesisCutoverCoordinatorDeps<BackupBasis>;
 };
 
-function receipt<
-  BackupBasis extends SynthesisCutoverBackupBasis,
->(
+function receipt<BackupBasis extends SynthesisCutoverBackupBasis>(
   options: CoordinatorOptions<BackupBasis>,
   basis: SynthesisCutoverBackupBasis,
   args: {
@@ -77,7 +74,7 @@ function receipt<
     receiptId: args.receiptId,
     profileId: options.profileId,
     phase: args.phase,
-    sourceOwner: "legacy-plugin",
+    sourceOwner: basis.sourceOwner,
     targetOwner: "rust-native",
     backupId: basis.backupId,
     sourceSchemaVersion: basis.sourceSchemaVersion,
@@ -108,9 +105,7 @@ function sameIdentity(
 
 export function createSynthesisProductionCutoverCoordinator<
   BackupBasis extends SynthesisCutoverBackupBasis,
->(
-  options: CoordinatorOptions<BackupBasis>,
-) {
+>(options: CoordinatorOptions<BackupBasis>) {
   let running: Promise<{
     status: "mutation_enabled";
     receipt: SynthesisCutoverReceipt;
@@ -125,35 +120,41 @@ export function createSynthesisProductionCutoverCoordinator<
       existing.mutationEnabled
     ) {
       const basis: SynthesisCutoverBackupBasis = {
+        sourceOwner: existing.sourceOwner,
         backupId: existing.backupId,
         sourceSchemaVersion: existing.sourceSchemaVersion,
         targetSchemaVersion: existing.targetSchemaVersion,
-        canonicalManifestSha256:
-          existing.canonicalManifestSha256,
+        canonicalManifestSha256: existing.canonicalManifestSha256,
         durableSummarySha256: existing.durableSummarySha256,
       };
       try {
-        const owner = await options.deps.acquireNativeOwner(
-          basis,
-          existing,
-        );
-        await options.deps.runCriticalSmoke(
+        const owner = await options.deps.acquireNativeOwner(basis, existing);
+        const smokeEvidence = await options.deps.runCriticalSmoke(
           owner.serviceInstanceId,
           existing,
         );
+        await options.deps.enableNativeMutations(
+          owner.serviceInstanceId,
+          existing,
+          smokeEvidence,
+        );
+        const refreshed = receipt(options, basis, {
+          receiptId: existing.receiptId,
+          phase: "mutation_enabled",
+          serviceInstanceId: owner.serviceInstanceId,
+          mutationEnabled: true,
+        });
+        await options.deps.writeReceipt(refreshed);
         return {
           status: "mutation_enabled" as const,
-          receipt: existing,
+          receipt: refreshed,
         };
       } catch (error) {
         await options.deps.enterRustOnlyRepair(existing);
         throw error;
       }
     }
-    if (
-      existing?.phase === "mutation_enabled" ||
-      existing?.mutationEnabled
-    ) {
+    if (existing?.phase === "mutation_enabled" || existing?.mutationEnabled) {
       await options.deps.enterRustOnlyRepair(existing);
       throw new SynthesisClientError(
         "conflict",

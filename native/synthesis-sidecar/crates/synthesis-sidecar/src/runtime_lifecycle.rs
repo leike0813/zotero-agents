@@ -10,6 +10,7 @@ use synthesis_sidecar::runtime_contract::{
 
 const ACTIVATION_EVIDENCE_MAX_AGE_MS: u64 = 60_000;
 const ACTIVATION_EVIDENCE_MAX_FUTURE_SKEW_MS: u64 = 5_000;
+const RUNTIME_OWNER_LEASE_TIMEOUT_MS: u64 = 120_000;
 const PRODUCTION_SMOKE_ROSTER_VERSION: &str = "synthesis-production-critical-smoke.v1";
 const PRODUCTION_SMOKE_CHECK_IDS: &[&str] = &[
     "identity",
@@ -89,6 +90,69 @@ fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
     sync_directory(parent)
 }
 
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+    let result = unsafe { kill(pid as i32, 0) };
+    result == 0 || io::Error::last_os_error().raw_os_error() == Some(1)
+}
+
+#[cfg(windows)]
+fn process_is_alive(pid: u32) -> bool {
+    use std::ffi::c_void;
+
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    const ERROR_INVALID_PARAMETER: u32 = 87;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
+        fn GetExitCodeProcess(process: *mut c_void, exit_code: *mut u32) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+        fn GetLastError() -> u32;
+    }
+
+    if pid == 0 {
+        return false;
+    }
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return unsafe { GetLastError() } != ERROR_INVALID_PARAMETER;
+    }
+    let mut exit_code = 0;
+    let queried = unsafe { GetExitCodeProcess(handle, &mut exit_code) } != 0;
+    unsafe {
+        CloseHandle(handle);
+    }
+    !queried || exit_code == STILL_ACTIVE
+}
+
+#[cfg(not(any(unix, windows)))]
+fn process_is_alive(_pid: u32) -> bool {
+    true
+}
+
+fn required_json_str<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| "runtime_owner_invalid".to_owned())
+}
+
+fn required_json_u32(value: &Value, key: &str) -> Result<u32, String> {
+    value
+        .get(key)
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| "runtime_owner_invalid".to_owned())
+}
+
+#[derive(Debug)]
 pub(crate) struct RuntimeOwnership {
     owner_path: PathBuf,
     discovery_path: PathBuf,
@@ -97,6 +161,13 @@ pub(crate) struct RuntimeOwnership {
 
 impl RuntimeOwnership {
     pub(crate) fn acquire(config: &NativeLaunchConfig) -> Result<Self, String> {
+        Self::acquire_with_process_probe(config, process_is_alive)
+    }
+
+    fn acquire_with_process_probe(
+        config: &NativeLaunchConfig,
+        is_process_alive: impl Fn(u32) -> bool,
+    ) -> Result<Self, String> {
         let owner_dir = config.profile_runtime_root.join("owner");
         fs::create_dir_all(&owner_dir).map_err(|error| error.to_string())?;
         let owner_path = owner_dir.join("owner.json");
@@ -110,24 +181,105 @@ impl RuntimeOwnership {
             "pid":std::process::id(),
             "createdAtMs":current_time_ms()?,
         });
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&owner_path)
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::AlreadyExists {
-                    "sidecar_owner_conflict".to_owned()
-                } else {
-                    error.to_string()
+        for _ in 0..2 {
+            match OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&owner_path)
+            {
+                Ok(mut file) => {
+                    serde_json::to_writer(&mut file, &owner).map_err(|error| error.to_string())?;
+                    file.write_all(b"\n").map_err(|error| error.to_string())?;
+                    file.sync_all().map_err(|error| error.to_string())?;
+                    let discovery_path = config.profile_runtime_root.join("discovery.json");
+                    match fs::remove_file(&discovery_path) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                        Err(_) => {
+                            let _ = fs::remove_file(&owner_path);
+                            return Err("sidecar_discovery_cleanup_failed".into());
+                        }
+                    }
+                    return Ok(Self {
+                        owner_path,
+                        discovery_path,
+                        service_instance_id,
+                    });
                 }
-            })?;
-        serde_json::to_writer(&mut file, &owner).map_err(|error| error.to_string())?;
-        file.write_all(b"\n").map_err(|error| error.to_string())?;
-        Ok(Self {
-            owner_path,
-            discovery_path: config.profile_runtime_root.join("discovery.json"),
-            service_instance_id,
-        })
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    let existing = fs::read(&owner_path)
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                        .ok_or_else(|| "sidecar_owner_invalid".to_owned())?;
+                    if required_json_str(&existing, "schema")
+                        .map_err(|_| "sidecar_owner_invalid".to_owned())?
+                        != "synthesis-sidecar-owner.v1"
+                    {
+                        return Err("sidecar_owner_invalid".into());
+                    }
+                    let pid = required_json_u32(&existing, "pid")
+                        .map_err(|_| "sidecar_owner_invalid".to_owned())?;
+                    if is_process_alive(pid) {
+                        return Err("sidecar_owner_conflict".into());
+                    }
+                    let supervisor_instance_id =
+                        required_json_str(&existing, "supervisorInstanceId")
+                            .map_err(|_| "sidecar_owner_invalid".to_owned())?;
+                    let lease_nonce = required_json_str(&existing, "leaseNonce")
+                        .map_err(|_| "sidecar_owner_invalid".to_owned())?;
+                    let same_supervisor = supervisor_instance_id == config.supervisor_instance_id
+                        && lease_nonce == config.lease_nonce;
+                    let lease_allows_recovery = if same_supervisor {
+                        true
+                    } else {
+                        let lease_path = config
+                            .profile_runtime_root
+                            .join("sessions")
+                            .join(supervisor_instance_id)
+                            .join("lease.json");
+                        fs::read(&lease_path)
+                            .ok()
+                            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                            .is_none_or(|lease| {
+                                lease.get("profileId").and_then(Value::as_str)
+                                    != existing.get("profileId").and_then(Value::as_str)
+                                    || lease.get("supervisorInstanceId").and_then(Value::as_str)
+                                        != Some(supervisor_instance_id)
+                                    || lease.get("leaseNonce").and_then(Value::as_str)
+                                        != Some(lease_nonce)
+                                    || lease.get("updatedAtMs").and_then(Value::as_u64).is_none_or(
+                                        |updated_at_ms| {
+                                            current_time_ms()
+                                                .unwrap_or_default()
+                                                .saturating_sub(updated_at_ms)
+                                                > RUNTIME_OWNER_LEASE_TIMEOUT_MS
+                                        },
+                                    )
+                            })
+                    };
+                    if !lease_allows_recovery {
+                        return Err("sidecar_owner_lease_fresh".into());
+                    }
+                    let tombstone = config.profile_runtime_root.join(format!(
+                        "owner.stale-{}-{}",
+                        std::process::id(),
+                        current_time_ms()?
+                    ));
+                    match fs::rename(&owner_dir, &tombstone) {
+                        Ok(()) => {
+                            fs::remove_dir_all(&tombstone)
+                                .map_err(|_| "sidecar_owner_recovery_failed".to_owned())?;
+                            fs::create_dir(&owner_dir)
+                                .map_err(|_| "sidecar_owner_recovery_failed".to_owned())?;
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                        Err(_) => return Err("sidecar_owner_recovery_failed".into()),
+                    }
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        Err("sidecar_owner_acquire_failed".into())
     }
 
     pub(crate) fn publish_discovery(&self, document: &Value) -> Result<(), String> {
@@ -142,6 +294,93 @@ impl Drop for RuntimeOwnership {
         if let Some(owner_dir) = self.owner_path.parent() {
             let _ = fs::remove_dir(owner_dir);
         }
+    }
+}
+
+#[cfg(test)]
+mod runtime_owner_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn config() -> NativeLaunchConfig {
+        let profile_runtime_root = std::env::temp_dir().join(format!(
+            "synthesis-runtime-owner-{}-{}",
+            std::process::id(),
+            TEST_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        ));
+        NativeLaunchConfig {
+            schema: "synthesis-sidecar-launch-config.v1".into(),
+            profile_id: "1".repeat(64),
+            profile_runtime_root,
+            runtime_root_id: "2".repeat(64),
+            data_root_id: "3".repeat(64),
+            bundle_id: "4".repeat(64),
+            implementation: "rust-native".into(),
+            target: "linux-x64".into(),
+            target_triple: "x86_64-unknown-linux-gnu".into(),
+            build_fingerprint: "5".repeat(64),
+            platform_signature: serde_json::from_value(json!({
+                "scheme":"not-applicable",
+                "status":"not-applicable",
+                "signer":null
+            }))
+            .unwrap(),
+            service_version: "0.1.0".into(),
+            protocol_version: "synthesis-sidecar.v1".into(),
+            schema_version: "1.0.0".into(),
+            supervisor_instance_id: "supervisor-current".into(),
+            lease_nonce: "lease-current".into(),
+            client_token: "6".repeat(64),
+            lifecycle_token: "7".repeat(64),
+            mutation_enabled: false,
+            port: 0,
+        }
+    }
+
+    #[test]
+    fn runtime_owner_reclaims_a_dead_owner_and_discards_stale_discovery() {
+        let config = config();
+        let owner_dir = config.profile_runtime_root.join("owner");
+        fs::create_dir_all(&owner_dir).unwrap();
+        fs::write(
+            owner_dir.join("owner.json"),
+            serde_json::to_vec(&json!({
+                "schema":"synthesis-sidecar-owner.v1",
+                "profileId":config.profile_id,
+                "supervisorInstanceId":"supervisor-old",
+                "serviceInstanceId":"service-old",
+                "leaseNonce":"lease-old",
+                "pid":1234,
+                "createdAtMs":1
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            config.profile_runtime_root.join("discovery.json"),
+            b"{\"serviceInstanceId\":\"service-old\"}",
+        )
+        .unwrap();
+
+        let owner = RuntimeOwnership::acquire_with_process_probe(&config, |_| false).unwrap();
+
+        assert!(!config.profile_runtime_root.join("discovery.json").exists());
+        drop(owner);
+        fs::remove_dir_all(config.profile_runtime_root).unwrap();
+    }
+
+    #[test]
+    fn runtime_owner_preserves_a_live_owner() {
+        let config = config();
+        let first = RuntimeOwnership::acquire_with_process_probe(&config, |_| false).unwrap();
+        assert_eq!(
+            RuntimeOwnership::acquire_with_process_probe(&config, |_| true).unwrap_err(),
+            "sidecar_owner_conflict"
+        );
+        drop(first);
+        fs::remove_dir_all(config.profile_runtime_root).unwrap();
     }
 }
 
@@ -188,6 +427,20 @@ impl ProductionOwnership {
         service_instance_id: &str,
         mutation_enabled: bool,
     ) -> Result<Self, String> {
+        Self::acquire_with_process_probe(
+            admission,
+            service_instance_id,
+            mutation_enabled,
+            process_is_alive,
+        )
+    }
+
+    fn acquire_with_process_probe(
+        admission: &ProductionAdmission,
+        service_instance_id: &str,
+        mutation_enabled: bool,
+        is_process_alive: impl Fn(u32) -> bool,
+    ) -> Result<Self, String> {
         if admission.purpose != "live_owner"
             || service_instance_id.is_empty()
             || service_instance_id.len() > 128
@@ -212,25 +465,73 @@ impl ProductionOwnership {
             "pid":std::process::id(),
             "createdAtMs":current_time_ms()?
         });
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&owner_path)
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::AlreadyExists {
-                    "production_owner_conflict".to_owned()
-                } else {
-                    error.to_string()
+        for _ in 0..2 {
+            match OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&owner_path)
+            {
+                Ok(mut file) => {
+                    serde_json::to_writer(&mut file, &owner).map_err(|error| error.to_string())?;
+                    file.write_all(b"\n").map_err(|error| error.to_string())?;
+                    file.sync_all().map_err(|error| error.to_string())?;
+                    if mutation_enabled {
+                        match fs::remove_file(state_root.join("native-activation.json")) {
+                            Ok(()) => {}
+                            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                            Err(_) => {
+                                let _ = fs::remove_file(&owner_path);
+                                return Err("production_activation_cleanup_failed".into());
+                            }
+                        }
+                    }
+                    return Ok(Self {
+                        activation_path: state_root.join("native-activation.json"),
+                        owner_path,
+                        service_instance_id: service_instance_id.to_owned(),
+                    });
                 }
-            })?;
-        serde_json::to_writer(&mut file, &owner).map_err(|error| error.to_string())?;
-        file.write_all(b"\n").map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())?;
-        Ok(Self {
-            activation_path: state_root.join("native-activation.json"),
-            owner_path,
-            service_instance_id: service_instance_id.to_owned(),
-        })
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    let existing = fs::read(&owner_path)
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                        .ok_or_else(|| "production_owner_invalid".to_owned())?;
+                    let pid = required_json_u32(&existing, "pid")
+                        .map_err(|_| "production_owner_invalid".to_owned())?;
+                    if is_process_alive(pid) {
+                        return Err("production_owner_conflict".into());
+                    }
+                    let identity_matches = existing.get("schema").and_then(Value::as_str)
+                        == Some("synthesis-production-owner.v1")
+                        && existing.get("profileId").and_then(Value::as_str)
+                            == Some(admission.profile_id.as_str())
+                        && existing.get("cutoverReceiptId").and_then(Value::as_str)
+                            == Some(admission.cutover_receipt_id.as_str())
+                        && existing
+                            .get("capabilityFingerprint")
+                            .and_then(Value::as_str)
+                            == Some(admission.capability_fingerprint.as_str());
+                    if !identity_matches {
+                        return Err("production_owner_identity_mismatch".into());
+                    }
+                    let tombstone = state_root.join(format!(
+                        "synthesis.owner.stale-{}-{}.json",
+                        std::process::id(),
+                        current_time_ms()?
+                    ));
+                    match fs::rename(&owner_path, &tombstone) {
+                        Ok(()) => {
+                            fs::remove_file(&tombstone)
+                                .map_err(|_| "production_owner_recovery_failed".to_owned())?;
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                        Err(_) => return Err("production_owner_recovery_failed".into()),
+                    }
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        Err("production_owner_acquire_failed".into())
     }
 
     pub(crate) fn activate(
@@ -419,6 +720,39 @@ mod production_owner_tests {
         );
         drop(owner);
         ProductionOwnership::acquire(&admission, "service-2", false).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn production_owner_reclaims_dead_matching_identity_and_stale_activation() {
+        let root = root();
+        let admission = admission(&root);
+        fs::write(
+            root.join("state/synthesis.owner.json"),
+            serde_json::to_vec(&json!({
+                "schema":"synthesis-production-owner.v1",
+                "profileId":admission.profile_id,
+                "supervisorInstanceId":"supervisor-old",
+                "serviceInstanceId":"service-old",
+                "cutoverReceiptId":admission.cutover_receipt_id,
+                "capabilityFingerprint":admission.capability_fingerprint,
+                "pid":1234
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("state/native-activation.json"), b"{}").unwrap();
+
+        let owner = ProductionOwnership::acquire_with_process_probe(
+            &admission,
+            "service-current",
+            true,
+            |_| false,
+        )
+        .unwrap();
+
+        assert!(!root.join("state/native-activation.json").exists());
+        drop(owner);
         fs::remove_dir_all(root).unwrap();
     }
 

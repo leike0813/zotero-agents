@@ -49,9 +49,7 @@ describe("Synthesis cutover receipt store", function () {
     });
     await store.write(receipt("backup_verified"));
     await store.write(receipt("preflight_verified", { updatedAtMs: 2 }));
-    await store.write(
-      receipt("native_owner", { updatedAtMs: 3 }),
-    );
+    await store.write(receipt("native_owner", { updatedAtMs: 3 }));
     assert.equal((await store.read())?.phase, "native_owner");
     assert.lengthOf(writes, 3);
 
@@ -104,12 +102,20 @@ describe("Synthesis cutover receipt store", function () {
         updatedAtMs: 5,
       }),
     );
+    await store.write(
+      receipt("mutation_enabled", {
+        receiptId: "receipt-2",
+        serviceInstanceId: "service-2",
+        updatedAtMs: 6,
+      }),
+    );
+    assert.equal((await store.read())?.serviceInstanceId, "service-2");
     let failure: unknown;
     try {
       await store.write(
         receipt("backup_verified", {
           receiptId: "receipt-3",
-          updatedAtMs: 6,
+          updatedAtMs: 7,
         }),
       );
     } catch (error) {

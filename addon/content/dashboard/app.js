@@ -93,6 +93,7 @@
       "workflow-options": "zs-icon-settings-applications",
       products: "zs-icon-inventory-2",
       "runtime-logs": "zs-icon-terminal",
+      "synthesis-sidecar": "zs-icon-terminal",
       "skillrunner-connection-audit": "zs-icon-terminal",
       "acp-trace-replay": "zs-icon-terminal",
     };
@@ -4031,6 +4032,67 @@
     main.appendChild(splitView);
   }
 
+  function renderSynthesisSidecar(main, snapshot) {
+    const view = snapshot.synthesisSidecarView || {};
+    main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
+    const current = view.snapshot;
+    if (!current) {
+      main.appendChild(
+        el(
+          "div",
+          "empty-state",
+          "No Synthesis sidecar startup attempt has been observed in this debug session.",
+        ),
+      );
+      return;
+    }
+
+    const summary = el("section", "card");
+    summary.appendChild(
+      el(
+        "h3",
+        "",
+        `${current.phase || "unknown"} · ${current.status || "unknown"}`,
+      ),
+    );
+    summary.appendChild(
+      el(
+        "div",
+        "muted",
+        current.code
+          ? `${current.attemptId} · ${current.code}`
+          : current.attemptId,
+      ),
+    );
+    const payload = el("pre", "log-view mono payload-view");
+    payload.textContent = JSON.stringify(current, null, 2);
+    summary.appendChild(payload);
+    main.appendChild(summary);
+
+    const timeline = Array.isArray(view.lifecycleLogs)
+      ? view.lifecycleLogs
+      : [];
+    main.appendChild(el("h3", "section-title", "Startup timeline"));
+    if (timeline.length === 0) {
+      main.appendChild(el("div", "empty-state", "No lifecycle events."));
+      return;
+    }
+    const timelinePayload = el("pre", "log-view mono payload-view");
+    timelinePayload.textContent = timeline
+      .map(function (entry) {
+        return [
+          entry.ts,
+          String(entry.level || "").toUpperCase(),
+          entry.stage,
+          entry.message,
+        ]
+          .filter(Boolean)
+          .join("  ");
+      })
+      .join("\n");
+    main.appendChild(timelinePayload);
+  }
+
   function render() {
     const app = document.getElementById("app");
     if (!app) {
@@ -4348,6 +4410,8 @@
     } else if (snapshot.selectedTabKey === "runtime-logs") {
       main.classList.add("skillrunner-fill"); // reuse the full-height flex config
       renderRuntimeLogs(main, snapshot);
+    } else if (snapshot.selectedTabKey === "synthesis-sidecar") {
+      renderSynthesisSidecar(main, snapshot);
     } else if (snapshot.selectedTabKey === "skillrunner-connection-audit") {
       main.classList.add("skillrunner-fill");
       renderSkillRunnerConnectionAudit(main, snapshot);

@@ -25,6 +25,7 @@ fn main() {
         runtime_service::serve,
         runtime_service::serve_production,
         runtime_service::preflight_production,
+        runtime_service::prepare_empty_production,
     ) {
         eprintln!("{error}");
         std::process::exit(1);

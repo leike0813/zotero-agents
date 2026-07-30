@@ -25,6 +25,11 @@ native owner can be re-verified from current-state contracts alone.
   not dispatch or publish that workflow.
 - Materialize sidecar bundles under the shared platform-first native asset
   layout without replacing Host Bridge binaries in the same target directory.
+- Repair the clean-profile production bootstrap, default-client cutover
+  lifecycle, and runtime-root composition defects found by the representative
+  Zotero check.
+- Add a debug-only, read-only Synthesis lifecycle diagnostic surface shared by
+  Workbench, Task Manager, runtime diagnostic export, and the direct launcher.
 
 ## Capabilities
 
@@ -46,14 +51,16 @@ None.
   shared `addon/bin/<target>/` native asset layout.
 - `synthesis-sidecar-prebuild-release`: Treat the workflow-emitted v2 result
   document and its cache summary as the synchronization authorization boundary.
+- `synthesis-sidecar-debug-observability`: Expose one sanitized lifecycle
+  attempt and phase model only in development builds.
 
 ## Impact
 
 - Affects production capability/surface parity checkers, critical-smoke
   orchestration, activation evidence, existing R9a Core tests, Stage-1 gates,
   sidecar materialization, and Synthesis current-state documentation.
-- Does not change public `SynthesisClient` methods, DTOs, persistence formats,
-  production ownership, reverse-Host authority, runtime distribution, or
-  release state.
+- Does not change public `SynthesisClient` methods, production ownership,
+  reverse-Host authority, runtime distribution, or release state. The internal
+  cutover receipt admits an explicit empty-profile source identity.
 - Is a prerequisite for `remove-synthesis-plugin-legacy-owner` and
   `remove-synthesis-node-sidecar-stack`.

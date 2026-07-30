@@ -696,16 +696,6 @@ function prewarmSynthesisWorkbenchAfterStartup() {
 }
 
 function reconcileRecoveredRuntimeTasksOnStartup() {
-  void getDefaultSynthesisClient()
-    .then((client) => client.system.reconcileRuntimeWorkOnStartup())
-    .catch((error) => {
-      if (typeof console !== "undefined") {
-        console.warn(
-          "[startup-reconcile] synthesis runtime work failed",
-          error,
-        );
-      }
-    });
   try {
     reconcileAcpSkillRunWorkflowTasksOnStartup();
     reconcileWorkflowTaskProjectionsOnStartup();
@@ -837,8 +827,7 @@ async function onStartup() {
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
-  const synthesisProductionReady =
-    startDefaultSynthesisProductionOwner();
+  const synthesisProductionReady = startDefaultSynthesisProductionOwner();
   void synthesisProductionReady.catch((error) => {
     emitVerboseConsole(
       "warn",
@@ -916,10 +905,7 @@ async function onStartup() {
 }
 
 export async function initializeSynthesisBuiltinTagsOnStartup(
-  tags?: Pick<
-    SynthesisClient["tags"],
-    "initializeBuiltinTagPolicy"
-  >,
+  tags?: Pick<SynthesisClient["tags"], "initializeBuiltinTagPolicy">,
 ) {
   addon.data.startupError = undefined;
   try {

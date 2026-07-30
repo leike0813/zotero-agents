@@ -19,6 +19,10 @@ const chatDiagnosticAuditModuleBasename = path.basename(
   "src/modules/acpChatDiagnosticAuditTrail.ts",
   ".ts",
 );
+const synthesisSidecarDiagnosticsModuleBasename = path.basename(
+  "src/modules/synthesisSidecarDiagnostics.ts",
+  ".ts",
+);
 
 const disabledProfilerModule = `
 export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA = "";
@@ -47,6 +51,14 @@ export function releaseAcpChatDiagnosticAudit() { return Promise.resolve(); }
 export function discardAcpChatDiagnosticAudit() { return Promise.resolve(); }
 export function resetAcpChatDiagnosticAuditForTests() { return Promise.resolve(); }
 export function discardAllAcpChatDiagnosticAuditsForTests() {}
+`;
+
+const disabledSynthesisSidecarDiagnosticsModule = `
+export function beginSynthesisSidecarStartupAttempt() { return ""; }
+export function recordSynthesisSidecarStartupPhase() {}
+export function getSynthesisSidecarDiagnosticSnapshot() { return undefined; }
+export function subscribeSynthesisSidecarDiagnostics() { return () => {}; }
+export function resetSynthesisSidecarDiagnosticsForTests() {}
 `;
 
 export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
@@ -84,6 +96,16 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
             sideEffects: false,
           };
         }
+        if (
+          debugDisabled &&
+          path.basename(args.path) === synthesisSidecarDiagnosticsModuleBasename
+        ) {
+          return {
+            path: synthesisSidecarDiagnosticsModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
         return {
           path: path.resolve(args.resolveDir, `${args.path}.ts`),
           sideEffects: false,
@@ -107,6 +129,16 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       },
       () => ({
         contents: disabledChatDiagnosticAuditModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${synthesisSidecarDiagnosticsModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledSynthesisSidecarDiagnosticsModule,
         loader: "js",
       }),
     );

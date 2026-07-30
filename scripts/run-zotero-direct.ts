@@ -17,9 +17,16 @@
  *  npx tsx scripts/run-zotero-direct.ts --build   # build + launch
  */
 import { config as loadEnv } from "dotenv";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  readFileSync,
+  watchFile,
+  unwatchFile,
+  writeFileSync,
+} from "fs";
 import { dirname, resolve, join } from "path";
-import { spawn, execSync } from "child_process";
+import { spawn, execFileSync, execSync } from "child_process";
+import { createHash } from "crypto";
 import * as net from "net";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
@@ -89,6 +96,155 @@ export function buildZoteroLaunchEnv(env: NodeJS.ProcessEnv = process.env) {
   };
 }
 
+export function resolveDirectSynthesisTarget(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+) {
+  const key = `${platform}-${arch}`;
+  const targets: Record<string, string> = {
+    "darwin-arm64": "darwin-arm64",
+    "darwin-x64": "darwin-x64",
+    "linux-arm": "linux-arm",
+    "linux-arm64": "linux-arm64",
+    "linux-x64": "linux-x64",
+    "linux-ia32": "linux-x86",
+    "win32-x64": "win32-x64",
+  };
+  const target = targets[key];
+  if (!target) {
+    throw new Error(`synthesis_sidecar_direct_target_unsupported:${key}`);
+  }
+  return target;
+}
+
+export function inspectDirectSynthesisBundle(
+  addonSourceDir = ADDON_SOURCE_DIR,
+) {
+  const target = resolveDirectSynthesisTarget();
+  const root = join(addonSourceDir, "bin", target, "synthesis-sidecar");
+  const manifestPath = join(root, "manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error(
+      `synthesis_sidecar_direct_manifest_missing:${manifestPath}`,
+    );
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    schema?: string;
+    target?: string;
+    implementation?: string;
+    bundleId?: string;
+    buildFingerprint?: string;
+    files?: Array<{
+      path?: string;
+      bytes?: number;
+      sha256?: string;
+      executable?: boolean;
+    }>;
+  };
+  if (
+    manifest.schema !== "synthesis-sidecar-runtime-bundle.v3" ||
+    manifest.target !== target ||
+    manifest.implementation !== "rust-native" ||
+    !manifest.bundleId ||
+    !manifest.buildFingerprint ||
+    !Array.isArray(manifest.files)
+  ) {
+    throw new Error("synthesis_sidecar_direct_manifest_invalid");
+  }
+  for (const entry of manifest.files) {
+    const relativePath = String(entry.path || "").trim();
+    if (!relativePath || relativePath.includes("..")) {
+      throw new Error("synthesis_sidecar_direct_manifest_path_invalid");
+    }
+    const path = join(root, relativePath);
+    if (!existsSync(path)) {
+      throw new Error(`synthesis_sidecar_direct_asset_missing:${relativePath}`);
+    }
+    const bytes = readFileSync(path);
+    if (bytes.byteLength !== entry.bytes) {
+      throw new Error(`synthesis_sidecar_direct_asset_size:${relativePath}`);
+    }
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    if (sha256 !== entry.sha256) {
+      throw new Error(`synthesis_sidecar_direct_asset_hash:${relativePath}`);
+    }
+  }
+  const executable = manifest.files.find(
+    (entry) => entry.executable === true,
+  )?.path;
+  if (!executable) {
+    throw new Error("synthesis_sidecar_direct_executable_missing");
+  }
+  return {
+    target,
+    bundleId: manifest.bundleId,
+    buildFingerprint: manifest.buildFingerprint,
+    executablePath: join(root, executable),
+  };
+}
+
+type DirectRuntimeLogEntry = {
+  id?: string;
+  ts?: string;
+  component?: string;
+  phase?: string;
+  stage?: string;
+  message?: string;
+};
+
+export function parseDirectSynthesisRuntimeLogDocument(
+  raw: string,
+  seenIds: ReadonlySet<string>,
+) {
+  let parsed: { entries?: DirectRuntimeLogEntry[] } | DirectRuntimeLogEntry[];
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ids: [], lines: [], entries: [] as DirectRuntimeLogEntry[] };
+  }
+  const entries = (
+    Array.isArray(parsed) ? parsed : parsed.entries || []
+  ).filter(
+    (entry) =>
+      entry.component === "synthesis-sidecar-lifecycle" &&
+      typeof entry.id === "string" &&
+      !seenIds.has(entry.id),
+  );
+  return {
+    ids: entries.map((entry) => entry.id!),
+    lines: entries.map((entry) =>
+      ["[synthesis-sidecar]", entry.ts, entry.phase, entry.stage, entry.message]
+        .filter(Boolean)
+        .join(" "),
+    ),
+    entries,
+  };
+}
+
+function watchDirectSynthesisRuntimeLogs(runtimeRoot: string) {
+  const path = join(runtimeRoot, "runtime", "logs", "runtime-logs.json");
+  const seenIds = new Set<string>();
+  if (existsSync(path)) {
+    parseDirectSynthesisRuntimeLogDocument(
+      readFileSync(path, "utf8"),
+      seenIds,
+    ).ids.forEach((id) => seenIds.add(id));
+  }
+  const emit = () => {
+    if (!existsSync(path)) {
+      return;
+    }
+    const result = parseDirectSynthesisRuntimeLogDocument(
+      readFileSync(path, "utf8"),
+      seenIds,
+    );
+    result.ids.forEach((id) => seenIds.add(id));
+    result.lines.forEach((line) => console.log(line));
+  };
+  watchFile(path, { interval: 500 }, emit);
+  return () => unwatchFile(path, emit);
+}
+
 function runBuild(): void {
   console.log("[build] Building plugin …");
   execSync("npx zotero-plugin build", {
@@ -96,6 +252,55 @@ function runBuild(): void {
     stdio: "inherit",
     env: process.env,
   });
+  stageDirectSynthesisBundle();
+}
+
+function stageDirectSynthesisBundle() {
+  const target = resolveDirectSynthesisTarget();
+  console.log(`[build] Building local Synthesis sidecar for ${target} …`);
+  execFileSync(
+    "cargo",
+    [
+      "+nightly-2026-07-25",
+      "build",
+      "--workspace",
+      "--locked",
+      "--manifest-path",
+      "native/synthesis-sidecar/Cargo.toml",
+    ],
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
+  const executable =
+    process.platform === "win32"
+      ? "synthesis-sidecar.exe"
+      : "synthesis-sidecar";
+  const rustSidecar = resolve(
+    ROOT,
+    "native/synthesis-sidecar/target/debug",
+    executable,
+  );
+  const output = resolve(ADDON_SOURCE_DIR, "bin", target, "synthesis-sidecar");
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "scripts/package-synthesis-sidecar-runtime.ts",
+      `--target=${target}`,
+      `--rust-sidecar=${rustSidecar}`,
+      `--output=${output}`,
+      `--created-at=${new Date().toISOString()}`,
+    ],
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
 }
 
 function encodePrefValue(value: string | number | boolean) {
@@ -386,8 +591,8 @@ async function launchZotero(): Promise<{
     console.error(`[error] Failed to launch Zotero: ${err.message}`);
     process.exit(1);
   });
-  proc.stdout?.on("data", () => undefined);
-  proc.stderr?.on("data", () => undefined);
+  proc.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
+  proc.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
 
   console.log(
     `[done] Zotero started (PID ${proc.pid}), debugger on port ${port}`,
@@ -428,8 +633,16 @@ async function main() {
   }
 
   patchPrefsJs(profile);
+  const synthesisBundle = inspectDirectSynthesisBundle();
+  console.log(
+    `[synthesis-sidecar] preflight ready target=${synthesisBundle.target} bundle=${synthesisBundle.bundleId} fingerprint=${synthesisBundle.buildFingerprint}`,
+  );
+  const stopSynthesisLogWatcher = watchDirectSynthesisRuntimeLogs(
+    resolveDirectRuntimeRoot(process.env),
+  );
   const { port, proc } = await launchZotero();
   const stop = (exitCode: number) => {
+    stopSynthesisLogWatcher();
     try {
       proc.kill();
     } catch {
@@ -452,6 +665,7 @@ async function main() {
         "[done] Plugin loaded. Zotero is running without hot-reload; close Zotero or press Ctrl+C to stop.",
       );
       const exitCode = await waitForProcessClose(proc);
+      stopSynthesisLogWatcher();
       process.exit(exitCode);
       return;
     } catch (err) {

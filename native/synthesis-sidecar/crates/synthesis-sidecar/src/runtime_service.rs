@@ -1,4 +1,5 @@
-use serde_json::json;
+use serde_json::{Value, json};
+use std::fs;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -20,6 +21,70 @@ use crate::runtime_reverse_host::probe_reverse_host;
 use crate::runtime_server_loop::run_sidecar_listener;
 use crate::runtime_transfer::NativeTransferOwner;
 use crate::runtime_worker_pool::NativeComputePool;
+
+fn required_text<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "empty_production_request_invalid".to_owned())
+}
+
+pub(crate) fn prepare_empty_production(request_path: &str) -> Result<(), String> {
+    let request: Value = serde_json::from_slice(
+        &fs::read(request_path).map_err(|_| "empty_production_request_unavailable".to_owned())?,
+    )
+    .map_err(|_| "empty_production_request_invalid".to_owned())?;
+    if request.get("schema").and_then(Value::as_str)
+        != Some("synthesis-empty-production-request.v1")
+    {
+        return Err("empty_production_request_invalid".into());
+    }
+    let profile_id = required_text(&request, "profileId")?.to_owned();
+    let data_root_id = required_text(&request, "dataRootId")?.to_owned();
+    let database_path = Path::new(required_text(&request, "repositoryDbPath")?);
+    let canonical_root = Path::new(required_text(&request, "canonicalRoot")?);
+    if database_path.exists()
+        || canonical_root.exists()
+        || database_path.with_extension("db-wal").exists()
+        || database_path.with_extension("db-shm").exists()
+    {
+        return Err("synthesis_source_state_incomplete".into());
+    }
+    let repository_identity = RepositoryIdentity {
+        profile_id: profile_id.clone(),
+        data_root_id: data_root_id.clone(),
+    };
+    let canonical_identity = CanonicalIdentity {
+        profile_id,
+        data_root_id,
+    };
+    let repository = Repository::initialize_production(database_path, repository_identity)?;
+    let repository_id = repository.repository_id().to_owned();
+    repository.close()?;
+    let canonical = match CanonicalStore::initialize_production(canonical_root, canonical_identity)
+    {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = fs::remove_file(database_path);
+            let _ = fs::remove_file(format!("{}-wal", database_path.display()));
+            let _ = fs::remove_file(format!("{}-shm", database_path.display()));
+            return Err(error);
+        }
+    };
+    let canonical_store_id = canonical.store_id().to_owned();
+    canonical.close()?;
+    println!(
+        "{}",
+        json!({
+            "schema":"synthesis-empty-production-result.v1",
+            "status":"ready",
+            "repositoryId":repository_id,
+            "canonicalStoreId":canonical_store_id
+        })
+    );
+    Ok(())
+}
 
 pub(crate) fn preflight_production(config_path: &str, admission_path: &str) -> Result<(), String> {
     production_client_capabilities()?;

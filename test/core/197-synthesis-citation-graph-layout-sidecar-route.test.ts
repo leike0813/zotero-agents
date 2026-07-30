@@ -260,7 +260,31 @@ describe("Synthesis Citation Graph production sidecar route", function () {
     });
     await validClient.computeCitationGraphLayout(connection, input);
     await validClient.computeCitationGraphLayout(connection, input);
-    assert.lengthOf(new Set(requestIds), 2);
+    const runtime = globalThis as typeof globalThis & {
+      AbortController?: typeof AbortController;
+    };
+    const previousAbortController = Object.getOwnPropertyDescriptor(
+      runtime,
+      "AbortController",
+    );
+    Object.defineProperty(runtime, "AbortController", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      await validClient.computeCitationGraphLayout(connection, input);
+    } finally {
+      if (previousAbortController) {
+        Object.defineProperty(
+          runtime,
+          "AbortController",
+          previousAbortController,
+        );
+      } else {
+        delete runtime.AbortController;
+      }
+    }
+    assert.lengthOf(new Set(requestIds), 3);
 
     const mismatchClient = createSynthesisSidecarComputeClient({
       fetch: async (_url, init) => {

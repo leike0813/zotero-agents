@@ -98,6 +98,13 @@ it persists the final `mutation_enabled` receipt. A durable native activation
 without that final receipt enters Rust-only repair on restart; it never returns
 to a legacy owner.
 
+For a matching admitted receipt, restart skips backup and preflight but does
+not reuse stale process evidence. The new owner reruns the public critical
+smoke roster, replaces native activation evidence, and refreshes only the
+receipt's service instance and monotonic update time. Receipt, owner, and
+activation therefore identify the same live service. A changed durable basis
+or fingerprint still enters Rust-only repair.
+
 Default-client, Workflow, Workbench, Host Bridge, and MCP acquire the same
 generation-scoped native composition only after this verified readiness. Before
 then they return their bounded maintenance, unavailable, incompatible, or
@@ -117,6 +124,12 @@ The Rust service checks the matching lease every 15 seconds and treats a lease
 older than 120 seconds, wrong identity or unreadable lease as host loss. stdin
 EOF is the immediate orphan signal. Both stop admission and enter the same
 drain path.
+
+Runtime ownership recovery first checks the recorded process. A live owner is
+always a conflict. A dead owner may be atomically replaced only by the same
+supervisor identity or after its lease is stale or invalid; stale discovery is
+removed before the replacement publishes readiness. Production owner recovery
+also requires the same profile, receipt, and capability identity.
 
 Transient launch, process-exit and health failures restart after 1, 5 and 15
 seconds. A fourth failure before five stable ready minutes fuses recovery.

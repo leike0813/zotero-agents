@@ -16,6 +16,9 @@ import {
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   createSynthesisProductionRuntimeSupervisor,
+  getReadySynthesisProductionControlConnection,
+  startSynthesisProductionRuntimeSupervisor,
+  stopSynthesisProductionRuntimeSupervisor,
   type SynthesisSidecarSupervisorStatus,
 } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
 
@@ -30,10 +33,7 @@ function admission(root: string): SynthesisProductionAdmission {
     profileId: PROFILE_ID,
     supervisorInstanceId: "production-supervisor-1",
     cutoverReceiptId: "receipt-1",
-    cutoverReceiptPath: path.join(
-      root,
-      "state/synthesis-cutover/receipt.json",
-    ),
+    cutoverReceiptPath: path.join(root, "state/synthesis-cutover/receipt.json"),
     capabilityFingerprint:
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
     repositoryDbPath: path.join(root, "state/synthesis.db"),
@@ -110,10 +110,7 @@ describe("Synthesis production runtime supervisor", function () {
       resolveExit = resolve;
     });
     const subprocess = {
-      call: async (invocation: {
-        command: string;
-        arguments?: string[];
-      }) => {
+      call: async (invocation: { command: string; arguments?: string[] }) => {
         invocations.push(invocation);
         const configPath = invocation.arguments?.[2] || "";
         const admissionPath = invocation.arguments?.[4] || "";
@@ -133,9 +130,7 @@ describe("Synthesis production runtime supervisor", function () {
           runtimeRootId: string;
           dataRootId: string;
         };
-        writtenAdmission = JSON.parse(
-          fs.readFileSync(admissionPath, "utf8"),
-        );
+        writtenAdmission = JSON.parse(fs.readFileSync(admissionPath, "utf8"));
         fs.writeFileSync(
           path.join(config.profileRuntimeRoot, "discovery.json"),
           JSON.stringify({
@@ -162,8 +157,7 @@ describe("Synthesis production runtime supervisor", function () {
             capabilities: SYNTHESIS_SIDECAR_CAPABILITIES,
             ownerMode: "production",
             mutationEnabled: false,
-            capabilityFingerprint:
-              productionAdmission.capabilityFingerprint,
+            capabilityFingerprint: productionAdmission.capabilityFingerprint,
             cutoverReceiptId: productionAdmission.cutoverReceiptId,
             readyClientCapabilities:
               SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
@@ -185,9 +179,10 @@ describe("Synthesis production runtime supervisor", function () {
     const controlClient = {
       health: async () => ({ ownerMode: "production" as const }),
       handshake: async () => ({ ownerMode: "production" as const }),
+      activate: async () => ({ mutationEnabled: true as const }),
       shutdown: async () => undefined,
     };
-    const supervisor = createSynthesisProductionRuntimeSupervisor({
+    const supervisor = startSynthesisProductionRuntimeSupervisor({
       admission: productionAdmission,
       runtimeRoot: path.join(root, "runtime"),
       profilePath: PROFILE_PATH,
@@ -221,8 +216,14 @@ describe("Synthesis production runtime supervisor", function () {
       supervisor.getReadyConnection()?.discovery.ownerMode,
       "production",
     );
+    await supervisor.activate({} as never);
+    assert.equal(
+      getReadySynthesisProductionControlConnection()?.discovery
+        .serviceInstanceId,
+      "service-1",
+    );
 
-    await supervisor.stop();
+    await stopSynthesisProductionRuntimeSupervisor();
     assert.equal(supervisor.getSnapshot().status, "stopped");
   });
 

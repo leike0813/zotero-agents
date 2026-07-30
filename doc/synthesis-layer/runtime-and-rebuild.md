@@ -3,11 +3,10 @@
 ## Native Runtime and Migration Boundary
 
 The supervised runtime is a product-owned Rust executable selected through the
-strict native manifest v2 installer. It owns only identity-bound shadow
-repository/canonical state, exposes the existing authenticated read/compute
-surface, and runs bounded kernels through its internal worker mode. Node is a
-read-only differential oracle and is not a packaged runtime or production
-fallback.
+strict native manifest v3 installer. After receipt-bound activation it owns the
+explicit production repository and canonical roots; identity-bound shadow
+roots remain private validation state. Node is a read-only differential oracle
+and is not a packaged runtime or production fallback.
 
 R7 typed application parity and R8 native packaging/supervision establish the
 native delivery base. R9a completes the local production handoff: its
@@ -21,6 +20,15 @@ against its durable corpus before activation. A pre-admission failure restores
 the verified backup; an admitted native owner remains in Rust-only repair and
 never falls back to Node or the plugin owner. Cross-platform and clean-machine
 acceptance are tracked separately as R9b and do not weaken these local rules.
+
+A profile whose production database and canonical root are both absent follows
+the same handoff. The verified Rust executable first creates an empty
+production basis through its private `prepare-empty-production` command, after
+which backup, production-copy preflight, smoke, activation, and recovery use
+the ordinary receipt-bound path. If exactly one root exists, startup fails with
+`synthesis_source_state_incomplete`; plugin code never constructs a replacement
+repository. Runtime APIs receive the persistence `runtime/` root and expand
+`synthesis/service-runtime` exactly once.
 
 The active production route is therefore the receipt-bound native
 `SynthesisClient` composition. The plugin retains only the Host adapters that
@@ -56,14 +64,14 @@ candidate workflow runs those gates plus the native manifest/lifecycle corpus,
 license inventory, Rust tests and service smoke. It is read-only and does not
 publish or synchronize assets.
 
-Plugin startup non-blockingly installs, launches, discovers, and supervises the
-mutation-disabled service. The default `SynthesisClient` still resolves the
-legacy plugin composition, but that composition injects the sidecar-backed layout
-and metrics engines. Each compute call uses the current ready connection; absence
-fails immediately with `service_not_ready`, and restart, transport, deadline,
-worker, or identity failures are not retried or executed locally. The plugin
-remains the only owner of `synthesis.db` and Topic canonical files. Runtime
-supervision is event-driven with one low-frequency deadline scheduler.
+Plugin startup non-blockingly installs, preflights, launches, discovers, and
+supervises the native production owner. Cutover drain invalidates and awaits
+only the current default-client generation; it does not enter terminal add-on
+shutdown, so the admitted owner can back the next client acquisition. Startup
+reconciliation runs once after mutation admission. Restart, transport,
+deadline, worker, or identity failures do not retry through Node or the plugin
+owner. Runtime supervision is event-driven with one low-frequency deadline
+scheduler.
 
 Remote Topic Context and filtered paper-artifact delivery cross the bounded `SynthesisHostExportDeliveryPort`. The application builds canonical text entries; the production Host adapter owns temporary ZIP bytes, integrity metadata, opaque Host Bridge file registration, and cleanup. Port absence or malformed/unavailable receipts fail the remote request without a local-path fallback. Local output-path and ACP run-root writes are unchanged. The readonly composition does not inject remote export delivery.
 
@@ -112,7 +120,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. The private application invokes two paged Rust operations, promotes only against the captured manifest, and never writes during query. Production projection promotion remains plugin-owned; proposal matching is not part of the engine.
 - Topic Graph index computation uses one strict asynchronous engine capped at 25,000 nodes, 100,000 edges, and 4,096 code units per string. It derives only roots and unplaced identifiers. The private application invokes one paged Rust operation and promotes only against the captured manifest; production graph/review rows, canonical files, discovery effects, public DTOs, and projection registry remain plugin-owned.
 - Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production remains in-process and inside the existing canonical-write serialization; the Node service front door executes layout in its Worker and delegates Metrics to the Rust child.
-- Synthesis runtime packaging supports exactly Windows x64, macOS x64/arm64, and Linux x64/arm64. Installation reads only packaged assets and writes only `runtime/synthesis/service-runtime`. The supervisor launches only the verified absolute product runtime with a sealed environment and never resolves system commands.
+- Synthesis runtime packaging supports Windows x64, macOS x64/arm64, and Linux x86/x64/arm/arm64. Installation reads only packaged assets and writes only `runtime/synthesis/service-runtime`. The supervisor launches only the verified absolute product runtime with a sealed environment and never resolves system commands.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.

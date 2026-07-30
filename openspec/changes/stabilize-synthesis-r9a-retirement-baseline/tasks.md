@@ -41,3 +41,19 @@
 - [x] 6.3 Record candidate evidence as pre-deletion evidence only, with signing, final XPI, upgrade/offline install, release, Stage-1 completion, and Gitee explicitly still pending
 - [x] 6.4 Materialize all seven bundles at `addon/bin/<target>/synthesis-sidecar/`, remove the obsolete sidecar-first root, and verify synchronization preserves sibling native binaries
 - [ ] 6.5 Do not begin `remove-synthesis-plugin-legacy-owner` until sections 1-5 pass and the section 6 decision gate is explicitly accepted
+
+## 7. Repair Clean-Profile Runtime Acceptance
+
+- [x] 7.1 Extend existing cutover, backup, lifecycle, supervisor, and direct-launcher tests for empty, partial, single-root, and non-terminal drain behavior
+- [x] 7.2 Implement Rust-owned empty production basis creation and bind `empty-profile` through backup, preflight, receipt, and recovery
+- [x] 7.3 Replace ambiguous runtime-root strings with one expanded sidecar runtime path and prove the nested layout is unreachable
+- [x] 7.4 Keep startup reconcile behind native mutation admission and restore default-client acquisition after a cutover generation drain
+
+## 8. Add Debug-Only Sidecar Observability
+
+- [x] 8.1 Add one sanitized attempt/phase snapshot and structured runtime-log events with bounded process evidence
+- [x] 8.2 Add the Workbench failure entry, read-only Task Manager Sidecar page, and diagnostic-bundle projection
+- [x] 8.3 Add direct-launcher packaged-runtime preflight, Zotero stream forwarding, and filtered lifecycle output
+- [ ] 8.4 Verify focused TypeScript/Rust tests, release elision, packaging gates, production build, and repeat the clean-profile real-machine check
+  - Focused tests, release elision, production/direct build, XPI inventory, empty-profile real-machine startup, all public Workbench surfaces, Task Manager diagnostics, and admitted cold restart pass locally.
+  - Seven-platform runtime freshness remains pending the separately governed prebuild for source fingerprint `e4e5c9b0efc6c2fc5e26d80a9ac3a06875dc0fb454a95c2070548207f35d4a07`.

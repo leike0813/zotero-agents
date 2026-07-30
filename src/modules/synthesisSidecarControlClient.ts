@@ -39,17 +39,35 @@ function endpoint(connection: ControlConnection, path: string) {
 
 async function withDeadline<T>(
   timeoutMs: number,
-  task: (signal: AbortSignal) => Promise<T>,
+  task: (signal?: AbortSignal) => Promise<T>,
 ) {
-  const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error("sidecar_control_timeout")),
-    timeoutMs,
-  );
+  const AbortControllerCtor = (
+    globalThis as {
+      AbortController?: typeof AbortController;
+    }
+  ).AbortController;
+  const controller =
+    typeof AbortControllerCtor === "function"
+      ? new AbortControllerCtor()
+      : undefined;
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = globalThis.setTimeout(() => {
+      controller?.abort(new Error("sidecar_control_timeout"));
+      reject(new Error("sidecar_control_timeout"));
+    }, timeoutMs);
+  });
   try {
-    return await task(controller.signal);
+    return await Promise.race([task(controller?.signal), timeout]);
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new Error("sidecar_control_timeout");
+    }
+    throw error;
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) {
+      globalThis.clearTimeout(timer);
+    }
   }
 }
 
@@ -255,10 +273,12 @@ function createControlClient<
   THealth,
   THandshake,
 >(
-  options: {
-    fetch?: FetchLike;
-    timeoutMs?: number;
-  } | undefined,
+  options:
+    | {
+        fetch?: FetchLike;
+        timeoutMs?: number;
+      }
+    | undefined,
   validators: {
     health: (value: unknown, connection: TConnection) => THealth;
     handshake: (value: unknown, connection: TConnection) => THandshake;

@@ -178,6 +178,25 @@ describe("task dashboard snapshot", function () {
     assert.equal(normalized, "products");
   });
 
+  it("exposes Synthesis sidecar diagnostics only in debug mode", function () {
+    assert.equal(
+      normalizeDashboardTabKey({
+        requestedTabKey: "synthesis-sidecar",
+        backends: [],
+        debugModeEnabled: true,
+      }),
+      "synthesis-sidecar",
+    );
+    assert.equal(
+      normalizeDashboardTabKey({
+        requestedTabKey: "synthesis-sidecar",
+        backends: [],
+        debugModeEnabled: false,
+      }),
+      "home",
+    );
+  });
+
   it("keeps SkillRunner connection audit tab only when both gates are enabled", function () {
     const backends = [makeBackend("skillrunner-primary", "skillrunner")];
     assert.equal(

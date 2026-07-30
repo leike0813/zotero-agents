@@ -13,14 +13,49 @@ import {
 } from "./runtimePersistence";
 import type { SynthesisCutoverBackupBasis } from "./synthesisProductionCutover";
 
-export type SynthesisVerifiedProductionBackup =
-  SynthesisCutoverBackupBasis & {
-    backupRoot: string;
-  };
+export type SynthesisVerifiedProductionBackup = SynthesisCutoverBackupBasis & {
+  backupRoot: string;
+};
 
 type BackupServiceOptions = {
   persistenceRoot?: string;
+  prepareEmptySource?: () => Promise<void>;
 };
+
+export type SynthesisProductionSourceState = {
+  kind: "legacy-plugin" | "empty-profile" | "incomplete";
+  databasePresent: boolean;
+  canonicalPresent: boolean;
+  orphanDatabaseSidecars: Array<"-wal" | "-shm">;
+};
+
+export async function inspectSynthesisProductionSource(
+  paths: ReturnType<typeof getRuntimePersistencePaths>,
+): Promise<SynthesisProductionSourceState> {
+  const [databasePresent, canonicalPresent, walPresent, shmPresent] =
+    await Promise.all([
+      runtimePathExists(paths.synthesisDbPath),
+      runtimePathExists(paths.synthesisDataRoot),
+      runtimePathExists(`${paths.synthesisDbPath}-wal`),
+      runtimePathExists(`${paths.synthesisDbPath}-shm`),
+    ]);
+  const orphanDatabaseSidecars = [
+    ...(!databasePresent && walPresent ? (["-wal"] as const) : []),
+    ...(!databasePresent && shmPresent ? (["-shm"] as const) : []),
+  ];
+  const kind =
+    !databasePresent && !canonicalPresent && orphanDatabaseSidecars.length === 0
+      ? "empty-profile"
+      : databasePresent && canonicalPresent
+        ? "legacy-plugin"
+        : "incomplete";
+  return {
+    kind,
+    databasePresent,
+    canonicalPresent,
+    orphanDatabaseSidecars,
+  };
+}
 
 async function hashText(value: string) {
   return sha256Hex(new TextEncoder().encode(value));
@@ -51,9 +86,7 @@ async function canonicalManifest(root: string) {
   }
   const files = tree.entries
     .filter((entry) => entry.kind === "file")
-    .sort((left, right) =>
-      left.relativePath.localeCompare(right.relativePath),
-    );
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   const entries: Array<{
     path: string;
     bytes: number;
@@ -72,10 +105,7 @@ async function canonicalManifest(root: string) {
   };
 }
 
-async function snapshot(args: {
-  databasePath: string;
-  canonicalRoot: string;
-}) {
+async function snapshot(args: { databasePath: string; canonicalRoot: string }) {
   if (!(await runtimePathExists(args.canonicalRoot))) {
     throw new Error("synthesis_canonical_root_missing");
   }
@@ -83,17 +113,13 @@ async function snapshot(args: {
   const canonical = await canonicalManifest(args.canonicalRoot);
   return {
     databaseFiles,
-    durableSummarySha256: await hashText(
-      JSON.stringify(databaseFiles),
-    ),
+    durableSummarySha256: await hashText(JSON.stringify(databaseFiles)),
     canonicalManifestSha256: canonical.sha256,
   };
 }
 
 async function copyDatabaseFiles(source: string, target: string) {
-  await ensureRuntimeDirectory(
-    target.replace(/[\\/][^\\/]+$/, ""),
-  );
+  await ensureRuntimeDirectory(target.replace(/[\\/][^\\/]+$/, ""));
   for (const suffix of ["", "-wal", "-shm"]) {
     const sourcePath = `${source}${suffix}`;
     if (await runtimePathExists(sourcePath)) {
@@ -112,8 +138,7 @@ function sameSnapshot(
   return (
     left.durableSummarySha256 === right.durableSummarySha256 &&
     left.canonicalManifestSha256 === right.canonicalManifestSha256 &&
-    JSON.stringify(left.databaseFiles) ===
-      JSON.stringify(right.databaseFiles)
+    JSON.stringify(left.databaseFiles) === JSON.stringify(right.databaseFiles)
   );
 }
 
@@ -126,38 +151,39 @@ export function createSynthesisProductionBackupService(
     sourceSchemaVersion: string;
     targetSchemaVersion: string;
   }): Promise<SynthesisVerifiedProductionBackup> {
-    const source = await snapshot({
+    let source = await inspectSynthesisProductionSource(paths);
+    if (source.kind === "incomplete") {
+      throw new Error("synthesis_source_state_incomplete");
+    }
+    const sourceOwner = source.kind;
+    if (source.kind === "empty-profile") {
+      if (!options.prepareEmptySource) {
+        throw new Error("synthesis_empty_profile_initializer_unavailable");
+      }
+      await options.prepareEmptySource();
+      source = await inspectSynthesisProductionSource(paths);
+      if (source.kind !== "legacy-plugin") {
+        throw new Error("synthesis_empty_profile_initialization_incomplete");
+      }
+    }
+    const sourceSnapshot = await snapshot({
       databasePath: paths.synthesisDbPath,
       canonicalRoot: paths.synthesisDataRoot,
     });
     const backupId = await hashText(
       JSON.stringify({
-        databaseFiles: source.databaseFiles,
-        canonicalManifestSha256: source.canonicalManifestSha256,
+        databaseFiles: sourceSnapshot.databaseFiles,
+        canonicalManifestSha256: sourceSnapshot.canonicalManifestSha256,
         sourceSchemaVersion: args.sourceSchemaVersion,
         targetSchemaVersion: args.targetSchemaVersion,
       }),
     );
-    const backupRoot = joinPath(
-      paths.synthesisCutoverBackupRoot,
-      backupId,
-    );
-    const backupDatabasePath = joinPath(
-      backupRoot,
-      "state",
-      "synthesis.db",
-    );
-    const backupCanonicalRoot = joinPath(
-      backupRoot,
-      "data",
-      "synthesis",
-    );
+    const backupRoot = joinPath(paths.synthesisCutoverBackupRoot, backupId);
+    const backupDatabasePath = joinPath(backupRoot, "state", "synthesis.db");
+    const backupCanonicalRoot = joinPath(backupRoot, "data", "synthesis");
     if (!(await runtimePathExists(backupRoot))) {
       try {
-        await copyDatabaseFiles(
-          paths.synthesisDbPath,
-          backupDatabasePath,
-        );
+        await copyDatabaseFiles(paths.synthesisDbPath, backupDatabasePath);
         await copyRuntimeDirectory({
           sourceDir: paths.synthesisDataRoot,
           targetDir: backupCanonicalRoot,
@@ -171,50 +197,36 @@ export function createSynthesisProductionBackupService(
       databasePath: backupDatabasePath,
       canonicalRoot: backupCanonicalRoot,
     });
-    if (!sameSnapshot(source, copied)) {
+    if (!sameSnapshot(sourceSnapshot, copied)) {
       throw new Error("synthesis_backup_verification_failed");
     }
     return {
+      sourceOwner,
       backupId,
       backupRoot,
       sourceSchemaVersion: args.sourceSchemaVersion,
       targetSchemaVersion: args.targetSchemaVersion,
-      canonicalManifestSha256: source.canonicalManifestSha256,
-      durableSummarySha256: source.durableSummarySha256,
+      canonicalManifestSha256: sourceSnapshot.canonicalManifestSha256,
+      durableSummarySha256: sourceSnapshot.durableSummarySha256,
     };
   }
 
   async function restoreVerifiedBackup(
-    backup:
-      | SynthesisVerifiedProductionBackup
-      | SynthesisCutoverBackupBasis,
+    backup: SynthesisVerifiedProductionBackup | SynthesisCutoverBackupBasis,
   ) {
     const backupRoot =
       "backupRoot" in backup
         ? backup.backupRoot
-        : joinPath(
-            paths.synthesisCutoverBackupRoot,
-            backup.backupId,
-          );
-    const backupDatabasePath = joinPath(
-      backupRoot,
-      "state",
-      "synthesis.db",
-    );
-    const backupCanonicalRoot = joinPath(
-      backupRoot,
-      "data",
-      "synthesis",
-    );
+        : joinPath(paths.synthesisCutoverBackupRoot, backup.backupId);
+    const backupDatabasePath = joinPath(backupRoot, "state", "synthesis.db");
+    const backupCanonicalRoot = joinPath(backupRoot, "data", "synthesis");
     const expected = await snapshot({
       databasePath: backupDatabasePath,
       canonicalRoot: backupCanonicalRoot,
     });
     if (
-      expected.durableSummarySha256 !==
-        backup.durableSummarySha256 ||
-      expected.canonicalManifestSha256 !==
-        backup.canonicalManifestSha256
+      expected.durableSummarySha256 !== backup.durableSummarySha256 ||
+      expected.canonicalManifestSha256 !== backup.canonicalManifestSha256
     ) {
       throw new Error("synthesis_backup_identity_mismatch");
     }

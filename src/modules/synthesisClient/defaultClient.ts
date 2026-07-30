@@ -70,12 +70,12 @@ function createGeneration() {
   const record = {
     generation,
   } as DefaultClientGeneration;
-  record.initialization = Promise.resolve(
-    compositionFactory(),
-  ).then((composition) => {
+  record.initialization = Promise.resolve(compositionFactory()).then(
+    (composition) => {
       record.composition = composition;
       return composition;
-    });
+    },
+  );
   currentGeneration = record;
   return record;
 }
@@ -128,13 +128,10 @@ export async function resetDefaultSynthesisClientForTests() {
 }
 
 export function setDefaultSynthesisClientCompositionFactoryForTests(
-  factory:
-    | (() => DefaultClientComposition)
-    | null,
+  factory: (() => DefaultClientComposition) | null,
 ) {
   invalidateDefaultSynthesisClient();
-  compositionFactory =
-    factory || createReadyNativeSynthesisClientComposition;
+  compositionFactory = factory || createReadyNativeSynthesisClientComposition;
 }
 
 export function invalidateDefaultSynthesisClient() {
@@ -144,6 +141,15 @@ export function invalidateDefaultSynthesisClient() {
   if (record) {
     void disposeGeneration(record);
   }
+}
+
+export async function drainDefaultSynthesisClientGeneration() {
+  if (shuttingDown) {
+    await shutdownTask;
+    return;
+  }
+  invalidateDefaultSynthesisClient();
+  await drainCleanupTasks();
 }
 
 export function shutdownDefaultSynthesisClient() {

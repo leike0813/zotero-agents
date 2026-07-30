@@ -14,6 +14,11 @@ import {
   type RuntimeLogListFilters,
 } from "./runtimeLogManager";
 import {
+  getSynthesisSidecarDiagnosticSnapshot,
+  subscribeSynthesisSidecarDiagnostics,
+  type SynthesisSidecarDiagnosticSnapshot,
+} from "./synthesisSidecarDiagnostics";
+import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
   summarizeTaskDashboardHistory,
@@ -322,6 +327,10 @@ type DashboardSnapshot = {
       workflows: { value: string; label: string }[];
     };
   };
+  synthesisSidecarView?: {
+    snapshot?: SynthesisSidecarDiagnosticSnapshot;
+    lifecycleLogs: DashboardLogRow[];
+  };
   skillRunnerConnectionAuditView?: {
     generatedAt: string;
     governor: SkillRunnerConnectionGovernorSnapshot;
@@ -396,6 +405,12 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
     return {
       surfaceKey,
       runtimeLogsView: snapshot.runtimeLogsView,
+    };
+  }
+  if (surfaceKey === "synthesis-sidecar") {
+    return {
+      surfaceKey,
+      synthesisSidecarView: snapshot.synthesisSidecarView,
     };
   }
   if (surfaceKey === "skillrunner-connection-audit") {
@@ -1815,6 +1830,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-tab-title",
       "Runtime Logs",
     ),
+    synthesisSidecarTabTitle: "Synthesis Sidecar",
     skillRunnerConnectionAuditTabTitle: "SkillRunner 连接审计",
     skillRunnerConnectionAuditTitle: "SkillRunner 连接审计",
     skillRunnerConnectionAuditEmpty: "暂无 SkillRunner 连接事件。",
@@ -2057,6 +2073,14 @@ async function buildDashboardSnapshot(args: {
       key: "runtime-logs",
       label: labels.runtimeLogsTabTitle,
     },
+    ...(debugModeEnabled
+      ? [
+          {
+            key: "synthesis-sidecar",
+            label: labels.synthesisSidecarTabTitle,
+          },
+        ]
+      : []),
     ...(skillRunnerConnectionAuditEnabled
       ? [
           {
@@ -2124,6 +2148,18 @@ async function buildDashboardSnapshot(args: {
     homeWorkflowDocView,
     backendLoadError: args.state.backendLoadError,
   };
+
+  if (resolvedSelectedTabKey === "synthesis-sidecar") {
+    snapshot.synthesisSidecarView = {
+      snapshot: getSynthesisSidecarDiagnosticSnapshot(),
+      lifecycleLogs: listRuntimeLogs({
+        component: "synthesis-sidecar-lifecycle",
+        operation: "production-startup",
+        order: "asc",
+      }).map(mapLogRow),
+    };
+    return finalizeDashboardSnapshot(snapshot);
+  }
 
   if (resolvedSelectedTabKey === "workflow-options") {
     snapshot.workflowOptionsView = await buildWorkflowOptionsView({
@@ -2621,6 +2657,7 @@ export async function openTaskManagerDialog(args?: {
   let unsubscribeBackendHealth: (() => void) | undefined;
   let unsubscribeAcpSkillRuns: (() => void) | undefined;
   let unsubscribeWorkflowQueue: (() => void) | undefined;
+  let unsubscribeSynthesisDiagnostics: (() => void) | undefined;
   let refreshTimer: number | undefined;
   let deferredDashboardRefreshTimer: number | undefined;
   let dashboardRefreshQueued = false;
@@ -3027,6 +3064,7 @@ export async function openTaskManagerDialog(args?: {
     return (
       state.selectedTabKey === "workflow-options" ||
       state.selectedTabKey === "products" ||
+      state.selectedTabKey === "synthesis-sidecar" ||
       state.selectedTabKey === "skillrunner-connection-audit" ||
       state.selectedTabKey === "acp-trace-replay"
     );
@@ -4393,6 +4431,10 @@ export async function openTaskManagerDialog(args?: {
       unsubscribeWorkflowQueue();
       unsubscribeWorkflowQueue = undefined;
     }
+    if (unsubscribeSynthesisDiagnostics) {
+      unsubscribeSynthesisDiagnostics();
+      unsubscribeSynthesisDiagnostics = undefined;
+    }
     if (removeMessageListener) {
       removeMessageListener();
       removeMessageListener = undefined;
@@ -4495,6 +4537,13 @@ export async function openTaskManagerDialog(args?: {
         refresh("queue-update");
       }
     });
+    unsubscribeSynthesisDiagnostics = subscribeSynthesisSidecarDiagnostics(
+      () => {
+        if (state.selectedTabKey === "synthesis-sidecar") {
+          refresh("diagnostic-update");
+        }
+      },
+    );
     registerBackgroundRefreshTimer({
       owner: "task-dashboard-refresh",
       activationCondition: "dashboard frame mounted",

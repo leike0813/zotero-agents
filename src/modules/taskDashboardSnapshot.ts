@@ -193,6 +193,9 @@ export function normalizeDashboardTabKey(args: {
   ) {
     return requested;
   }
+  if (args.debugModeEnabled === true && requested === "synthesis-sidecar") {
+    return requested;
+  }
   if (
     args.debugModeEnabled === true &&
     args.skillRunnerConnectionAuditEnabled === true &&

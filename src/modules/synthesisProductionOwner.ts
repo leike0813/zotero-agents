@@ -16,14 +16,15 @@ import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { joinPath } from "../utils/path";
 import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
+  drainDefaultSynthesisClientGeneration,
   invalidateDefaultSynthesisClient,
-  shutdownDefaultSynthesisClient,
 } from "./synthesisClient/defaultClient";
 import { SYNTHESIS_SCHEMA_VERSION } from "./synthesis/foundation";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
   getSynthesisSidecarLifecyclePaths,
+  removeRuntimePath,
   replacePrivateRuntimeTextFileAtomically,
 } from "./runtimePersistence";
 import { createSynthesisCutoverReceiptStore } from "./synthesisCutoverReceiptStore";
@@ -41,6 +42,12 @@ import {
   stopSynthesisProductionRuntimeSupervisor,
 } from "./synthesisSidecarRuntimeSupervisor";
 import { createSynthesisProductionSmokeEvidence } from "./synthesisProductionSmoke";
+import {
+  beginSynthesisSidecarStartupAttempt,
+  getSynthesisSidecarDiagnosticSnapshot,
+  recordSynthesisSidecarStartupPhase,
+  type SynthesisSidecarStartupPhase,
+} from "./synthesisSidecarDiagnostics";
 
 type ReverseHostEndpoint = {
   start():
@@ -120,10 +127,7 @@ function profilePath() {
   const runtime = globalThis as {
     Services?: {
       dirsvc?: {
-        get?: (
-          key: string,
-          iface?: unknown,
-        ) => { path?: string } | undefined;
+        get?: (key: string, iface?: unknown) => { path?: string } | undefined;
       };
     };
     Components?: { interfaces?: { nsIFile?: unknown } };
@@ -147,19 +151,16 @@ function profilePath() {
 function randomHex(bytes: number) {
   const value = new Uint8Array(bytes);
   globalThis.crypto.getRandomValues(value);
-  return Array.from(value, (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 async function hashText(value: string) {
   return sha256Hex(new TextEncoder().encode(value));
 }
 
-function exitCode(proc: {
-  exitCode?: unknown;
-  exitValue?: unknown;
-}) {
+function exitCode(proc: { exitCode?: unknown; exitValue?: unknown }) {
   for (const value of [proc.exitCode, proc.exitValue]) {
     if (typeof value === "number" && Number.isFinite(value)) {
       return Math.floor(value);
@@ -168,10 +169,44 @@ function exitCode(proc: {
   return 0;
 }
 
-async function runPreflightProcess(args: {
+type ProcessDiagnosticEvidence = {
+  stdoutTail?: string;
+  stderrTail?: string;
+};
+
+class SynthesisSidecarProcessError extends Error {
+  constructor(
+    code: string,
+    readonly evidence: ProcessDiagnosticEvidence,
+  ) {
+    super(code);
+    this.name = "SynthesisSidecarProcessError";
+  }
+}
+
+async function readProcessTail(
+  stream:
+    | {
+        readString?: () => Promise<string>;
+      }
+    | undefined,
+) {
+  if (typeof stream?.readString !== "function") {
+    return "";
+  }
+  let tail = "";
+  for (;;) {
+    const chunk = await stream.readString();
+    if (!chunk) {
+      return tail;
+    }
+    tail = `${tail}${chunk}`.slice(-8_192);
+  }
+}
+
+async function runSynthesisSidecarProcess(args: {
   executablePath: string;
-  configPath: string;
-  admissionPath: string;
+  arguments: string[];
   workdir: string;
 }) {
   const subprocess = getMozillaSubprocessModule();
@@ -180,6 +215,34 @@ async function runPreflightProcess(args: {
   }
   const proc = await subprocess.call({
     command: args.executablePath,
+    arguments: args.arguments,
+    workdir: args.workdir,
+  });
+  const stdoutTask = readProcessTail(proc.stdout);
+  const stderrTask = readProcessTail(proc.stderr);
+  const waited = await proc.wait?.();
+  const [stdoutTail, stderrTail] = await Promise.all([stdoutTask, stderrTask]);
+  return {
+    code: typeof waited === "number" ? waited : exitCode(proc),
+    evidence: {
+      ...(stdoutTail ? { stdoutTail } : {}),
+      ...(stderrTail ? { stderrTail } : {}),
+    },
+  };
+}
+
+function processDiagnosticEvidence(error: unknown) {
+  return error instanceof SynthesisSidecarProcessError ? error.evidence : {};
+}
+
+async function runPreflightProcess(args: {
+  executablePath: string;
+  configPath: string;
+  admissionPath: string;
+  workdir: string;
+}) {
+  const result = await runSynthesisSidecarProcess({
+    executablePath: args.executablePath,
     arguments: [
       "preflight-production",
       "--config",
@@ -189,18 +252,36 @@ async function runPreflightProcess(args: {
     ],
     workdir: args.workdir,
   });
-  const waited = await proc.wait?.();
-  const code =
-    typeof waited === "number" ? waited : exitCode(proc);
-  if (code !== 0) {
-    throw new Error(`synthesis_production_preflight_failed:${code}`);
+  if (result.code !== 0) {
+    throw new SynthesisSidecarProcessError(
+      `synthesis_production_preflight_failed:${result.code}`,
+      result.evidence,
+    );
   }
+  return result.evidence;
+}
+
+async function runEmptyProductionBootstrap(args: {
+  executablePath: string;
+  requestPath: string;
+  workdir: string;
+}) {
+  const result = await runSynthesisSidecarProcess({
+    executablePath: args.executablePath,
+    arguments: ["prepare-empty-production", "--request", args.requestPath],
+    workdir: args.workdir,
+  });
+  if (result.code !== 0) {
+    throw new SynthesisSidecarProcessError(
+      `synthesis_empty_profile_bootstrap_failed:${result.code}`,
+      result.evidence,
+    );
+  }
+  return result.evidence;
 }
 
 async function waitForProductionConnection(
-  supervisor: ReturnType<
-    typeof startSynthesisProductionRuntimeSupervisor
-  >,
+  supervisor: ReturnType<typeof startSynthesisProductionRuntimeSupervisor>,
 ) {
   const deadline = Date.now() + 60_000;
   for (;;) {
@@ -220,20 +301,29 @@ async function waitForProductionConnection(
     if (Date.now() >= deadline) {
       throw new Error("synthesis_production_owner_timeout");
     }
-    await new Promise<void>((resolve) =>
-      globalThis.setTimeout(resolve, 50),
-    );
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 50));
   }
 }
 
-async function createDefaultSynthesisProductionOwner() {
+async function createDefaultSynthesisProductionOwner(attemptId: string) {
   const persistence = getRuntimePersistencePaths();
   const resolvedProfilePath = profilePath();
   const profileId = await hashText(resolvedProfilePath);
   const supervisorInstanceId = `sup-${randomHex(16)}`;
   const reverseHostToken = randomHex(32);
+  recordSynthesisSidecarStartupPhase({
+    attemptId,
+    phase: "runtime-install",
+    status: "running",
+    evidence: {
+      runtimeRoot: persistence.runtimeRoot,
+      repositoryDbPath: persistence.synthesisDbPath,
+      canonicalRoot: persistence.synthesisDataRoot,
+      supervisorInstanceId,
+    },
+  });
   const installer = createSynthesisSidecarRuntimeInstaller({
-    runtimeRoot: persistence.sidecarRuntimeRoot,
+    runtimeRoot: persistence.runtimeRoot,
     verificationPolicy: "production",
   });
   const install = await installer.ensureInstalled();
@@ -249,15 +339,86 @@ async function createDefaultSynthesisProductionOwner() {
     !install.platformSignature
   ) {
     throw new Error(
-      install.diagnostics[0]?.code ||
-        "synthesis_sidecar_runtime_unavailable",
+      install.diagnostics[0]?.code || "synthesis_sidecar_runtime_unavailable",
     );
   }
+  recordSynthesisSidecarStartupPhase({
+    attemptId,
+    phase: "runtime-install",
+    status: "succeeded",
+    evidence: {
+      bundleId: install.bundleId,
+      buildFingerprint: install.buildFingerprint,
+      targetTriple: install.targetTriple,
+    },
+  });
 
   const receiptStore = createSynthesisCutoverReceiptStore({
     receiptPath: persistence.synthesisCutoverReceiptPath,
   });
-  const backup = createSynthesisProductionBackupService();
+  const backup = createSynthesisProductionBackupService({
+    async prepareEmptySource() {
+      recordSynthesisSidecarStartupPhase({
+        attemptId,
+        phase: "empty-profile-bootstrap",
+        status: "running",
+      });
+      const bootstrapSupervisorId = `bootstrap-${randomHex(16)}`;
+      const lifecycle = getSynthesisSidecarLifecyclePaths({
+        runtimeRoot: persistence.runtimeRoot,
+        profileId,
+        supervisorInstanceId: bootstrapSupervisorId,
+      });
+      await ensureRuntimeDirectory(lifecycle.sessionRoot);
+      const requestPath = joinPath(
+        lifecycle.sessionRoot,
+        "empty-production-request.json",
+      );
+      await replacePrivateRuntimeTextFileAtomically(
+        requestPath,
+        `${JSON.stringify({
+          schema: "synthesis-empty-production-request.v1",
+          profileId,
+          dataRootId: await hashText(persistence.synthesisDataRoot),
+          repositoryDbPath: persistence.synthesisDbPath,
+          canonicalRoot: persistence.synthesisDataRoot,
+        })}\n`,
+      );
+      try {
+        try {
+          const evidence = await runEmptyProductionBootstrap({
+            executablePath: install.executablePath!,
+            requestPath,
+            workdir: lifecycle.sessionRoot,
+          });
+          recordSynthesisSidecarStartupPhase({
+            attemptId,
+            phase: "empty-profile-bootstrap",
+            status: "succeeded",
+            evidence: {
+              sourceOwner: "empty-profile",
+              ...evidence,
+            },
+          });
+        } catch (error) {
+          recordSynthesisSidecarStartupPhase({
+            attemptId,
+            phase: "empty-profile-bootstrap",
+            status: "failed",
+            code:
+              error instanceof Error
+                ? error.message
+                : "synthesis_empty_profile_bootstrap_failed",
+            evidence: processDiagnosticEvidence(error),
+            error,
+          });
+          throw error;
+        }
+      } finally {
+        await removeRuntimePath(lifecycle.sessionRoot).catch(() => undefined);
+      }
+    },
+  });
   let endpointLocator:
     | {
         host: "127.0.0.1";
@@ -268,31 +429,30 @@ async function createDefaultSynthesisProductionOwner() {
   let liveSupervisor: ReturnType<
     typeof startSynthesisProductionRuntimeSupervisor
   > | null = null;
-  let liveConnection:
-    | Awaited<ReturnType<typeof waitForProductionConnection>>
-    | null = null;
+  let liveConnection: Awaited<
+    ReturnType<typeof waitForProductionConnection>
+  > | null = null;
   const endpoint = createSynthesisReverseHostEndpoint({
     profileId,
     authorizationToken: reverseHostToken,
     now: Date.now,
     isHostConnected: () =>
-      typeof (globalThis as { Zotero?: unknown }).Zotero !==
-      "undefined",
+      typeof (globalThis as { Zotero?: unknown }).Zotero !== "undefined",
     authorizeCapability: () => true,
     allowUnboundServiceInstance: true,
     handlers: createDefaultSynthesisReverseHostHandlers({
       libraryId: Number(
-        (globalThis as {
-          Zotero?: { Libraries?: { userLibraryID?: number } };
-        }).Zotero?.Libraries?.userLibraryID || 1,
+        (
+          globalThis as {
+            Zotero?: { Libraries?: { userLibraryID?: number } };
+          }
+        ).Zotero?.Libraries?.userLibraryID || 1,
       ),
     }),
   });
 
   async function preflight(
-    basis: Awaited<
-      ReturnType<typeof backup.createVerifiedBackup>
-    >,
+    basis: Awaited<ReturnType<typeof backup.createVerifiedBackup>>,
     receipt: SynthesisCutoverReceipt,
   ) {
     if (!endpointLocator) {
@@ -300,7 +460,7 @@ async function createDefaultSynthesisProductionOwner() {
     }
     const preflightSupervisorId = `preflight-${randomHex(16)}`;
     const lifecycle = getSynthesisSidecarLifecyclePaths({
-      runtimeRoot: persistence.sidecarRuntimeRoot,
+      runtimeRoot: persistence.runtimeRoot,
       profileId,
       supervisorInstanceId: preflightSupervisorId,
     });
@@ -310,7 +470,7 @@ async function createDefaultSynthesisProductionOwner() {
       schema: SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
       profileId,
       profileRuntimeRoot: lifecycle.profileRoot,
-      runtimeRootId: await hashText(persistence.sidecarRuntimeRoot),
+      runtimeRootId: await hashText(persistence.runtimeRoot),
       dataRootId: await hashText(persistence.synthesisDataRoot),
       bundleId: install.bundleId!,
       implementation: "rust-native",
@@ -337,16 +497,8 @@ async function createDefaultSynthesisProductionOwner() {
       cutoverReceiptPath: persistence.synthesisCutoverReceiptPath,
       capabilityFingerprint:
         SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-      repositoryDbPath: joinPath(
-        basis.backupRoot,
-        "state",
-        "synthesis.db",
-      ),
-      canonicalRoot: joinPath(
-        basis.backupRoot,
-        "data",
-        "synthesis",
-      ),
+      repositoryDbPath: joinPath(basis.backupRoot, "state", "synthesis.db"),
+      canonicalRoot: joinPath(basis.backupRoot, "data", "synthesis"),
       reverseHost: endpointLocator,
       mutationEnabled: false,
     });
@@ -374,7 +526,7 @@ async function createDefaultSynthesisProductionOwner() {
         `${JSON.stringify(admission)}\n`,
       ),
     ]);
-    await runPreflightProcess({
+    return runPreflightProcess({
       executablePath: install.executablePath!,
       configPath: lifecycle.configPath,
       admissionPath,
@@ -400,7 +552,7 @@ async function createDefaultSynthesisProductionOwner() {
       repositoryDbPath: persistence.synthesisDbPath,
       canonicalRoot: persistence.synthesisDataRoot,
       reverseHost: endpointLocator,
-      mutationEnabled: receipt.phase === "mutation_enabled",
+      mutationEnabled: false,
     });
   }
 
@@ -435,42 +587,122 @@ async function createDefaultSynthesisProductionOwner() {
             invalidateDefaultSynthesisClient();
           },
           async drainLegacyOwner() {
-            await shutdownDefaultSynthesisClient();
+            await drainDefaultSynthesisClientGeneration();
           },
           async createVerifiedBackup() {
-            return backup.createVerifiedBackup({
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "backup",
+              status: "running",
+            });
+            const basis = await backup.createVerifiedBackup({
               sourceSchemaVersion: SYNTHESIS_SCHEMA_VERSION,
               targetSchemaVersion: SYNTHESIS_SCHEMA_VERSION,
             });
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "source-inspection",
+              status: "succeeded",
+              evidence: {
+                sourceOwner: basis.sourceOwner,
+              },
+            });
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "backup",
+              status: "succeeded",
+            });
+            return basis;
           },
           async preflightNativeOwner(basis, receipt) {
-            await preflight(basis, receipt);
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "preflight",
+              status: "running",
+            });
+            try {
+              const evidence = await preflight(basis, receipt);
+              recordSynthesisSidecarStartupPhase({
+                attemptId,
+                phase: "preflight",
+                status: "succeeded",
+                evidence,
+              });
+            } catch (error) {
+              recordSynthesisSidecarStartupPhase({
+                attemptId,
+                phase: "preflight",
+                status: "failed",
+                code:
+                  error instanceof Error
+                    ? error.message
+                    : "synthesis_production_preflight_failed",
+                evidence: processDiagnosticEvidence(error),
+                error,
+              });
+              throw error;
+            }
           },
           async acquireNativeOwner(_basis, receipt) {
             if (!liveSupervisor) {
-              liveSupervisor =
-                startSynthesisProductionRuntimeSupervisor({
-                  admission: liveAdmission(receipt),
-                  runtimeRoot: persistence.sidecarRuntimeRoot,
-                  profilePath: resolvedProfilePath,
-                  installer,
+              recordSynthesisSidecarStartupPhase({
+                attemptId,
+                phase: "supervisor-launch",
+                status: "running",
+              });
+              liveSupervisor = startSynthesisProductionRuntimeSupervisor({
+                admission: liveAdmission(receipt),
+                runtimeRoot: persistence.runtimeRoot,
+                profilePath: resolvedProfilePath,
+                installer,
+              });
+              liveSupervisor.subscribe((value) => {
+                const evidence = liveSupervisor?.getDiagnosticEvidence();
+                recordSynthesisSidecarStartupPhase({
+                  attemptId,
+                  phase:
+                    value.status === "ready"
+                      ? "discovery"
+                      : "supervisor-launch",
+                  status:
+                    value.status === "unavailable" ||
+                    value.status === "incompatible"
+                      ? "failed"
+                      : value.status === "ready"
+                        ? "succeeded"
+                        : "running",
+                  code: value.reasonCode,
+                  evidence: {
+                    supervisorStatus: value.status,
+                    recoveryState: value.recoveryState,
+                    restartCount: value.restartCount,
+                    supervisorInstanceId: value.supervisorInstanceId,
+                    serviceInstanceId: value.serviceInstanceId,
+                    bundleId: value.bundleId,
+                    stdoutTail: evidence?.stdoutTail,
+                    stderrTail: evidence?.stderrTail,
+                  },
                 });
+              });
             }
-            liveConnection =
-              await waitForProductionConnection(liveSupervisor);
+            liveConnection = await waitForProductionConnection(liveSupervisor);
             ownerEndpoint.bindServiceInstance?.(
               liveConnection.discovery.serviceInstanceId,
             );
             return {
-              serviceInstanceId:
-                liveConnection.discovery.serviceInstanceId,
+              serviceInstanceId: liveConnection.discovery.serviceInstanceId,
             };
           },
           async runCriticalSmoke(serviceInstanceId, receipt) {
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "critical-smoke",
+              status: "running",
+              evidence: { serviceInstanceId },
+            });
             if (
               !liveConnection ||
-              liveConnection.discovery.serviceInstanceId !==
-                serviceInstanceId
+              liveConnection.discovery.serviceInstanceId !== serviceInstanceId
             ) {
               throw new Error("synthesis_production_identity_stale");
             }
@@ -488,50 +720,90 @@ async function createDefaultSynthesisProductionOwner() {
             };
             const call = async (capability: string, args: unknown[]) =>
               rpc.call({
-                  connection,
-                  capability: capability as never,
-                  payload: toSynthesisJsonObject(
-                    { args },
-                    "$.productionSmoke",
-                  ),
-                  rebuildResult: (value) => value,
-                });
+                connection,
+                capability: capability as never,
+                payload: toSynthesisJsonObject({ args }, "$.productionSmoke"),
+                rebuildResult: (value) => value,
+              });
             const topics = await call("client.listTopics", []);
-            const topicRows = Array.isArray((topics as { topics?: unknown[] }).topics)
+            const topicRows = Array.isArray(
+              (topics as { topics?: unknown[] }).topics,
+            )
               ? (topics as { topics: Array<{ topicId?: string }> }).topics
               : [];
             const topicDetail = topicRows[0]?.topicId
-              ? await call("client.readTopicDetail", [{ topicId: topicRows[0].topicId }])
+              ? await call("client.readTopicDetail", [
+                  { topicId: topicRows[0].topicId },
+                ])
               : { status: "empty" };
             const smokeEvidence = await createSynthesisProductionSmokeEvidence({
               profileId,
               receiptId: receipt.receiptId,
               serviceInstanceId,
               supervisorInstanceId,
-              capabilityFingerprint: SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+              capabilityFingerprint:
+                SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
               results: [
                 {
                   id: "identity",
-                  observable: await createSynthesisProductionSidecarControlClient()
-                    .handshake(controlConnection),
+                  observable:
+                    await createSynthesisProductionSidecarControlClient().handshake(
+                      controlConnection,
+                    ),
                 },
-                { id: "storage", observable: await call("client.getSynthesisWorkbenchSurfaceInput", ["maintenance", {}]) },
-                { id: "workbench", observable: await call("client.getSynthesisWorkbenchChromeInput", [{}]) },
+                {
+                  id: "storage",
+                  observable: await call(
+                    "client.getSynthesisWorkbenchSurfaceInput",
+                    ["home", {}],
+                  ),
+                },
+                {
+                  id: "workbench",
+                  observable: await call(
+                    "client.getSynthesisWorkbenchChromeInput",
+                    [{}],
+                  ),
+                },
                 { id: "topic-list", observable: topics },
                 { id: "topic-detail", observable: topicDetail },
-                { id: "canonical-manifest", observable: await call("client.getPaperArtifactManifest", [{}]) },
-                { id: "reference-cache", observable: await call("client.getReferenceSidecarIndex", [{}]) },
-                { id: "graph-read", observable: await call("client.queryCitationGraph", [{}]) },
+                {
+                  id: "canonical-manifest",
+                  observable: await call("client.getPaperArtifactManifest", [
+                    {},
+                  ]),
+                },
+                {
+                  id: "reference-cache",
+                  observable: await call("client.getReferenceSidecarIndex", [
+                    {},
+                  ]),
+                },
+                {
+                  id: "graph-read",
+                  observable: await call("client.queryCitationGraph", [{}]),
+                },
                 {
                   id: "worker",
-                  observable: await createSynthesisSidecarComputeClient()
-                    .computeCitationGraphMetrics(connection, {
-                      graphHash: `sha256:${"0".repeat(64)}`,
-                      nodes: [{ nodeId: "smoke-node", kind: "library_paper" }],
-                      edges: [],
-                    }),
+                  observable:
+                    await createSynthesisSidecarComputeClient().computeCitationGraphMetrics(
+                      connection,
+                      {
+                        graphHash: `sha256:${"0".repeat(64)}`,
+                        nodes: [
+                          { nodeId: "smoke-node", kind: "library_paper" },
+                        ],
+                        edges: [],
+                      },
+                    ),
                 },
               ],
+            });
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "critical-smoke",
+              status: "succeeded",
+              evidence: { serviceInstanceId },
             });
             return {
               receiptId: receipt.receiptId,
@@ -544,11 +816,13 @@ async function createDefaultSynthesisProductionOwner() {
               ...smokeEvidence,
             };
           },
-          async enableNativeMutations(
-            serviceInstanceId,
-            receipt,
-            evidence,
-          ) {
+          async enableNativeMutations(serviceInstanceId, receipt, evidence) {
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "activation",
+              status: "running",
+              evidence: { serviceInstanceId },
+            });
             if (
               evidence.receiptId !== receipt.receiptId ||
               evidence.profileId !== profileId ||
@@ -562,7 +836,18 @@ async function createDefaultSynthesisProductionOwner() {
               throw new Error("synthesis_production_smoke_missing");
             }
             await activateSynthesisProductionRuntime(evidence);
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "activation",
+              status: "succeeded",
+              evidence: { serviceInstanceId },
+            });
             if (liveConnection) {
+              recordSynthesisSidecarStartupPhase({
+                attemptId,
+                phase: "reconcile",
+                status: "running",
+              });
               await createSynthesisSidecarRpcClient().call({
                 connection: {
                   baseUrl: `http://${liveConnection.discovery.host}:${liveConnection.discovery.port}`,
@@ -578,7 +863,18 @@ async function createDefaultSynthesisProductionOwner() {
                 ),
                 rebuildResult: (value) => value,
               });
+              recordSynthesisSidecarStartupPhase({
+                attemptId,
+                phase: "reconcile",
+                status: "succeeded",
+              });
             }
+            recordSynthesisSidecarStartupPhase({
+              attemptId,
+              phase: "ready",
+              status: "succeeded",
+              evidence: { serviceInstanceId },
+            });
           },
           async resumeLegacyBeforeMigration() {
             invalidateDefaultSynthesisClient();
@@ -589,10 +885,10 @@ async function createDefaultSynthesisProductionOwner() {
             liveConnection = null;
             await backup.restoreVerifiedBackup({
               backupId: receipt.backupId,
+              sourceOwner: receipt.sourceOwner,
               sourceSchemaVersion: receipt.sourceSchemaVersion,
               targetSchemaVersion: receipt.targetSchemaVersion,
-              canonicalManifestSha256:
-                receipt.canonicalManifestSha256,
+              canonicalManifestSha256: receipt.canonicalManifestSha256,
               durableSummarySha256: receipt.durableSummarySha256,
             });
           },
@@ -605,8 +901,7 @@ async function createDefaultSynthesisProductionOwner() {
         },
       });
     },
-    stopProductionSupervisor:
-      stopSynthesisProductionRuntimeSupervisor,
+    stopProductionSupervisor: stopSynthesisProductionRuntimeSupervisor,
   });
   return owner;
 }
@@ -617,23 +912,54 @@ let defaultProductionOwner: Awaited<
 let defaultProductionOwnerTask: ReturnType<
   typeof createDefaultSynthesisProductionOwner
 > | null = null;
+let defaultProductionAttemptId: string | null = null;
 
 async function getDefaultSynthesisProductionOwner() {
-  defaultProductionOwnerTask ||=
-    createDefaultSynthesisProductionOwner();
+  if (!defaultProductionOwnerTask) {
+    defaultProductionAttemptId = beginSynthesisSidecarStartupAttempt();
+    defaultProductionOwnerTask = createDefaultSynthesisProductionOwner(
+      defaultProductionAttemptId,
+    );
+  }
   defaultProductionOwner ||= await defaultProductionOwnerTask;
   return defaultProductionOwner;
 }
 
 export async function startDefaultSynthesisProductionOwner() {
-  return (await getDefaultSynthesisProductionOwner()).start();
+  try {
+    return await (await getDefaultSynthesisProductionOwner()).start();
+  } catch (error) {
+    const attemptId = defaultProductionAttemptId;
+    if (attemptId) {
+      const phase: SynthesisSidecarStartupPhase =
+        getSynthesisSidecarDiagnosticSnapshot()?.phase || "startup";
+      const code =
+        error instanceof Error
+          ? error.message.split(/\s+/)[0]
+          : String(error || "synthesis_sidecar_startup_failed");
+      recordSynthesisSidecarStartupPhase({
+        attemptId,
+        phase,
+        status: "failed",
+        code,
+        error,
+      });
+    }
+    throw error;
+  }
 }
 
 export async function stopDefaultSynthesisProductionOwner() {
-  const owner = await defaultProductionOwnerTask?.catch(
-    () => null,
-  );
+  if (defaultProductionAttemptId) {
+    recordSynthesisSidecarStartupPhase({
+      attemptId: defaultProductionAttemptId,
+      phase: "shutdown",
+      status: "running",
+    });
+  }
+  const owner = await defaultProductionOwnerTask?.catch(() => null);
   defaultProductionOwner = null;
   defaultProductionOwnerTask = null;
   await owner?.shutdown();
+  defaultProductionAttemptId = null;
 }

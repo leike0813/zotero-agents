@@ -3,23 +3,33 @@ pub(crate) fn run(
     serve: fn(&str) -> Result<(), String>,
     serve_production: fn(&str, &str) -> Result<(), String>,
     preflight_production: fn(&str, &str) -> Result<(), String>,
+    prepare_empty_production: fn(&str) -> Result<(), String>,
 ) -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
-    run_args(&args, worker, serve, serve_production, preflight_production)
+    run_args(
+        &args,
+        worker,
+        serve,
+        serve_production,
+        preflight_production,
+        prepare_empty_production,
+    )
 }
 
-fn run_args<Worker, Serve, ServeProduction, Preflight>(
+fn run_args<Worker, Serve, ServeProduction, Preflight, PrepareEmpty>(
     args: &[String],
     worker: Worker,
     serve: Serve,
     serve_production: ServeProduction,
     preflight_production: Preflight,
+    prepare_empty_production: PrepareEmpty,
 ) -> Result<(), String>
 where
     Worker: FnOnce() -> Result<(), String>,
     Serve: FnOnce(&str) -> Result<(), String>,
     ServeProduction: FnOnce(&str, &str) -> Result<(), String>,
     Preflight: FnOnce(&str, &str) -> Result<(), String>,
+    PrepareEmpty: FnOnce(&str) -> Result<(), String>,
 {
     match args.get(1).map(String::as_str) {
         Some("worker") => worker(),
@@ -51,8 +61,15 @@ where
                 .ok_or_else(|| "missing_admission".to_owned())?;
             serve_production(config, admission)
         }
+        Some("prepare-empty-production")
+            if args.get(2).map(String::as_str) == Some("--request") =>
+        {
+            args.get(3)
+                .ok_or_else(|| "missing_request".to_owned())
+                .and_then(|request_path| prepare_empty_production(request_path))
+        }
         _ => Err(
-            "usage: synthesis-sidecar <worker|serve --config CONFIG|serve-production --config CONFIG --admission ADMISSION|preflight-production --config CONFIG --admission ADMISSION>"
+            "usage: synthesis-sidecar <worker|serve --config CONFIG|serve-production --config CONFIG --admission ADMISSION|preflight-production --config CONFIG --admission ADMISSION|prepare-empty-production --request REQUEST>"
                 .into(),
         ),
     }
@@ -94,11 +111,39 @@ mod tests {
                     .push(format!("preflight:{config}:{admission}"));
                 Ok(())
             },
+            |_| Ok(()),
         )
         .unwrap();
         assert_eq!(
             calls.lock().unwrap().as_slice(),
             ["preflight:config.json:admission.json"]
         );
+    }
+
+    #[test]
+    fn routes_empty_production_initialization_without_starting_service() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let prepare_calls = Arc::clone(&calls);
+        run_args(
+            &[
+                "synthesis-sidecar".into(),
+                "prepare-empty-production".into(),
+                "--request".into(),
+                "request.json".into(),
+            ],
+            || Ok(()),
+            |_| Ok(()),
+            |_, _| Ok(()),
+            |_, _| Ok(()),
+            move |request| {
+                prepare_calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("prepare:{request}"));
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(calls.lock().unwrap().as_slice(), ["prepare:request.json"]);
     }
 }

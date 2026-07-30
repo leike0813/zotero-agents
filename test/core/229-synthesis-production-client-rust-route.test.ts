@@ -16,6 +16,7 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_WORKBENCH_SURFACES } from "../../packages/synthesis-contracts/src/workbench";
 import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
 import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
 import { inspectSynthesisTagSurfaceParity } from "../../scripts/check-synthesis-tag-surface-parity";
@@ -31,9 +32,39 @@ const EXECUTABLE = path.join(
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
-const SMOKE_CHECK_IDS = ["identity", "storage", "workbench", "topic-list", "topic-detail", "canonical-manifest", "reference-cache", "graph-read", "worker"];
-function smokeDigest(args: { profileId: string; receiptId: string; serviceInstanceId: string; supervisorInstanceId: string; capabilityFingerprint: string; checkDigests: string[] }) {
-  return createHash("sha256").update(JSON.stringify(["synthesis-production-critical-smoke.v1", ...SMOKE_CHECK_IDS, ...args.checkDigests, args.profileId, args.receiptId, args.serviceInstanceId, args.supervisorInstanceId, args.capabilityFingerprint])).digest("hex");
+const SMOKE_CHECK_IDS = [
+  "identity",
+  "storage",
+  "workbench",
+  "topic-list",
+  "topic-detail",
+  "canonical-manifest",
+  "reference-cache",
+  "graph-read",
+  "worker",
+];
+function smokeDigest(args: {
+  profileId: string;
+  receiptId: string;
+  serviceInstanceId: string;
+  supervisorInstanceId: string;
+  capabilityFingerprint: string;
+  checkDigests: string[];
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        "synthesis-production-critical-smoke.v1",
+        ...SMOKE_CHECK_IDS,
+        ...args.checkDigests,
+        args.profileId,
+        args.receiptId,
+        args.serviceInstanceId,
+        args.supervisorInstanceId,
+        args.capabilityFingerprint,
+      ]),
+    )
+    .digest("hex");
 }
 const execFileAsync = promisify(execFile);
 const TOPIC_WORKBENCH_OPERATIONS = [
@@ -627,13 +658,19 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(workbenchChrome.status, 200);
       assert.hasAllKeys(workbenchChrome.body.data, ["maintenance"]);
 
-      const workbenchSurface = await call(
-        port,
-        "client.getSynthesisWorkbenchSurfaceInput",
-        { args: ["maintenance", {}] },
-      );
-      assert.equal(workbenchSurface.status, 200);
-      assert.hasAllKeys(workbenchSurface.body.data, ["maintenance"]);
+      for (const surface of SYNTHESIS_WORKBENCH_SURFACES) {
+        const workbenchSurface = await call(
+          port,
+          "client.getSynthesisWorkbenchSurfaceInput",
+          { args: [surface, {}] },
+        );
+        assert.equal(
+          workbenchSurface.status,
+          200,
+          `public Workbench surface ${surface}`,
+        );
+        assert.hasAllKeys(workbenchSurface.body.data, ["maintenance"]);
+      }
 
       const backgroundJobs = await call(
         port,
@@ -911,7 +948,17 @@ describe("Synthesis Rust production client route", function () {
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
           smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: ["identity", "storage", "workbench", "topic-list", "topic-detail", "canonical-manifest", "reference-cache", "graph-read", "worker"],
+          smokeCheckIds: [
+            "identity",
+            "storage",
+            "workbench",
+            "topic-list",
+            "topic-detail",
+            "canonical-manifest",
+            "reference-cache",
+            "graph-read",
+            "worker",
+          ],
           smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
           smokeEvidenceDigest: "a".repeat(64),
           issuedAtMs: Date.now(),
@@ -942,7 +989,10 @@ describe("Synthesis Rust production client route", function () {
         LIFECYCLE_TOKEN,
       );
       assert.equal(expiredActivation.status, 408);
-      assert.equal(expiredActivation.body.error.code, "production_activation_expired");
+      assert.equal(
+        expiredActivation.body.error.code,
+        "production_activation_expired",
+      );
 
       const activation = await call(
         port,
@@ -957,9 +1007,27 @@ describe("Synthesis Rust production client route", function () {
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
           smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: ["identity", "storage", "workbench", "topic-list", "topic-detail", "canonical-manifest", "reference-cache", "graph-read", "worker"],
+          smokeCheckIds: [
+            "identity",
+            "storage",
+            "workbench",
+            "topic-list",
+            "topic-detail",
+            "canonical-manifest",
+            "reference-cache",
+            "graph-read",
+            "worker",
+          ],
           smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
-          smokeEvidenceDigest: smokeDigest({ profileId: productionAdmission.profileId, receiptId: "receipt-1", serviceInstanceId: topics.body.serviceInstanceId, supervisorInstanceId: productionAdmission.supervisorInstanceId, capabilityFingerprint: SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT, checkDigests: Array.from({ length: 9 }, () => "b".repeat(64)) }),
+          smokeEvidenceDigest: smokeDigest({
+            profileId: productionAdmission.profileId,
+            receiptId: "receipt-1",
+            serviceInstanceId: topics.body.serviceInstanceId,
+            supervisorInstanceId: productionAdmission.supervisorInstanceId,
+            capabilityFingerprint:
+              SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+            checkDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
+          }),
           issuedAtMs: Date.now(),
         },
         LIFECYCLE_TOKEN,
