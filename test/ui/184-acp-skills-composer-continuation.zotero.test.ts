@@ -126,7 +126,7 @@ describe("ACP Skills composer continuation through platform transport", function
     setDebugModeOverrideForTests(undefined);
   });
 
-  it("sends a second prompt from the real nested composer", async function () {
+  it("sends a second prompt with Ctrl+Enter from the real nested composer", async function () {
     if (
       !hasRealZoteroRuntime() ||
       readEnvironment("ZOTERO_ACP_COMPOSER_E2E") !== "1"
@@ -305,17 +305,34 @@ describe("ACP Skills composer continuation through platform transport", function
       const button = childDocument?.querySelector(
         ".assistant-panel-reply-submit",
       ) as HTMLButtonElement | null;
-      return input && button && !input.disabled && !button.disabled
-        ? { input, button }
+      const KeyboardEventConstructor =
+        childDocument?.defaultView?.KeyboardEvent;
+      return input &&
+        button &&
+        KeyboardEventConstructor &&
+        !input.disabled &&
+        !button.disabled
+        ? { input, KeyboardEventConstructor }
         : null;
     });
     assert.ok(
       composer,
       `ACP Skills composer did not become interactive; evidence=${evidencePath}`,
     );
-    const sentinel = 'Windows composer 续轮 Ω \\\\ "quoted"';
+    const sentinel = 'Windows Ctrl+Enter 续轮 Ω \\\\ "quoted"';
     composer.input.value = sentinel;
-    composer.button.click();
+    const keydown = new composer.KeyboardEventConstructor("keydown", {
+      key: "Enter",
+      code: "Enter",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    composer.input.dispatchEvent(keydown);
+    assert.isTrue(
+      keydown.defaultPrevented,
+      "ACP Skills composer did not handle Ctrl+Enter",
+    );
 
     const result = await Promise.race([
       execution,
