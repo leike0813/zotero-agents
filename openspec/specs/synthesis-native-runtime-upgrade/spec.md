@@ -1,78 +1,51 @@
+# synthesis-native-runtime-upgrade Specification
+
 ## Purpose
 
-Defines the bounded native runtime upgrade protocol: generation-scoped admission, exact compatibility classification, backup-verified candidate activation, and durable-activation-boundary recovery for the Synthesis Rust sidecar.
+Defines how an XPI update replaces its bundled sidecar and how repository
+schema changes are migrated.
 
 ## Requirements
 
-### Requirement: Runtime admission SHALL be generation scoped
+### Requirement: Sidecar replacement SHALL follow XPI replacement
 
-The plugin SHALL persist current native runtime admission independently from
-the immutable first cutover receipt. Current admission SHALL bind one
-monotonic generation to profile, runtime target, protocol, data schema, bundle,
-build fingerprint, capability fingerprint, service identity, and durable
-activation evidence.
+The sidecar SHALL have no independent online update, generation promotion,
+runtime rollback, or mutable version selection. Installing a new XPI changes
+the packaged runtime; the next startup verifies and replaces the single current
+runtime.
 
-#### Scenario: Existing admitted profile starts after the feature is installed
-- **WHEN** the first cutover receipt, installed runtime, and production identity agree and no runtime-admission state exists
-- **THEN** the plugin creates generation 1 admission without changing the first cutover receipt or production data
+#### Scenario: A new XPI contains another sidecar build
+- **WHEN** the plugin next starts
+- **THEN** installation replaces `current` atomically and launches that runtime
 
-#### Scenario: Matching admitted generation restarts
-- **WHEN** installed and current admission identities match
-- **THEN** the plugin starts that generation without another upgrade backup or preflight
+### Requirement: Schema migration SHALL be native-owned and registered
 
-### Requirement: Automatic upgrade SHALL require exact compatibility
+When the current repository schema differs from the runtime schema, Rust SHALL
+proceed only when that exact transition has a registered migration. It SHALL
+create and verify a migration backup immediately before the migration and
+apply the migration transactionally.
 
-The plugin SHALL start an automatic Rust-to-Rust upgrade only when profile,
-runtime target, protocol version, production data schema, and capability
-fingerprint equal current admission and only the verified build fingerprint
-changes.
+#### Scenario: No migration is needed
+- **WHEN** production storage already uses the current schema
+- **THEN** startup creates no migration backup
 
-#### Scenario: Compatible build is installed
-- **WHEN** the new verified bundle differs only by bundle/build identity
-- **THEN** the plugin creates one pending next generation and begins bounded native upgrade
+#### Scenario: A registered migration is needed
+- **WHEN** Rust recognizes the exact source-to-target schema transition
+- **THEN** it verifies a backup and applies the migration transactionally
 
-#### Scenario: Contract identity changes
-- **WHEN** protocol, schema, target, profile, or capability fingerprint differs
-- **THEN** startup fails closed before writing pending state or production data
+#### Scenario: A transition is not registered
+- **WHEN** the production schema is unsupported
+- **THEN** startup fails without changing production storage
 
-#### Scenario: Previous admitted bundle is unavailable
-- **WHEN** the current build fingerprint cannot be resolved and verified
-- **THEN** startup fails closed before stopping the current owner or writing upgrade state
+### Requirement: Failed migration SHALL preserve the original basis
 
-### Requirement: Upgrade SHALL verify backup and candidate before activation
+Backup or migration failure SHALL leave the original production basis
+recoverable and SHALL prevent service discovery.
 
-The coordinator SHALL stop the old Rust owner, verify owner-lock release,
-create a content-addressed backup of the database family and canonical tree,
-run target preflight on the backup copy, and run generation-bound critical
-smoke against the mutation-disabled candidate before requesting activation.
+#### Scenario: Backup verification fails
+- **WHEN** a registered migration cannot obtain a verified backup
+- **THEN** migration does not begin
 
-#### Scenario: Candidate reaches activation
-- **WHEN** backup, preflight, launch, identity checks, and every critical-smoke entry succeed for the pending generation
-- **THEN** Rust may durably activate that generation
-- **AND** the plugin may atomically promote it to current
-
-#### Scenario: Candidate identity is stale
-- **WHEN** discovery, health, handshake, smoke, or activation evidence reports another generation
-- **THEN** the candidate cannot activate or promote
-
-### Requirement: Recovery SHALL use durable activation as its boundary
-
-Before target activation is durable, failure SHALL stop the target, restore
-and verify the backup, clear pending state, and restart the verified previous
-Rust generation. After target activation is durable, automatic rollback MUST
-be prohibited; matching Rust activation evidence SHALL permit idempotent
-promotion and all other states SHALL require Rust-only repair.
-
-#### Scenario: Backup, preflight, launch, or smoke fails
-- **WHEN** no matching target activation evidence is durable
-- **THEN** the coordinator restores the original data and previous Rust generation
-- **AND** it does not invoke plugin/Node ownership or clean reset
-
-#### Scenario: Promotion is interrupted
-- **WHEN** Rust contains matching durable activation evidence for the pending generation but current admission was not replaced
-- **THEN** restart completes promotion without restoring the backup or starting the previous generation
-
-#### Scenario: Failure follows promotion
-- **WHEN** startup reconcile or readiness publication fails after current admission advances
-- **THEN** the profile remains on the new generation in Rust-only repair
-- **AND** old data and the previous generation are not restored
+#### Scenario: Transactional migration fails
+- **WHEN** migration work returns an error
+- **THEN** the original schema and data remain authoritative

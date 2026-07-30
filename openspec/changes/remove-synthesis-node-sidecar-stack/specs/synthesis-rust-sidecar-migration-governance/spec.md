@@ -2,8 +2,8 @@
 
 ### Requirement: R9a and R9b SHALL remain separately auditable
 
-R9a SHALL transfer production ownership and make plugin legacy code unreachable
-from production. R9b SHALL execute through the dependency-ordered
+R9a SHALL establish Rust as the sole production owner and make plugin legacy
+code unreachable from production. R9b SHALL execute through the dependency-ordered
 `remove-synthesis-plugin-legacy-owner` and
 `remove-synthesis-node-sidecar-stack` changes within the same release
 milestone. The first R9b change SHALL remove the plugin owner; the second SHALL
@@ -42,7 +42,8 @@ assertions MUST be deleted rather than recreated.
 R9 and Stage 1 SHALL remain incomplete until one source identity passes the
 seven-platform native build, fingerprint, SBOM/provenance/license, 15/75 MiB
 runtime budgets, final XPI native-only inventory and 100 MiB budget,
-clean/upgrade/corrupt/crash/offline cases, backup/restore and runbook rehearsal,
+clean/existing-data/corrupt/crash/offline cases, registered schema-migration
+backup/failure and runbook rehearsal,
 and representative Zotero 7 and Zotero 9 real-machine smoke. Passing these
 gates MUST NOT by itself publish a release or authorize Gitee synchronization.
 

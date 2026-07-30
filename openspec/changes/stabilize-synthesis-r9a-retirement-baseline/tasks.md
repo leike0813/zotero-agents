@@ -1,3 +1,7 @@
+> Lifecycle note: tasks concerning cutover receipts, runtime admission,
+> activation, critical smoke, owner/lease files, or generations were superseded
+> by `simplify-xpi-owned-synthesis-sidecar-lifecycle` and must not be replayed.
+
 ## 1. Freeze the Current R9a Baseline
 
 - [x] 1.1 Record the source commit, current 95-operation manifest/fingerprint, TypeScript and Rust ready rosters, seven surface corpus identities, retained plugin/Node deletion inventory, and the existing focused-gate results

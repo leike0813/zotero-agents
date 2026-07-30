@@ -1,3 +1,8 @@
+> Lifecycle boundary: preserve the fixed XPI installer, Rust packaging,
+> launch-scoped discovery, OS lock, and registered-schema-migration backup
+> policy. Do not restore pointers, rollback, cutover, admission, activation,
+> owner/lease files, or persisted generations.
+
 ## 1. Verify Preconditions and Freeze the Retirement Inventory
 
 - [ ] 1.1 Verify `stabilize-synthesis-r9a-retirement-baseline` and `remove-synthesis-plugin-legacy-owner` are complete for the same source lineage, with accepted pre-deletion candidate evidence and zero plugin legacy owner construction
@@ -58,8 +63,8 @@
 
 - [ ] 8.1 Under separate execution authorization, build and verify all seven native targets for one source/toolchain/lock identity, including fingerprints, signatures required by the acceptance environment, SBOM/provenance/licenses, and 15/75 MiB budgets
 - [ ] 8.2 Assemble and verify the final universal XPI native-only inventory and 100 MiB budget without publishing it
-- [ ] 8.3 Run clean-profile and upgrade-profile Zotero tests, including an existing completed production receipt and data produced before cutover
-- [ ] 8.4 Run corrupt/stale/wrong-platform bundle, offline install, crash/restart/orphan/fuse, post-admission Rust-only repair, owner-conflict, preflight failure, backup/restore, and operator runbook cases
+- [ ] 8.3 Run clean-profile and existing-data Zotero tests while proving legacy lifecycle files remain inert
+- [ ] 8.4 Run corrupt/wrong-platform bundle, offline install, crash/restart/parent-EOF, production-lock conflict, partial-source, registered-migration backup/failure, and operator runbook cases
 - [ ] 8.5 Run representative real-machine smoke on Zotero 7 and Zotero 9 across the agreed platform matrix
 - [ ] 8.6 Bind every result to one source identity and report any missing evidence honestly; do not declare R9 or Stage 1 complete while one gate is absent
 - [ ] 8.7 Keep release publication, tag/assets, feed advancement, and Gitee synchronization outside this change unless separately and explicitly authorized

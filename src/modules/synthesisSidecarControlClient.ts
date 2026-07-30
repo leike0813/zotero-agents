@@ -8,7 +8,6 @@ import {
   rebuildSynthesisSidecarHandshakeResult,
   rebuildSynthesisSidecarHealth,
   type SynthesisProductionDiscovery,
-  type SynthesisProductionActivationEvidence,
   type SynthesisProductionHandshakeResult,
   type SynthesisProductionHealth,
   type SynthesisSidecarDiscovery,
@@ -174,14 +173,7 @@ function validateProductionHealth(
     health.buildFingerprint !== connection.discovery.buildFingerprint ||
     JSON.stringify(health.platformSignature) !==
       JSON.stringify(connection.discovery.platformSignature) ||
-    health.lifecycleState !== "ready" ||
-    health.ownerMode !== connection.discovery.ownerMode ||
-    health.mutationEnabled !== connection.discovery.mutationEnabled ||
-    health.capabilityFingerprint !==
-      connection.discovery.capabilityFingerprint ||
-    health.cutoverReceiptId !== connection.discovery.cutoverReceiptId ||
-    JSON.stringify(health.readyClientCapabilities) !==
-      JSON.stringify(connection.discovery.readyClientCapabilities)
+    health.lifecycleState !== "ready"
   ) {
     throw new Error("sidecar_health_identity_mismatch");
   }
@@ -219,12 +211,6 @@ function validateProductionHandshake(
     data.schemaVersion !== connection.discovery.schemaVersion ||
     data.runtimeRootId !== connection.discovery.runtimeRootId ||
     data.dataRootId !== connection.discovery.dataRootId ||
-    data.ownerMode !== connection.discovery.ownerMode ||
-    data.mutationEnabled !== connection.discovery.mutationEnabled ||
-    data.capabilityFingerprint !== connection.discovery.capabilityFingerprint ||
-    data.cutoverReceiptId !== connection.discovery.cutoverReceiptId ||
-    JSON.stringify(data.readyClientCapabilities) !==
-      JSON.stringify(connection.discovery.readyClientCapabilities) ||
     !SYNTHESIS_SIDECAR_CAPABILITIES.every(
       (capability, index) => data.capabilities[index] === capability,
     )
@@ -237,10 +223,7 @@ function validateProductionHandshake(
 async function callSystem(args: {
   connection: ControlConnection;
   token: string;
-  capability:
-    | "system.handshake"
-    | "system.shutdown"
-    | "system.production.activate";
+  capability: "system.handshake" | "system.shutdown";
   payload: Record<string, unknown>;
   timeoutMs: number;
   fetchImpl: FetchLike;
@@ -355,27 +338,7 @@ export function createSynthesisProductionSidecarControlClient(options?: {
     health: validateProductionHealth,
     handshake: validateProductionHandshake,
   });
-  const fetchImpl = options?.fetch || globalThis.fetch;
-  const timeoutMs = options?.timeoutMs ?? 2_000;
-  if (typeof fetchImpl !== "function") {
-    throw new Error("sidecar_control_fetch_unavailable");
-  }
-  return {
-    ...client,
-    async activate(
-      connection: SynthesisProductionSidecarControlConnection,
-      evidence: SynthesisProductionActivationEvidence,
-    ) {
-      return callSystem({
-        connection,
-        token: connection.lifecycleToken,
-        capability: "system.production.activate",
-        payload: evidence,
-        timeoutMs,
-        fetchImpl,
-      });
-    },
-  };
+  return client;
 }
 
 export const synthesisSidecarControlClientInternalsForTests = {

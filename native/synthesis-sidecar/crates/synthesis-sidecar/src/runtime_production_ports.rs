@@ -35,7 +35,7 @@ use synthesis_repository::{
     TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyReplacement,
     TopicGraphReplacement,
 };
-use synthesis_sidecar::runtime_contract::ProductionAdmission;
+use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
 use crate::runtime_reference_canonical::{
     ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
@@ -56,17 +56,17 @@ pub(crate) struct ProductionApplications {
     pub(crate) topic_graph: TopicGraphApplication,
     pub(crate) debug: DebugMaintenanceApplication,
     pub(crate) webdav: WebDavSyncApplication,
-    admission: Option<Arc<ProductionAdmission>>,
+    config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
 }
 
 impl ProductionApplications {
     pub(crate) fn call_host(&self, capability: &str, payload: Value) -> Result<Value, String> {
-        let admission = self
-            .admission
+        let config = self
+            .config
             .as_deref()
             .ok_or_else(|| "reverse_host_unavailable".to_owned())?;
-        call_reverse_host(admission, &self.service_instance_id, capability, payload)
+        call_reverse_host(config, &self.service_instance_id, capability, payload)
     }
 
     pub(crate) fn apply_related_items_effect(&self, payload: Value) -> Result<Value, String> {
@@ -331,7 +331,7 @@ pub(crate) fn build_production_applications(
     repository: Arc<Mutex<Repository>>,
     canonical: Arc<Mutex<CanonicalStore>>,
     compute: Arc<NativeComputePool>,
-    admission: Option<Arc<ProductionAdmission>>,
+    config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
     webdav_state_path: PathBuf,
 ) -> ProductionApplications {
@@ -339,7 +339,7 @@ pub(crate) fn build_production_applications(
     let canonical = Arc::new(CanonicalStorePort::new(canonical));
     let workbench = WorkbenchApplication::new(repository.clone());
     let host = Arc::new(ReverseHostApplicationPort {
-        admission: admission.clone(),
+        config: config.clone(),
         service_instance_id: service_instance_id.clone(),
     });
     let topics = TopicApplication::new(
@@ -418,7 +418,7 @@ pub(crate) fn build_production_applications(
         topic_graph,
         debug,
         webdav,
-        admission,
+        config,
         service_instance_id,
     }
 }
@@ -750,17 +750,17 @@ impl ReferenceMatcherPort for NativeReferenceMatcherPort {
 }
 
 pub(crate) struct ReverseHostApplicationPort {
-    admission: Option<Arc<ProductionAdmission>>,
+    config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
 }
 
 impl ReverseHostApplicationPort {
     fn call(&self, capability: &str, payload: Value) -> Result<Value, String> {
-        let admission = self
-            .admission
+        let config = self
+            .config
             .as_deref()
             .ok_or_else(|| "reverse_host_unavailable".to_owned())?;
-        call_reverse_host(admission, &self.service_instance_id, capability, payload)
+        call_reverse_host(config, &self.service_instance_id, capability, payload)
     }
 }
 

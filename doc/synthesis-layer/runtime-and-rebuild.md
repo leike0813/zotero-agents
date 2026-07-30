@@ -2,44 +2,28 @@
 
 ## Native Runtime and Migration Boundary
 
-The supervised runtime is a product-owned Rust executable selected through the
-strict native manifest v3 installer. After receipt-bound activation it owns the
-explicit production repository and canonical roots; identity-bound shadow
-roots remain private validation state. Node is a read-only differential oracle
-and is not a packaged runtime or production fallback.
+The supervised runtime is the Rust executable bundled with the installed XPI.
+The strict manifest-v3 installer materializes one verified `current` directory.
+There is no independent sidecar updater, version generation, admission,
+cutover, activation, or runtime rollback.
 
-R7 typed application parity and R8 native packaging/supervision establish the
-native delivery base. R9a completes the local production handoff: its
-95-operation flat-port inventory for the 96-method grouped client, native
-composition, reverse-Host endpoint/adapters, durable receipt/coordinator,
-verified backup/restore, production-copy preflight, exclusive live-owner lock,
-strict production v3 supervision, complete typed production dispatch,
-critical-smoke evidence, mutation admission, and default-client routing form
-one receipt-bound transition. Every listed production surface is checked
-against its durable corpus before activation. A pre-admission failure restores
-the verified backup; an admitted native owner remains in Rust-only repair and
-never falls back to Node or the plugin owner. Cross-platform and clean-machine
-acceptance are tracked separately as R9b and do not weaken these local rules.
+Startup writes one launch-scoped config containing production database,
+canonical, reverse Host, runtime identity, and session-token fields, then runs
+`serve --config`. Rust holds `state/synthesis.lock` as an exclusive OS file
+lock before opening production storage. Session discovery, authenticated health,
+and authenticated handshake are sufficient to publish the native client.
+Receipt, owner, lease, pointer, and activation files are not runtime inputs.
 
-The first cutover receipt records that irreversible owner transition and is not
-the mutable runtime version pointer. Current Rust identity lives in the
-generation-scoped runtime-admission state. A build-only replacement is
-automatic when profile, target, protocol, production schema and capability
-fingerprint remain equal. Startup pins both verified bundles, backs up the
-database family and canonical tree, preflights the candidate on the copy, and
-requires generation-bound smoke and durable activation before promotion.
-Failure before activation restores the old bytes and old Rust generation;
-failure after activation cannot roll back and proceeds through promotion
-recovery or Rust-only repair.
+If the production database, SQLite sidecars, and canonical root are all absent,
+Rust initializes the database and canonical root while holding the lock. A
+partial combination fails with `synthesis_source_state_incomplete` without
+constructing the missing half.
 
-A profile whose production database and canonical root are both absent follows
-the same handoff. The verified Rust executable first creates an empty
-production basis through its private `prepare-empty-production` command, after
-which backup, production-copy preflight, smoke, activation, and recovery use
-the ordinary receipt-bound path. If exactly one root exists, startup fails with
-`synthesis_source_state_incomplete`; plugin code never constructs a replacement
-repository. Runtime APIs receive the persistence `runtime/` root and expand
-`synthesis/service-runtime` exactly once.
+Installing a new XPI replaces the packaged sidecar. The next startup verifies
+the new bundle and atomically replaces `current`. Same-schema startup creates no
+backup. A future schema change must register its exact migration in Rust; only
+that path creates a verified migration backup immediately before applying a
+transactional migration.
 
 The active production route is therefore the receipt-bound native
 `SynthesisClient` composition. The plugin retains only the Host adapters that
@@ -75,16 +59,10 @@ candidate workflow runs those gates plus the native manifest/lifecycle corpus,
 license inventory, Rust tests and service smoke. It is read-only and does not
 publish or synchronize assets.
 
-Plugin startup non-blockingly installs, preflights, launches, discovers, and
-supervises the native production owner. Cutover drain invalidates and awaits
-only the current default-client generation; it does not enter terminal add-on
-shutdown, so the admitted owner can back the next client acquisition. Startup
-reconciliation runs after first mutation admission or after a pending runtime
-generation has been promoted. It is outside the rollback-capable activation
-section. Restart, transport,
-deadline, worker, or identity failures do not retry through Node or the plugin
-owner. Runtime supervision is event-driven with one low-frequency deadline
-scheduler.
+Plugin startup non-blockingly installs, launches, discovers, and supervises the
+native production owner. Startup reconciliation runs after current-session
+readiness. Restart, transport, deadline, worker, or identity failures do not
+retry through Node or a plugin production owner.
 
 Remote Topic Context and filtered paper-artifact delivery cross the bounded `SynthesisHostExportDeliveryPort`. The application builds canonical text entries; the production Host adapter owns temporary ZIP bytes, integrity metadata, opaque Host Bridge file registration, and cleanup. Port absence or malformed/unavailable receipts fail the remote request without a local-path fallback. Local output-path and ACP run-root writes are unchanged. The readonly composition does not inject remote export delivery.
 
@@ -104,7 +82,7 @@ complete result validation recomputes the canonical graph. This evidence is a
 reason not to raise monolithic limits or route production traffic. The bounded
 transfer contract now executes an explicit packed worker canary and publishes
 attempt-scoped paged results. Production basis recapture and repository
-promotion remain the next independent cutover step.
+promotion execute inside the Rust-owned application transaction.
 
 Concept KB search, overlay, and bounded exact label/alias queries cross
 `SynthesisConceptKbIndexEngine`. The application reads and sorts SQLite-owned
@@ -113,9 +91,9 @@ construction, and strictly rebuilds the asynchronous result before projection
 promotion or public DTO assembly. Relations, review items, proposal
 merge/create/review, manifests, diagnostics, and mutations stay application
 owned. Failed, cancelled, malformed, or oversized computation preserves the
-last projection registry state and durable rows. Production remains in-process;
-the private sidecar application uses internal worker index/query operations,
-while production promotion and public results remain plugin-owned.
+last projection registry state and durable rows. The Rust application owns
+production promotion and public result assembly; the plugin calls it through
+the authenticated client.
 
 The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 
@@ -129,10 +107,10 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Citation Graph metrics compute runs only in the Rust child, uses the same limits, never holds the library write lock during PageRank/component/role computation, and replaces rows only for the captured graph hash.
 - Citation Graph build compute accepts at most 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets, keeps Host reads and assembly outside the write lock, and replaces rows only for the captured durable sidecar-fact basis.
 - Advanced Reference Matching uses one bounded engine with separate binding and canonical-dedupe contracts. It captures repository facts under a short lock, computes both passes outside the lock, recaptures Host and repository basis, and atomically promotes accepted facts and proposals only when the basis remains current.
-- Tag Vocabulary validation and index construction use one strict engine capped at 25,000 entries, 50,000 aliases, 10,000 abbreviations, and 256 facets. The private sidecar application computes through two paged Rust operations outside SQLite, recaptures the vocabulary revision, and promotes by CAS; production canonical mutation validation remains synchronous inside the existing plugin repository transaction until cutover. Index failure or malformed output cannot advance active index state.
+- Tag Vocabulary validation and index construction use one strict engine capped at 25,000 entries, 50,000 aliases, 10,000 abbreviations, and 256 facets. The Rust application computes through two paged operations outside SQLite, recaptures the vocabulary revision, and promotes by CAS inside the Rust-owned repository transaction. Index failure or malformed output cannot advance active index state.
 - Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. The private application invokes two paged Rust operations, promotes only against the captured manifest, and never writes during query. Production projection promotion remains plugin-owned; proposal matching is not part of the engine.
 - Topic Graph index computation uses one strict asynchronous engine capped at 25,000 nodes, 100,000 edges, and 4,096 code units per string. It derives only roots and unplaced identifiers. The private application invokes one paged Rust operation and promotes only against the captured manifest; production graph/review rows, canonical files, discovery effects, public DTOs, and projection registry remain plugin-owned.
-- Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production remains in-process and inside the existing canonical-write serialization; the Node service front door executes layout in its Worker and delegates Metrics to the Rust child.
+- Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production executes in the Rust sidecar inside canonical-write serialization.
 - Synthesis runtime packaging supports Windows x64, macOS x64/arm64, and Linux x86/x64/arm/arm64. Installation reads only packaged assets and writes only `runtime/synthesis/service-runtime`. The supervisor launches only the verified absolute product runtime with a sealed environment and never resolves system commands.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.

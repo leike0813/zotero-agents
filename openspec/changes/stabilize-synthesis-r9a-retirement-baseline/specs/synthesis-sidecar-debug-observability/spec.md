@@ -3,9 +3,8 @@
 ### Requirement: Debug builds SHALL expose one read-only lifecycle snapshot
 
 When `__debug_mode__` is enabled, Synthesis startup SHALL publish one sanitized
-snapshot keyed by `attemptId` across install, source classification, bootstrap,
-backup, preflight, supervision, handshake, smoke, activation, and client
-readiness.
+snapshot keyed by `attemptId` across install, supervision, current-session
+discovery, health/handshake, reconcile, and client readiness.
 
 #### Scenario: Startup fails
 - **WHEN** any phase fails
@@ -19,7 +18,7 @@ readiness.
 ### Requirement: Debug recovery SHALL remain explicit and external
 
 The debug surfaces SHALL be read-only and SHALL NOT automatically restart,
-reset, clean, or replace a Synthesis owner.
+reset, clean, replace production data, or alter runtime installation.
 
 #### Scenario: Manual recovery is required
 - **WHEN** the snapshot reports a terminal or repair-required state

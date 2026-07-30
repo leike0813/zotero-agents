@@ -8,7 +8,6 @@ import {
   hashSynthesisContractCanonicalJson,
 } from "../packages/synthesis-contracts/src/canonicalJson.js";
 import { SynthesisClientError } from "../packages/synthesis-contracts/src/common.js";
-import { rebuildSynthesisSidecarOwner } from "../packages/synthesis-contracts/src/sidecarLifecycle.js";
 import { rebuildSynthesisSidecarCallRequest } from "../packages/synthesis-contracts/src/sidecarSystem.js";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
@@ -151,6 +150,53 @@ function rebuildFrozenV1RuntimePointer(value: unknown) {
   };
 }
 
+function rebuildFrozenV1SidecarOwner(value: unknown) {
+  const invalid = () => {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Frozen v1 owner corpus entry is invalid",
+    );
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return invalid();
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    !sameStrings(Object.keys(record).sort(), [
+      "createdAtMs",
+      "leaseNonce",
+      "pid",
+      "profileId",
+      "schema",
+      "serviceInstanceId",
+      "supervisorInstanceId",
+    ]) ||
+    record.schema !== "synthesis-sidecar-owner.v1" ||
+    typeof record.profileId !== "string" ||
+    !/^[a-f0-9]{64}$/.test(record.profileId) ||
+    !["supervisorInstanceId", "serviceInstanceId", "leaseNonce"].every(
+      (field) =>
+        typeof record[field] === "string" &&
+        /^[A-Za-z0-9._:-]+$/.test(record[field]),
+    ) ||
+    !Number.isSafeInteger(record.pid) ||
+    Number(record.pid) < 2 ||
+    !Number.isSafeInteger(record.createdAtMs) ||
+    Number(record.createdAtMs) < 0
+  ) {
+    return invalid();
+  }
+  return {
+    schema: "synthesis-sidecar-owner.v1",
+    profileId: record.profileId,
+    supervisorInstanceId: record.supervisorInstanceId,
+    serviceInstanceId: record.serviceInstanceId,
+    leaseNonce: record.leaseNonce,
+    pid: record.pid,
+    createdAtMs: record.createdAtMs,
+  };
+}
+
 function stableErrorCode(error: unknown) {
   if (
     error instanceof SynthesisClientError ||
@@ -173,7 +219,7 @@ async function runOracle(oracle: string, inputJson: string) {
     case "sidecarCallRequest":
       return rebuildSynthesisSidecarCallRequest(input);
     case "sidecarOwner":
-      return rebuildSynthesisSidecarOwner(input);
+      return rebuildFrozenV1SidecarOwner(input);
     case "runtimePointer":
       return rebuildFrozenV1RuntimePointer(input);
     case "transferSnapshot":

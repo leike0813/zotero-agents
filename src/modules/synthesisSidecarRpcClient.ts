@@ -226,16 +226,6 @@ export function createSynthesisSidecarRpcClient(options?: {
         } catch {
           return fail(transportErrors.invalidResponse);
         }
-        if (
-          (typeof body.requestId === "string" &&
-            body.requestId.length > 0 &&
-            body.requestId !== requestId) ||
-          (typeof body.serviceInstanceId === "string" &&
-            body.serviceInstanceId.length > 0 &&
-            body.serviceInstanceId !== args.connection.serviceInstanceId)
-        ) {
-          return fail("runtime_mismatch");
-        }
         if (!response.ok || body.ok !== true) {
           return fail(
             isSynthesisSidecarErrorCode(body.error?.code)

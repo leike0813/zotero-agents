@@ -10,13 +10,11 @@ use synthesis_application::{CanonicalStorePort, TopicCanonicalPort};
 use synthesis_repository::Repository;
 use synthesis_sidecar::production_capabilities::ProductionClientOperationMetadata;
 use synthesis_sidecar::runtime_contract::{
-    NativeLaunchConfig, ProductionAdmission, SIDECAR_CAPABILITIES, current_time_ms,
+    NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
 use crate::runtime_http::{read_http, response};
-use crate::runtime_lifecycle::{
-    ProductionActivationEvidence, ProductionOwnership, RuntimeOwnership,
-};
+use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_client::{
     dispatch_production_client, production_client_error_status,
 };
@@ -38,20 +36,14 @@ struct CallEnvelope {
 }
 
 pub(crate) struct ServeState {
-    pub(crate) config: NativeLaunchConfig,
+    pub(crate) config: Arc<NativeLaunchConfig>,
     pub(crate) service_instance_id: String,
-    pub(crate) owner_mode: &'static str,
-    pub(crate) cutover_receipt_id: Option<String>,
     pub(crate) profile: String,
     pub(crate) repository_id: String,
     pub(crate) repository: Arc<Mutex<Repository>>,
     pub(crate) applications: ProductionApplications,
     pub(crate) production_client_operations: BTreeMap<String, ProductionClientOperationMetadata>,
-    pub(crate) mutation_enabled: AtomicBool,
-    pub(crate) production_admission: Option<Arc<ProductionAdmission>>,
-    pub(crate) production_ownership: Option<Arc<Mutex<ProductionOwnership>>>,
     pub(crate) runtime_ownership: Arc<RuntimeOwnership>,
-    pub(crate) discovery: Arc<Mutex<Value>>,
     pub(crate) canonical: CanonicalStorePort,
     pub(crate) stopping: Arc<AtomicBool>,
     pub(crate) compute_pool: Arc<NativeComputePool>,
@@ -112,7 +104,7 @@ fn compute_pool_snapshot(state: &ServeState) -> Result<Value, String> {
 
 fn repository_snapshot(state: &ServeState) -> Value {
     json!({
-        "mode":if state.owner_mode == "production" {"production"} else {"isolated_shadow"},
+        "mode":"production",
         "state":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
         "schemaVersion":synthesis_repository::SCHEMA_VERSION,
         "repositoryId":state.repository_id,
@@ -172,7 +164,7 @@ pub(crate) fn handle_connection(
         if method != "GET" || !body.is_empty() {
             return response(&mut stream, 400, error_response("invalid_request"));
         }
-        let mut health = json!({
+        let health = json!({
             "status":"ok",
             "implementation":state.config.implementation,
             "protocol":state.config.protocol_version,
@@ -190,24 +182,6 @@ pub(crate) fn handle_connection(
             "computePool":compute_pool_snapshot(&state)?,
             "citationGraphTransfer":transfer_snapshot(&state)?,
         });
-        if state.owner_mode == "production" {
-            health["ownerMode"] = json!("production");
-            health["mutationEnabled"] = json!(state.mutation_enabled.load(Ordering::Acquire));
-            health["capabilityFingerprint"] = json!(
-                synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
-            );
-            health["cutoverReceiptId"] = json!(state.cutover_receipt_id);
-            if let Some(generation) = state
-                .production_admission
-                .as_ref()
-                .and_then(|admission| admission.runtime_admission_generation)
-            {
-                health["runtimeAdmissionGeneration"] = json!(generation);
-            }
-            health["readyClientCapabilities"] = json!(
-                synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
-            );
-        }
         return response(&mut stream, 200, health);
     }
     if method != "POST" || path != "/synthesis/v1/call" {
@@ -232,10 +206,7 @@ pub(crate) fn handle_connection(
     if call.profile_id != state.profile {
         return response(&mut stream, 409, error_response("profile_mismatch"));
     }
-    let lifecycle_control = matches!(
-        call.capability.as_str(),
-        "system.shutdown" | "system.production.activate"
-    );
+    let lifecycle_control = matches!(call.capability.as_str(), "system.shutdown");
     let expected_token = if lifecycle_control {
         &state.config.lifecycle_token
     } else {
@@ -405,7 +376,7 @@ pub(crate) fn handle_connection(
             {
                 return response(&mut stream, 409, error_response("runtime_mismatch"));
             }
-            let mut handshake = json!({
+            let handshake = json!({
                 "protocol":"synthesis-sidecar.v1",
                 "serviceVersion":state.config.service_version,
                 "serviceInstanceId":state.service_instance_id,
@@ -421,30 +392,12 @@ pub(crate) fn handle_connection(
                 "runtimeRootId":state.config.runtime_root_id,
                 "dataRootId":state.config.data_root_id,
                 "capabilities":SIDECAR_CAPABILITIES,
-                "mutationEnabled":state.mutation_enabled.load(Ordering::Acquire),
                 "lifecycleState":"ready",
                 "repository":repository_snapshot(&state),
                 "canonicalStore":canonical_snapshot(&state)?,
                 "computePool":compute_pool_snapshot(&state)?,
                 "citationGraphTransfer":transfer_snapshot(&state)?,
             });
-            if state.owner_mode == "production" {
-                handshake["ownerMode"] = json!("production");
-                handshake["capabilityFingerprint"] = json!(
-                    synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
-                );
-                handshake["cutoverReceiptId"] = json!(state.cutover_receipt_id);
-                if let Some(generation) = state
-                    .production_admission
-                    .as_ref()
-                    .and_then(|admission| admission.runtime_admission_generation)
-                {
-                    handshake["runtimeAdmissionGeneration"] = json!(generation);
-                }
-                handshake["readyClientCapabilities"] = json!(
-                    synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
-                );
-            }
             bounded_response(
                 &mut stream,
                 200,
@@ -477,92 +430,6 @@ pub(crate) fn handle_connection(
                 200,
                 call_response(&call.request_id, &state.service_instance_id, data),
                 MAX_READ_RESPONSE_BYTES,
-            )
-        }
-        "system.production.activate" => {
-            if state.owner_mode != "production" {
-                return response(&mut stream, 404, error_response("capability_not_found"));
-            }
-            let ready_capabilities = match synthesis_sidecar::production_capabilities::production_ready_client_capabilities() {
-                Ok(capabilities) => capabilities,
-                Err(_) => {
-                    return response(
-                        &mut stream,
-                        503,
-                        error_response("production_surface_incomplete"),
-                    );
-                }
-            };
-            if ready_capabilities.len() != state.production_client_operations.len()
-                || ready_capabilities
-                    .iter()
-                    .any(|capability| !state.production_client_operations.contains_key(capability))
-            {
-                return response(
-                    &mut stream,
-                    503,
-                    error_response("production_surface_incomplete"),
-                );
-            }
-            let evidence: ProductionActivationEvidence = match serde_json::from_value(call.payload)
-            {
-                Ok(evidence) => evidence,
-                Err(_) => {
-                    return response(&mut stream, 400, error_response("invalid_request"));
-                }
-            };
-            let Some(admission) = state.production_admission.as_deref() else {
-                return response(
-                    &mut stream,
-                    409,
-                    error_response("production_activation_identity_mismatch"),
-                );
-            };
-            let Some(owner) = state.production_ownership.as_ref() else {
-                return response(
-                    &mut stream,
-                    409,
-                    error_response("production_activation_identity_mismatch"),
-                );
-            };
-            let activation_result = owner
-                .lock()
-                .map_err(|_| "production_owner_unavailable".to_owned())?
-                .activate(
-                    admission,
-                    &evidence,
-                    synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES,
-                );
-            if let Err(code) = activation_result {
-                return response(
-                    &mut stream,
-                    production_client_error_status(&code),
-                    error_response(&code),
-                );
-            }
-            {
-                let mut discovery = state
-                    .discovery
-                    .lock()
-                    .map_err(|_| "discovery_unavailable".to_owned())?;
-                discovery["mutationEnabled"] = json!(true);
-                state.runtime_ownership.publish_discovery(&discovery)?;
-            }
-            state.mutation_enabled.store(true, Ordering::Release);
-            response(
-                &mut stream,
-                200,
-                call_response(
-                    &call.request_id,
-                    &state.service_instance_id,
-                    json!({
-                        "activated":true,
-                        "mutationEnabled":true,
-                        "serviceInstanceId":state.service_instance_id,
-                        "cutoverReceiptId":state.cutover_receipt_id,
-                        "runtimeAdmissionGeneration":evidence.runtime_admission_generation,
-                    }),
-                ),
             )
         }
         "system.shutdown" => {

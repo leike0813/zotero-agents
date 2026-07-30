@@ -7,6 +7,7 @@ const FIRST_CORE_NUMBER = 175;
 const ISOLATED_CORE_NUMBER = 202;
 const R9A_CORE_NUMBER = 219;
 const LAST_CORE_NUMBER = 235;
+const RETIRED_CORE_NUMBERS = new Set([194, 219, 221, 223, 224, 227]);
 
 export type SynthesisSidecarStage1SuiteSegment = {
   id: string;
@@ -52,17 +53,26 @@ export function resolveSynthesisSidecarStage1Suite(
     coreNumber <= LAST_CORE_NUMBER;
     coreNumber += 1
   ) {
+    if (RETIRED_CORE_NUMBERS.has(coreNumber)) {
+      if ((candidates.get(coreNumber) || []).length !== 0) {
+        throw new Error(
+          `synthesis_stage1_retired_member_present:${coreNumber}`,
+        );
+      }
+      continue;
+    }
     const matches = candidates.get(coreNumber) || [];
-    if (matches.length !== 1) {
+    if (matches.length === 0 || new Set(matches).size !== matches.length) {
       throw new Error(
         `synthesis_stage1_suite_inventory_invalid:${coreNumber}:${matches.length}`,
       );
     }
-    const filePath = matches[0];
-    if (!/^\d+-synthesis-/.test(path.basename(filePath))) {
-      throw new Error(`synthesis_stage1_suite_member_invalid:${coreNumber}`);
+    for (const filePath of matches.sort()) {
+      if (!/^\d+-synthesis-/.test(path.basename(filePath))) {
+        throw new Error(`synthesis_stage1_suite_member_invalid:${coreNumber}`);
+      }
+      files.push(filePath);
     }
-    files.push(filePath);
   }
 
   return {

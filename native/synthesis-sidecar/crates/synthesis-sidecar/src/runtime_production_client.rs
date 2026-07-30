@@ -1,8 +1,6 @@
 use serde::Deserialize;
 use serde_json::Value;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
-use synthesis_sidecar::production_capabilities::ProductionClientAccess;
 
 use crate::runtime_capabilities::ServeState;
 use crate::runtime_deadline::with_request_deadline;
@@ -19,9 +17,6 @@ pub(crate) fn dispatch_production_client(
     capability: &str,
     payload: Value,
 ) -> Result<Value, String> {
-    if state.owner_mode != "production" {
-        return Err("capability_not_found".into());
-    }
     let metadata = state
         .production_client_operations
         .get(capability)
@@ -32,11 +27,6 @@ pub(crate) fn dispatch_production_client(
         > metadata.request_bytes
     {
         return Err("request_too_large".into());
-    }
-    if metadata.access == ProductionClientAccess::Mutation
-        && !state.mutation_enabled.load(Ordering::Acquire)
-    {
-        return Err("mutation_not_admitted".into());
     }
     let envelope: ClientArguments =
         serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;

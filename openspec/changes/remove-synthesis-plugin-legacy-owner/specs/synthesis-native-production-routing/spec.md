@@ -11,7 +11,7 @@ MUST NOT contain a legacy service/composition route or factory that could serve
 as fallback.
 
 #### Scenario: Native request fails
-- **WHEN** any native production call fails before or after mutation admission
+- **WHEN** any native production call fails
 - **THEN** the caller observes the stable failure
 - **AND** no request is retried through an in-process, plugin legacy, or Node implementation
 
@@ -25,13 +25,11 @@ as fallback.
 
 After plugin legacy retirement, plugin code SHALL NOT open the production
 Synthesis database or canonical root for application reads or writes. Only the
-approved cutover backup/restore coordinator and native runtime
-installation/supervision adapters MAY handle opaque paths required by their
-existing contracts; ordinary client, UI, Host, test, and harness code MUST NOT
-receive root-opening authority.
+native runtime supervisor MAY pass opaque production paths to Rust; ordinary
+client, UI, Host, test, and harness code MUST NOT receive root-opening
+authority.
 
 #### Scenario: Plugin source is checked for root openers
 - **WHEN** production DB/canonical constructors, path propagation, and direct SQLite/filesystem calls are inventoried
 - **THEN** no ordinary plugin or harness route can open production Synthesis roots
-- **AND** approved backup/restore exceptions remain explicit and bounded
-
+- **AND** the native supervisor path handoff remains explicit and bounded

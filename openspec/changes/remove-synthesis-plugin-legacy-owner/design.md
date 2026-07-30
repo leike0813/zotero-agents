@@ -1,3 +1,12 @@
+## Lifecycle dependency
+
+The lifecycle authority for this change is
+`simplify-xpi-owned-synthesis-sidecar-lifecycle`. Any later text that refers to
+cutover receipts, runtime admission, activation, critical smoke, owner/lease
+files, persisted runtime generations, or plugin backup/restore is superseded.
+Retirement must leave one current-session Rust composition guarded by the
+process-held OS lock.
+
 ## Context
 
 The accepted R9a route gives all production consumers one generation-scoped
@@ -219,4 +228,3 @@ the plugin owner is not a supported recovery mechanism.
 None. The neutral adapter boundary, harness strategy, per-file deletion rule,
 zero-construction invariant, and dependency on the final Node retirement change
 are fixed.
-

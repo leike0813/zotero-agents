@@ -1,11 +1,7 @@
 import {
-  SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA,
-  isExpiredSynthesisSidecarRuntimeManifest,
   synthesisSidecarRuntimePlatformIdentity,
   rebuildSynthesisSidecarRuntimeBundleManifest,
-  rebuildSynthesisSidecarRuntimePointer,
   type SynthesisSidecarRuntimeBundleManifest,
-  type SynthesisSidecarRuntimePointer,
   type SynthesisSidecarRuntimeTarget,
 } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import { sha256Hex } from "../platform/hash";
@@ -18,12 +14,10 @@ import {
   ensureRuntimeDirectory,
   getRuntimeFilePermissions,
   getSynthesisSidecarRuntimePaths,
-  listRuntimeChildDirectories,
   moveRuntimePath,
   readRuntimeBytes,
   readRuntimeTextFile,
   removeRuntimePath,
-  replaceRuntimeTextFileAtomically,
   runtimePathExists,
   setRuntimeExecutablePermissions,
   statRuntimePath,
@@ -65,10 +59,6 @@ export type SynthesisSidecarRuntimeInstallPaths = SynthesisSidecarRuntimePaths;
 export type SynthesisSidecarRuntimeInstaller = {
   inspect: () => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
   ensureInstalled: () => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
-  resolveInstalled: (
-    buildFingerprint: string,
-  ) => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
-  rollback: () => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
 };
 
 type InstallerOptions = {
@@ -76,7 +66,6 @@ type InstallerOptions = {
   target?: SynthesisSidecarRuntimeTargetDetection;
   readPackagedAsset?: SynthesisSidecarPackagedAssetReader;
   verificationPolicy?: "candidate" | "production";
-  now?: () => number;
 };
 
 function diagnosticSnapshot(
@@ -84,11 +73,7 @@ function diagnosticSnapshot(
   target: SynthesisSidecarRuntimeTargetDetection,
   code: string,
 ): SynthesisSidecarRuntimeInstallSnapshot {
-  return {
-    state,
-    target,
-    diagnostics: [{ code }],
-  };
+  return { state, target, diagnostics: [{ code }] };
 }
 
 function errorCode(error: unknown) {
@@ -102,48 +87,16 @@ export function getSynthesisSidecarRuntimeInstallPaths(
   return getSynthesisSidecarRuntimePaths(runtimeRoot);
 }
 
-function versionRoot(
-  paths: SynthesisSidecarRuntimeInstallPaths,
-  bundleId: string,
-) {
-  return joinPath(paths.versionsDir, bundleId);
-}
-
-function pointerDocument(bundleId: string): SynthesisSidecarRuntimePointer {
-  return {
-    schema: SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA,
-    bundleId,
-  };
-}
-
-async function readPointer(path: string) {
-  const text = (await readRuntimeTextFile(path)).trim();
-  if (!text) {
-    return null;
-  }
-  return rebuildSynthesisSidecarRuntimePointer(JSON.parse(text));
-}
-
-async function writePointer(path: string, bundleId: string) {
-  const pointer = rebuildSynthesisSidecarRuntimePointer(
-    pointerDocument(bundleId),
-  );
-  await replaceRuntimeTextFileAtomically(path, `${JSON.stringify(pointer)}\n`);
-}
-
 async function verifyInstalledRuntime(args: {
   target: SynthesisSidecarRuntimeTarget;
   installRoot: string;
-  expectedBundleId?: string;
-  verificationPolicy: "candidate" | "production";
-  nowMs?: number;
-  allowExpired?: boolean;
+  expectedManifest?: SynthesisSidecarRuntimeBundleManifest;
 }): Promise<SynthesisSidecarRuntimeInstallSnapshot> {
   const manifestPath = joinPath(args.installRoot, "manifest.json");
   const text = (await readRuntimeTextFile(manifestPath)).trim();
   if (!text) {
     return diagnosticSnapshot(
-      "corrupt",
+      (await runtimePathExists(args.installRoot)) ? "corrupt" : "missing",
       args.target,
       "installed_manifest_missing",
     );
@@ -160,25 +113,13 @@ async function verifyInstalledRuntime(args: {
   }
   if (
     manifest.target !== args.target ||
-    (args.expectedBundleId && manifest.bundleId !== args.expectedBundleId)
+    (args.expectedManifest &&
+      JSON.stringify(manifest) !== JSON.stringify(args.expectedManifest))
   ) {
     return diagnosticSnapshot(
       "corrupt",
       args.target,
       "installed_manifest_identity_mismatch",
-    );
-  }
-  if (
-    !args.allowExpired &&
-    isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
-  ) {
-    return diagnosticSnapshot(
-      "corrupt",
-      args.target,
-      !args.allowExpired &&
-        isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
-        ? "installed_manifest_expired"
-        : "installed_manifest_integrity_invalid",
     );
   }
   for (const entry of manifest.files) {
@@ -229,8 +170,6 @@ async function verifyInstalledRuntime(args: {
 async function stageBundle(args: {
   bundle: VerifiedSynthesisSidecarRuntimeBundle;
   stagingRoot: string;
-  verificationPolicy: "candidate" | "production";
-  nowMs?: number;
 }) {
   await ensureRuntimeDirectory(args.stagingRoot);
   for (const entry of args.bundle.manifest.files) {
@@ -251,9 +190,7 @@ async function stageBundle(args: {
   const verified = await verifyInstalledRuntime({
     target: args.bundle.manifest.target,
     installRoot: args.stagingRoot,
-    expectedBundleId: args.bundle.manifest.bundleId,
-    verificationPolicy: args.verificationPolicy,
-    nowMs: args.nowMs,
+    expectedManifest: args.bundle.manifest,
   });
   if (verified.state !== "ready") {
     throw new Error(verified.diagnostics[0]?.code || "staging_verify_failed");
@@ -265,7 +202,6 @@ export function createSynthesisSidecarRuntimeInstaller(
 ): SynthesisSidecarRuntimeInstaller {
   const target = options.target || detectSynthesisSidecarRuntimeTarget();
   const paths = getSynthesisSidecarRuntimeInstallPaths(options.runtimeRoot);
-  const verificationPolicy = options.verificationPolicy ?? "production";
   let ensurePromise: Promise<SynthesisSidecarRuntimeInstallSnapshot> | null =
     null;
 
@@ -273,26 +209,9 @@ export function createSynthesisSidecarRuntimeInstaller(
     if (target === "unsupported") {
       return diagnosticSnapshot("unsupported", target, "unsupported_target");
     }
-    let active: SynthesisSidecarRuntimePointer | null;
-    try {
-      active = await readPointer(paths.activePointerPath);
-    } catch (error) {
-      return diagnosticSnapshot(
-        "corrupt",
-        target,
-        `active_pointer_invalid:${errorCode(error)}`,
-      );
-    }
-    if (!active) {
-      return diagnosticSnapshot("missing", target, "active_pointer_missing");
-    }
     return verifyInstalledRuntime({
       target,
-      installRoot: versionRoot(paths, active.bundleId),
-      expectedBundleId: active.bundleId,
-      verificationPolicy,
-      nowMs: options.now?.(),
-      allowExpired: true,
+      installRoot: paths.currentDir,
     });
   }
 
@@ -300,15 +219,13 @@ export function createSynthesisSidecarRuntimeInstaller(
     if (target === "unsupported") {
       return diagnosticSnapshot("unsupported", target, "unsupported_target");
     }
-    const current = await inspect();
     let bundle: VerifiedSynthesisSidecarRuntimeBundle;
     try {
       bundle = await loadPackagedSynthesisSidecarRuntimeBundle({
         target,
         readPackagedAsset: options.readPackagedAsset,
-        verificationPolicy,
-        nowMs: options.now?.(),
-        allowExpired: current.state === "ready",
+        verificationPolicy: options.verificationPolicy ?? "production",
+        allowExpired: true,
       });
     } catch (error) {
       return diagnosticSnapshot(
@@ -317,100 +234,61 @@ export function createSynthesisSidecarRuntimeInstaller(
         `packaged_bundle_invalid:${errorCode(error)}`,
       );
     }
-
-    if (
-      isExpiredSynthesisSidecarRuntimeManifest(bundle.manifest, options.now?.())
-    ) {
-      return current.state === "ready" &&
-        current.bundleId === bundle.manifest.bundleId
-        ? current
-        : diagnosticSnapshot(
-            "corrupt",
-            target,
-            "packaged_bundle_invalid:synthesis_sidecar_runtime_expired",
-          );
-    }
-    if (
-      current.state === "ready" &&
-      current.bundleId === bundle.manifest.bundleId
-    ) {
+    const current = await verifyInstalledRuntime({
+      target,
+      installRoot: paths.currentDir,
+      expectedManifest: bundle.manifest,
+    });
+    if (current.state === "ready") {
       return current;
     }
-    const finalRoot = versionRoot(paths, bundle.manifest.bundleId);
-    let finalSnapshot = await verifyInstalledRuntime({
-      target,
-      installRoot: finalRoot,
-      expectedBundleId: bundle.manifest.bundleId,
-      verificationPolicy,
-      nowMs: options.now?.(),
-    });
-    let stagingRoot = "";
+
+    const nonce = `${Date.now().toString(36)}-${Math.random()
+      .toString(16)
+      .slice(2)}`;
+    const stagingRoot = `${paths.currentDir}.staging-${nonce}`;
+    const oldRoot = `${paths.currentDir}.old-${nonce}`;
+    let movedCurrent = false;
     try {
-      if (finalSnapshot.state !== "ready") {
-        if (await runtimePathExists(finalRoot)) {
-          await ensureRuntimeDirectory(paths.quarantineDir);
-          await moveRuntimePath({
-            sourcePath: finalRoot,
-            targetPath: joinPath(
-              paths.quarantineDir,
-              `${bundle.manifest.bundleId}-${(
-                options.now?.() ?? Date.now()
-              ).toString(36)}`,
-            ),
-          });
-        }
-        await ensureRuntimeDirectory(paths.versionsDir);
-        await ensureRuntimeDirectory(paths.stagingDir);
-        stagingRoot = joinPath(
-          paths.stagingDir,
-          `${bundle.manifest.bundleId}-${Date.now().toString(36)}`,
-        );
-        await removeRuntimePath(stagingRoot);
-        await stageBundle({
-          bundle,
-          stagingRoot,
-          verificationPolicy,
-          nowMs: options.now?.(),
+      await ensureRuntimeDirectory(paths.root);
+      await removeRuntimePath(stagingRoot);
+      await removeRuntimePath(oldRoot);
+      await stageBundle({ bundle, stagingRoot });
+      if (await runtimePathExists(paths.currentDir)) {
+        await moveRuntimePath({
+          sourcePath: paths.currentDir,
+          targetPath: oldRoot,
         });
+        movedCurrent = true;
+      }
+      try {
         await moveRuntimePath({
           sourcePath: stagingRoot,
-          targetPath: finalRoot,
+          targetPath: paths.currentDir,
         });
-        stagingRoot = "";
-        finalSnapshot = await verifyInstalledRuntime({
-          target,
-          installRoot: finalRoot,
-          expectedBundleId: bundle.manifest.bundleId,
-          verificationPolicy,
-          nowMs: options.now?.(),
-        });
-        if (finalSnapshot.state !== "ready") {
-          throw new Error(
-            finalSnapshot.diagnostics[0]?.code || "final_verify_failed",
-          );
+      } catch (error) {
+        if (movedCurrent) {
+          await moveRuntimePath({
+            sourcePath: oldRoot,
+            targetPath: paths.currentDir,
+          }).catch(() => undefined);
         }
+        throw error;
       }
-      if (
-        current.state === "ready" &&
-        current.bundleId &&
-        current.bundleId !== bundle.manifest.bundleId
-      ) {
-        await writePointer(paths.previousPointerPath, current.bundleId);
-      } else {
-        await removeRuntimePath(paths.previousPointerPath);
-      }
-      await writePointer(paths.activePointerPath, bundle.manifest.bundleId);
-      return verifyInstalledRuntime({
+      const installed = await verifyInstalledRuntime({
         target,
-        installRoot: finalRoot,
-        expectedBundleId: bundle.manifest.bundleId,
-        verificationPolicy,
-        nowMs: options.now?.(),
+        installRoot: paths.currentDir,
+        expectedManifest: bundle.manifest,
       });
-    } catch (error) {
-      if (stagingRoot) {
-        await removeRuntimePath(stagingRoot).catch(() => false);
+      if (installed.state !== "ready") {
+        throw new Error(
+          installed.diagnostics[0]?.code || "final_verify_failed",
+        );
       }
+      await removeRuntimePath(oldRoot);
+      return installed;
+    } catch (error) {
+      await removeRuntimePath(stagingRoot).catch(() => false);
       return diagnosticSnapshot(
         "corrupt",
         target,
@@ -419,101 +297,13 @@ export function createSynthesisSidecarRuntimeInstaller(
     }
   }
 
-  async function ensureInstalled() {
-    ensurePromise ||= performEnsure().finally(() => {
-      ensurePromise = null;
-    });
-    return ensurePromise;
-  }
-
-  async function resolveInstalled(buildFingerprint: string) {
-    if (target === "unsupported") {
-      return diagnosticSnapshot("unsupported", target, "unsupported_target");
-    }
-    if (!/^[a-f0-9]{64}$/.test(buildFingerprint)) {
-      return diagnosticSnapshot(
-        "corrupt",
-        target,
-        "installed_build_fingerprint_invalid",
-      );
-    }
-    const matches: SynthesisSidecarRuntimeInstallSnapshot[] = [];
-    for (const installRoot of await listRuntimeChildDirectories(
-      paths.versionsDir,
-    )) {
-      const snapshot = await verifyInstalledRuntime({
-        target,
-        installRoot,
-        verificationPolicy,
-        nowMs: options.now?.(),
-        allowExpired: true,
-      });
-      if (
-        snapshot.state === "ready" &&
-        snapshot.buildFingerprint === buildFingerprint
-      ) {
-        matches.push(snapshot);
-      }
-    }
-    return matches.length === 1
-      ? matches[0]!
-      : diagnosticSnapshot(
-          matches.length ? "corrupt" : "missing",
-          target,
-          matches.length
-            ? "installed_build_fingerprint_ambiguous"
-            : "installed_build_fingerprint_missing",
-        );
-  }
-
-  async function rollback() {
-    if (target === "unsupported") {
-      return diagnosticSnapshot("unsupported", target, "unsupported_target");
-    }
-    const active = await inspect();
-    if (active.state !== "ready" || !active.bundleId) {
-      return diagnosticSnapshot("corrupt", target, "rollback_active_invalid");
-    }
-    let previous: SynthesisSidecarRuntimePointer | null;
-    try {
-      previous = await readPointer(paths.previousPointerPath);
-    } catch (error) {
-      return diagnosticSnapshot(
-        "corrupt",
-        target,
-        `rollback_pointer_invalid:${errorCode(error)}`,
-      );
-    }
-    if (!previous) {
-      return diagnosticSnapshot("missing", target, "rollback_previous_missing");
-    }
-    const previousSnapshot = await verifyInstalledRuntime({
-      target,
-      installRoot: versionRoot(paths, previous.bundleId),
-      expectedBundleId: previous.bundleId,
-      verificationPolicy,
-      nowMs: options.now?.(),
-    });
-    if (previousSnapshot.state !== "ready") {
-      return diagnosticSnapshot("corrupt", target, "rollback_previous_invalid");
-    }
-    try {
-      await writePointer(paths.previousPointerPath, active.bundleId);
-      await writePointer(paths.activePointerPath, previous.bundleId);
-      return previousSnapshot;
-    } catch (error) {
-      return diagnosticSnapshot(
-        "corrupt",
-        target,
-        `rollback_failed:${errorCode(error)}`,
-      );
-    }
-  }
-
   return {
     inspect,
-    ensureInstalled,
-    resolveInstalled,
-    rollback,
+    ensureInstalled() {
+      ensurePromise ||= performEnsure().finally(() => {
+        ensurePromise = null;
+      });
+      return ensurePromise;
+    },
   };
 }

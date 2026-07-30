@@ -1,51 +1,20 @@
 import { assert } from "chai";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA,
-  SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA,
-  type SynthesisProductionAdmission,
-} from "../../packages/synthesis-contracts/src/sidecarProduction";
+import { SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA } from "../../packages/synthesis-contracts/src/sidecarProduction";
 import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
-  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
   SYNTHESIS_SIDECAR_PROTOCOL,
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { createSynthesisProductionOwner } from "../../src/modules/synthesisProductionOwner";
 import {
   createSynthesisProductionRuntimeSupervisor,
-  getReadySynthesisProductionControlConnection,
-  startSynthesisProductionRuntimeSupervisor,
-  stopSynthesisProductionRuntimeSupervisor,
   type SynthesisSidecarSupervisorStatus,
 } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
 
 const PROFILE_PATH = "/profile/test";
-const PROFILE_ID = createHash("sha256").update(PROFILE_PATH).digest("hex");
 const BUNDLE_ID = "4".repeat(64);
-
-function admission(root: string): SynthesisProductionAdmission {
-  return {
-    schema: SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA,
-    purpose: "live_owner",
-    profileId: PROFILE_ID,
-    supervisorInstanceId: "production-supervisor-1",
-    cutoverReceiptId: "receipt-1",
-    cutoverReceiptPath: path.join(root, "state/synthesis-cutover/receipt.json"),
-    capabilityFingerprint:
-      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-    repositoryDbPath: path.join(root, "state/synthesis.db"),
-    canonicalRoot: path.join(root, "data/synthesis"),
-    reverseHost: {
-      host: "127.0.0.1",
-      port: 9134,
-      authorizationToken: "8".repeat(64),
-    },
-    mutationEnabled: false,
-  };
-}
 
 function readyInstall() {
   return {
@@ -62,9 +31,60 @@ function readyInstall() {
       status: "not-applicable" as const,
       signer: null,
     },
-    installRoot: "/product/runtime",
-    executablePath: "/product/runtime/synthesis-sidecar",
+    installRoot: "/product/runtime/current",
+    executablePath: "/product/runtime/current/synthesis-sidecar",
     diagnostics: [],
+  };
+}
+
+type LaunchConfig = {
+  schema: string;
+  profileId: string;
+  profileRuntimeRoot: string;
+  supervisorInstanceId: string;
+  bundleId: string;
+  implementation: "rust-native";
+  target: "linux-x64";
+  targetTriple: string;
+  buildFingerprint: string;
+  platformSignature: unknown;
+  serviceVersion: string;
+  protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
+  schemaVersion: string;
+  runtimeRootId: string;
+  dataRootId: string;
+  repositoryDbPath: string;
+  canonicalRoot: string;
+  reverseHost: {
+    host: "127.0.0.1";
+    port: number;
+    authorizationToken: string;
+  };
+};
+
+function discovery(config: LaunchConfig, serviceInstanceId: string) {
+  return {
+    schema: SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA,
+    profileId: config.profileId,
+    supervisorInstanceId: config.supervisorInstanceId,
+    serviceInstanceId,
+    bundleId: config.bundleId,
+    implementation: config.implementation,
+    target: config.target,
+    targetTriple: config.targetTriple,
+    buildFingerprint: config.buildFingerprint,
+    platformSignature: config.platformSignature,
+    serviceVersion: config.serviceVersion,
+    protocolVersion: config.protocolVersion,
+    schemaVersion: config.schemaVersion,
+    runtimeRootId: config.runtimeRootId,
+    dataRootId: config.dataRootId,
+    host: "127.0.0.1",
+    port: 9135,
+    pid: 42,
+    lifecycleState: "ready",
+    tokenLocator: "supervisor-session",
+    capabilities: SYNTHESIS_SIDECAR_CAPABILITIES,
   };
 }
 
@@ -85,188 +105,169 @@ async function waitForStatus(
 }
 
 describe("Synthesis production runtime supervisor", function () {
-  it("launches only the production command with a private validated admission and v3 readiness", async function () {
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-production-supervisor-"),
-    );
-    const productionAdmission = admission(root);
-    fs.mkdirSync(path.dirname(productionAdmission.cutoverReceiptPath), {
-      recursive: true,
-    });
-    fs.mkdirSync(path.dirname(productionAdmission.repositoryDbPath), {
-      recursive: true,
-    });
-    fs.mkdirSync(productionAdmission.canonicalRoot, { recursive: true });
-    fs.writeFileSync(productionAdmission.cutoverReceiptPath, "{}");
-    fs.writeFileSync(productionAdmission.repositoryDbPath, "");
-
-    const invocations: Array<{
-      command: string;
-      arguments?: string[];
-    }> = [];
-    let installerResolutions = 0;
-    let writtenAdmission: unknown;
-    let resolveExit: () => void = () => undefined;
-    const closed = new Promise<void>((resolve) => {
-      resolveExit = resolve;
-    });
-    const subprocess = {
-      call: async (invocation: { command: string; arguments?: string[] }) => {
-        invocations.push(invocation);
-        const configPath = invocation.arguments?.[2] || "";
-        const admissionPath = invocation.arguments?.[4] || "";
-        const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
-          profileId: string;
-          profileRuntimeRoot: string;
-          supervisorInstanceId: string;
-          bundleId: string;
-          implementation: string;
-          target: string;
-          targetTriple: string;
-          buildFingerprint: string;
-          platformSignature: unknown;
-          serviceVersion: string;
-          protocolVersion: string;
-          schemaVersion: string;
-          runtimeRootId: string;
-          dataRootId: string;
-        };
-        writtenAdmission = JSON.parse(fs.readFileSync(admissionPath, "utf8"));
-        fs.writeFileSync(
-          path.join(config.profileRuntimeRoot, "discovery.json"),
-          JSON.stringify({
-            schema: SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA,
-            profileId: config.profileId,
-            supervisorInstanceId: config.supervisorInstanceId,
-            serviceInstanceId: "service-1",
-            bundleId: config.bundleId,
-            implementation: config.implementation,
-            target: config.target,
-            targetTriple: config.targetTriple,
-            buildFingerprint: config.buildFingerprint,
-            platformSignature: config.platformSignature,
-            serviceVersion: config.serviceVersion,
-            protocolVersion: config.protocolVersion,
-            schemaVersion: config.schemaVersion,
-            runtimeRootId: config.runtimeRootId,
-            dataRootId: config.dataRootId,
+  it("owns one direct startup and shutdown sequence without lifecycle state machines", async function () {
+    const events: string[] = [];
+    const connection = {
+      discovery: {
+        host: "127.0.0.1" as const,
+        port: 9135,
+        serviceInstanceId: "service-current",
+      },
+      clientToken: "7".repeat(64),
+    };
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint: () => ({
+        start: () => {
+          events.push("reverse-host:start");
+          return {
             host: "127.0.0.1",
-            port: 9135,
-            pid: 42,
-            lifecycleState: "ready",
-            tokenLocator: "supervisor-session",
-            capabilities: SYNTHESIS_SIDECAR_CAPABILITIES,
-            ownerMode: "production",
-            mutationEnabled: false,
-            capabilityFingerprint: productionAdmission.capabilityFingerprint,
-            cutoverReceiptId: productionAdmission.cutoverReceiptId,
-            readyClientCapabilities:
-              SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          }),
-        );
+            port: 9134,
+            authorizationToken: "8".repeat(64),
+          };
+        },
+        bindServiceInstance: (serviceInstanceId) => {
+          events.push(`reverse-host:bind:${serviceInstanceId}`);
+        },
+        stop: () => {
+          events.push("reverse-host:stop");
+        },
+      }),
+      startProductionSupervisor: () => {
+        events.push("supervisor:start");
         return {
-          stdout: { readString: async () => "" },
-          stderr: { readString: async () => "" },
-          stdin: {
-            close: async () => {
-              resolveExit();
-            },
-          },
-          wait: () => closed,
-          kill: () => resolveExit(),
+          subscribe: () => () => undefined,
+          getSnapshot: () => ({
+            status: "ready" as const,
+            recoveryState: "none" as const,
+            restartCount: 0,
+          }),
+          getDiagnosticEvidence: () => ({ stdoutTail: "", stderrTail: "" }),
+          getReadyConnection: () => connection,
         };
       },
-    };
-    const controlClient = {
-      health: async () => ({ ownerMode: "production" as const }),
-      handshake: async () => ({ ownerMode: "production" as const }),
-      activate: async () => ({ mutationEnabled: true as const }),
-      shutdown: async () => undefined,
-    };
-    const supervisor = startSynthesisProductionRuntimeSupervisor({
-      admission: productionAdmission,
-      runtimeRoot: path.join(root, "runtime"),
-      profilePath: PROFILE_PATH,
-      resolvedInstall: readyInstall(),
-      installer: {
-        ensureInstalled: async () => {
-          installerResolutions += 1;
-          return readyInstall();
-        },
-        getSnapshot: () => readyInstall(),
-        subscribe: () => () => undefined,
-        retry: async () => readyInstall(),
+      stopProductionSupervisor: async () => {
+        events.push("supervisor:stop");
       },
-      subprocess: subprocess as never,
-      controlClient: controlClient as never,
+      afterReady: async () => {
+        events.push("client:ready");
+      },
+      invalidateClient: () => {
+        events.push("client:invalidate");
+      },
+    });
+
+    assert.equal(await owner.start(), connection);
+    await owner.shutdown();
+    assert.deepEqual(events, [
+      "reverse-host:start",
+      "supervisor:start",
+      "reverse-host:bind:service-current",
+      "client:ready",
+      "client:invalidate",
+      "supervisor:stop",
+      "reverse-host:stop",
+    ]);
+  });
+
+  it("launches one serve command from a session config and leaves legacy state inert", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-supervisor-"));
+    const runtimeRoot = path.join(root, "runtime");
+    const repositoryDbPath = path.join(root, "state", "synthesis.db");
+    const canonicalRoot = path.join(root, "data", "synthesis");
+    const legacyActivePath = path.join(
+      runtimeRoot,
+      "synthesis",
+      "service-runtime",
+      "active.json",
+    );
+    const legacyVersionPath = path.join(
+      runtimeRoot,
+      "synthesis",
+      "service-runtime",
+      "versions",
+      "old",
+      "manifest.json",
+    );
+    fs.mkdirSync(path.dirname(legacyActivePath), { recursive: true });
+    fs.mkdirSync(path.dirname(legacyVersionPath), { recursive: true });
+    fs.writeFileSync(legacyActivePath, "legacy-active\n");
+    fs.writeFileSync(legacyVersionPath, "legacy-version\n");
+
+    const invocations: Array<{ arguments?: string[] }> = [];
+    const configs: LaunchConfig[] = [];
+    let closeProcess = () => undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeProcess = resolve;
+    });
+    const supervisor = createSynthesisProductionRuntimeSupervisor({
+      runtimeRoot,
+      profilePath: PROFILE_PATH,
+      repositoryDbPath,
+      canonicalRoot,
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "8".repeat(64),
+      },
+      resolvedInstall: readyInstall(),
+      subprocess: {
+        call: async (invocation: { arguments?: string[] }) => {
+          invocations.push(invocation);
+          const configPath = invocation.arguments?.[2] || "";
+          const config = JSON.parse(
+            fs.readFileSync(configPath, "utf8"),
+          ) as LaunchConfig;
+          configs.push(config);
+          fs.writeFileSync(
+            path.join(config.profileRuntimeRoot, "discovery.json"),
+            JSON.stringify(discovery(config, "service-1")),
+          );
+          return {
+            stdout: { readString: async () => "" },
+            stderr: { readString: async () => "" },
+            stdin: { close: async () => closeProcess() },
+            wait: () => closed,
+            kill: () => closeProcess(),
+          };
+        },
+      } as never,
+      controlClient: {
+        health: async () => ({}),
+        handshake: async () => ({}),
+        shutdown: async () => undefined,
+      } as never,
       discoveryTimeoutMs: 500,
+      healthIntervalMs: 0,
     });
 
     supervisor.start();
     await waitForStatus(supervisor, "ready");
 
-    assert.deepEqual(invocations[0]?.arguments, [
-      "serve-production",
+    assert.deepEqual(invocations[0]?.arguments?.slice(0, 2), [
+      "serve",
       "--config",
-      invocations[0]?.arguments?.[2],
-      "--admission",
-      invocations[0]?.arguments?.[4],
     ]);
-    assert.deepEqual(writtenAdmission, productionAdmission);
-    assert.equal(installerResolutions, 0);
-    assert.equal(
-      supervisor.getReadyConnection()?.discovery.cutoverReceiptId,
-      productionAdmission.cutoverReceiptId,
-    );
-    assert.equal(
-      supervisor.getReadyConnection()?.discovery.ownerMode,
-      "production",
-    );
-    await supervisor.activate({} as never);
-    assert.equal(
-      getReadySynthesisProductionControlConnection()?.discovery
-        .serviceInstanceId,
-      "service-1",
-    );
-
-    await stopSynthesisProductionRuntimeSupervisor();
-    assert.equal(supervisor.getSnapshot().status, "stopped");
-  });
-
-  it("fails closed before launch when admission is bound to another profile", async function () {
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-production-supervisor-mismatch-"),
-    );
-    let launches = 0;
-    const supervisor = createSynthesisProductionRuntimeSupervisor({
-      admission: {
-        ...admission(root),
-        profileId: "9".repeat(64),
-      },
-      runtimeRoot: path.join(root, "runtime"),
-      profilePath: PROFILE_PATH,
-      installer: {
-        ensureInstalled: async () => readyInstall(),
-        getSnapshot: () => readyInstall(),
-        subscribe: () => () => undefined,
-        retry: async () => readyInstall(),
-      },
-      subprocess: {
-        call: async () => {
-          launches += 1;
-          throw new Error("unexpected_launch");
-        },
-      } as never,
-      discoveryTimeoutMs: 50,
+    assert.equal(configs[0]?.schema, "synthesis-sidecar-launch-config.v3");
+    assert.equal(configs[0]?.repositoryDbPath, repositoryDbPath);
+    assert.equal(configs[0]?.canonicalRoot, canonicalRoot);
+    assert.deepEqual(configs[0]?.reverseHost, {
+      host: "127.0.0.1",
+      port: 9134,
+      authorizationToken: "8".repeat(64),
     });
-
-    supervisor.start();
-    await waitForStatus(supervisor, "incompatible");
-
-    assert.equal(launches, 0);
+    assert.notProperty(configs[0], "leaseNonce");
+    assert.equal(fs.readFileSync(legacyActivePath, "utf8"), "legacy-active\n");
     assert.equal(
-      supervisor.getSnapshot().reasonCode,
-      "production_admission_profile_mismatch",
+      fs.readFileSync(legacyVersionPath, "utf8"),
+      "legacy-version\n",
+    );
+
+    await supervisor.stop();
+    assert.equal(supervisor.getSnapshot().status, "stopped");
+    assert.equal(fs.readFileSync(legacyActivePath, "utf8"), "legacy-active\n");
+    assert.equal(
+      fs.readFileSync(legacyVersionPath, "utf8"),
+      "legacy-version\n",
     );
   });
 });

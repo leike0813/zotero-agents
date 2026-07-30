@@ -376,8 +376,7 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     "src/modules/harness/synthesisReadonlyClient.ts",
     "src/modules/synthesis/service.ts",
   ]);
-  const productionBackupAllowlist = new Set([
-    "src/modules/synthesisProductionBackup.ts",
+  const productionStorageAllowlist = new Set([
     "src/modules/runtimePersistence.ts",
     "src/modules/persistenceIntegrity.ts",
     "src/modules/synthesisSidecarRuntimeSupervisor.ts",
@@ -399,22 +398,17 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     if (
       !relativePath.startsWith("src/modules/synthesis/") &&
       !legacySourceAllowlist.has(relativePath) &&
-      !productionBackupAllowlist.has(relativePath) &&
+      !productionStorageAllowlist.has(relativePath) &&
       /\b(?:synthesisDbPath|synthesisDataRoot)\b/.test(source) &&
       /\b(?:open|copyRuntime|readRuntime|writeRuntime|moveRuntime|removeRuntime)/.test(
         source,
       )
     ) {
-      violations.push(
-        `${relativePath}: production root access is not allowed`,
-      );
+      violations.push(`${relativePath}: production root access is not allowed`);
     }
   }
 
-  const rustRoot = path.join(
-    ROOT_DIR,
-    "native/synthesis-sidecar/crates",
-  );
+  const rustRoot = path.join(ROOT_DIR, "native/synthesis-sidecar/crates");
   for (const filePath of walkFiles(rustRoot, ".rs")) {
     const relativePath = normalizedRepoPath(filePath);
     const source = fs.readFileSync(filePath, "utf8");
@@ -441,10 +435,7 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     }
   }
   const defaultClientSource = fs.readFileSync(
-    path.join(
-      ROOT_DIR,
-      "src/modules/synthesisClient/defaultClient.ts",
-    ),
+    path.join(ROOT_DIR, "src/modules/synthesisClient/defaultClient.ts"),
     "utf8",
   );
   const hooksSource = fs.readFileSync(
@@ -456,10 +447,7 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     "utf8",
   );
   const supervisorSource = fs.readFileSync(
-    path.join(
-      ROOT_DIR,
-      "src/modules/synthesisSidecarRuntimeSupervisor.ts",
-    ),
+    path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
     "utf8",
   );
   if (
@@ -469,15 +457,11 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
     /legacyComposition|createDefaultLegacy|getDefaultLegacy|invalidateDefaultLegacy|createLegacyInProcess|synthesis\/service/.test(
       defaultClientSource,
     ) ||
-    !supervisorSource.includes(
-      "connection.discovery.mutationEnabled !== true",
-    ) ||
-    !supervisorSource.includes(
-      "readyCapabilities?.length !== requiredCapabilities.length",
-    )
+    !supervisorSource.includes("await controlClient.health(connection)") ||
+    !supervisorSource.includes("await controlClient.handshake(connection)")
   ) {
     violations.push(
-      "native default readiness must require the complete roster and mutation admission",
+      "native default readiness must require current-session health and handshake",
     );
   }
   if (
@@ -498,11 +482,11 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
   );
   if (
     invalidation < 0 ||
-    endpointStop <= invalidation ||
-    supervisorStop <= endpointStop
+    supervisorStop <= invalidation ||
+    endpointStop <= supervisorStop
   ) {
     violations.push(
-      "production owner shutdown must invalidate the client before endpoint and supervisor stop",
+      "production owner shutdown must invalidate the client, stop the sidecar, then stop reverse Host",
     );
   }
   return violations.sort();
@@ -582,8 +566,7 @@ function runCli() {
     unknownConsumers: report.unknownConsumers,
     contractViolations: report.contractViolations,
     sidecarAppViolations: report.sidecarAppViolations,
-    productionBoundaryViolations:
-      report.productionBoundaryViolations,
+    productionBoundaryViolations: report.productionBoundaryViolations,
   };
   const hasErrors = Object.values(errors).some((values) => values.length > 0);
   process.stdout.write(

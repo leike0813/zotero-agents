@@ -34,7 +34,7 @@ function runtimeConfig(
   profileRuntimeRoot: string,
 ): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     profileRuntimeRoot,
     runtimeRootId: "2".repeat(64),
@@ -53,10 +53,15 @@ function runtimeConfig(
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
     supervisorInstanceId: "workbench-chrome-supervisor",
-    leaseNonce: "workbench-chrome-lease",
+    repositoryDbPath: path.join(profileRuntimeRoot, "state", "synthesis.db"),
+    canonicalRoot: path.join(profileRuntimeRoot, "data", "synthesis"),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
-    mutationEnabled: false,
     port: 0,
   };
 }

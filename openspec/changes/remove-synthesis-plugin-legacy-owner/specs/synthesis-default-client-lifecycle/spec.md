@@ -2,7 +2,7 @@
 
 ### Requirement: Disposed clients fail closed
 
-Every native production composition SHALL own a private generation and
+Every native production composition SHALL own a current-session
 service-instance identity plus an idempotent disposal operation. A client
 method invoked after its composition is invalidated, disconnected, superseded,
 or disposed MUST fail with the unavailable result and MUST NOT create another
@@ -28,13 +28,12 @@ implementation.
 ### Requirement: Default lifecycle SHALL contain no legacy service state
 
 Default-client acquisition, invalidation, fresh acquisition, shutdown, and test
-reset SHALL track only native composition generations and their cleanup. They
+reset SHALL track only current-session native composition and its cleanup. They
 MUST NOT retain a default legacy service cache, repository owner, engine
 composition, legacy debounce state, or compatibility no-op for deleted service
 cleanup.
 
 #### Scenario: Lifecycle state is inventoried
 - **WHEN** default-client modules and test reset helpers are inspected
-- **THEN** every owned state value belongs to native composition generation or cleanup
+- **THEN** every owned state value belongs to the current native session or cleanup
 - **AND** no legacy service getter, invalidator, disposer, or cache remains
-

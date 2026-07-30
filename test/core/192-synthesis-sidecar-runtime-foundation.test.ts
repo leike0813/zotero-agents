@@ -9,7 +9,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
-  SYNTHESIS_SIDECAR_LEASE_SCHEMA,
   rebuildSynthesisSidecarDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
 } from "../../packages/synthesis-contracts/src/sidecarLifecycle";
@@ -27,7 +26,6 @@ import {
   rebuildSynthesisTopicCanonicalStoreSnapshot,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../../packages/synthesis-contracts/src/sidecarTransfer";
-import { acquireSynthesisSidecarServiceLifecycle } from "../../apps/synthesis-service/src/lifecycle";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const BUILD_ENTRY = path.join(
@@ -41,7 +39,6 @@ const RUNTIME_ROOT_ID = "2".repeat(64);
 const DATA_ROOT_ID = "3".repeat(64);
 const BUNDLE_ID = "4".repeat(64);
 const SUPERVISOR_INSTANCE_ID = "sup-test";
-const LEASE_NONCE = "lease-test";
 
 type ServiceHandle = {
   baseUrl: string;
@@ -80,10 +77,15 @@ function config(
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-repository-foundation.v1",
     supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
-    leaseNonce: LEASE_NONCE,
+    repositoryDbPath: path.join(profileRuntimeRoot, "state", "synthesis.db"),
+    canonicalRoot: path.join(profileRuntimeRoot, "data", "synthesis"),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: LIFECYCLE_TOKEN,
-    mutationEnabled: false,
     port: 0,
     ...overrides,
   };
@@ -103,19 +105,8 @@ async function startService(
   );
   fs.mkdirSync(sessionRoot, { recursive: true });
   const configPath = path.join(sessionRoot, "config.json");
-  const discoveryPath = path.join(profileRoot, "discovery.json");
+  const discoveryPath = path.join(sessionRoot, "discovery.json");
   const runtimeConfig = config(profileRoot, overrides);
-  fs.writeFileSync(
-    path.join(sessionRoot, "lease.json"),
-    `${JSON.stringify({
-      schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
-      profileId: PROFILE_ID,
-      supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
-      leaseNonce: LEASE_NONCE,
-      updatedAtMs: Date.now(),
-    })}\n`,
-    { encoding: "utf8", mode: 0o600 },
-  );
   fs.writeFileSync(configPath, `${JSON.stringify(runtimeConfig)}\n`, {
     encoding: "utf8",
     mode: 0o600,
@@ -685,17 +676,6 @@ describe("Synthesis sidecar runtime foundation", function () {
       encoding: "utf8",
       mode: 0o600,
     });
-    fs.writeFileSync(
-      path.join(sessionRoot, "lease.json"),
-      `${JSON.stringify({
-        schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
-        profileId: PROFILE_ID,
-        supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
-        leaseNonce: LEASE_NONCE,
-        updatedAtMs: Date.now(),
-      })}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
     const child = spawn(
       process.execPath,
       [BUILD_ENTRY, "--config", configPath],
@@ -710,7 +690,7 @@ describe("Synthesis sidecar runtime foundation", function () {
       child.once("exit", resolve),
     );
     assert.notEqual(exitCode, 0);
-    assert.isFalse(fs.existsSync(path.join(profileRoot, "discovery.json")));
+    assert.isFalse(fs.existsSync(path.join(sessionRoot, "discovery.json")));
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
@@ -788,140 +768,5 @@ describe("Synthesis sidecar runtime foundation", function () {
       service.child.once("exit", () => resolve()),
     );
     assert.include(service.stdout(), "host_pipe_eof");
-  });
-
-  it("rejects a live second owner, expires stale lease, and recovers the same supervisor identity", async function () {
-    const tempRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-owner-"),
-    );
-    const profileRoot = path.join(tempRoot, "profile-runtime");
-    const sessionRoot = path.join(
-      profileRoot,
-      "sessions",
-      SUPERVISOR_INSTANCE_ID,
-    );
-    fs.mkdirSync(sessionRoot, { recursive: true });
-    const firstConfigPath = path.join(sessionRoot, "config.json");
-    fs.writeFileSync(
-      firstConfigPath,
-      JSON.stringify(config(profileRoot)),
-      "utf8",
-    );
-    fs.writeFileSync(
-      path.join(sessionRoot, "lease.json"),
-      JSON.stringify({
-        schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
-        profileId: PROFILE_ID,
-        supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
-        leaseNonce: LEASE_NONCE,
-        updatedAtMs: 0,
-      }),
-      "utf8",
-    );
-    const first = acquireSynthesisSidecarServiceLifecycle({
-      config: rebuildSynthesisSidecarLaunchConfig(config(profileRoot)),
-      configPath: firstConfigPath,
-      serviceInstanceId: "service-first",
-      options: {
-        now: () => 100,
-        leaseCheckMs: 5,
-        leaseTimeoutMs: 10,
-        resumeGraceMs: 0,
-      },
-    });
-    const secondConfigPath = path.join(sessionRoot, "config.json");
-    fs.writeFileSync(
-      secondConfigPath,
-      JSON.stringify(config(profileRoot)),
-      "utf8",
-    );
-    assert.throws(
-      () =>
-        acquireSynthesisSidecarServiceLifecycle({
-          config: rebuildSynthesisSidecarLaunchConfig(config(profileRoot)),
-          configPath: secondConfigPath,
-          serviceInstanceId: "service-second",
-          options: { isPidAlive: () => true },
-        }),
-      /sidecar_owner_conflict/,
-    );
-    const expired = new Promise<void>((resolve) => {
-      first.startLeaseMonitor(resolve);
-    });
-    await expired;
-    fs.writeFileSync(
-      path.join(sessionRoot, "lease.json"),
-      JSON.stringify({
-        schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
-        profileId: PROFILE_ID,
-        supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
-        leaseNonce: LEASE_NONCE,
-        updatedAtMs: 100,
-      }),
-      "utf8",
-    );
-    const recoveryConfigPath = path.join(sessionRoot, "config.json");
-    fs.writeFileSync(
-      recoveryConfigPath,
-      JSON.stringify(config(profileRoot)),
-      "utf8",
-    );
-    const recovered = acquireSynthesisSidecarServiceLifecycle({
-      config: rebuildSynthesisSidecarLaunchConfig(config(profileRoot)),
-      configPath: recoveryConfigPath,
-      serviceInstanceId: "service-recovered",
-      options: {
-        now: () => 101,
-        isPidAlive: () => false,
-        leaseTimeoutMs: 1_000,
-      },
-    });
-    first.release();
-    recovered.release();
-  });
-
-  it("rejects mutation-enabled config before listening", async function () {
-    const tempRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-invalid-config-"),
-    );
-    const profileRoot = path.join(tempRoot, "profile-runtime");
-    const sessionRoot = path.join(
-      profileRoot,
-      "sessions",
-      SUPERVISOR_INSTANCE_ID,
-    );
-    fs.mkdirSync(sessionRoot, { recursive: true });
-    const configPath = path.join(sessionRoot, "config.json");
-    fs.writeFileSync(
-      configPath,
-      JSON.stringify(config(profileRoot, { mutationEnabled: true })),
-      "utf8",
-    );
-    const child = spawn(
-      process.execPath,
-      [BUILD_ENTRY, "--config", configPath],
-      {
-        cwd: ROOT,
-        env: { ...process.env, PATH: "" },
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-    let output = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      output += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      output += chunk;
-    });
-    const exitCode = await new Promise<number | null>((resolve) =>
-      child.once("exit", resolve),
-    );
-    assert.notEqual(exitCode, 0);
-    assert.notInclude(output, configPath);
-    assert.notInclude(output, CLIENT_TOKEN);
-    assert.notInclude(output, LIFECYCLE_TOKEN);
-    assert.notInclude(output, "service_listening");
   });
 });

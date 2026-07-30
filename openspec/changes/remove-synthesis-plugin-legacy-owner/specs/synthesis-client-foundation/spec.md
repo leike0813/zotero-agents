@@ -2,8 +2,8 @@
 
 ### Requirement: Production client composition SHALL be native-only
 
-After a completed cutover receipt, the default production composition SHALL use
-only the authenticated native client and bounded reverse-Host ports. The plugin
+The default production composition SHALL use only the authenticated
+current-session native client and bounded reverse-Host ports. The plugin
 source and build graph MUST NOT contain a legacy production composition,
 in-process owner factory, service/repository owner, or test/harness path capable
 of constructing that owner. Tests MAY build the public client over a bounded
@@ -39,4 +39,3 @@ bounded test ports SHALL reuse the same mapping.
 - **WHEN** its import and export graph is checked
 - **THEN** it depends only on public contracts, DTO rebuilders, stable error mapping, and the supplied port
 - **AND** it exports no in-process owner or service factory
-

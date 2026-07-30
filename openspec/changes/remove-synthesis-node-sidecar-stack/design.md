@@ -1,3 +1,11 @@
+## Lifecycle dependency
+
+The lifecycle authority for this change is
+`simplify-xpi-owned-synthesis-sidecar-lifecycle`. References below to cutover,
+admission, activation, owner/lease files, persisted generations, runtime
+rollback, or ordinary-startup backup are superseded and must not be
+implemented.
+
 ## Context
 
 The first prerequisite change makes R9a acceptance reproducible from stable

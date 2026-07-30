@@ -9,7 +9,6 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
   rebuildSynthesisSidecarRuntimeBundleManifest,
-  rebuildSynthesisSidecarRuntimePointer,
   synthesisSidecarRuntimeTargetBundlePath,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
@@ -56,13 +55,18 @@ function createBundle(
     bundleId?: string;
     buildFingerprint?: string;
     sourceFingerprint?: string;
+    contentId?: string;
+    createdAt?: string;
     expiresAt?: string | null;
   } = {},
 ) {
   const executable =
     target === "win32-x64" ? "synthesis-sidecar.exe" : "synthesis-sidecar";
   const assets = new Map<string, Uint8Array>([
-    [executable, bytes(`native-${target}-${options.bundleId || "a"}`)],
+    [
+      executable,
+      bytes(`native-${target}-${options.contentId || options.bundleId || "a"}`),
+    ],
     [
       "provenance.json",
       bytes('{"schema":"synthesis-rust-sidecar-provenance.v2"}\n'),
@@ -86,7 +90,7 @@ function createBundle(
     executable,
     buildFingerprint: options.buildFingerprint || "b".repeat(64),
     capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
-    createdAt: "2026-07-27T00:00:00.000Z",
+    createdAt: options.createdAt || "2026-07-27T00:00:00.000Z",
     expiresAt: options.expiresAt ?? null,
     provenance: {
       sourceFingerprint: options.sourceFingerprint || "c".repeat(64),
@@ -133,7 +137,11 @@ function writeBundle(
     `${JSON.stringify(bundle.manifest)}\n`,
   );
   for (const [relativePath, value] of bundle.assets) {
-    fs.writeFileSync(path.join(targetRoot, relativePath), value);
+    const filePath = path.join(targetRoot, relativePath);
+    fs.writeFileSync(filePath, value);
+    if (relativePath === bundle.manifest.executable && target !== "win32-x64") {
+      fs.chmodSync(filePath, 0o755);
+    }
   }
 }
 
@@ -153,23 +161,12 @@ function writeAddonBundle(
 describe("Synthesis sidecar native runtime packaging", function () {
   this.timeout(30_000);
 
-  it("strictly rebuilds manifest v3 and pointer v2", function () {
+  it("strictly rebuilds the XPI-owned native manifest", function () {
     const { manifest } = createBundle();
     assert.equal(manifest.implementation, "rust-native");
     assert.equal(manifest.targetTriple, "x86_64-unknown-linux-gnu");
     assert.deepEqual(manifest.capabilities, SYNTHESIS_SIDECAR_CAPABILITIES);
     assert.isTrue(Object.isFrozen(manifest));
-
-    assert.deepEqual(
-      rebuildSynthesisSidecarRuntimePointer({
-        schema: "synthesis-sidecar-runtime-pointer.v2",
-        bundleId: manifest.bundleId,
-      }),
-      {
-        schema: "synthesis-sidecar-runtime-pointer.v2",
-        bundleId: manifest.bundleId,
-      },
-    );
 
     for (const invalid of [
       { ...manifest, nodeVersion: "24.18.0" },
@@ -184,12 +181,6 @@ describe("Synthesis sidecar native runtime packaging", function () {
         rebuildSynthesisSidecarRuntimeBundleManifest(invalid),
       );
     }
-    assert.throws(() =>
-      rebuildSynthesisSidecarRuntimePointer({
-        schema: "synthesis-sidecar-runtime-pointer.v1",
-        bundleId: manifest.bundleId,
-      }),
-    );
   });
 
   it("packages one native executable without Node or JavaScript runtime files", function () {
@@ -228,114 +219,90 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.notInclude(JSON.stringify(manifest), "entrypoint");
   });
 
-  it("installs, repairs through quarantine, and rolls back only v3 bundles", async function () {
+  it("materializes one current XPI bundle and reuses verified content", async function () {
     const runtimeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-runtime-install-"),
     );
     const firstBundle = createBundle("linux-x64", {
       bundleId: "1".repeat(64),
     });
-    let selected = firstBundle;
+    let reads = 0;
+    const installer = createSynthesisSidecarRuntimeInstaller({
+      runtimeRoot,
+      target: "linux-x64",
+      readPackagedAsset: async (relativePath) => {
+        reads += 1;
+        return packagedReader("linux-x64", firstBundle)(relativePath);
+      },
+    });
+
+    const first = await installer.ensureInstalled();
+    const firstReads = reads;
+    const second = await installer.ensureInstalled();
+    const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
+
+    assert.equal(first.state, "ready");
+    assert.equal(second.state, "ready");
+    assert.equal(first.executablePath, second.executablePath);
+    assert.equal(first.installRoot, paths.currentDir);
+    assert.equal(fs.readdirSync(paths.root).sort().join(","), "current");
+    assert.isAtLeast(reads, firstReads);
+  });
+
+  it("atomically replaces current content and leaves legacy runtime state inert", async function () {
+    const runtimeRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-native-runtime-replace-"),
+    );
+    const first = createBundle("linux-x64", { bundleId: "1".repeat(64) });
+    const second = createBundle("linux-x64", {
+      bundleId: "2".repeat(64),
+      buildFingerprint: "e".repeat(64),
+    });
+    let selected = first;
     const installer = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot,
       target: "linux-x64",
       readPackagedAsset: async (relativePath) =>
         packagedReader("linux-x64", selected)(relativePath),
-      now: () => Date.parse("2026-07-27T01:00:00.000Z"),
     });
-
-    const first = await installer.ensureInstalled();
-    assert.equal(first.state, "ready");
-    assert.equal(first.implementation, "rust-native");
-    assert.equal(
-      fs.readFileSync(first.executablePath!, "utf8"),
-      "native-linux-x64-1111111111111111111111111111111111111111111111111111111111111111",
-    );
-
-    fs.writeFileSync(first.executablePath!, "corrupt");
-    const repaired = await installer.ensureInstalled();
-    assert.equal(repaired.state, "ready");
     const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
-    assert.lengthOf(fs.readdirSync(paths.quarantineDir), 1);
-
-    selected = createBundle("linux-x64", {
-      bundleId: "2".repeat(64),
-      buildFingerprint: "e".repeat(64),
-    });
-    const second = await installer.ensureInstalled();
-    assert.equal(second.bundleId, "2".repeat(64));
-    assert.equal(
-      (await installer.resolveInstalled("b".repeat(64))).bundleId,
-      "1".repeat(64),
-    );
-    assert.equal(
-      (await installer.resolveInstalled("e".repeat(64))).bundleId,
-      "2".repeat(64),
-    );
-    assert.equal(
-      (await installer.resolveInstalled("f".repeat(64))).state,
-      "missing",
-    );
-    const rolledBack = await installer.rollback();
-    assert.equal(rolledBack.bundleId, "1".repeat(64));
-  });
-
-  it("activates v3 over legacy pointers without making v1 rollback eligible", async function () {
-    const runtimeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-native-runtime-upgrade-"),
-    );
-    const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
-    fs.mkdirSync(paths.root, { recursive: true });
+    fs.mkdirSync(paths.legacyVersionsDir, { recursive: true });
+    fs.writeFileSync(paths.legacyActivePointerPath, "legacy-active\n");
     fs.writeFileSync(
-      paths.activePointerPath,
-      `${JSON.stringify({
-        schema: "synthesis-sidecar-runtime-pointer.v1",
-        bundleId: "9".repeat(64),
-      })}\n`,
+      path.join(paths.legacyVersionsDir, "legacy"),
+      "legacy-version\n",
     );
-    fs.writeFileSync(paths.previousPointerPath, "legacy\n");
-    const bundle = createBundle();
-    const installer = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot,
-      target: "linux-x64",
-      readPackagedAsset: packagedReader("linux-x64", bundle),
-    });
-    const ready = await installer.ensureInstalled();
-    assert.equal(ready.state, "ready");
-    assert.isFalse(fs.existsSync(paths.previousPointerPath));
-    assert.equal((await installer.rollback()).state, "missing");
+
+    assert.equal(
+      (await installer.ensureInstalled()).bundleId,
+      first.manifest.bundleId,
+    );
+    selected = second;
+    assert.equal(
+      (await installer.ensureInstalled()).bundleId,
+      second.manifest.bundleId,
+    );
+    assert.equal(
+      fs.readFileSync(paths.legacyActivePointerPath, "utf8"),
+      "legacy-active\n",
+    );
+    assert.equal(
+      fs.readFileSync(path.join(paths.legacyVersionsDir, "legacy"), "utf8"),
+      "legacy-version\n",
+    );
   });
 
-  it("rejects expired packages while production admission is integrity-only", async function () {
+  it("treats XPI manifest expiry as release metadata, not startup policy", async function () {
     const expired = createBundle("linux-x64", {
       expiresAt: "2026-07-28T00:00:00.000Z",
     });
-    let restartNow = Date.parse("2026-07-27T00:00:00.000Z");
     const restartInstaller = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-expired-active-")),
       target: "linux-x64",
       readPackagedAsset: packagedReader("linux-x64", expired),
-      now: () => restartNow,
     });
     assert.equal((await restartInstaller.ensureInstalled()).state, "ready");
-    restartNow = Date.parse("2026-07-29T00:00:00.000Z");
     assert.equal((await restartInstaller.ensureInstalled()).state, "ready");
-
-    const expiredInstaller = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-expired-")),
-      target: "linux-x64",
-      readPackagedAsset: packagedReader("linux-x64", expired),
-      now: () => Date.parse("2026-07-29T00:00:00.000Z"),
-    });
-    assert.equal((await expiredInstaller.ensureInstalled()).state, "corrupt");
-
-    const mac = createBundle("darwin-arm64");
-    const production = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-integrity-")),
-      target: "darwin-arm64",
-      readPackagedAsset: packagedReader("darwin-arm64", mac),
-    });
-    assert.equal((await production.ensureInstalled()).state, "ready");
   });
 
   it("verifies all seven native prebuilds and build workflow governance", async function () {

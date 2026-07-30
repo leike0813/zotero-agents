@@ -1,99 +1,45 @@
 # synthesis-production-owner-cutover Specification
 
 ## Purpose
-Defines the bounded cutover protocol that transfers production ownership of the Synthesis database, canonical tree, and durable state from the plugin to the Rust sidecar service, including backup verification, preflight, atomic owner transfer, mutation admission, and recovery rules.
+
+Defines direct ownership and initialization of production storage by the
+XPI-owned Rust sidecar.
 
 ## Requirements
-### Requirement: Compatible upgrade SHALL trigger one bounded cutover
 
-When a compatible manifest-v2 Rust runtime is installed and no completed production-owner receipt exists, the plugin SHALL start a generation-scoped background cutover coordinator. Zotero window startup MUST remain non-blocking while Synthesis reports starting, maintenance, unavailable, or repair-required.
+### Requirement: Rust SHALL directly own production storage
 
-#### Scenario: First compatible upgrade starts
-- **WHEN** the plugin detects legacy production ownership and a compatible native bundle
-- **THEN** it rejects new Synthesis mutations and starts exactly one cutover attempt for that profile generation
+The launched Rust service SHALL open `state/synthesis.db` and
+`data/synthesis` after acquiring the production OS lock. Startup SHALL NOT run
+a plugin-to-Rust cutover, receipt progression, critical-smoke activation, or
+runtime admission workflow.
 
-#### Scenario: Completed receipt already exists
-- **WHEN** the current production roots and native identity match a completed cutover receipt
-- **THEN** the coordinator starts the native owner without repeating backup or migration
+#### Scenario: Existing production storage is valid
+- **WHEN** both database and canonical root match the current identities
+- **THEN** Rust opens them and publishes readiness
 
-### Requirement: Cutover SHALL verify a consistent recoverable backup
+### Requirement: Empty initialization SHALL be native-owned
 
-Before the native service can open production roots, the coordinator SHALL drain or cancel active operations, close the legacy writer, verify lock release, and create a consistent backup of the database, WAL/SHM state, canonical root, schema identity, manifest hashes, durable decisions, runtime fingerprint, and legacy owner marker.
+If the database, its SQLite sidecars, and canonical root are all absent, Rust
+SHALL initialize the database and canonical root as one startup operation.
 
-#### Scenario: Backup verification fails
-- **WHEN** any required source, hash, durable summary, or restore probe is incomplete
-- **THEN** cutover stops before native ownership
-- **AND** the legacy owner remains authoritative
+#### Scenario: Both production stores are absent
+- **WHEN** the sidecar starts under the production lock
+- **THEN** Rust initializes both stores and then opens them normally
 
-### Requirement: Native preflight SHALL precede owner transfer
+#### Scenario: Only part of production state exists
+- **WHEN** database, WAL/SHM, or canonical state exists without its required
+  counterpart
+- **THEN** startup fails with `synthesis_source_state_incomplete`
+- **AND** it does not create the missing half
 
-The Rust service SHALL dry-run schema and canonical recovery, capability completeness, reverse-Host connectivity, profile/runtime identity, and production-copy reads before acquiring the production owner lock.
+### Requirement: Legacy lifecycle artifacts SHALL remain untouched
 
-#### Scenario: Preflight detects drift
-- **WHEN** schema, canonical bytes, durable state, capabilities, or identity are incompatible
-- **THEN** the candidate fails closed without changing production owner or mutation state
+Existing receipt, admission, activation, owner, lease, backup, pointer, and
+version artifacts SHALL NOT influence startup and SHALL NOT be automatically
+deleted or rewritten.
 
-### Requirement: Owner transfer SHALL be atomic and receipted
-
-The Rust service SHALL acquire the only production owner lock, perform approved forward migrations, open the production repository and canonical root, and atomically record an owner marker and cutover receipt before the plugin publishes a native client. The receipt SHALL bind source backup, source and target schema, canonical manifest, durable summary, bundle fingerprint, worker identity, profile, and service instance.
-
-#### Scenario: Owner lock is contested
-- **WHEN** another process or legacy writer still owns the production scope
-- **THEN** the Rust service refuses production startup and performs no migration
-
-#### Scenario: Transfer completes
-- **WHEN** migration, open, owner marker, and receipt persistence all succeed
-- **THEN** the plugin publishes the native client with mutation disabled
-- **AND** the plugin can no longer open the production database or canonical root
-
-### Requirement: Mutation admission SHALL follow critical smoke
-
-The coordinator SHALL validate health, handshake, storage, Workbench chrome, Topic list/detail and canonical manifest, reference/cache status, graph reads, and one non-destructive worker operation before enabling native mutations.
-
-#### Scenario: Critical smoke succeeds
-- **WHEN** every critical read and worker responsiveness check succeeds for the receipted owner
-- **THEN** the service enables mutation admission and completes the receipt
-
-#### Scenario: Critical smoke fails
-- **WHEN** any critical check fails before mutation admission
-- **THEN** the coordinator stops the native owner and enters pre-mutation recovery
-
-### Requirement: Recovery SHALL depend on mutation admission
-
-Failure before native migration SHALL leave the legacy owner usable. Failure after migration but before mutation admission SHALL stop the service and either perform a verified compatible reversal or restore the verified backup. Failure after mutation admission MUST NOT automatically return ownership or route requests to legacy/Node.
-
-#### Scenario: Failure occurs before mutation admission
-- **WHEN** native production state was written but mutations were never enabled
-- **THEN** recovery requires owner-lock release and a verified reversal or backup restore before any writer resumes
-
-#### Scenario: Failure occurs after mutation admission
-- **WHEN** the active native owner crashes or becomes unavailable
-- **THEN** the plugin remains fail closed and uses compatible Rust repair, restart, forward recovery, or explicit restore
-- **AND** no legacy fallback is attempted
-
-### Requirement: First cutover evidence SHALL remain immutable across runtime upgrades
-
-After native ownership is admitted, a compatible Rust runtime replacement
-SHALL advance only runtime-admission state. It MUST NOT rewrite the first
-cutover receipt, source backup basis, canonical manifest evidence, durable
-summary, or ownership origin.
-
-#### Scenario: Compatible native generation is promoted
-- **WHEN** the pending generation completes durable activation
-- **THEN** the first cutover receipt remains unchanged
-- **AND** current runtime admission identifies the new generation
-
-### Requirement: Admitted startup SHALL classify runtime identity before repair
-
-Startup SHALL distinguish a matching admitted restart, a compatible build-only
-upgrade, an incompatible runtime, and a recoverable pending generation before
-entering production repair.
-
-#### Scenario: Build fingerprint alone changes compatibly
-- **WHEN** profile, target, protocol, schema, and capability identity remain equal
-- **THEN** startup follows the native upgrade protocol instead of treating the first receipt as a permanent build pin
-
-#### Scenario: Incompatible identity changes
-- **WHEN** any compatibility identity other than build/bundle differs
-- **THEN** startup remains fail closed and does not modify owner or admission state
-
+#### Scenario: A legacy profile contains conflicting artifacts
+- **WHEN** current production storage and the XPI runtime are valid
+- **THEN** startup succeeds through the current path
+- **AND** the legacy artifacts remain byte-identical

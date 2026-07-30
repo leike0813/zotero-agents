@@ -1,9 +1,6 @@
 import { assert } from "chai";
 import fs from "node:fs";
-import { spawn } from "node:child_process";
-import os from "node:os";
 import path from "node:path";
-import { createInterface } from "node:readline";
 import {
   createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphMetricsRequest,
@@ -73,7 +70,7 @@ function metricsRequest(): SynthesisCitationGraphMetricsRequest {
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-metrics-route"),
     runtimeRootId: "2".repeat(64),
@@ -92,10 +89,21 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-repository-foundation.v1",
     supervisorInstanceId: "metrics-route-supervisor",
-    leaseNonce: "metrics-route-lease",
+    repositoryDbPath: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-metrics-route/state/synthesis.db",
+    ),
+    canonicalRoot: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-metrics-route/data/synthesis",
+    ),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
-    mutationEnabled: false,
     port: 0,
   };
 }
@@ -164,151 +172,6 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
     } finally {
       runtime.beginShutdown("test_complete");
       await runtime.stopped;
-    }
-  });
-
-  it("serves the same authenticated Metrics contract from the Rust candidate", async function () {
-    const tempRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-rust-metrics-candidate-"),
-    );
-    const configPath = path.join(tempRoot, "config.json");
-    const config = {
-      ...runtimeConfig(),
-      profileRuntimeRoot: path.join(tempRoot, "profile-runtime"),
-      supervisorInstanceId: "candidate-supervisor",
-      leaseNonce: "candidate-lease",
-    };
-    fs.writeFileSync(configPath, JSON.stringify(config));
-    fs.writeFileSync(
-      path.join(tempRoot, "lease.json"),
-      JSON.stringify({
-        schema: "synthesis-sidecar-lease.v1",
-        profileId: config.profileId,
-        supervisorInstanceId: config.supervisorInstanceId,
-        leaseNonce: config.leaseNonce,
-        updatedAtMs: Date.now(),
-      }),
-    );
-    const executable = path.join(
-      ROOT,
-      "native/synthesis-sidecar/target/debug",
-      `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
-    );
-    const child = spawn(executable, ["serve", "--config", configPath], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const lines = createInterface({ input: child.stdout });
-    const listening = new Promise<{ port: number }>((resolve, reject) => {
-      lines.once("line", (line) => {
-        try {
-          resolve(JSON.parse(line) as { port: number });
-        } catch (error) {
-          reject(error);
-        }
-      });
-      child.once("error", reject);
-      child.once("exit", (code) => {
-        if (code !== 0) reject(new Error(`candidate exited with ${code}`));
-      });
-    });
-    child.stderr.resume();
-    try {
-      const { port } = await listening;
-      const endpoint = `http://127.0.0.1:${port}`;
-      assert.equal(
-        (await fetch(`${endpoint}/synthesis/v1/health`)).status,
-        200,
-      );
-      assert.equal(
-        (
-          await fetch(`${endpoint}/synthesis/v1/call`, {
-            method: "POST",
-            headers: {
-              authorization: "Bearer wrong-token",
-              "content-type": "application/json",
-            },
-            body: "{}",
-          })
-        ).status,
-        401,
-      );
-      const handshake = (await (
-        await fetch(`${endpoint}/synthesis/v1/call`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${CLIENT_TOKEN}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-            requestId: "candidate-handshake",
-            profileId: config.profileId,
-            capability: "system.handshake",
-            payload: {
-              schemaVersion: config.schemaVersion,
-              bundleId: config.bundleId,
-              buildFingerprint: config.buildFingerprint,
-              supervisorInstanceId: config.supervisorInstanceId,
-            },
-          }),
-        })
-      ).json()) as {
-        ok: boolean;
-        data: { capabilities: string[]; mutationEnabled: boolean };
-      };
-      assert.equal(handshake.ok, true);
-      assert.equal(handshake.data.mutationEnabled, false);
-      assert.include(
-        handshake.data.capabilities,
-        "compute.citation_graph_metrics",
-      );
-      assert.include(handshake.data.capabilities, "workbench.chrome.read");
-      assert.include(handshake.data.capabilities, "topics.canonical.inspect");
-      const input = metricsRequest();
-      const response = await fetch(`${endpoint}/synthesis/v1/call`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${CLIENT_TOKEN}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-          requestId: "candidate-request",
-          profileId: config.profileId,
-          capability: "compute.citation_graph_metrics",
-          payload: input,
-        }),
-      });
-      const body = (await response.json()) as {
-        ok: boolean;
-        data: unknown;
-      };
-      assert.equal(response.status, 200);
-      assert.equal(body.ok, true);
-      assert.deepEqual(
-        body.data,
-        await createInProcessSynthesisCitationGraphMetricsEngine().compute(
-          input,
-        ),
-      );
-      await fetch(`${endpoint}/synthesis/v1/call`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${config.lifecycleToken}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-          requestId: "candidate-shutdown",
-          profileId: config.profileId,
-          capability: "system.shutdown",
-          payload: {},
-        }),
-      });
-    } finally {
-      if (child.exitCode === null) child.kill();
-      lines.close();
-      fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 

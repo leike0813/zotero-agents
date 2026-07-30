@@ -1,196 +1,80 @@
-use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-use synthesis_repository::{Repository, RepositoryIdentity};
+use synthesis_repository::{Repository, RepositoryIdentity, prepare_production_schema};
 use synthesis_sidecar::production_capabilities::{
     production_client_capabilities, production_client_operation_metadata,
     production_ready_client_capabilities,
 };
-use synthesis_sidecar::runtime_contract::{
-    current_time_ms, production_cutover_receipt_is_mutation_enabled, read_native_launch_config,
-    read_production_admission, validate_host_lease, validate_production_cutover_receipt,
-};
+use synthesis_sidecar::runtime_contract::{current_time_ms, read_native_launch_config};
 
 use crate::runtime_capabilities::ServeState;
-use crate::runtime_lifecycle::{ProductionOwnership, RuntimeOwnership};
+use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_ports::build_production_applications;
 use crate::runtime_reverse_host::probe_reverse_host;
 use crate::runtime_server_loop::run_sidecar_listener;
 use crate::runtime_transfer::NativeTransferOwner;
 use crate::runtime_worker_pool::NativeComputePool;
 
-fn required_text<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "empty_production_request_invalid".to_owned())
+fn database_sidecars(database_path: &Path) -> [std::path::PathBuf; 2] {
+    [
+        std::path::PathBuf::from(format!("{}-wal", database_path.display())),
+        std::path::PathBuf::from(format!("{}-shm", database_path.display())),
+    ]
 }
 
-pub(crate) fn prepare_empty_production(request_path: &str) -> Result<(), String> {
-    let request: Value = serde_json::from_slice(
-        &fs::read(request_path).map_err(|_| "empty_production_request_unavailable".to_owned())?,
-    )
-    .map_err(|_| "empty_production_request_invalid".to_owned())?;
-    if request.get("schema").and_then(Value::as_str)
-        != Some("synthesis-empty-production-request.v1")
-    {
-        return Err("empty_production_request_invalid".into());
-    }
-    let profile_id = required_text(&request, "profileId")?.to_owned();
-    let data_root_id = required_text(&request, "dataRootId")?.to_owned();
-    let database_path = Path::new(required_text(&request, "repositoryDbPath")?);
-    let canonical_root = Path::new(required_text(&request, "canonicalRoot")?);
-    if database_path.exists()
-        || canonical_root.exists()
-        || database_path.with_extension("db-wal").exists()
-        || database_path.with_extension("db-shm").exists()
-    {
-        return Err("synthesis_source_state_incomplete".into());
-    }
-    let repository_identity = RepositoryIdentity {
-        profile_id: profile_id.clone(),
-        data_root_id: data_root_id.clone(),
-    };
-    let canonical_identity = CanonicalIdentity {
-        profile_id,
-        data_root_id,
-    };
+fn initialize_empty_production(
+    database_path: &Path,
+    canonical_root: &Path,
+    repository_identity: RepositoryIdentity,
+    canonical_identity: CanonicalIdentity,
+) -> Result<(), String> {
     let repository = Repository::initialize_production(database_path, repository_identity)?;
-    let repository_id = repository.repository_id().to_owned();
     repository.close()?;
-    let canonical = match CanonicalStore::initialize_production(canonical_root, canonical_identity)
-    {
-        Ok(value) => value,
+    match CanonicalStore::initialize_production(canonical_root, canonical_identity) {
+        Ok(canonical) => canonical.close(),
         Err(error) => {
             let _ = fs::remove_file(database_path);
-            let _ = fs::remove_file(format!("{}-wal", database_path.display()));
-            let _ = fs::remove_file(format!("{}-shm", database_path.display()));
-            return Err(error);
+            for sidecar in database_sidecars(database_path) {
+                let _ = fs::remove_file(sidecar);
+            }
+            Err(error)
         }
-    };
-    let canonical_store_id = canonical.store_id().to_owned();
-    canonical.close()?;
-    println!(
-        "{}",
-        json!({
-            "schema":"synthesis-empty-production-result.v1",
-            "status":"ready",
-            "repositoryId":repository_id,
-            "canonicalStoreId":canonical_store_id
-        })
-    );
-    Ok(())
+    }
 }
 
-pub(crate) fn preflight_production(config_path: &str, admission_path: &str) -> Result<(), String> {
-    production_client_capabilities()?;
-    let config = read_native_launch_config(Path::new(config_path))?;
-    let admission = read_production_admission(Path::new(admission_path))?;
-    if admission.purpose != "preflight_copy"
-        || admission.profile_id != config.profile_id
-        || admission.supervisor_instance_id != config.supervisor_instance_id
-    {
-        return Err("production_preflight_identity_mismatch".into());
+fn ensure_production_source(
+    database_path: &Path,
+    canonical_root: &Path,
+    repository_identity: &RepositoryIdentity,
+    canonical_identity: &CanonicalIdentity,
+) -> Result<(), String> {
+    let database_exists = database_path.exists();
+    let canonical_exists = canonical_root.exists();
+    let sqlite_sidecar_exists = database_sidecars(database_path)
+        .iter()
+        .any(|path| path.exists());
+    match (database_exists, canonical_exists, sqlite_sidecar_exists) {
+        (false, false, false) => initialize_empty_production(
+            database_path,
+            canonical_root,
+            repository_identity.clone(),
+            canonical_identity.clone(),
+        ),
+        (true, true, _) => Ok(()),
+        _ => Err("synthesis_source_state_incomplete".into()),
     }
-    validate_production_cutover_receipt(&admission, &config)?;
-    let lease_path = Path::new(config_path)
-        .parent()
-        .ok_or_else(|| "invalid_config".to_owned())?
-        .join("lease.json");
-    validate_host_lease(&lease_path, &config)?;
-    probe_reverse_host(&admission)?;
-    let repository = Repository::open_production(
-        &admission.repository_db_path,
-        RepositoryIdentity {
-            profile_id: config.profile_id.clone(),
-            data_root_id: config.data_root_id.clone(),
-        },
-        &current_time_ms()?.to_string(),
-    )?;
-    let inventory = repository.schema_inventory()?;
-    let canonical = CanonicalStore::open_production(
-        &admission.canonical_root,
-        CanonicalIdentity {
-            profile_id: config.profile_id.clone(),
-            data_root_id: config.data_root_id.clone(),
-        },
-    )?;
-    let repository_id = repository.repository_id().to_owned();
-    let canonical_id = canonical.store_id().to_owned();
-    canonical.close()?;
-    repository.close()?;
-    println!(
-        "{}",
-        json!({
-            "type":"production-preflight",
-            "status":"ready",
-            "profileId":config.profile_id,
-            "cutoverReceiptId":admission.cutover_receipt_id,
-            "capabilityFingerprint":admission.capability_fingerprint,
-            "repositoryId":repository_id,
-            "canonicalStoreId":canonical_id,
-            "schemaInventory":inventory,
-            "mutationEnabled":false
-        })
-    );
-    Ok(())
 }
 
 pub(crate) fn serve(config_path: &str) -> Result<(), String> {
-    serve_internal(config_path, None)
-}
-
-pub(crate) fn serve_production(config_path: &str, admission_path: &str) -> Result<(), String> {
-    serve_internal(config_path, Some(admission_path))
-}
-
-fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(), String> {
     production_client_capabilities()?;
     production_ready_client_capabilities()?;
     let production_client_operations = production_client_operation_metadata()?;
     let config = read_native_launch_config(Path::new(config_path))?;
-    let admission = admission_path
-        .map(|path| read_production_admission(Path::new(path)))
-        .transpose()?;
-    if admission.as_ref().is_some_and(|admission| {
-        admission.purpose != "live_owner"
-            || admission.profile_id != config.profile_id
-            || admission.supervisor_instance_id != config.supervisor_instance_id
-    }) {
-        return Err("production_owner_identity_mismatch".into());
-    }
-    if let Some(admission) = admission.as_ref() {
-        validate_production_cutover_receipt(admission, &config)?;
-    }
-    let mutation_enabled = admission
-        .as_ref()
-        .map(|admission| production_cutover_receipt_is_mutation_enabled(admission, &config))
-        .transpose()?
-        .unwrap_or(false);
-    if let Some(admission) = admission.as_ref() {
-        ProductionOwnership::require_repair_for_partial_activation(admission, mutation_enabled)?;
-    }
-    let lease_path = Path::new(config_path)
-        .parent()
-        .ok_or_else(|| "invalid_config".to_owned())?
-        .join("lease.json");
-    validate_host_lease(&lease_path, &config)?;
+    probe_reverse_host(&config)?;
     let ownership = Arc::new(RuntimeOwnership::acquire(&config)?);
-    let production_ownership = admission
-        .as_ref()
-        .map(|admission| {
-            ProductionOwnership::acquire(
-                admission,
-                &ownership.service_instance_id,
-                mutation_enabled,
-            )
-        })
-        .transpose()?
-        .map(|ownership| Arc::new(Mutex::new(ownership)));
     let repository_identity = RepositoryIdentity {
         profile_id: config.profile_id.clone(),
         data_root_id: config.data_root_id.clone(),
@@ -199,71 +83,61 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
         profile_id: config.profile_id.clone(),
         data_root_id: config.data_root_id.clone(),
     };
-    let repository = match admission.as_ref() {
-        Some(admission) => Repository::open_production(
-            &admission.repository_db_path,
-            repository_identity,
-            &current_time_ms()?.to_string(),
-        )?,
-        None => Repository::open(&config.profile_runtime_root, repository_identity)?,
-    };
-    let canonical = match admission.as_ref() {
-        Some(admission) => {
-            CanonicalStore::open_production(&admission.canonical_root, canonical_identity)?
-        }
-        None => CanonicalStore::open(&config.profile_runtime_root, canonical_identity)?,
-    };
+    ensure_production_source(
+        &config.repository_db_path,
+        &config.canonical_root,
+        &repository_identity,
+        &canonical_identity,
+    )?;
+    let migration_backup_root = config
+        .repository_db_path
+        .parent()
+        .ok_or_else(|| "repository_production_path_invalid".to_owned())?
+        .join("synthesis-migration-backups");
+    prepare_production_schema(&config.repository_db_path, &migration_backup_root)?;
+    let repository = Repository::open_production(
+        &config.repository_db_path,
+        repository_identity,
+        &current_time_ms()?.to_string(),
+    )?;
+    let canonical = CanonicalStore::open_production(&config.canonical_root, canonical_identity)?;
     let repository_id = repository.repository_id().to_owned();
     let repository = Arc::new(Mutex::new(repository));
     let canonical = Arc::new(Mutex::new(canonical));
     let compute_pool = Arc::new(NativeComputePool::new());
-    let webdav_state_path = admission
-        .as_ref()
-        .and_then(|admission| Path::new(&admission.repository_db_path).parent())
-        .unwrap_or_else(|| Path::new(&config.profile_runtime_root))
+    let webdav_state_path = config
+        .repository_db_path
+        .parent()
+        .ok_or_else(|| "repository_production_path_invalid".to_owned())?
         .join("native-webdav-state.json");
-    let admission = admission.map(Arc::new);
+    let config = Arc::new(config);
     let applications = build_production_applications(
         Arc::clone(&repository),
         Arc::clone(&canonical),
         Arc::clone(&compute_pool),
-        admission.clone(),
+        Some(Arc::clone(&config)),
         ownership.service_instance_id.clone(),
         webdav_state_path,
     );
     let canonical_port = applications.canonical.as_ref().clone();
     let stopping = Arc::new(AtomicBool::new(false));
-    let transfer = NativeTransferOwner::new(Path::new(&config.profile_runtime_root))?;
-    let discovery_document = Arc::new(Mutex::new(json!({})));
+    let transfer = NativeTransferOwner::new(&config.profile_runtime_root)?;
     let state = Arc::new(ServeState {
         service_instance_id: ownership.service_instance_id.clone(),
-        owner_mode: if admission.is_some() {
-            "production"
-        } else {
-            "shadow"
-        },
-        cutover_receipt_id: admission
-            .as_ref()
-            .map(|admission| admission.cutover_receipt_id.clone()),
         profile: config.profile_id.clone(),
         config,
         repository_id,
         repository,
         applications,
         production_client_operations,
-        mutation_enabled: AtomicBool::new(mutation_enabled),
-        production_admission: admission.clone(),
-        production_ownership: production_ownership.clone(),
         runtime_ownership: Arc::clone(&ownership),
-        discovery: Arc::clone(&discovery_document),
         canonical: canonical_port,
         stopping: Arc::clone(&stopping),
         compute_pool,
         transfer: Mutex::new(transfer),
     });
     drop(canonical);
-    let result = run_sidecar_listener(state, &lease_path);
-    drop(production_ownership);
+    let result = run_sidecar_listener(state);
     drop(ownership);
     result
 }
@@ -271,8 +145,73 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
 #[cfg(test)]
 mod service_tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::thread;
     use std::time::Duration;
+
+    static ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn production_root(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "synthesis-production-{label}-{}-{}",
+            std::process::id(),
+            ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    fn identities() -> (RepositoryIdentity, CanonicalIdentity) {
+        (
+            RepositoryIdentity {
+                profile_id: "1".repeat(64),
+                data_root_id: "2".repeat(64),
+            },
+            CanonicalIdentity {
+                profile_id: "1".repeat(64),
+                data_root_id: "2".repeat(64),
+            },
+        )
+    }
+
+    #[test]
+    fn initializes_only_a_fully_empty_source_and_creates_no_migration_backup() {
+        let root = production_root("empty");
+        let database = root.join("state/synthesis.db");
+        let canonical = root.join("data/synthesis");
+        let (repository_identity, canonical_identity) = identities();
+        ensure_production_source(
+            &database,
+            &canonical,
+            &repository_identity,
+            &canonical_identity,
+        )
+        .expect("empty source");
+        assert!(database.exists());
+        assert!(canonical.exists());
+        assert!(!root.join("state/synthesis-migration-backups").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_partial_source_state_without_writing_the_missing_half() {
+        let root = production_root("partial");
+        let database = root.join("state/synthesis.db");
+        let canonical = root.join("data/synthesis");
+        fs::create_dir_all(database.parent().unwrap()).unwrap();
+        fs::write(&database, b"partial").unwrap();
+        let (repository_identity, canonical_identity) = identities();
+        assert_eq!(
+            ensure_production_source(
+                &database,
+                &canonical,
+                &repository_identity,
+                &canonical_identity,
+            )
+            .unwrap_err(),
+            "synthesis_source_state_incomplete"
+        );
+        assert!(!canonical.exists());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn native_compute_pool_bounds_queue_and_fuses_failures() {

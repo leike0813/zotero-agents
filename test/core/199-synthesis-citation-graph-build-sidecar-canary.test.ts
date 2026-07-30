@@ -84,7 +84,7 @@ function graphBuildRequest(
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-build-canary"),
     runtimeRootId: "2".repeat(64),
@@ -103,10 +103,21 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
     supervisorInstanceId: "graph-build-canary-supervisor",
-    leaseNonce: "graph-build-canary-lease",
+    repositoryDbPath: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-build-canary/state/synthesis.db",
+    ),
+    canonicalRoot: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-build-canary/data/synthesis",
+    ),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
-    mutationEnabled: false,
     port: 0,
   };
 }

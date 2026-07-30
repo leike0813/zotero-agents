@@ -21,7 +21,7 @@ import { createSynthesisSidecarTransferClient } from "../../src/modules/synthesi
 const ROOT = path.resolve(import.meta.dirname, "../..");
 function config(root: string): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     profileRuntimeRoot: root,
     runtimeRootId: "2".repeat(64),
@@ -40,10 +40,15 @@ function config(root: string): SynthesisSidecarRuntimeConfig {
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
     supervisorInstanceId: "streaming-worker-supervisor",
-    leaseNonce: "streaming-worker-lease",
+    repositoryDbPath: path.join(root, "state", "synthesis.db"),
+    canonicalRoot: path.join(root, "data", "synthesis"),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: "client-token-0123456789abcdef0123456789abcdef",
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
-    mutationEnabled: false,
     port: 0,
   };
 }

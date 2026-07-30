@@ -345,7 +345,7 @@ function scriptedRustPool(
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-profile"),
     runtimeRootId: "2".repeat(64),
@@ -364,10 +364,21 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
     supervisorInstanceId: "supervisor-test",
-    leaseNonce: "lease-test",
+    repositoryDbPath: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-profile/state/synthesis.db",
+    ),
+    canonicalRoot: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-profile/data/synthesis",
+    ),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
-    mutationEnabled: false,
     port: 0,
   };
 }

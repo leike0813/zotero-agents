@@ -6,9 +6,7 @@ import {
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "./schemaVersion.js";
 import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
-  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
   SYNTHESIS_SIDECAR_PROTOCOL,
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
   rebuildSynthesisSidecarComputePoolSnapshot,
   rebuildSynthesisTopicCanonicalStoreSnapshot,
   type SynthesisSidecarCapability,
@@ -29,36 +27,10 @@ import {
   type SynthesisSidecarTransferSnapshot,
 } from "./sidecarTransfer.js";
 
-export const SYNTHESIS_CUTOVER_RECEIPT_SCHEMA =
-  "synthesis-production-cutover-receipt.v1" as const;
 export const SYNTHESIS_REVERSE_HOST_CALL_SCHEMA =
   "synthesis-reverse-host-call.v1" as const;
-export const SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA =
-  "synthesis-production-admission.v1" as const;
-export const SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA =
-  "synthesis-production-runtime-admission.v1" as const;
-export const SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA =
-  "synthesis-production-runtime-admission-state.v1" as const;
 export const SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA =
-  "synthesis-sidecar-discovery.v3" as const;
-export const SYNTHESIS_PRODUCTION_ACTIVATION_SCHEMA =
-  "synthesis-native-activation.v1" as const;
-
-export const SYNTHESIS_CUTOVER_PHASES = [
-  "legacy",
-  "maintenance",
-  "backup_verified",
-  "preflight_verified",
-  "native_owner",
-  "mutation_enabled",
-] as const;
-export const SYNTHESIS_RUNTIME_ADMISSION_UPGRADE_STAGES = [
-  "backup_verified",
-  "preflight_passed",
-  "candidate_started",
-  "smoke_passed",
-  "activation_persisted",
-] as const;
+  "synthesis-sidecar-discovery.v5" as const;
 
 export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "library.items.list_page",
@@ -76,30 +48,8 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "effects.staged_tag_binding.resolve",
 ] as const;
 
-export type SynthesisCutoverPhase = (typeof SYNTHESIS_CUTOVER_PHASES)[number];
 export type SynthesisReverseHostCapability =
   (typeof SYNTHESIS_REVERSE_HOST_CAPABILITIES)[number];
-export type SynthesisRuntimeAdmissionUpgradeStage =
-  (typeof SYNTHESIS_RUNTIME_ADMISSION_UPGRADE_STAGES)[number];
-
-export type SynthesisCutoverReceipt = {
-  schema: typeof SYNTHESIS_CUTOVER_RECEIPT_SCHEMA;
-  receiptId: string;
-  profileId: string;
-  phase: SynthesisCutoverPhase;
-  sourceOwner: "legacy-plugin" | "empty-profile";
-  targetOwner: "rust-native";
-  backupId: string;
-  sourceSchemaVersion: string;
-  targetSchemaVersion: string;
-  canonicalManifestSha256: string;
-  durableSummarySha256: string;
-  bundleFingerprint: string;
-  capabilityFingerprint: string;
-  serviceInstanceId: string | null;
-  mutationEnabled: boolean;
-  updatedAtMs: number;
-};
 
 export type SynthesisReverseHostCall = {
   schema: typeof SYNTHESIS_REVERSE_HOST_CALL_SCHEMA;
@@ -112,107 +62,11 @@ export type SynthesisReverseHostCall = {
   payload: SynthesisJsonObject;
 };
 
-export type SynthesisProductionAdmission = {
-  schema: typeof SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA;
-  purpose: "preflight_copy" | "live_owner";
-  profileId: string;
-  supervisorInstanceId: string;
-  cutoverReceiptId: string;
-  cutoverReceiptPath: string;
-  capabilityFingerprint: string;
-  repositoryDbPath: string;
-  canonicalRoot: string;
-  reverseHost: {
-    host: "127.0.0.1";
-    port: number;
-    authorizationToken: string;
-  };
-  mutationEnabled: false;
-};
-
-export type SynthesisProductionRuntimeAdmission = Omit<
-  SynthesisProductionAdmission,
-  "schema"
-> & {
-  schema: typeof SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA;
-  runtimeAdmissionStatePath: string;
-  runtimeAdmissionGeneration: number;
-};
-
-export type SynthesisProductionRuntimeAdmissionIdentity = {
-  profileId: string;
-  target: SynthesisSidecarRuntimeTarget;
-  targetTriple: SynthesisSidecarRuntimeTargetTriple;
-  protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
-  schemaVersion: string;
-  bundleId: string;
-  buildFingerprint: string;
-  capabilityFingerprint: string;
-};
-
-export type SynthesisProductionRuntimeAdmissionCurrent =
-  SynthesisProductionRuntimeAdmissionIdentity & {
-    generation: number;
-    serviceInstanceId: string;
-    activationEvidenceSha256: string | null;
-    admittedAtMs: number;
-  };
-
-export type SynthesisProductionRuntimeAdmissionPending = {
-  generation: number;
-  previousGeneration: number;
-  stage: SynthesisRuntimeAdmissionUpgradeStage;
-  target: SynthesisProductionRuntimeAdmissionIdentity;
-  backup: {
-    sourceOwner: SynthesisCutoverReceipt["sourceOwner"];
-    backupId: string;
-    sourceSchemaVersion: string;
-    targetSchemaVersion: string;
-    canonicalManifestSha256: string;
-    durableSummarySha256: string;
-  };
-  serviceInstanceId: string | null;
-  activationEvidenceSha256: string | null;
-  updatedAtMs: number;
-};
-
-export type SynthesisProductionRuntimeAdmissionState = {
-  schema: typeof SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA;
-  cutoverReceiptId: string;
-  current: SynthesisProductionRuntimeAdmissionCurrent;
-  pendingUpgrade: SynthesisProductionRuntimeAdmissionPending | null;
-  updatedAtMs: number;
-};
-
-export type SynthesisProductionActivationEvidence = {
-  receiptId: string;
-  runtimeAdmissionGeneration: number;
-  profileId: string;
-  serviceInstanceId: string;
-  supervisorInstanceId: string;
-  capabilityFingerprint: typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
-  readyClientCapabilities: typeof SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
-  smokeRosterVersion: string;
-  smokeCheckIds: string[];
-  smokeCheckDigests: string[];
-  smokeEvidenceDigest: string;
-  issuedAtMs: number;
-};
-
 export type SynthesisProductionRepositorySnapshot = {
   mode: "production";
   state: "ready" | "stopping";
   schemaVersion: typeof SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION;
   repositoryId: string;
-};
-
-type SynthesisProductionAuthority = {
-  ownerMode: "production";
-  mutationEnabled: boolean;
-  runtimeAdmissionGeneration: number | null;
-  capabilityFingerprint: typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
-  cutoverReceiptId: string;
-  readyClientCapabilities: typeof SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
 };
 
 type SynthesisProductionRuntimeIdentity = {
@@ -228,7 +82,7 @@ type SynthesisProductionRuntimeIdentity = {
   platformSignature: SynthesisSidecarRuntimePlatformSignature;
 };
 
-export type SynthesisProductionDiscovery = SynthesisProductionAuthority & {
+export type SynthesisProductionDiscovery = {
   schema: typeof SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA;
   profileId: string;
   supervisorInstanceId: string;
@@ -252,17 +106,16 @@ export type SynthesisProductionDiscovery = SynthesisProductionAuthority & {
   capabilities: SynthesisSidecarCapability[];
 };
 
-export type SynthesisProductionHealth = SynthesisProductionAuthority &
-  SynthesisProductionRuntimeIdentity & {
-    status: "ok";
-    lifecycleState: SynthesisSidecarLifecycleState;
-    repository: SynthesisProductionRepositorySnapshot;
-    canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
-    computePool: SynthesisSidecarComputePoolSnapshot;
-    citationGraphTransfer: SynthesisSidecarTransferSnapshot;
-  };
+export type SynthesisProductionHealth = SynthesisProductionRuntimeIdentity & {
+  status: "ok";
+  lifecycleState: SynthesisSidecarLifecycleState;
+  repository: SynthesisProductionRepositorySnapshot;
+  canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
+  computePool: SynthesisSidecarComputePoolSnapshot;
+  citationGraphTransfer: SynthesisSidecarTransferSnapshot;
+};
 
-export type SynthesisProductionHandshakeResult = SynthesisProductionAuthority &
+export type SynthesisProductionHandshakeResult =
   SynthesisProductionRuntimeIdentity & {
     profileId: string;
     schemaVersion: string;
@@ -320,13 +173,6 @@ function hash(value: unknown, location: string) {
   return result;
 }
 
-function safeTimestamp(value: unknown, location: string) {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    invalid(location);
-  }
-  return value;
-}
-
 function safeInteger(
   value: unknown,
   location: string,
@@ -344,70 +190,6 @@ function safeInteger(
   return value;
 }
 
-function orderedOperationalCapabilities(value: unknown, location: string) {
-  if (
-    !Array.isArray(value) ||
-    value.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
-    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
-      (capability, index) => value[index] === capability,
-    )
-  ) {
-    invalid(location);
-  }
-  return [...SYNTHESIS_SIDECAR_CAPABILITIES];
-}
-
-function productionAuthority(
-  record: Record<string, unknown>,
-  location: string,
-): SynthesisProductionAuthority {
-  if (
-    record.ownerMode !== "production" ||
-    typeof record.mutationEnabled !== "boolean" ||
-    record.capabilityFingerprint !==
-      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
-  ) {
-    invalid(`${location}.authority`);
-  }
-  return {
-    ownerMode: "production",
-    mutationEnabled: record.mutationEnabled,
-    runtimeAdmissionGeneration:
-      record.runtimeAdmissionGeneration == null
-        ? null
-        : safeInteger(
-            record.runtimeAdmissionGeneration,
-            `${location}.runtimeAdmissionGeneration`,
-            1,
-          ),
-    capabilityFingerprint:
-      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-    cutoverReceiptId: boundedString(
-      record.cutoverReceiptId,
-      `${location}.cutoverReceiptId`,
-      128,
-    ),
-    readyClientCapabilities: orderedReadyClientCapabilities(
-      record.readyClientCapabilities,
-      `${location}.readyClientCapabilities`,
-    ),
-  };
-}
-
-function orderedReadyClientCapabilities(value: unknown, location: string) {
-  if (
-    !Array.isArray(value) ||
-    value.length !==
-      SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES.length ||
-    !SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES.every(
-      (capability, index) => value[index] === capability,
-    )
-  ) {
-    invalid(location);
-  }
-  return SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
-}
-
 function runtimeTarget(record: Record<string, unknown>, location: string) {
   const target = boundedString(
     record.target,
@@ -421,6 +203,19 @@ function runtimeTarget(record: Record<string, unknown>, location: string) {
     invalid(`${location}.target`);
   }
   return target;
+}
+
+function orderedOperationalCapabilities(value: unknown, location: string) {
+  if (
+    !Array.isArray(value) ||
+    value.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
+      (capability, index) => value[index] === capability,
+    )
+  ) {
+    invalid(location);
+  }
+  return [...SYNTHESIS_SIDECAR_CAPABILITIES];
 }
 
 function productionRuntimeIdentity(
@@ -466,42 +261,36 @@ function productionRuntimeIdentity(
   };
 }
 
-function rebuildSynthesisProductionRepositorySnapshot(
-  value: unknown,
-): SynthesisProductionRepositorySnapshot {
-  const record = toSynthesisJsonObject(
-    value,
-    "synthesisProductionRepositorySnapshot",
-  );
-  exactFields(
-    record,
-    ["mode", "state", "schemaVersion", "repositoryId"],
-    "synthesisProductionRepositorySnapshot",
-  );
-  if (
-    record.mode !== "production" ||
-    (record.state !== "ready" && record.state !== "stopping") ||
-    record.schemaVersion !== SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION
-  ) {
-    invalid("synthesisProductionRepositorySnapshot.identity");
-  }
-  return {
-    mode: "production",
-    state: record.state,
-    schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
-    repositoryId: hash(
-      record.repositoryId,
-      "synthesisProductionRepositorySnapshot.repositoryId",
-    ),
-  };
-}
-
-function productionRuntimeSnapshots(
+function productionSnapshots(
   record: Record<string, unknown>,
   location: string,
 ) {
+  const repository = toSynthesisJsonObject(
+    record.repository,
+    `${location}.repository`,
+  );
+  exactFields(
+    repository,
+    ["mode", "state", "schemaVersion", "repositoryId"],
+    `${location}.repository`,
+  );
+  if (
+    repository.mode !== "production" ||
+    (repository.state !== "ready" && repository.state !== "stopping") ||
+    repository.schemaVersion !== SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION
+  ) {
+    invalid(`${location}.repository`);
+  }
   return {
-    repository: rebuildSynthesisProductionRepositorySnapshot(record.repository),
+    repository: {
+      mode: "production" as const,
+      state: repository.state as "ready" | "stopping",
+      schemaVersion: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+      repositoryId: hash(
+        repository.repositoryId,
+        `${location}.repository.repositoryId`,
+      ),
+    },
     canonicalStore: rebuildSynthesisTopicCanonicalStoreSnapshot(
       record.canonicalStore,
     ),
@@ -512,31 +301,11 @@ function productionRuntimeSnapshots(
   };
 }
 
-function absoluteProductionPath(
-  value: unknown,
-  location: string,
-  suffix: string,
-) {
-  const path = boundedString(value, location, 4096);
-  const normalized = path.replaceAll("\\", "/");
-  const absolute =
-    normalized.startsWith("/") ||
-    /^[A-Za-z]:\//.test(normalized) ||
-    normalized.startsWith("//");
-  if (
-    !absolute ||
-    normalized.split("/").includes("..") ||
-    !normalized.endsWith(suffix)
-  ) {
-    invalid(location);
-  }
-  return path;
-}
-
 export function rebuildSynthesisProductionDiscovery(
   value: unknown,
 ): SynthesisProductionDiscovery {
-  const record = toSynthesisJsonObject(value, "synthesisProductionDiscovery");
+  const location = "synthesisProductionDiscovery";
+  const record = toSynthesisJsonObject(value, location);
   exactFields(
     record,
     [
@@ -561,16 +330,8 @@ export function rebuildSynthesisProductionDiscovery(
       "lifecycleState",
       "tokenLocator",
       "capabilities",
-      "ownerMode",
-      "mutationEnabled",
-      ...(Object.hasOwn(record, "runtimeAdmissionGeneration")
-        ? ["runtimeAdmissionGeneration"]
-        : []),
-      "capabilityFingerprint",
-      "cutoverReceiptId",
-      "readyClientCapabilities",
     ],
-    "synthesisProductionDiscovery",
+    location,
   );
   if (
     record.schema !== SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA ||
@@ -580,29 +341,29 @@ export function rebuildSynthesisProductionDiscovery(
     record.lifecycleState !== "ready" ||
     record.tokenLocator !== "supervisor-session"
   ) {
-    invalid("synthesisProductionDiscovery.identity");
+    invalid(`${location}.identity`);
   }
-  const target = runtimeTarget(record, "synthesisProductionDiscovery");
+  const target = runtimeTarget(record, location);
   return Object.freeze({
     schema: SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA,
-    profileId: hash(record.profileId, "synthesisProductionDiscovery.profileId"),
+    profileId: hash(record.profileId, `${location}.profileId`),
     supervisorInstanceId: boundedString(
       record.supervisorInstanceId,
-      "synthesisProductionDiscovery.supervisorInstanceId",
+      `${location}.supervisorInstanceId`,
       128,
     ),
     serviceInstanceId: boundedString(
       record.serviceInstanceId,
-      "synthesisProductionDiscovery.serviceInstanceId",
+      `${location}.serviceInstanceId`,
       128,
     ),
-    bundleId: hash(record.bundleId, "synthesisProductionDiscovery.bundleId"),
+    bundleId: hash(record.bundleId, `${location}.bundleId`),
     implementation: SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION,
     target,
     targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
     buildFingerprint: hash(
       record.buildFingerprint,
-      "synthesisProductionDiscovery.buildFingerprint",
+      `${location}.buildFingerprint`,
     ),
     platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
       record.platformSignature,
@@ -610,45 +371,34 @@ export function rebuildSynthesisProductionDiscovery(
     ),
     serviceVersion: boundedString(
       record.serviceVersion,
-      "synthesisProductionDiscovery.serviceVersion",
+      `${location}.serviceVersion`,
       128,
     ),
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: boundedString(
       record.schemaVersion,
-      "synthesisProductionDiscovery.schemaVersion",
+      `${location}.schemaVersion`,
       128,
     ),
-    runtimeRootId: hash(
-      record.runtimeRootId,
-      "synthesisProductionDiscovery.runtimeRootId",
-    ),
-    dataRootId: hash(
-      record.dataRootId,
-      "synthesisProductionDiscovery.dataRootId",
-    ),
+    runtimeRootId: hash(record.runtimeRootId, `${location}.runtimeRootId`),
+    dataRootId: hash(record.dataRootId, `${location}.dataRootId`),
     host: "127.0.0.1",
-    port: safeInteger(
-      record.port,
-      "synthesisProductionDiscovery.port",
-      1,
-      65_535,
-    ),
-    pid: safeInteger(record.pid, "synthesisProductionDiscovery.pid", 2),
+    port: safeInteger(record.port, `${location}.port`, 1, 65_535),
+    pid: safeInteger(record.pid, `${location}.pid`, 2),
     lifecycleState: "ready",
     tokenLocator: "supervisor-session",
     capabilities: orderedOperationalCapabilities(
       record.capabilities,
-      "synthesisProductionDiscovery.capabilities",
+      `${location}.capabilities`,
     ),
-    ...productionAuthority(record, "synthesisProductionDiscovery"),
   });
 }
 
 export function rebuildSynthesisProductionHealth(
   value: unknown,
 ): SynthesisProductionHealth {
-  const record = toSynthesisJsonObject(value, "synthesisProductionHealth");
+  const location = "synthesisProductionHealth";
+  const record = toSynthesisJsonObject(value, location);
   exactFields(
     record,
     [
@@ -668,38 +418,28 @@ export function rebuildSynthesisProductionHealth(
       "canonicalStore",
       "computePool",
       "citationGraphTransfer",
-      "ownerMode",
-      "mutationEnabled",
-      ...(Object.hasOwn(record, "runtimeAdmissionGeneration")
-        ? ["runtimeAdmissionGeneration"]
-        : []),
-      "capabilityFingerprint",
-      "cutoverReceiptId",
-      "readyClientCapabilities",
     ],
-    "synthesisProductionHealth",
+    location,
   );
   if (
     record.status !== "ok" ||
-    (record.lifecycleState !== "starting" &&
-      record.lifecycleState !== "ready" &&
-      record.lifecycleState !== "stopping")
+    !["starting", "ready", "stopping"].includes(String(record.lifecycleState))
   ) {
-    invalid("synthesisProductionHealth.state");
+    invalid(`${location}.state`);
   }
   return Object.freeze({
     status: "ok",
-    ...productionRuntimeIdentity(record, "synthesisProductionHealth"),
-    lifecycleState: record.lifecycleState,
-    ...productionRuntimeSnapshots(record, "synthesisProductionHealth"),
-    ...productionAuthority(record, "synthesisProductionHealth"),
+    ...productionRuntimeIdentity(record, location),
+    lifecycleState: record.lifecycleState as SynthesisSidecarLifecycleState,
+    ...productionSnapshots(record, location),
   });
 }
 
 export function rebuildSynthesisProductionHandshakeResult(
   value: unknown,
 ): SynthesisProductionHandshakeResult {
-  const record = toSynthesisJsonObject(value, "synthesisProductionHandshake");
+  const location = "synthesisProductionHandshake";
+  const record = toSynthesisJsonObject(value, location);
   exactFields(
     record,
     [
@@ -718,590 +458,46 @@ export function rebuildSynthesisProductionHandshakeResult(
       "runtimeRootId",
       "dataRootId",
       "capabilities",
-      "mutationEnabled",
       "lifecycleState",
       "repository",
       "canonicalStore",
       "computePool",
       "citationGraphTransfer",
-      "ownerMode",
-      "capabilityFingerprint",
-      "cutoverReceiptId",
-      "readyClientCapabilities",
-      ...(Object.hasOwn(record, "runtimeAdmissionGeneration")
-        ? ["runtimeAdmissionGeneration"]
-        : []),
-    ],
-    "synthesisProductionHandshake",
-  );
-  if (record.lifecycleState !== "ready") {
-    invalid("synthesisProductionHandshake.state");
-  }
-  const snapshots = productionRuntimeSnapshots(
-    record,
-    "synthesisProductionHandshake",
-  );
-  if (
-    snapshots.repository.state !== "ready" ||
-    snapshots.canonicalStore.state !== "ready"
-  ) {
-    invalid("synthesisProductionHandshake.storage");
-  }
-  return Object.freeze({
-    ...productionRuntimeIdentity(record, "synthesisProductionHandshake"),
-    profileId: hash(record.profileId, "synthesisProductionHandshake.profileId"),
-    schemaVersion: boundedString(
-      record.schemaVersion,
-      "synthesisProductionHandshake.schemaVersion",
-      128,
-    ),
-    runtimeRootId: hash(
-      record.runtimeRootId,
-      "synthesisProductionHandshake.runtimeRootId",
-    ),
-    dataRootId: hash(
-      record.dataRootId,
-      "synthesisProductionHandshake.dataRootId",
-    ),
-    capabilities: orderedOperationalCapabilities(
-      record.capabilities,
-      "synthesisProductionHandshake.capabilities",
-    ),
-    lifecycleState: "ready",
-    ...snapshots,
-    ...productionAuthority(record, "synthesisProductionHandshake"),
-  });
-}
-
-export function rebuildSynthesisProductionAdmission(
-  value: unknown,
-): SynthesisProductionAdmission {
-  const record = toSynthesisJsonObject(value, "synthesisProductionAdmission");
-  exactFields(
-    record,
-    [
-      "schema",
-      "purpose",
-      "profileId",
-      "supervisorInstanceId",
-      "cutoverReceiptId",
-      "cutoverReceiptPath",
-      "capabilityFingerprint",
-      "repositoryDbPath",
-      "canonicalRoot",
-      "reverseHost",
-      "mutationEnabled",
-    ],
-    "synthesisProductionAdmission",
-  );
-  if (
-    record.schema !== SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA ||
-    (record.purpose !== "preflight_copy" && record.purpose !== "live_owner") ||
-    record.mutationEnabled !== false
-  ) {
-    invalid("synthesisProductionAdmission.identity");
-  }
-  const reverseHost = toSynthesisJsonObject(
-    record.reverseHost,
-    "synthesisProductionAdmission.reverseHost",
-  );
-  exactFields(
-    reverseHost,
-    ["host", "port", "authorizationToken"],
-    "synthesisProductionAdmission.reverseHost",
-  );
-  if (
-    reverseHost.host !== "127.0.0.1" ||
-    typeof reverseHost.port !== "number" ||
-    !Number.isSafeInteger(reverseHost.port) ||
-    reverseHost.port < 1 ||
-    reverseHost.port > 65_535
-  ) {
-    invalid("synthesisProductionAdmission.reverseHost.locator");
-  }
-  const authorizationToken = boundedString(
-    reverseHost.authorizationToken,
-    "synthesisProductionAdmission.reverseHost.authorizationToken",
-    256,
-  );
-  if (authorizationToken.length < 32) {
-    invalid("synthesisProductionAdmission.reverseHost.authorizationToken");
-  }
-  return Object.freeze({
-    schema: SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA,
-    purpose: record.purpose,
-    profileId: hash(record.profileId, "synthesisProductionAdmission.profileId"),
-    supervisorInstanceId: boundedString(
-      record.supervisorInstanceId,
-      "synthesisProductionAdmission.supervisorInstanceId",
-      128,
-    ),
-    cutoverReceiptId: boundedString(
-      record.cutoverReceiptId,
-      "synthesisProductionAdmission.cutoverReceiptId",
-      128,
-    ),
-    cutoverReceiptPath: absoluteProductionPath(
-      record.cutoverReceiptPath,
-      "synthesisProductionAdmission.cutoverReceiptPath",
-      "/state/synthesis-cutover/receipt.json",
-    ),
-    capabilityFingerprint: hash(
-      record.capabilityFingerprint,
-      "synthesisProductionAdmission.capabilityFingerprint",
-    ),
-    repositoryDbPath: absoluteProductionPath(
-      record.repositoryDbPath,
-      "synthesisProductionAdmission.repositoryDbPath",
-      "/state/synthesis.db",
-    ),
-    canonicalRoot: absoluteProductionPath(
-      record.canonicalRoot,
-      "synthesisProductionAdmission.canonicalRoot",
-      "/data/synthesis",
-    ),
-    reverseHost: Object.freeze({
-      host: "127.0.0.1",
-      port: reverseHost.port,
-      authorizationToken,
-    }),
-    mutationEnabled: false,
-  });
-}
-
-function rebuildRuntimeAdmissionIdentity(
-  value: unknown,
-  location: string,
-): SynthesisProductionRuntimeAdmissionIdentity {
-  const record = toSynthesisJsonObject(value, location);
-  exactFields(
-    record,
-    [
-      "profileId",
-      "target",
-      "targetTriple",
-      "protocolVersion",
-      "schemaVersion",
-      "bundleId",
-      "buildFingerprint",
-      "capabilityFingerprint",
     ],
     location,
   );
-  if (record.protocolVersion !== SYNTHESIS_SIDECAR_PROTOCOL) {
-    invalid(`${location}.protocolVersion`);
+  const snapshots = productionSnapshots(record, location);
+  if (
+    record.lifecycleState !== "ready" ||
+    snapshots.repository.state !== "ready" ||
+    snapshots.canonicalStore.state !== "ready"
+  ) {
+    invalid(`${location}.state`);
   }
-  const target = runtimeTarget(record, location);
   return Object.freeze({
+    ...productionRuntimeIdentity(record, location),
     profileId: hash(record.profileId, `${location}.profileId`),
-    target,
-    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
-    protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: boundedString(
       record.schemaVersion,
       `${location}.schemaVersion`,
       128,
     ),
-    bundleId: hash(record.bundleId, `${location}.bundleId`),
-    buildFingerprint: hash(
-      record.buildFingerprint,
-      `${location}.buildFingerprint`,
+    runtimeRootId: hash(record.runtimeRootId, `${location}.runtimeRootId`),
+    dataRootId: hash(record.dataRootId, `${location}.dataRootId`),
+    capabilities: orderedOperationalCapabilities(
+      record.capabilities,
+      `${location}.capabilities`,
     ),
-    capabilityFingerprint: hash(
-      record.capabilityFingerprint,
-      `${location}.capabilityFingerprint`,
-    ),
-  });
-}
-
-export function rebuildSynthesisProductionRuntimeAdmissionState(
-  value: unknown,
-): SynthesisProductionRuntimeAdmissionState {
-  const location = "synthesisProductionRuntimeAdmissionState";
-  const record = toSynthesisJsonObject(value, location);
-  exactFields(
-    record,
-    ["schema", "cutoverReceiptId", "current", "pendingUpgrade", "updatedAtMs"],
-    location,
-  );
-  if (record.schema !== SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA) {
-    invalid(`${location}.schema`);
-  }
-  const currentRecord = toSynthesisJsonObject(
-    record.current,
-    `${location}.current`,
-  );
-  exactFields(
-    currentRecord,
-    [
-      "generation",
-      "profileId",
-      "target",
-      "targetTriple",
-      "protocolVersion",
-      "schemaVersion",
-      "bundleId",
-      "buildFingerprint",
-      "capabilityFingerprint",
-      "serviceInstanceId",
-      "activationEvidenceSha256",
-      "admittedAtMs",
-    ],
-    `${location}.current`,
-  );
-  const currentIdentity = rebuildRuntimeAdmissionIdentity(
-    {
-      profileId: currentRecord.profileId,
-      target: currentRecord.target,
-      targetTriple: currentRecord.targetTriple,
-      protocolVersion: currentRecord.protocolVersion,
-      schemaVersion: currentRecord.schemaVersion,
-      bundleId: currentRecord.bundleId,
-      buildFingerprint: currentRecord.buildFingerprint,
-      capabilityFingerprint: currentRecord.capabilityFingerprint,
-    },
-    `${location}.current.identity`,
-  );
-  const current: SynthesisProductionRuntimeAdmissionCurrent = Object.freeze({
-    generation: safeInteger(
-      currentRecord.generation,
-      `${location}.current.generation`,
-      1,
-    ),
-    ...currentIdentity,
-    serviceInstanceId: boundedString(
-      currentRecord.serviceInstanceId,
-      `${location}.current.serviceInstanceId`,
-      128,
-    ),
-    activationEvidenceSha256:
-      currentRecord.activationEvidenceSha256 === null
-        ? null
-        : hash(
-            currentRecord.activationEvidenceSha256,
-            `${location}.current.activationEvidenceSha256`,
-          ),
-    admittedAtMs: safeTimestamp(
-      currentRecord.admittedAtMs,
-      `${location}.current.admittedAtMs`,
-    ),
-  });
-  let pendingUpgrade: SynthesisProductionRuntimeAdmissionPending | null = null;
-  if (record.pendingUpgrade !== null) {
-    const pending = toSynthesisJsonObject(
-      record.pendingUpgrade,
-      `${location}.pendingUpgrade`,
-    );
-    exactFields(
-      pending,
-      [
-        "generation",
-        "previousGeneration",
-        "stage",
-        "target",
-        "backup",
-        "serviceInstanceId",
-        "activationEvidenceSha256",
-        "updatedAtMs",
-      ],
-      `${location}.pendingUpgrade`,
-    );
-    if (
-      !SYNTHESIS_RUNTIME_ADMISSION_UPGRADE_STAGES.includes(
-        pending.stage as SynthesisRuntimeAdmissionUpgradeStage,
-      )
-    ) {
-      invalid(`${location}.pendingUpgrade.stage`);
-    }
-    const target = rebuildRuntimeAdmissionIdentity(
-      pending.target,
-      `${location}.pendingUpgrade.target`,
-    );
-    const backup = toSynthesisJsonObject(
-      pending.backup,
-      `${location}.pendingUpgrade.backup`,
-    );
-    exactFields(
-      backup,
-      [
-        "sourceOwner",
-        "backupId",
-        "sourceSchemaVersion",
-        "targetSchemaVersion",
-        "canonicalManifestSha256",
-        "durableSummarySha256",
-      ],
-      `${location}.pendingUpgrade.backup`,
-    );
-    if (
-      backup.sourceOwner !== "legacy-plugin" &&
-      backup.sourceOwner !== "empty-profile"
-    ) {
-      invalid(`${location}.pendingUpgrade.backup.sourceOwner`);
-    }
-    const generation = safeInteger(
-      pending.generation,
-      `${location}.pendingUpgrade.generation`,
-      2,
-    );
-    const previousGeneration = safeInteger(
-      pending.previousGeneration,
-      `${location}.pendingUpgrade.previousGeneration`,
-      1,
-    );
-    const stage = pending.stage as SynthesisRuntimeAdmissionUpgradeStage;
-    const serviceInstanceId =
-      pending.serviceInstanceId === null
-        ? null
-        : boundedString(
-            pending.serviceInstanceId,
-            `${location}.pendingUpgrade.serviceInstanceId`,
-            128,
-          );
-    const activationEvidenceSha256 =
-      pending.activationEvidenceSha256 === null
-        ? null
-        : hash(
-            pending.activationEvidenceSha256,
-            `${location}.pendingUpgrade.activationEvidenceSha256`,
-          );
-    const serviceRequired =
-      SYNTHESIS_RUNTIME_ADMISSION_UPGRADE_STAGES.indexOf(stage) >=
-      SYNTHESIS_RUNTIME_ADMISSION_UPGRADE_STAGES.indexOf("candidate_started");
-    const activationRequired = stage === "activation_persisted";
-    if (
-      generation !== current.generation + 1 ||
-      previousGeneration !== current.generation ||
-      target.profileId !== current.profileId ||
-      target.target !== current.target ||
-      target.targetTriple !== current.targetTriple ||
-      target.protocolVersion !== current.protocolVersion ||
-      target.schemaVersion !== current.schemaVersion ||
-      target.capabilityFingerprint !== current.capabilityFingerprint ||
-      target.buildFingerprint === current.buildFingerprint ||
-      serviceRequired !== (serviceInstanceId !== null) ||
-      activationRequired !== (activationEvidenceSha256 !== null)
-    ) {
-      invalid(`${location}.pendingUpgrade.identity`);
-    }
-    pendingUpgrade = Object.freeze({
-      generation,
-      previousGeneration,
-      stage,
-      target,
-      backup: Object.freeze({
-        sourceOwner: backup.sourceOwner,
-        backupId: hash(
-          backup.backupId,
-          `${location}.pendingUpgrade.backup.backupId`,
-        ),
-        sourceSchemaVersion: boundedString(
-          backup.sourceSchemaVersion,
-          `${location}.pendingUpgrade.backup.sourceSchemaVersion`,
-          128,
-        ),
-        targetSchemaVersion: boundedString(
-          backup.targetSchemaVersion,
-          `${location}.pendingUpgrade.backup.targetSchemaVersion`,
-          128,
-        ),
-        canonicalManifestSha256: hash(
-          backup.canonicalManifestSha256,
-          `${location}.pendingUpgrade.backup.canonicalManifestSha256`,
-        ),
-        durableSummarySha256: hash(
-          backup.durableSummarySha256,
-          `${location}.pendingUpgrade.backup.durableSummarySha256`,
-        ),
-      }),
-      serviceInstanceId,
-      activationEvidenceSha256,
-      updatedAtMs: safeTimestamp(
-        pending.updatedAtMs,
-        `${location}.pendingUpgrade.updatedAtMs`,
-      ),
-    });
-  }
-  const updatedAtMs = safeTimestamp(
-    record.updatedAtMs,
-    `${location}.updatedAtMs`,
-  );
-  if (
-    updatedAtMs < current.admittedAtMs ||
-    (pendingUpgrade && updatedAtMs < pendingUpgrade.updatedAtMs)
-  ) {
-    invalid(`${location}.updatedAtMs`);
-  }
-  return Object.freeze({
-    schema: SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA,
-    cutoverReceiptId: boundedString(
-      record.cutoverReceiptId,
-      `${location}.cutoverReceiptId`,
-      128,
-    ),
-    current,
-    pendingUpgrade,
-    updatedAtMs,
-  });
-}
-
-export function rebuildSynthesisProductionRuntimeAdmission(
-  value: unknown,
-): SynthesisProductionRuntimeAdmission {
-  const location = "synthesisProductionRuntimeAdmission";
-  const record = toSynthesisJsonObject(value, location);
-  exactFields(
-    record,
-    [
-      "schema",
-      "purpose",
-      "profileId",
-      "supervisorInstanceId",
-      "cutoverReceiptId",
-      "cutoverReceiptPath",
-      "runtimeAdmissionStatePath",
-      "runtimeAdmissionGeneration",
-      "capabilityFingerprint",
-      "repositoryDbPath",
-      "canonicalRoot",
-      "reverseHost",
-      "mutationEnabled",
-    ],
-    location,
-  );
-  if (record.schema !== SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA) {
-    invalid(`${location}.schema`);
-  }
-  const {
-    runtimeAdmissionStatePath: _runtimeAdmissionStatePath,
-    runtimeAdmissionGeneration: _runtimeAdmissionGeneration,
-    ...legacyFields
-  } = record;
-  const base = rebuildSynthesisProductionAdmission({
-    ...legacyFields,
-    schema: SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA,
-  });
-  return Object.freeze({
-    ...base,
-    schema: SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA,
-    runtimeAdmissionStatePath: absoluteProductionPath(
-      record.runtimeAdmissionStatePath,
-      `${location}.runtimeAdmissionStatePath`,
-      "/state/synthesis-runtime-admission.json",
-    ),
-    runtimeAdmissionGeneration: safeInteger(
-      record.runtimeAdmissionGeneration,
-      `${location}.runtimeAdmissionGeneration`,
-      1,
-    ),
-  });
-}
-
-export function rebuildSynthesisCutoverReceipt(
-  value: unknown,
-): SynthesisCutoverReceipt {
-  const record = toSynthesisJsonObject(value, "synthesisCutoverReceipt");
-  exactFields(
-    record,
-    [
-      "schema",
-      "receiptId",
-      "profileId",
-      "phase",
-      "sourceOwner",
-      "targetOwner",
-      "backupId",
-      "sourceSchemaVersion",
-      "targetSchemaVersion",
-      "canonicalManifestSha256",
-      "durableSummarySha256",
-      "bundleFingerprint",
-      "capabilityFingerprint",
-      "serviceInstanceId",
-      "mutationEnabled",
-      "updatedAtMs",
-    ],
-    "synthesisCutoverReceipt",
-  );
-  if (
-    record.schema !== SYNTHESIS_CUTOVER_RECEIPT_SCHEMA ||
-    (record.sourceOwner !== "legacy-plugin" &&
-      record.sourceOwner !== "empty-profile") ||
-    record.targetOwner !== "rust-native" ||
-    !SYNTHESIS_CUTOVER_PHASES.includes(record.phase as SynthesisCutoverPhase) ||
-    typeof record.mutationEnabled !== "boolean"
-  ) {
-    invalid("synthesisCutoverReceipt.identity");
-  }
-  const phase = record.phase as SynthesisCutoverPhase;
-  if (
-    record.mutationEnabled !== (phase === "mutation_enabled") ||
-    ((phase === "native_owner" || phase === "mutation_enabled") &&
-      typeof record.serviceInstanceId !== "string") ||
-    (phase !== "native_owner" &&
-      phase !== "mutation_enabled" &&
-      record.serviceInstanceId !== null)
-  ) {
-    invalid("synthesisCutoverReceipt.admission");
-  }
-  return Object.freeze({
-    schema: SYNTHESIS_CUTOVER_RECEIPT_SCHEMA,
-    receiptId: boundedString(
-      record.receiptId,
-      "synthesisCutoverReceipt.receiptId",
-      128,
-    ),
-    profileId: hash(record.profileId, "synthesisCutoverReceipt.profileId"),
-    phase,
-    sourceOwner: record.sourceOwner,
-    targetOwner: "rust-native",
-    backupId: hash(record.backupId, "synthesisCutoverReceipt.backupId"),
-    sourceSchemaVersion: boundedString(
-      record.sourceSchemaVersion,
-      "synthesisCutoverReceipt.sourceSchemaVersion",
-      128,
-    ),
-    targetSchemaVersion: boundedString(
-      record.targetSchemaVersion,
-      "synthesisCutoverReceipt.targetSchemaVersion",
-      128,
-    ),
-    canonicalManifestSha256: hash(
-      record.canonicalManifestSha256,
-      "synthesisCutoverReceipt.canonicalManifestSha256",
-    ),
-    durableSummarySha256: hash(
-      record.durableSummarySha256,
-      "synthesisCutoverReceipt.durableSummarySha256",
-    ),
-    bundleFingerprint: hash(
-      record.bundleFingerprint,
-      "synthesisCutoverReceipt.bundleFingerprint",
-    ),
-    capabilityFingerprint: hash(
-      record.capabilityFingerprint,
-      "synthesisCutoverReceipt.capabilityFingerprint",
-    ),
-    serviceInstanceId:
-      record.serviceInstanceId === null
-        ? null
-        : boundedString(
-            record.serviceInstanceId,
-            "synthesisCutoverReceipt.serviceInstanceId",
-            128,
-          ),
-    mutationEnabled: record.mutationEnabled,
-    updatedAtMs: safeTimestamp(
-      record.updatedAtMs,
-      "synthesisCutoverReceipt.updatedAtMs",
-    ),
+    lifecycleState: "ready",
+    ...snapshots,
   });
 }
 
 export function rebuildSynthesisReverseHostCall(
   value: unknown,
 ): SynthesisReverseHostCall {
-  const record = toSynthesisJsonObject(value, "synthesisReverseHostCall");
+  const location = "synthesisReverseHostCall";
+  const record = toSynthesisJsonObject(value, location);
   exactFields(
     record,
     [
@@ -1314,7 +510,7 @@ export function rebuildSynthesisReverseHostCall(
       "deadlineAtMs",
       "payload",
     ],
-    "synthesisReverseHostCall",
+    location,
   );
   if (
     record.schema !== SYNTHESIS_REVERSE_HOST_CALL_SCHEMA ||
@@ -1322,38 +518,28 @@ export function rebuildSynthesisReverseHostCall(
       record.capability as SynthesisReverseHostCapability,
     )
   ) {
-    invalid("synthesisReverseHostCall.identity");
-  }
-  const payload = toSynthesisJsonObject(
-    record.payload,
-    "synthesisReverseHostCall.payload",
-  );
-  if (JSON.stringify(payload).length > 1024 * 1024) {
-    invalid("synthesisReverseHostCall.payload");
+    invalid(`${location}.identity`);
   }
   return Object.freeze({
     schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
-    requestId: boundedString(
-      record.requestId,
-      "synthesisReverseHostCall.requestId",
-      512,
-    ),
-    profileId: hash(record.profileId, "synthesisReverseHostCall.profileId"),
+    requestId: boundedString(record.requestId, `${location}.requestId`, 512),
+    profileId: hash(record.profileId, `${location}.profileId`),
     serviceInstanceId: boundedString(
       record.serviceInstanceId,
-      "synthesisReverseHostCall.serviceInstanceId",
+      `${location}.serviceInstanceId`,
       128,
     ),
     operationId: boundedString(
       record.operationId,
-      "synthesisReverseHostCall.operationId",
-      128,
+      `${location}.operationId`,
+      512,
     ),
     capability: record.capability as SynthesisReverseHostCapability,
-    deadlineAtMs: safeTimestamp(
+    deadlineAtMs: safeInteger(
       record.deadlineAtMs,
-      "synthesisReverseHostCall.deadlineAtMs",
+      `${location}.deadlineAtMs`,
+      0,
     ),
-    payload,
+    payload: toSynthesisJsonObject(record.payload, `${location}.payload`),
   });
 }

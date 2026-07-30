@@ -1,3 +1,11 @@
+## Lifecycle dependency
+
+This change follows `simplify-xpi-owned-synthesis-sidecar-lifecycle`. It MUST
+preserve the fixed XPI runtime, launch-scoped session identity, Rust OS lock,
+and direct production open. It MUST NOT restore cutover receipts, runtime
+admission, activation, critical smoke, owner/lease files, persisted
+generations, or plugin backup/restore ownership.
+
 ## Why
 
 R9a made the Rust sidecar the only production owner, but the plugin source tree
@@ -55,4 +63,3 @@ None.
 - Leaves `apps/synthesis-service` and its executable Node oracle temporarily
   intact for the final retirement change; it remains unreachable from product
   runtime and no release is allowed between the dependent R9b changes.
-

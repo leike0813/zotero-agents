@@ -1,3 +1,7 @@
+> Lifecycle boundary: preserve the XPI-only session lifecycle and do not
+> reintroduce cutover, admission, activation, critical smoke, owner/lease
+> files, persisted runtime generations, or plugin backup/restore.
+
 ## 1. Verify Preconditions and Classify Ownership
 
 - [ ] 1.1 Verify `stabilize-synthesis-r9a-retirement-baseline` local gates and accepted pre-deletion evidence, and record the exact source identity used by this change
@@ -7,7 +11,7 @@
 ## 2. Add Failing Stable-Behavior and Boundary Tests
 
 - [ ] 2.1 Extend existing client composition tests to prove the neutral port adapter preserves the exact 95-operation port and 96-method grouped public client with stable DTO/error behavior
-- [ ] 2.2 Extend existing default-client, consumer, cutover, and shutdown tests to require one native generation, fail-closed unavailable/repair behavior, native-only cleanup, and zero legacy factory/root opening
+- [ ] 2.2 Extend existing default-client, consumer, supervisor, and shutdown tests to require one current-session native composition, fail-closed unavailable/repair behavior, native-only cleanup, and zero legacy factory/root opening
 - [ ] 2.3 Extend readonly harness tests to cover stable snapshot reads, retained Workbench surfaces, explicit blocked writes, and absence of legacy/native production owner construction
 - [ ] 2.4 Add negative boundary fixtures for static import, dynamic import, aliased factory, direct DB/canonical opener, test hook, preference/environment selector, manifest selector, and backend registration
 - [ ] 2.5 Identify tests that assert only legacy class structure, private call order, worker messages, or complete text; mark them for deletion rather than porting brittle assertions
@@ -37,7 +41,7 @@
 ## 6. Strengthen Source and Build Boundaries
 
 - [ ] 6.1 Change `check-synthesis-service-boundary.ts` from an allowlisted direct-consumer model to zero legacy construction, zero implementation selector, and zero ordinary production-root opener
-- [ ] 6.2 Keep only explicit cutover backup/restore and native supervisor path exceptions, and prove they cannot construct an application owner
+- [ ] 6.2 Keep only the native supervisor's opaque production-path handoff exception, and prove it cannot construct a plugin application owner
 - [ ] 6.3 Confirm default client, Workflow, Workbench, Host Bridge, MCP, startup, maintenance, shutdown, tests, and harnesses have no legacy import or dynamic construction path
 - [ ] 6.4 Confirm the retained `apps/synthesis-service` tree is still frozen, development-only, and reachable only from paths assigned to `remove-synthesis-node-sidecar-stack`
 
@@ -45,9 +49,8 @@
 
 - [ ] 7.1 Update current Synthesis client, lifecycle, persistence, harness, service-boundary, and migration documentation to describe the native-only plugin and the separately retained external Node oracle
 - [ ] 7.2 Run strict OpenSpec validation for this change and modified specs
-- [ ] 7.3 Run focused client/default-lifecycle/consumer/harness/cutover/boundary tests and the complete R9a Core 219-235 suite
+- [ ] 7.3 Run focused client/default-lifecycle/consumer/harness/supervisor/boundary tests and the governed Synthesis Stage-1 suite
 - [ ] 7.4 Run relevant Stage-1 tests, TypeScript package/plugin checks, readonly harness build/tests, and production build without starting a development server
 - [ ] 7.5 Run Rust format, clippy, workspace tests, service/worker smoke, and package freshness checks to prove plugin deletion did not weaken native behavior
 - [ ] 7.6 Verify the final source/build inventory contains no constructible plugin legacy owner and record all remaining Node-sidecar files for the next change
 - [ ] 7.7 Do not publish or release the intermediate tree; continue to `remove-synthesis-node-sidecar-stack`
-

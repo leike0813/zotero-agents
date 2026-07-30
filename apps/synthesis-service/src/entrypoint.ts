@@ -40,7 +40,6 @@ async function main() {
       serviceInstanceId,
     );
     lifecycle.publishDiscovery({ port: runtime.port });
-    lifecycle.startLeaseMonitor(() => runtime.beginShutdown("host_lease"));
     const stopForSignal = (signal: NodeJS.Signals) => {
       runtime.beginShutdown(signal.toLowerCase());
     };

@@ -57,7 +57,7 @@
     ]
   },
   "launchConfig": {
-    "schema": "synthesis-sidecar-launch-config.v2",
+    "schema": "synthesis-sidecar-launch-config.v3",
     "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
     "profileRuntimeRoot": "$ABSOLUTE_RUNTIME_ROOT",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
@@ -76,10 +76,15 @@
     "protocolVersion": "synthesis-sidecar.v1",
     "schemaVersion": "synthesis-repository-foundation.v1",
     "supervisorInstanceId": "native-parity-supervisor",
-    "leaseNonce": "native-parity-lease",
+    "repositoryDbPath": "$ABSOLUTE_RUNTIME_ROOT",
+    "canonicalRoot": "$ABSOLUTE_RUNTIME_ROOT",
+    "reverseHost": {
+      "host": "127.0.0.1",
+      "port": 9134,
+      "authorizationToken": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
     "clientToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "lifecycleToken": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "mutationEnabled": false,
     "port": 0
   },
   "discovery": {

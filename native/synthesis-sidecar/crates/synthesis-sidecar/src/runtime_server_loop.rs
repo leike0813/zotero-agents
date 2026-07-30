@@ -1,21 +1,15 @@
 use serde_json::json;
 use std::io::{self, Read};
 use std::net::TcpListener;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
-use synthesis_sidecar::runtime_contract::{
-    SIDECAR_CAPABILITIES, current_time_ms, validate_host_lease,
-};
+use synthesis_sidecar::runtime_contract::{SIDECAR_CAPABILITIES, current_time_ms};
 
 use crate::runtime_capabilities::{ServeState, handle_connection};
 
-pub(crate) fn run_sidecar_listener(
-    state: Arc<ServeState>,
-    lease_path: &Path,
-) -> Result<(), String> {
+pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
     listener
         .set_nonblocking(true)
@@ -24,8 +18,8 @@ pub(crate) fn run_sidecar_listener(
         .local_addr()
         .map_err(|error| error.to_string())?
         .port();
-    let mut discovery = json!({
-        "schema":"synthesis-sidecar-discovery.v2",
+    let discovery = json!({
+        "schema":"synthesis-sidecar-discovery.v5",
         "profileId":state.config.profile_id,
         "supervisorInstanceId":state.config.supervisor_instance_id,
         "serviceInstanceId":state.service_instance_id,
@@ -47,22 +41,6 @@ pub(crate) fn run_sidecar_listener(
         "tokenLocator":"supervisor-session",
         "capabilities":SIDECAR_CAPABILITIES,
     });
-    if let Some(admission) = state.production_admission.as_ref() {
-        discovery["schema"] = json!("synthesis-sidecar-discovery.v3");
-        discovery["ownerMode"] = json!("production");
-        discovery["mutationEnabled"] = json!(state.mutation_enabled.load(Ordering::Acquire));
-        discovery["capabilityFingerprint"] = json!(admission.capability_fingerprint);
-        discovery["cutoverReceiptId"] = json!(admission.cutover_receipt_id);
-        if let Some(generation) = admission.runtime_admission_generation {
-            discovery["runtimeAdmissionGeneration"] = json!(generation);
-        }
-        discovery["readyClientCapabilities"] =
-            json!(synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES);
-    }
-    *state
-        .discovery
-        .lock()
-        .map_err(|_| "discovery_unavailable".to_owned())? = discovery.clone();
     state.runtime_ownership.publish_discovery(&discovery)?;
     println!(
         "{}",
@@ -77,7 +55,6 @@ pub(crate) fn run_sidecar_listener(
     });
 
     let mut handlers = Vec::new();
-    let mut next_lease_check_ms = current_time_ms()?.saturating_add(15_000);
     let mut next_transfer_reap_ms = current_time_ms()?.saturating_add(30_000);
     while !state.stopping.load(Ordering::Acquire) {
         let now_ms = current_time_ms()?;
@@ -86,13 +63,6 @@ pub(crate) fn run_sidecar_listener(
                 transfer.reap(now_ms);
             }
             next_transfer_reap_ms = now_ms.saturating_add(30_000);
-        }
-        if now_ms >= next_lease_check_ms {
-            if validate_host_lease(lease_path, &state.config).is_err() {
-                state.stopping.store(true, Ordering::Release);
-                continue;
-            }
-            next_lease_check_ms = now_ms.saturating_add(15_000);
         }
         match listener.accept() {
             Ok((stream, _)) => {

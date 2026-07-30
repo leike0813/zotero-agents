@@ -1,3 +1,12 @@
+## Lifecycle supersession
+
+`simplify-xpi-owned-synthesis-sidecar-lifecycle` supersedes this change's
+cutover receipt, runtime admission, activation, critical-smoke, owner/lease,
+and generation work. Those completed tasks are historical implementation
+records and MUST NOT be reapplied. The surviving scope of this change is
+language-neutral operation parity, Rust ownership, packaging evidence, and
+release-independent verification.
+
 ## Why
 
 R9a has switched the default production route to the Rust native owner, but its

@@ -289,7 +289,7 @@ describe("suite governance constraints", function () {
       .map((entry) => `test/core/${entry.name}`);
     const suite = resolveSynthesisSidecarStage1Suite(files);
 
-    assert.equal(suite.files.length, 61);
+    assert.equal(suite.files.length, 56);
     assert.equal(
       suite.files[0],
       "test/core/175-synthesis-client-foundation.test.ts",
@@ -300,7 +300,7 @@ describe("suite governance constraints", function () {
     );
     assert.deepEqual(
       suite.segments.map((segment) => segment.files.length),
-      [27, 1, 16, 17],
+      [26, 1, 16, 13],
     );
     assert.deepEqual(suite.segments[1].files, [
       "test/core/202-synthesis-citation-graph-build-streaming-worker.test.ts",
@@ -314,7 +314,7 @@ describe("suite governance constraints", function () {
     assert.throws(() =>
       resolveSynthesisSidecarStage1Suite([
         ...files,
-        "test/core/175-synthesis-duplicate.test.ts",
+        "test/core/175-synthesis-client-foundation.test.ts",
       ]),
     );
     assert.throws(() =>

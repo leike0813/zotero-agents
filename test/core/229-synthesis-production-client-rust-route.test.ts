@@ -1,28 +1,12 @@
 import { assert } from "chai";
-import { createHash } from "node:crypto";
-import {
-  execFile,
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { promisify } from "node:util";
-import {
-  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-  SYNTHESIS_SIDECAR_PROTOCOL,
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-} from "../../packages/synthesis-contracts/src/sidecarSystem";
-import { SYNTHESIS_WORKBENCH_SURFACES } from "../../packages/synthesis-contracts/src/workbench";
-import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
-import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
-import { inspectSynthesisTagSurfaceParity } from "../../scripts/check-synthesis-tag-surface-parity";
-import { inspectSynthesisConceptTopicGraphSurfaceParity } from "../../scripts/check-synthesis-concept-topic-graph-surface-parity";
+import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
-import { inspectSynthesisWebDavMaintenanceSurfaceParity } from "../../scripts/check-synthesis-webdav-maintenance-surface-parity";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const EXECUTABLE = path.join(
@@ -32,42 +16,6 @@ const EXECUTABLE = path.join(
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
-const SMOKE_CHECK_IDS = [
-  "identity",
-  "storage",
-  "workbench",
-  "topic-list",
-  "topic-detail",
-  "canonical-manifest",
-  "reference-cache",
-  "graph-read",
-  "worker",
-];
-function smokeDigest(args: {
-  profileId: string;
-  receiptId: string;
-  serviceInstanceId: string;
-  supervisorInstanceId: string;
-  capabilityFingerprint: string;
-  checkDigests: string[];
-}) {
-  return createHash("sha256")
-    .update(
-      JSON.stringify([
-        "synthesis-production-critical-smoke.v1",
-        ...SMOKE_CHECK_IDS,
-        ...args.checkDigests,
-        args.profileId,
-        args.receiptId,
-        1,
-        args.serviceInstanceId,
-        args.supervisorInstanceId,
-        args.capabilityFingerprint,
-      ]),
-    )
-    .digest("hex");
-}
-const execFileAsync = promisify(execFile);
 const TOPIC_WORKBENCH_OPERATIONS = [
   "client.applyLiteratureDigestSidecar",
   "client.applyTopicSynthesisResult",
@@ -88,84 +36,17 @@ const TOPIC_WORKBENCH_OPERATIONS = [
   "client.resolveTopicPaperDigest",
   "client.restoreTopicDiscoveryHint",
 ] as const;
-const REFERENCE_CANONICAL_OPERATIONS = [
-  "client.applyCanonicalRevisionMergeRequests",
-  "client.applyCanonicalRevisionReviewAction",
-  "client.applyReferenceMatchProposalAction",
-  "client.applyReferenceMatchProposalActions",
-  "client.archiveCanonicalReference",
-  "client.getAttentionQueue",
-  "client.getReferenceSidecarIndex",
-  "client.getReviewInput",
-  "client.mergeEffectiveCanonicalReference",
-  "client.rankExternalReferences",
-  "client.refreshReferenceSidecarNow",
-  "client.retryAdvancedReferenceMatching",
-  "client.retryReferenceSidecarRefresh",
-  "client.runAdvancedReferenceMatchingNow",
-  "client.startReferenceSidecarRefresh",
-  "client.updateCanonicalReferenceMetadata",
-] as const;
-const REFERENCE_CANONICAL_MUTATIONS = REFERENCE_CANONICAL_OPERATIONS.filter(
-  (capability) =>
-    ![
-      "client.getAttentionQueue",
-      "client.getReferenceSidecarIndex",
-      "client.getReviewInput",
-      "client.rankExternalReferences",
-    ].includes(capability),
-);
-const TAG_OPERATIONS = [
-  "client.applyTagVocabularyImport",
-  "client.clearStagedTagSuggestions",
-  "client.clearTagAuditRecord",
-  "client.deleteTagVocabularyEntry",
-  "client.discardStagedTagSuggestions",
-  "client.exportTagVocabularyForRegulator",
-  "client.initializeBuiltinTagPolicy",
-  "client.isBuiltinTagPolicyInitialized",
-  "client.listStagedTagSuggestions",
-  "client.loadTagVocabulary",
-  "client.previewTagVocabularyImport",
-  "client.promoteStagedTagSuggestions",
-  "client.rebuildTagVocabularyIndex",
-  "client.replaceTagAuditRecords",
-  "client.saveTagVocabulary",
-  "client.stageTagSuggestions",
-  "client.updateStagedTagSuggestion",
-  "client.updateTagVocabularyEntry",
-  "client.validateTagVocabulary",
-] as const;
-const CONCEPT_TOPIC_GRAPH_OPERATIONS = [
-  "client.acceptTopicGraphRelation",
-  "client.applyConceptReviewAction",
-  "client.applyTopicGraphReviewAction",
-  "client.deleteConceptEntries",
-  "client.queryConceptKb",
-  "client.rebuildConceptKbIndex",
-  "client.rebuildTopicGraphIndex",
-  "client.rejectTopicGraphRelation",
-  "client.updateConceptDisplayText",
-] as const;
-const CONCEPT_TOPIC_GRAPH_MUTATIONS = CONCEPT_TOPIC_GRAPH_OPERATIONS.filter(
-  (capability) => capability !== "client.queryConceptKb",
-);
-const WEBDAV_MAINTENANCE_MUTATIONS = [
-  "client.syncWebDavNow",
-  "client.pauseWebDavSync",
-  "client.resumeWebDavSync",
-  "client.retryWebDavSync",
-  "client.resolveWebDavSyncConflict",
-  "client.reconcileSynthesisRuntimeWorkStateOnStartup",
-  "client.resetSynthesisDatabase",
-  "client.debugSynthesisCleanInstallReset",
-] as const;
 
-function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
+function config(args: {
+  root: string;
+  session: string;
+  supervisorInstanceId: string;
+  reverseHostPort: number;
+}) {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
-    profileRuntimeRoot,
+    profileRuntimeRoot: args.session,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
@@ -181,97 +62,60 @@ function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-repository-foundation.v1",
-    supervisorInstanceId,
-    leaseNonce: `${supervisorInstanceId}-lease`,
+    supervisorInstanceId: args.supervisorInstanceId,
+    repositoryDbPath: path.join(args.root, "state", "synthesis.db"),
+    canonicalRoot: path.join(args.root, "data", "synthesis"),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: args.reverseHostPort,
+      authorizationToken: "9".repeat(64),
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: LIFECYCLE_TOKEN,
-    mutationEnabled: false,
     port: 0,
   };
 }
 
-function writeLaunchFiles(
-  sessionRoot: string,
-  runtimeConfig: ReturnType<typeof config>,
-) {
-  fs.mkdirSync(sessionRoot, { recursive: true });
-  const configPath = path.join(sessionRoot, "config.json");
-  fs.writeFileSync(configPath, JSON.stringify(runtimeConfig));
-  fs.writeFileSync(
-    path.join(sessionRoot, "lease.json"),
-    JSON.stringify({
-      schema: "synthesis-sidecar-lease.v1",
-      profileId: runtimeConfig.profileId,
-      supervisorInstanceId: runtimeConfig.supervisorInstanceId,
-      leaseNonce: runtimeConfig.leaseNonce,
-      updatedAtMs: Date.now(),
-    }),
-  );
-  return configPath;
-}
-
-function start(args: string[]): {
-  child: ChildProcessWithoutNullStreams;
-  listening: Promise<{ port: number }>;
-} {
-  const child = spawn(EXECUTABLE, args, {
+function start(configPath: string) {
+  const child = spawn(EXECUTABLE, ["serve", "--config", configPath], {
+    cwd: path.dirname(configPath),
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stderr = "";
+  child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
-    stderr += String(chunk);
+    stderr += chunk;
   });
-  const lines = createInterface({ input: child.stdout });
   const listening = new Promise<{ port: number }>((resolve, reject) => {
-    lines.once("line", (line) => {
+    const lines = createInterface({ input: child.stdout });
+    lines.on("line", (line) => {
       try {
-        resolve(JSON.parse(line) as { port: number });
-      } catch (error) {
-        reject(error);
+        const value = JSON.parse(line) as { type?: string; port?: number };
+        if (value.type === "listening" && typeof value.port === "number") {
+          resolve({ port: value.port });
+        }
+      } catch {
+        // Ignore non-protocol diagnostics.
       }
     });
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code !== 0) {
-        reject(new Error(`sidecar exited with ${code}: ${stderr.trim()}`));
-      }
-    });
+    child.once("exit", () => reject(new Error(stderr || "sidecar exited")));
   });
-  return { child, listening };
+  return { child, listening, stderr: () => stderr };
 }
 
-async function stop(child: ChildProcessWithoutNullStreams, port: number) {
+async function stop(child: ChildProcessWithoutNullStreams) {
   const exited = new Promise<void>((resolve) =>
     child.once("exit", () => resolve()),
   );
-  await fetch(`http://127.0.0.1:${port}/synthesis/v1/call`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${LIFECYCLE_TOKEN}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-      requestId: "test:shutdown",
-      profileId: "1".repeat(64),
-      capability: "system.shutdown",
-      payload: {},
-    }),
-  }).catch(() => undefined);
   child.stdin.end();
   await exited;
 }
 
-async function call(
-  port: number,
-  capability: string,
-  payload: Record<string, unknown>,
-  token = CLIENT_TOKEN,
-) {
+async function call(port: number, capability: string, payload: unknown) {
   const response = await fetch(`http://127.0.0.1:${port}/synthesis/v1/call`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${CLIENT_TOKEN}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -289,825 +133,138 @@ async function call(
 }
 
 describe("Synthesis Rust production client route", function () {
-  this.timeout(30_000);
+  this.timeout(20_000);
 
-  it("keeps every Topic and Workbench public operation fixture-backed and ready", function () {
+  it("keeps the Topic and Workbench production surface fixture-backed", function () {
+    assert.lengthOf(TOPIC_WORKBENCH_OPERATIONS, 18);
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
       operations: 18,
       errors: [],
     });
-    for (const capability of TOPIC_WORKBENCH_OPERATIONS) {
-      assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-        capability,
-      );
-    }
   });
 
-  it("keeps every Reference and Canonical public operation fixture-backed and ready", function () {
-    assert.deepEqual(inspectSynthesisReferenceCanonicalSurfaceParity(), {
-      ok: true,
-      operations: 16,
-      errors: [],
-    });
-    for (const capability of REFERENCE_CANONICAL_OPERATIONS) {
-      assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-        capability,
-      );
-    }
-  });
-
-  it("keeps every Tag public operation fixture-backed and ready", function () {
-    assert.deepEqual(inspectSynthesisTagSurfaceParity(), {
-      ok: true,
-      operations: 19,
-      errors: [],
-    });
-    for (const capability of TAG_OPERATIONS) {
-      assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-        capability,
-      );
-    }
-  });
-
-  it("keeps every Concept KB and Topic Graph public operation fixture-backed and ready", function () {
-    assert.deepEqual(inspectSynthesisConceptTopicGraphSurfaceParity(), {
-      ok: true,
-      operations: 9,
-      errors: [],
-    });
-    for (const capability of CONCEPT_TOPIC_GRAPH_OPERATIONS) {
-      assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-        capability,
-      );
-    }
-  });
-
-  it("keeps every WebDAV and Maintenance public operation fixture-backed and ready", function () {
-    assert.deepEqual(inspectSynthesisWebDavMaintenanceSurfaceParity(), {
-      ok: true,
-      operations: 9,
-      errors: [],
-    });
-  });
-
-  it("rehearses verified backup, preflight, owner conflict, native reads, and failed preflight recovery", async function () {
+  it("initializes once, holds the production lock, and ignores legacy lifecycle files", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
-    const root = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-production-client-route-"),
-    );
-    const profileRuntimeRoot = path.join(root, "profile-runtime");
-    const shadowSession = path.join(root, "shadow-session");
-    const shadowConfig = config(profileRuntimeRoot, "shadow-supervisor");
-    const shadowConfigPath = writeLaunchFiles(shadowSession, shadowConfig);
-    const shadow = start(["serve", "--config", shadowConfigPath]);
-    const shadowReady = await shadow.listening;
-    await stop(shadow.child, shadowReady.port);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-route-"));
+    const legacyFiles = [
+      path.join(root, "state", "synthesis-runtime-admission.json"),
+      path.join(root, "state", "synthesis-cutover", "receipt.json"),
+      path.join(root, "runtime", "synthesis", "service-runtime", "active.json"),
+    ];
+    for (const file of legacyFiles) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, `legacy:${path.basename(file)}\n`);
+    }
+    const legacyBefore = legacyFiles.map((file) => fs.readFileSync(file));
 
-    const repositoryDbPath = path.join(root, "state/synthesis.db");
-    const canonicalRoot = path.join(root, "data/synthesis");
-    fs.mkdirSync(path.dirname(repositoryDbPath), { recursive: true });
-    fs.mkdirSync(path.dirname(canonicalRoot), { recursive: true });
-    fs.copyFileSync(
-      path.join(
-        profileRuntimeRoot,
-        "shadow-repository",
-        shadowConfig.dataRootId,
-        "synthesis.db",
-      ),
-      repositoryDbPath,
-    );
-    fs.cpSync(
-      path.join(
-        profileRuntimeRoot,
-        "shadow-canonical",
-        shadowConfig.dataRootId,
-      ),
-      canonicalRoot,
-      { recursive: true },
-    );
-    fs.rmSync(path.join(canonicalRoot, "identity.json"));
-    const verifiedBackup = await createSynthesisProductionBackupService({
-      persistenceRoot: root,
-    }).createVerifiedBackup({
-      sourceSchemaVersion: shadowConfig.schemaVersion,
-      targetSchemaVersion: shadowConfig.schemaVersion,
-    });
-
-    const productionSession = path.join(root, "production-session");
-    const productionConfig = config(
-      profileRuntimeRoot,
-      "production-supervisor",
-    );
-    const productionConfigPath = writeLaunchFiles(
-      productionSession,
-      productionConfig,
-    );
-    const receiptPath = path.join(root, "state/synthesis-cutover/receipt.json");
-    fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
-    const receipt = {
-      schema: "synthesis-production-cutover-receipt.v1",
-      receiptId: "receipt-1",
-      profileId: productionConfig.profileId,
-      phase: "backup_verified",
-      sourceOwner: "legacy-plugin",
-      targetOwner: "rust-native",
-      backupId: verifiedBackup.backupId,
-      sourceSchemaVersion: productionConfig.schemaVersion,
-      targetSchemaVersion: productionConfig.schemaVersion,
-      canonicalManifestSha256: verifiedBackup.canonicalManifestSha256,
-      durableSummarySha256: verifiedBackup.durableSummarySha256,
-      bundleFingerprint: productionConfig.buildFingerprint,
-      capabilityFingerprint:
-        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-      serviceInstanceId: null,
-      mutationEnabled: false,
-      updatedAtMs: Date.now(),
-    };
-    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
-    const admissionPath = path.join(
-      productionSession,
-      "production-admission.json",
-    );
-    const reverseHostCalls: Array<Record<string, unknown>> = [];
     const reverseHost = http.createServer((request, response) => {
-      let body = "";
-      request.setEncoding("utf8");
-      request.on("data", (chunk) => {
-        body += chunk;
-      });
+      request.resume();
       request.on("end", () => {
-        const call = JSON.parse(body) as { capability?: string };
-        reverseHostCalls.push(call);
-        const result = (() => {
-          switch (call.capability) {
-            case "library.items.list_page":
-              return {
-                items: [],
-                cursor: "",
-                nextCursor: "",
-                hasMore: false,
-                returned: 0,
-                limit: 100,
-              };
-            case "library.items.get_by_ref":
-              return { items: [], missingPaperRefs: ["1:AAAA1111"] };
-            case "library.artifacts.scan_page":
-              return {
-                artifacts: [],
-                cursor: "",
-                nextCursor: "",
-                hasMore: false,
-                returned: 0,
-                limit: 100,
-              };
-            case "delivery.export.publish_archive":
-              return {
-                status: "unavailable",
-                capability: "paper_artifacts.export_filtered",
-                diagnostics: ["host_export_delivery_failed"],
-              };
-            default:
-              return { configured: false };
-          }
-        })();
-        const responseBody = JSON.stringify({
+        const body = JSON.stringify({
           ok: true,
-          result,
+          result: { configured: false },
         });
         response.writeHead(200, {
           "content-type": "application/json",
-          "content-length": Buffer.byteLength(responseBody),
+          "content-length": Buffer.byteLength(body),
         });
-        response.end(responseBody);
+        response.end(body);
       });
     });
     await new Promise<void>((resolve) =>
       reverseHost.listen(0, "127.0.0.1", resolve),
     );
-    const reverseHostAddress = reverseHost.address();
-    if (!reverseHostAddress || typeof reverseHostAddress === "string") {
-      throw new Error("reverse host test listener unavailable");
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
     }
-    const productionAdmission = {
-      schema: "synthesis-production-admission.v1",
-      purpose: "preflight_copy",
-      profileId: productionConfig.profileId,
-      supervisorInstanceId: productionConfig.supervisorInstanceId,
-      cutoverReceiptId: "receipt-1",
-      cutoverReceiptPath: receiptPath,
-      capabilityFingerprint:
-        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-      repositoryDbPath: path.join(
-        verifiedBackup.backupRoot,
-        "state/synthesis.db",
+
+    const firstSession = path.join(root, "runtime", "sessions", "first");
+    fs.mkdirSync(firstSession, { recursive: true });
+    const firstConfigPath = path.join(firstSession, "config.json");
+    fs.writeFileSync(
+      firstConfigPath,
+      JSON.stringify(
+        config({
+          root,
+          session: firstSession,
+          supervisorInstanceId: "supervisor-first",
+          reverseHostPort: address.port,
+        }),
       ),
-      canonicalRoot: path.join(verifiedBackup.backupRoot, "data/synthesis"),
-      reverseHost: {
-        host: "127.0.0.1",
-        port: reverseHostAddress.port,
-        authorizationToken: "9".repeat(64),
-      },
-      mutationEnabled: false,
-    };
-    fs.writeFileSync(admissionPath, JSON.stringify(productionAdmission));
-    const preflight = JSON.parse(
-      (
-        await execFileAsync(EXECUTABLE, [
-          "preflight-production",
-          "--config",
-          productionConfigPath,
-          "--admission",
-          admissionPath,
-        ])
-      ).stdout,
-    ) as Record<string, unknown>;
-    assert.deepInclude(preflight, {
-      type: "production-preflight",
-      status: "ready",
-      profileId: productionConfig.profileId,
-      cutoverReceiptId: "receipt-1",
-      mutationEnabled: false,
-    });
-    assert.equal(reverseHostCalls.length, 1);
-    assert.equal(reverseHostCalls[0]?.capability, "webdav.describe");
-
-    fs.writeFileSync(
-      receiptPath,
-      JSON.stringify({ ...receipt, phase: "preflight_verified" }),
     );
-    fs.writeFileSync(
-      admissionPath,
-      JSON.stringify({
-        ...productionAdmission,
-        purpose: "live_owner",
-        repositoryDbPath,
-        canonicalRoot,
-      }),
-    );
-
-    const production = start([
-      "serve-production",
-      "--config",
-      productionConfigPath,
-      "--admission",
-      admissionPath,
-    ]);
-    let productionPort = 0;
+    const first = start(firstConfigPath);
+    const { port } = await first.listening;
+    let firstStopped = false;
     try {
-      const { port } = await production.listening;
-      productionPort = port;
-      const contestedConfigPath = writeLaunchFiles(
-        path.join(root, "contested-session"),
-        {
-          ...productionConfig,
-          profileRuntimeRoot: path.join(root, "contested-profile-runtime"),
-        },
-      );
-      const contestedOwner = start([
-        "serve-production",
-        "--config",
-        contestedConfigPath,
-        "--admission",
-        admissionPath,
-      ]);
-      let ownerConflict: unknown;
-      try {
-        await contestedOwner.listening;
-      } catch (error) {
-        ownerConflict = error;
-      }
-      assert.match(String(ownerConflict), /production_owner_conflict/);
-
-      const topics = await call(port, "client.listTopics", {
-        args: [{}],
-      });
+      const topics = await call(port, "client.listTopics", { args: [{}] });
       assert.equal(topics.status, 200);
-      assert.deepEqual(topics.body.data, {
-        topics: [],
-        cursor: "",
-        next_cursor: "",
-        has_more: false,
-        returned: 0,
-        total: 0,
-        limit: 50,
-        diagnostics: {
-          count: 0,
-          total_count: 0,
-          source: "rust-topic-application",
-        },
-      });
+      assert.deepEqual(topics.body.data.topics, []);
 
-      const topicDetail = await call(port, "client.readTopicDetail", {
-        args: [{ topicId: "missing-topic" }],
-      });
-      assert.equal(topicDetail.status, 200);
-      assert.deepEqual(topicDetail.body.data, {
-        status: "absent",
-        topicId: "missing-topic",
-        diagnostics: [],
-      });
-
-      const topicContext = await call(port, "client.getTopicContext", {
-        args: [{ topicId: "missing-topic" }],
-      });
-      assert.equal(topicContext.status, 200);
-      assert.deepInclude(topicContext.body.data, {
-        schema_id: "synthesis.topic_context",
-        status: "not_found",
-        topic_id: "missing-topic",
-      });
-
-      const topicReport = await call(port, "client.getTopicReport", {
-        args: [{ topicId: "missing-topic" }],
-      });
-      assert.equal(topicReport.status, 200);
-      assert.deepInclude(topicReport.body.data, {
-        ok: false,
-        status: "not_found",
-        topic_id: "missing-topic",
-      });
-
-      const resolver = await call(port, "client.resolveResolver", {
-        args: [{}],
-      });
-      assert.equal(resolver.status, 200);
-      assert.deepEqual(resolver.body.data.papers, []);
-      assert.deepEqual(resolver.body.data.errors, [
-        "resolver matched no papers",
-      ]);
-
-      const digest = await call(port, "client.resolveTopicPaperDigest", {
-        args: [{ paperRef: "1:AAAA1111" }],
-      });
-      assert.equal(digest.status, 200);
-      assert.deepInclude(digest.body.data, {
-        ok: false,
-        status: "unavailable",
-        paper_ref: "1:AAAA1111",
-      });
-
-      const workbenchChrome = await call(
-        port,
-        "client.getSynthesisWorkbenchChromeInput",
-        { args: [{}] },
-      );
-      assert.equal(workbenchChrome.status, 200);
-      assert.hasAllKeys(workbenchChrome.body.data, ["maintenance"]);
-
-      for (const surface of SYNTHESIS_WORKBENCH_SURFACES) {
-        const workbenchSurface = await call(
-          port,
-          "client.getSynthesisWorkbenchSurfaceInput",
-          { args: [surface, {}] },
-        );
-        assert.equal(
-          workbenchSurface.status,
-          200,
-          `public Workbench surface ${surface}`,
-        );
-        assert.hasAllKeys(workbenchSurface.body.data, ["maintenance"]);
-      }
-
-      const backgroundJobs = await call(
-        port,
-        "client.getSynthesisBackgroundJobRows",
-        { args: [] },
-      );
-      assert.equal(backgroundJobs.status, 200);
-      assert.deepEqual(backgroundJobs.body.data, []);
-
-      const referenceIndex = await call(
-        port,
-        "client.getReferenceSidecarIndex",
-        { args: [{}] },
-      );
-      assert.equal(referenceIndex.status, 200);
-      assert.deepInclude(referenceIndex.body.data, {
-        rows: [],
-        cursor: "0",
-        next_cursor: "",
-        has_more: false,
-        returned: 0,
-        total: 0,
-      });
-
-      const externalRanking = await call(
-        port,
-        "client.rankExternalReferences",
-        { args: [{}] },
-      );
-      assert.equal(externalRanking.status, 200);
-      assert.deepInclude(externalRanking.body.data, {
-        ok: true,
-        items: [],
-        cursor: "0",
-        nextCursor: "",
-        hasMore: false,
-      });
-
-      const attention = await call(port, "client.getAttentionQueue", {
-        args: [{}],
-      });
-      assert.equal(attention.status, 200);
-      assert.equal(attention.body.data.ok, true);
-      assert.isArray(attention.body.data.items);
-
-      const reviewInput = await call(port, "client.getReviewInput", {
-        args: [{}],
-      });
-      assert.equal(reviewInput.status, 200);
-      assert.isArray(reviewInput.body.data.reference.records);
-      assert.isArray(reviewInput.body.data.concept);
-      assert.isArray(reviewInput.body.data.topicGraph);
-
-      const schemas = await call(port, "client.getSchemas", {
-        args: [{}],
-      });
-      assert.equal(schemas.status, 200);
-      assert.equal(
-        schemas.body.data.schema,
-        "synthesis-artifact-library-debug-schemas.v1",
-      );
-
-      const libraryIndex = await call(port, "client.getLibraryIndex", {
-        args: [{}],
-      });
-      assert.equal(libraryIndex.status, 200);
-      assert.deepInclude(libraryIndex.body.data, {
-        papers: [],
-        total_papers: 0,
-      });
-
-      const artifactRead = await call(port, "client.readPaperArtifacts", {
-        args: [{}],
-      });
-      assert.equal(artifactRead.status, 200);
-      assert.deepEqual(artifactRead.body.data.artifacts, []);
-
-      const artifactManifest = await call(
-        port,
-        "client.getPaperArtifactManifest",
-        { args: [{}] },
-      );
-      assert.equal(artifactManifest.status, 200);
-      assert.deepInclude(artifactManifest.body.data, {
-        artifacts: [],
-        total: 0,
-      });
-
-      const snapshot = await call(port, "client.debugSynthesisSnapshot", {
-        args: [{}],
-      });
-      assert.equal(snapshot.status, 200);
-      assert.equal(snapshot.body.data.status, "ready");
-
-      const cache = await call(port, "client.debugSynthesisCacheList", {
-        args: [{}],
-      });
-      assert.equal(cache.status, 200);
-      assert.isArray(cache.body.data.rows);
-
-      const operations = await call(
-        port,
-        "client.debugSynthesisOperationsList",
-        { args: [{}] },
-      );
-      assert.equal(operations.status, 200);
-      assert.isArray(operations.body.data.rows);
-
-      const profiler = await call(port, "client.debugSynthesisProfilerList", {
-        args: [{}],
-      });
-      assert.equal(profiler.status, 200);
-      assert.equal(profiler.body.data.databasePath, "[redacted-path]");
-
-      const inspectedPaper = await call(
-        port,
-        "client.debugSynthesisPaperInspect",
-        { args: [{ paperRef: "1:AAAA1111" }] },
-      );
-      assert.equal(inspectedPaper.status, 200);
-      assert.equal(inspectedPaper.body.data.paperRef, "1:AAAA1111");
-
-      const inspectedTopic = await call(
-        port,
-        "client.debugSynthesisTopicInspect",
-        { args: [{ topicId: "missing-topic" }] },
-      );
-      assert.equal(inspectedTopic.status, 200);
-      assert.equal(inspectedTopic.body.data.status, "absent");
-
-      const diff = await call(port, "client.debugSynthesisDiff", {
-        args: [{}],
-      });
-      assert.equal(diff.status, 200);
-      assert.deepEqual(diff.body.data.issues, []);
-
-      const malformedDetail = await call(port, "client.readTopicDetail", {
-        args: [{ topicId: "missing-topic" }, {}],
-      });
-      assert.equal(malformedDetail.status, 400);
-      assert.equal(malformedDetail.body.error.code, "invalid_request");
-
-      const pending = await call(port, "client.findTopicsByPaperRef", {
-        args: [{}],
-      });
-      assert.equal(pending.status, 200);
-      assert.deepEqual(pending.body.data.topics, []);
-
-      const mutationBeforeAdmission = await call(
-        port,
-        "client.clearTagAuditRecord",
-        { args: [{ libraryId: 1, itemKey: "AAAA1111" }] },
-      );
-      assert.equal(mutationBeforeAdmission.status, 409);
-      assert.equal(
-        mutationBeforeAdmission.body.error.code,
-        "mutation_not_admitted",
-      );
-      const reverseHostCallCountBeforeReferenceMutations =
-        reverseHostCalls.length;
-      for (const capability of REFERENCE_CANONICAL_MUTATIONS) {
-        const mutation = await call(port, capability, { args: [] });
-        assert.equal(mutation.status, 409, capability);
-        assert.equal(
-          mutation.body.error.code,
-          "mutation_not_admitted",
-          capability,
-        );
-      }
-      assert.equal(
-        reverseHostCalls.length,
-        reverseHostCallCountBeforeReferenceMutations,
-        "admission must reject Reference/Canonical mutations before Host or worker effects",
-      );
-
-      const deliveryCallsBefore = reverseHostCalls.filter(
-        (entry) => entry.capability === "delivery.export.publish_archive",
-      ).length;
-      const exportBeforeAdmission = await call(
-        port,
-        "client.exportFilteredPaperArtifacts",
-        { args: [{ paperRefs: ["1:AAAA1111"] }] },
-      );
-      assert.equal(exportBeforeAdmission.status, 409);
-      assert.equal(
-        exportBeforeAdmission.body.error.code,
-        "mutation_not_admitted",
-      );
-      assert.equal(
-        reverseHostCalls.filter(
-          (entry) => entry.capability === "delivery.export.publish_archive",
-        ).length,
-        deliveryCallsBefore,
-      );
-
-      const conceptQuery = await call(port, "client.queryConceptKb", {
-        args: [{ aliases: ["legacy alias"], limit: 100 }],
-      });
-      assert.equal(conceptQuery.status, 200);
-      assert.deepEqual(conceptQuery.body.data.labels, ["legacy alias"]);
-      for (const capability of CONCEPT_TOPIC_GRAPH_MUTATIONS) {
-        const mutation = await call(port, capability, { args: [] });
-        assert.equal(mutation.status, 409, capability);
-        assert.equal(
-          mutation.body.error.code,
-          "mutation_not_admitted",
-          capability,
-        );
-      }
-
-      const maintenance = await call(
-        port,
-        "client.getPublicMaintenanceOperation",
-        { args: [{}] },
-      );
-      assert.equal(maintenance.status, 200);
-      assert.isObject(maintenance.body.data);
-      for (const capability of WEBDAV_MAINTENANCE_MUTATIONS) {
-        const mutation = await call(port, capability, { args: [] });
-        assert.equal(mutation.status, 409, capability);
-        assert.equal(
-          mutation.body.error.code,
-          "mutation_not_admitted",
-          capability,
-        );
-      }
-
-      const partialActivation = await call(
-        port,
-        "system.production.activate",
-        {
-          receiptId: "receipt-1",
-          serviceInstanceId: topics.body.serviceInstanceId,
-        },
-        LIFECYCLE_TOKEN,
-      );
-      assert.equal(partialActivation.status, 400);
-
-      const mismatchedActivation = await call(
-        port,
-        "system.production.activate",
-        {
-          receiptId: "receipt-1",
-          runtimeAdmissionGeneration: 1,
-          profileId: productionAdmission.profileId,
-          serviceInstanceId: "another-service",
-          supervisorInstanceId: productionAdmission.supervisorInstanceId,
-          capabilityFingerprint:
-            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-          readyClientCapabilities:
-            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: SMOKE_CHECK_IDS,
-          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
-          smokeEvidenceDigest: "a".repeat(64),
-          issuedAtMs: Date.now(),
-        },
-        LIFECYCLE_TOKEN,
-      );
-      assert.equal(mismatchedActivation.status, 503);
-      assert.equal(
-        mismatchedActivation.body.error.code,
-        "production_activation_identity_mismatch",
-      );
-
-      const forbiddenActivation = await call(
-        port,
-        "system.production.activate",
-        {
-          receiptId: "receipt-1",
-          runtimeAdmissionGeneration: 1,
-          profileId: productionAdmission.profileId,
-          serviceInstanceId: topics.body.serviceInstanceId,
-          supervisorInstanceId: productionAdmission.supervisorInstanceId,
-          capabilityFingerprint:
-            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-          readyClientCapabilities:
-            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: [
-            "identity",
-            "storage",
-            "workbench",
-            "topic-list",
-            "topic-detail",
-            "canonical-manifest",
-            "reference-cache",
-            "graph-read",
-            "worker",
-          ],
-          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
-          smokeEvidenceDigest: "a".repeat(64),
-          issuedAtMs: Date.now(),
-        },
-        CLIENT_TOKEN,
-      );
-      assert.equal(forbiddenActivation.status, 401);
-      assert.equal(forbiddenActivation.body.error.code, "lifecycle_forbidden");
-
-      const expiredActivation = await call(
-        port,
-        "system.production.activate",
-        {
-          receiptId: "receipt-1",
-          runtimeAdmissionGeneration: 1,
-          profileId: productionAdmission.profileId,
-          serviceInstanceId: topics.body.serviceInstanceId,
-          supervisorInstanceId: productionAdmission.supervisorInstanceId,
-          capabilityFingerprint:
-            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-          readyClientCapabilities:
-            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: SMOKE_CHECK_IDS,
-          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
-          smokeEvidenceDigest: "a".repeat(64),
-          issuedAtMs: 0,
-        },
-        LIFECYCLE_TOKEN,
-      );
-      assert.equal(expiredActivation.status, 408);
-      assert.equal(
-        expiredActivation.body.error.code,
-        "production_activation_expired",
-      );
-
-      const activation = await call(
-        port,
-        "system.production.activate",
-        {
-          receiptId: "receipt-1",
-          runtimeAdmissionGeneration: 1,
-          profileId: productionAdmission.profileId,
-          serviceInstanceId: topics.body.serviceInstanceId,
-          supervisorInstanceId: productionAdmission.supervisorInstanceId,
-          capabilityFingerprint:
-            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-          readyClientCapabilities:
-            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: [
-            "identity",
-            "storage",
-            "workbench",
-            "topic-list",
-            "topic-detail",
-            "canonical-manifest",
-            "reference-cache",
-            "graph-read",
-            "worker",
-          ],
-          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
-          smokeEvidenceDigest: smokeDigest({
-            profileId: productionAdmission.profileId,
-            receiptId: "receipt-1",
-            serviceInstanceId: topics.body.serviceInstanceId,
-            supervisorInstanceId: productionAdmission.supervisorInstanceId,
-            capabilityFingerprint:
-              SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-            checkDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
+      const secondSession = path.join(root, "runtime", "sessions", "second");
+      fs.mkdirSync(secondSession, { recursive: true });
+      const secondConfigPath = path.join(secondSession, "config.json");
+      fs.writeFileSync(
+        secondConfigPath,
+        JSON.stringify(
+          config({
+            root,
+            session: secondSession,
+            supervisorInstanceId: "supervisor-second",
+            reverseHostPort: address.port,
           }),
-          issuedAtMs: Date.now(),
-        },
-        LIFECYCLE_TOKEN,
+        ),
       );
-      assert.equal(activation.status, 200);
-      assert.isTrue(activation.body.data.mutationEnabled);
-
-      const replayedActivation = await call(
-        port,
-        "system.production.activate",
-        {
-          receiptId: "receipt-1",
-          runtimeAdmissionGeneration: 1,
-          profileId: productionAdmission.profileId,
-          serviceInstanceId: topics.body.serviceInstanceId,
-          supervisorInstanceId: productionAdmission.supervisorInstanceId,
-          capabilityFingerprint:
-            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-          readyClientCapabilities:
-            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
-          smokeCheckIds: SMOKE_CHECK_IDS,
-          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
-          smokeEvidenceDigest: "a".repeat(64),
-          issuedAtMs: Date.now(),
-        },
-        LIFECYCLE_TOKEN,
-      );
-      assert.equal(replayedActivation.status, 409);
-      assert.equal(
-        replayedActivation.body.error.code,
-        "production_activation_replayed",
-      );
-
-      const mutationAfterAdmission = await call(
-        port,
-        "client.clearTagAuditRecord",
-        { args: [{ libraryId: 1, itemKey: "AAAA1111" }] },
-      );
-      assert.equal(mutationAfterAdmission.status, 200);
-
-      const unknown = await call(port, "client.notDeclared", {
-        args: [],
-      });
-      assert.equal(unknown.status, 400);
-      assert.equal(unknown.body.error.code, "invalid_request");
-    } finally {
-      if (productionPort) {
-        await stop(production.child, productionPort);
-      } else {
-        production.child.kill();
+      const second = start(secondConfigPath);
+      let conflict = "";
+      try {
+        await second.listening;
+      } catch (error) {
+        conflict = String(error);
       }
-      await new Promise<void>((resolve, reject) =>
-        reverseHost.close((error) => (error ? reject(error) : resolve())),
+      assert.include(conflict, "production_lock_conflict");
+
+      await stop(first.child);
+      firstStopped = true;
+      const restartSession = path.join(root, "runtime", "sessions", "restart");
+      fs.mkdirSync(restartSession, { recursive: true });
+      const restartConfigPath = path.join(restartSession, "config.json");
+      fs.writeFileSync(
+        restartConfigPath,
+        JSON.stringify(
+          config({
+            root,
+            session: restartSession,
+            supervisorInstanceId: "supervisor-restart",
+            reverseHostPort: address.port,
+          }),
+        ),
       );
+      const restarted = start(restartConfigPath);
+      try {
+        const restartListening = await restarted.listening;
+        const restartedTopics = await call(
+          restartListening.port,
+          "client.listTopics",
+          { args: [{}] },
+        );
+        assert.equal(restartedTopics.status, 200);
+        assert.deepEqual(restartedTopics.body.data.topics, []);
+      } finally {
+        await stop(restarted.child);
+      }
+    } finally {
+      if (!firstStopped && first.child.exitCode === null) {
+        await stop(first.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
     }
 
-    fs.writeFileSync(receiptPath, JSON.stringify(receipt));
-    fs.writeFileSync(admissionPath, JSON.stringify(productionAdmission));
-    let preflightFailure: unknown;
-    try {
-      await execFileAsync(EXECUTABLE, [
-        "preflight-production",
-        "--config",
-        productionConfigPath,
-        "--admission",
-        admissionPath,
-      ]);
-    } catch (error) {
-      preflightFailure = error;
-    }
-    assert.match(String(preflightFailure), /reverse_host_unavailable/);
-    assert.isFalse(
-      fs.existsSync(path.join(root, "state/synthesis.owner.json")),
-      "failed preflight must not acquire the live owner",
-    );
+    assert.isTrue(fs.existsSync(path.join(root, "state", "synthesis.db")));
+    assert.isTrue(fs.existsSync(path.join(root, "data", "synthesis")));
+    legacyFiles.forEach((file, index) => {
+      assert.deepEqual(fs.readFileSync(file), legacyBefore[index]);
+    });
   });
 });

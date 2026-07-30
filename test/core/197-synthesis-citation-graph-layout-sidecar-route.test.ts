@@ -59,7 +59,7 @@ function request(
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v2",
+    schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-route"),
     runtimeRootId: "2".repeat(64),
@@ -78,10 +78,21 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
     supervisorInstanceId: "route-supervisor",
-    leaseNonce: "route-lease",
+    repositoryDbPath: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-route/state/synthesis.db",
+    ),
+    canonicalRoot: path.join(
+      ROOT,
+      ".scaffold/test-sidecar-route/data/synthesis",
+    ),
+    reverseHost: {
+      host: "127.0.0.1",
+      port: 1,
+      authorizationToken: "reverse-host-token-0123456789abcdef",
+    },
     clientToken: CLIENT_TOKEN,
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
-    mutationEnabled: false,
     port: 0,
   };
 }
@@ -306,6 +317,26 @@ describe("Synthesis Citation Graph production sidecar route", function () {
         .then(() => "success")
         .catch(clientErrorCode),
       "runtime_mismatch",
+    );
+
+    const applicationErrorClient = createSynthesisSidecarComputeClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            requestId: "unknown",
+            serviceInstanceId: "unknown",
+            error: { code: "service_unavailable" },
+          }),
+          { status: 503 },
+        ),
+    });
+    assert.equal(
+      await applicationErrorClient
+        .computeCitationGraphLayout(connection, input)
+        .then(() => "success")
+        .catch(clientErrorCode),
+      "service_unavailable",
     );
 
     const invalidClient = createSynthesisSidecarComputeClient({

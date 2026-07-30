@@ -1,3 +1,12 @@
+## Lifecycle dependency
+
+This change follows `simplify-xpi-owned-synthesis-sidecar-lifecycle`. Removing
+the Node oracle MUST preserve the fixed XPI `current` installer, Rust
+prebuild/package pipeline, launch-scoped discovery, process-held OS lock, and
+schema-migration-only backup boundary. It MUST NOT restore runtime pointers,
+rollback, cutover, admission, activation, owner/lease files, or persisted
+generations.
+
 ## Why
 
 After native acceptance is durable and the plugin legacy owner is gone, the

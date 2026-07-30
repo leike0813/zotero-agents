@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::time::Duration;
-use synthesis_sidecar::runtime_contract::{ProductionAdmission, current_time_ms};
+use synthesis_sidecar::runtime_contract::{NativeLaunchConfig, current_time_ms};
 
 use crate::runtime_deadline::bounded_timeout;
 
@@ -40,7 +40,7 @@ fn response_body(bytes: &[u8]) -> Result<&[u8], String> {
 }
 
 pub(crate) fn call_reverse_host(
-    admission: &ProductionAdmission,
+    config: &NativeLaunchConfig,
     service_instance_id: &str,
     capability: &str,
     payload: Value,
@@ -50,7 +50,7 @@ pub(crate) fn call_reverse_host(
     let body = serde_json::to_vec(&json!({
         "schema":"synthesis-reverse-host-call.v1",
         "requestId":format!("native:{now}"),
-        "profileId":admission.profile_id,
+        "profileId":config.profile_id,
         "serviceInstanceId":service_instance_id,
         "operationId":format!("native:{capability}:{now}"),
         "capability":capability,
@@ -60,7 +60,7 @@ pub(crate) fn call_reverse_host(
     .map_err(|_| "reverse_host_request_invalid".to_owned())?;
     let address = SocketAddr::V4(SocketAddrV4::new(
         Ipv4Addr::LOCALHOST,
-        admission.reverse_host.port,
+        config.reverse_host.port,
     ));
     let mut stream = TcpStream::connect_timeout(&address, timeout)
         .map_err(|_| "reverse_host_unavailable".to_owned())?;
@@ -71,8 +71,8 @@ pub(crate) fn call_reverse_host(
     write!(
         stream,
         "POST {REVERSE_HOST_PATH} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        admission.reverse_host.port,
-        admission.reverse_host.authorization_token,
+        config.reverse_host.port,
+        config.reverse_host.authorization_token,
         body.len(),
     )
     .and_then(|_| stream.write_all(&body))
@@ -101,10 +101,10 @@ pub(crate) fn call_reverse_host(
         .ok_or_else(|| "reverse_host_response_invalid".to_owned())
 }
 
-pub(crate) fn probe_reverse_host(admission: &ProductionAdmission) -> Result<(), String> {
+pub(crate) fn probe_reverse_host(config: &NativeLaunchConfig) -> Result<(), String> {
     call_reverse_host(
-        admission,
-        &admission.supervisor_instance_id,
+        config,
+        &config.supervisor_instance_id,
         "webdav.describe",
         json!({}),
     )

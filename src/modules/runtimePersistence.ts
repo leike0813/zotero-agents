@@ -47,10 +47,6 @@ export type RuntimePersistencePaths = {
   stateDbPath: string;
   /** Synthesis repository database for synt_* sidecar/runtime state. */
   synthesisDbPath: string;
-  synthesisCutoverRoot: string;
-  synthesisCutoverReceiptPath: string;
-  synthesisRuntimeAdmissionStatePath: string;
-  synthesisCutoverBackupRoot: string;
   logsDir: string;
   runtimeLogPath: string;
   acpChatRoot: string;
@@ -63,32 +59,25 @@ export type RuntimePersistencePaths = {
   cacheDir: string;
   tmpDir: string;
   sidecarRuntimeRoot: string;
-  sidecarRuntimeVersionsDir: string;
-  sidecarRuntimeStagingDir: string;
-  sidecarRuntimeActivePointerPath: string;
-  sidecarRuntimePreviousPointerPath: string;
+  sidecarRuntimeCurrentDir: string;
   legacyDir: string;
 };
 
 export type SynthesisSidecarRuntimePaths = {
   root: string;
-  versionsDir: string;
-  stagingDir: string;
-  quarantineDir: string;
+  currentDir: string;
   profilesDir: string;
-  activePointerPath: string;
-  previousPointerPath: string;
+  legacyVersionsDir: string;
+  legacyActivePointerPath: string;
+  legacyPreviousPointerPath: string;
 };
 
 export type SynthesisSidecarLifecyclePaths = {
   profileRoot: string;
-  ownerDir: string;
-  ownerPath: string;
-  discoveryPath: string;
   sessionsDir: string;
   sessionRoot: string;
   configPath: string;
-  leasePath: string;
+  discoveryPath: string;
 };
 
 export type RuntimePersistenceCategoryUsage = {
@@ -760,12 +749,11 @@ export function getSynthesisSidecarRuntimePaths(
   const root = joinPath(runtimeRoot, "synthesis", "service-runtime");
   return {
     root,
-    versionsDir: joinPath(root, "versions"),
-    stagingDir: joinPath(root, "staging"),
-    quarantineDir: joinPath(root, "quarantine"),
+    currentDir: joinPath(root, "current"),
     profilesDir: joinPath(root, "profiles"),
-    activePointerPath: joinPath(root, "active.json"),
-    previousPointerPath: joinPath(root, "previous.json"),
+    legacyVersionsDir: joinPath(root, "versions"),
+    legacyActivePointerPath: joinPath(root, "active.json"),
+    legacyPreviousPointerPath: joinPath(root, "previous.json"),
   };
 }
 
@@ -789,18 +777,14 @@ export function getSynthesisSidecarLifecyclePaths(args: {
     "supervisor instance id",
   );
   const profileRoot = joinPath(runtime.profilesDir, profileId);
-  const ownerDir = joinPath(profileRoot, "owner");
   const sessionsDir = joinPath(profileRoot, "sessions");
   const sessionRoot = joinPath(sessionsDir, supervisorInstanceId);
   return {
     profileRoot,
-    ownerDir,
-    ownerPath: joinPath(ownerDir, "owner.json"),
-    discoveryPath: joinPath(profileRoot, "discovery.json"),
     sessionsDir,
     sessionRoot,
     configPath: joinPath(sessionRoot, "config.json"),
-    leasePath: joinPath(sessionRoot, "lease.json"),
+    discoveryPath: joinPath(sessionRoot, "discovery.json"),
   };
 }
 
@@ -822,17 +806,6 @@ export function getRuntimePersistencePaths(
     stateDir,
     stateDbPath: joinPath(stateDir, SQLITE_FILE_NAME),
     synthesisDbPath: joinPath(stateDir, SYNTHESIS_SQLITE_FILE_NAME),
-    synthesisCutoverRoot: joinPath(stateDir, "synthesis-cutover"),
-    synthesisCutoverReceiptPath: joinPath(
-      stateDir,
-      "synthesis-cutover",
-      "receipt.json",
-    ),
-    synthesisRuntimeAdmissionStatePath: joinPath(
-      stateDir,
-      "synthesis-runtime-admission.json",
-    ),
-    synthesisCutoverBackupRoot: joinPath(dataDir, "synthesis-cutover-backups"),
     logsDir,
     runtimeLogPath: joinPath(logsDir, RUNTIME_LOG_FILE_NAME),
     acpChatRoot,
@@ -844,10 +817,7 @@ export function getRuntimePersistencePaths(
     cacheDir: joinPath(runtimeRoot, "cache"),
     tmpDir: joinPath(runtimeRoot, "tmp"),
     sidecarRuntimeRoot: sidecarRuntime.root,
-    sidecarRuntimeVersionsDir: sidecarRuntime.versionsDir,
-    sidecarRuntimeStagingDir: sidecarRuntime.stagingDir,
-    sidecarRuntimeActivePointerPath: sidecarRuntime.activePointerPath,
-    sidecarRuntimePreviousPointerPath: sidecarRuntime.previousPointerPath,
+    sidecarRuntimeCurrentDir: sidecarRuntime.currentDir,
     legacyDir: joinPath(root, "legacy"),
   };
 }

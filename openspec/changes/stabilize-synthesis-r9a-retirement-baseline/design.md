@@ -1,3 +1,13 @@
+## Lifecycle supersession
+
+The XPI-only lifecycle change replaced every design below that depends on a
+cutover receipt, runtime admission, activation evidence, critical smoke,
+owner/lease files, or persisted runtime generations. Current lifecycle design
+is install one verified XPI bundle, acquire the Rust OS lock, publish
+launch-scoped discovery, pass current-session health/handshake, reconcile, and
+shut down through RPC or parent-pipe EOF. The remaining material in this
+document applies only to operation parity and release evidence.
+
 ## Context
 
 R9a is archived and the current default client is native-only, but two parts of

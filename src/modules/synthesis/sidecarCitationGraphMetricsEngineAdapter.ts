@@ -1,5 +1,4 @@
 import type { SynthesisCitationGraphMetricsEngine } from "../../../packages/synthesis-engine/src/index";
-import type { SynthesisSidecarControlConnection } from "../synthesisSidecarControlClient";
 import {
   createSynthesisSidecarComputeClient,
   SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS,
@@ -13,8 +12,18 @@ type ComputeClient = Pick<
   "computeCitationGraphMetrics"
 >;
 
+type ReadyControlConnection = {
+  discovery: {
+    host: "127.0.0.1";
+    port: number;
+    profileId: string;
+    serviceInstanceId: string;
+  };
+  clientToken: string;
+};
+
 function toComputeConnection(
-  connection: SynthesisSidecarControlConnection,
+  connection: ReadyControlConnection,
 ): SynthesisSidecarComputeConnection {
   return {
     baseUrl: `http://${connection.discovery.host}:${connection.discovery.port}`,
@@ -25,7 +34,7 @@ function toComputeConnection(
 }
 
 export function createSynthesisSidecarCitationGraphMetricsEngine(options?: {
-  getReadyConnection?: () => SynthesisSidecarControlConnection | null;
+  getReadyConnection?: () => ReadyControlConnection | null;
   computeClient?: ComputeClient;
   signal?: AbortSignal;
 }): SynthesisCitationGraphMetricsEngine {

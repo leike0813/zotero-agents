@@ -7,15 +7,8 @@ import {
 export type SynthesisSidecarStartupPhase =
   | "startup"
   | "runtime-install"
-  | "runtime-admission"
-  | "source-inspection"
-  | "empty-profile-bootstrap"
-  | "backup"
-  | "preflight"
   | "supervisor-launch"
   | "discovery"
-  | "critical-smoke"
-  | "activation"
   | "reconcile"
   | "ready"
   | "shutdown";

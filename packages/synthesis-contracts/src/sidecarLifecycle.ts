@@ -14,11 +14,7 @@ import {
 } from "./sidecarRuntimeBundle.js";
 
 export const SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA =
-  "synthesis-sidecar-launch-config.v2" as const;
-export const SYNTHESIS_SIDECAR_OWNER_SCHEMA =
-  "synthesis-sidecar-owner.v1" as const;
-export const SYNTHESIS_SIDECAR_LEASE_SCHEMA =
-  "synthesis-sidecar-lease.v1" as const;
+  "synthesis-sidecar-launch-config.v3" as const;
 export const SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA =
   "synthesis-sidecar-discovery.v2" as const;
 
@@ -41,29 +37,16 @@ export type SynthesisSidecarLaunchConfig = {
   protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   schemaVersion: string;
   supervisorInstanceId: string;
-  leaseNonce: string;
+  repositoryDbPath: string;
+  canonicalRoot: string;
+  reverseHost: {
+    host: "127.0.0.1";
+    port: number;
+    authorizationToken: string;
+  };
   clientToken: string;
   lifecycleToken: string;
-  mutationEnabled: false;
   port: 0;
-};
-
-export type SynthesisSidecarOwner = {
-  schema: typeof SYNTHESIS_SIDECAR_OWNER_SCHEMA;
-  profileId: string;
-  supervisorInstanceId: string;
-  serviceInstanceId: string;
-  leaseNonce: string;
-  pid: number;
-  createdAtMs: number;
-};
-
-export type SynthesisSidecarLease = {
-  schema: typeof SYNTHESIS_SIDECAR_LEASE_SCHEMA;
-  profileId: string;
-  supervisorInstanceId: string;
-  leaseNonce: string;
-  updatedAtMs: number;
 };
 
 export type SynthesisSidecarDiscovery = {
@@ -141,6 +124,20 @@ function strictHash(value: unknown, location: string) {
   });
 }
 
+function strictAbsolutePath(value: unknown, location: string) {
+  const path = strictString(value, location, { max: 4096 });
+  const normalized = path.replaceAll("\\", "/");
+  if (
+    (!normalized.startsWith("/") &&
+      !/^[A-Za-z]:\//.test(normalized) &&
+      !normalized.startsWith("//")) ||
+    normalized.split("/").includes("..")
+  ) {
+    invalid(location);
+  }
+  return path;
+}
+
 function strictInteger(
   value: unknown,
   location: string,
@@ -180,10 +177,11 @@ export function rebuildSynthesisSidecarLaunchConfig(
       "protocolVersion",
       "schemaVersion",
       "supervisorInstanceId",
-      "leaseNonce",
+      "repositoryDbPath",
+      "canonicalRoot",
+      "reverseHost",
       "clientToken",
       "lifecycleToken",
-      "mutationEnabled",
       "port",
     ],
     "sidecarLaunchConfig",
@@ -192,7 +190,6 @@ export function rebuildSynthesisSidecarLaunchConfig(
     record.schema !== SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA ||
     record.implementation !== SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION ||
     record.protocolVersion !== SYNTHESIS_SIDECAR_PROTOCOL ||
-    record.mutationEnabled !== false ||
     record.port !== 0
   ) {
     invalid("sidecarLaunchConfig.identity");
@@ -213,6 +210,23 @@ export function rebuildSynthesisSidecarLaunchConfig(
     clientToken === lifecycleToken
   ) {
     invalid("sidecarLaunchConfig.tokens");
+  }
+  const reverseHost = toSynthesisJsonObject(
+    record.reverseHost,
+    "sidecarLaunchConfig.reverseHost",
+  );
+  exactKeys(
+    reverseHost,
+    ["host", "port", "authorizationToken"],
+    "sidecarLaunchConfig.reverseHost",
+  );
+  const reverseHostToken = strictString(
+    reverseHost.authorizationToken,
+    "sidecarLaunchConfig.reverseHost.authorizationToken",
+    { max: 256 },
+  );
+  if (reverseHost.host !== "127.0.0.1" || reverseHostToken.length < 32) {
+    invalid("sidecarLaunchConfig.reverseHost");
   }
   const target = strictString(record.target, "sidecarLaunchConfig.target", {
     max: 32,
@@ -263,86 +277,27 @@ export function rebuildSynthesisSidecarLaunchConfig(
       record.supervisorInstanceId,
       "sidecarLaunchConfig.supervisorInstanceId",
     ),
-    leaseNonce: strictId(record.leaseNonce, "sidecarLaunchConfig.leaseNonce"),
+    repositoryDbPath: strictAbsolutePath(
+      record.repositoryDbPath,
+      "sidecarLaunchConfig.repositoryDbPath",
+    ),
+    canonicalRoot: strictAbsolutePath(
+      record.canonicalRoot,
+      "sidecarLaunchConfig.canonicalRoot",
+    ),
+    reverseHost: {
+      host: "127.0.0.1" as const,
+      port: strictInteger(
+        reverseHost.port,
+        "sidecarLaunchConfig.reverseHost.port",
+        1,
+        65_535,
+      ),
+      authorizationToken: reverseHostToken,
+    },
     clientToken,
     lifecycleToken,
-    mutationEnabled: false,
     port: 0,
-  });
-}
-
-export function rebuildSynthesisSidecarOwner(
-  value: unknown,
-): SynthesisSidecarOwner {
-  const record = toSynthesisJsonObject(value, "sidecarOwner");
-  exactKeys(
-    record,
-    [
-      "schema",
-      "profileId",
-      "supervisorInstanceId",
-      "serviceInstanceId",
-      "leaseNonce",
-      "pid",
-      "createdAtMs",
-    ],
-    "sidecarOwner",
-  );
-  if (record.schema !== SYNTHESIS_SIDECAR_OWNER_SCHEMA) {
-    invalid("sidecarOwner.schema");
-  }
-  return Object.freeze({
-    schema: SYNTHESIS_SIDECAR_OWNER_SCHEMA,
-    profileId: strictHash(record.profileId, "sidecarOwner.profileId"),
-    supervisorInstanceId: strictId(
-      record.supervisorInstanceId,
-      "sidecarOwner.supervisorInstanceId",
-    ),
-    serviceInstanceId: strictId(
-      record.serviceInstanceId,
-      "sidecarOwner.serviceInstanceId",
-    ),
-    leaseNonce: strictId(record.leaseNonce, "sidecarOwner.leaseNonce"),
-    pid: strictInteger(record.pid, "sidecarOwner.pid", 2),
-    createdAtMs: strictInteger(
-      record.createdAtMs,
-      "sidecarOwner.createdAtMs",
-      0,
-    ),
-  });
-}
-
-export function rebuildSynthesisSidecarLease(
-  value: unknown,
-): SynthesisSidecarLease {
-  const record = toSynthesisJsonObject(value, "sidecarLease");
-  exactKeys(
-    record,
-    [
-      "schema",
-      "profileId",
-      "supervisorInstanceId",
-      "leaseNonce",
-      "updatedAtMs",
-    ],
-    "sidecarLease",
-  );
-  if (record.schema !== SYNTHESIS_SIDECAR_LEASE_SCHEMA) {
-    invalid("sidecarLease.schema");
-  }
-  return Object.freeze({
-    schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
-    profileId: strictHash(record.profileId, "sidecarLease.profileId"),
-    supervisorInstanceId: strictId(
-      record.supervisorInstanceId,
-      "sidecarLease.supervisorInstanceId",
-    ),
-    leaseNonce: strictId(record.leaseNonce, "sidecarLease.leaseNonce"),
-    updatedAtMs: strictInteger(
-      record.updatedAtMs,
-      "sidecarLease.updatedAtMs",
-      0,
-    ),
   });
 }
 

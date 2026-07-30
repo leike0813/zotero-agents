@@ -20,13 +20,7 @@ mod runtime_worker;
 mod runtime_worker_pool;
 
 fn main() {
-    if let Err(error) = runtime_cli::run(
-        runtime_worker::worker,
-        runtime_service::serve,
-        runtime_service::serve_production,
-        runtime_service::preflight_production,
-        runtime_service::prepare_empty_production,
-    ) {
+    if let Err(error) = runtime_cli::run(runtime_worker::worker, runtime_service::serve) {
         eprintln!("{error}");
         std::process::exit(1);
     }

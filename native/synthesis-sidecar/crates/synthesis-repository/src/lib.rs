@@ -58,6 +58,16 @@ const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     ),
 ];
 
+struct RegisteredProductionSchemaMigration {
+    from: &'static str,
+    to: &'static str,
+    migrate: fn(&Connection) -> Result<(), String>,
+}
+
+// Schema changes must be registered here explicitly. Ordinary XPI updates do
+// not create backups and never infer a migration from a runtime fingerprint.
+const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigration] = &[];
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepositoryIdentity {
@@ -270,6 +280,136 @@ fn map_sqlite_error(error: rusqlite::Error) -> String {
     }
 }
 
+fn validate_production_database_path(database_path: &Path) -> Result<(), String> {
+    if !database_path.is_absolute()
+        || database_path.file_name().and_then(|value| value.to_str()) != Some("synthesis.db")
+    {
+        return Err("repository_production_path_invalid".into());
+    }
+    Ok(())
+}
+
+fn read_schema_version(connection: &Connection) -> Result<String, String> {
+    connection
+        .query_row(
+            "SELECT value FROM synt_schema_meta
+             WHERE key='repository_foundation_schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sqlite_error)?
+        .ok_or_else(|| "repository_schema_version_missing".into())
+}
+
+fn open_existing_database_read_only(database_path: &Path) -> Result<Connection, String> {
+    let metadata = fs::symlink_metadata(database_path)
+        .map_err(|_| "repository_production_database_missing".to_owned())?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("repository_production_path_invalid".into());
+    }
+    Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+    )
+    .map_err(map_sqlite_error)
+}
+
+fn open_production_database_read_only(database_path: &Path) -> Result<Connection, String> {
+    validate_production_database_path(database_path)?;
+    open_existing_database_read_only(database_path)
+}
+
+fn migration_backup_path(backup_root: &Path, from: &str, to: &str) -> PathBuf {
+    let mut hash = Sha256::new();
+    hash.update(from.as_bytes());
+    hash.update([0]);
+    hash.update(to.as_bytes());
+    backup_root.join(format!("{:x}.db", hash.finalize()))
+}
+
+fn create_or_verify_migration_backup(
+    database_path: &Path,
+    backup_path: &Path,
+    expected_schema: &str,
+) -> Result<(), String> {
+    if backup_path.exists() {
+        let backup = open_existing_database_read_only(backup_path)?;
+        return if read_schema_version(&backup)? == expected_schema {
+            Ok(())
+        } else {
+            Err("repository_migration_backup_mismatch".into())
+        };
+    }
+    let parent = backup_path
+        .parent()
+        .ok_or_else(|| "repository_migration_backup_path_invalid".to_owned())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("repository_migration_backup_failed:{error}"))?;
+    let source = open_production_database_read_only(database_path)?;
+    source
+        .backup(rusqlite::MAIN_DB, backup_path, None)
+        .map_err(|error| format!("repository_migration_backup_failed:{error}"))
+}
+
+fn prepare_production_schema_with_registry(
+    database_path: &Path,
+    backup_root: &Path,
+    migrations: &[RegisteredProductionSchemaMigration],
+) -> Result<(), String> {
+    let stored_schema = {
+        let connection = open_production_database_read_only(database_path)?;
+        read_schema_version(&connection)?
+    };
+    if stored_schema == SCHEMA_VERSION {
+        return Ok(());
+    }
+    let migration = migrations
+        .iter()
+        .find(|migration| migration.from == stored_schema && migration.to == SCHEMA_VERSION)
+        .ok_or_else(|| "repository_schema_migration_unregistered".to_owned())?;
+    let backup_path = migration_backup_path(backup_root, migration.from, migration.to);
+    create_or_verify_migration_backup(database_path, &backup_path, migration.from)?;
+
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+    )
+    .map_err(map_sqlite_error)?;
+    connection
+        .busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MILLIS))
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(map_sqlite_error)?;
+    let migrated = (|| -> Result<(), String> {
+        if read_schema_version(&connection)? != migration.from {
+            return Err("repository_schema_changed_during_migration".into());
+        }
+        (migration.migrate)(&connection)?;
+        if read_schema_version(&connection)? != migration.to {
+            return Err("repository_schema_migration_incomplete".into());
+        }
+        connection
+            .execute_batch("COMMIT")
+            .map_err(map_sqlite_error)?;
+        Ok(())
+    })();
+    if let Err(error) = migrated {
+        let _ = connection.execute_batch("ROLLBACK");
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub fn prepare_production_schema(database_path: &Path, backup_root: &Path) -> Result<(), String> {
+    prepare_production_schema_with_registry(
+        database_path,
+        backup_root,
+        REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS,
+    )
+}
+
 fn write_marker(path: &Path, marker: &IdentityMarker) -> Result<(), String> {
     let bytes = serde_json::to_vec(marker).map_err(|_| "repository_identity_invalid".to_owned())?;
     fs::write(path, bytes).map_err(|error| format!("repository_identity_write:{error}"))?;
@@ -367,11 +507,7 @@ impl Repository {
         validate_identity_part(reconcile_now)?;
         validate_identity_part(&identity.profile_id)?;
         validate_identity_part(&identity.data_root_id)?;
-        if !database_path.is_absolute()
-            || database_path.file_name().and_then(|value| value.to_str()) != Some("synthesis.db")
-        {
-            return Err("repository_production_path_invalid".into());
-        }
+        validate_production_database_path(database_path)?;
         let metadata = fs::symlink_metadata(database_path)
             .map_err(|_| "repository_production_database_missing".to_owned())?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
@@ -390,11 +526,7 @@ impl Repository {
     ) -> Result<Self, String> {
         validate_identity_part(&identity.profile_id)?;
         validate_identity_part(&identity.data_root_id)?;
-        if !database_path.is_absolute()
-            || database_path.file_name().and_then(|value| value.to_str()) != Some("synthesis.db")
-        {
-            return Err("repository_production_path_invalid".into());
-        }
+        validate_production_database_path(database_path)?;
         if database_path.exists() {
             return Err("repository_production_database_exists".into());
         }
@@ -1343,6 +1475,89 @@ mod tests {
         assert_eq!(
             Repository::initialize_production(&database_path, identity(),).unwrap_err(),
             "repository_production_database_exists"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn unregistered_production_schema_stops_without_creating_a_backup() {
+        let root = root("production-schema-unregistered");
+        let database_path = root.join("state").join("synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("open fixture");
+        connection
+            .execute(
+                "UPDATE synt_schema_meta SET value='legacy.test'
+                 WHERE key='repository_foundation_schema_version'",
+                [],
+            )
+            .expect("set legacy schema");
+        drop(connection);
+        let backup_root = root.join("state/synthesis-migration-backups");
+        assert_eq!(
+            prepare_production_schema(&database_path, &backup_root).unwrap_err(),
+            "repository_schema_migration_unregistered"
+        );
+        assert!(!backup_root.exists());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn registered_failed_migration_keeps_the_original_schema_and_backup() {
+        fn fail_after_schema_write(connection: &Connection) -> Result<(), String> {
+            connection
+                .execute(
+                    "UPDATE synt_schema_meta SET value=?1
+                     WHERE key='repository_foundation_schema_version'",
+                    [SCHEMA_VERSION],
+                )
+                .map_err(map_sqlite_error)?;
+            Err("migration_fixture_failed".into())
+        }
+
+        let root = root("production-schema-failure");
+        let database_path = root.join("state").join("synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("open fixture");
+        connection
+            .execute(
+                "UPDATE synt_schema_meta SET value='legacy.test'
+                 WHERE key='repository_foundation_schema_version'",
+                [],
+            )
+            .expect("set legacy schema");
+        drop(connection);
+        let backup_root = root.join("state/synthesis-migration-backups");
+        let migrations = [RegisteredProductionSchemaMigration {
+            from: "legacy.test",
+            to: SCHEMA_VERSION,
+            migrate: fail_after_schema_write,
+        }];
+        assert_eq!(
+            prepare_production_schema_with_registry(&database_path, &backup_root, &migrations,)
+                .unwrap_err(),
+            "migration_fixture_failed"
+        );
+        let source = open_production_database_read_only(&database_path).expect("source");
+        assert_eq!(
+            read_schema_version(&source).expect("source schema"),
+            "legacy.test"
+        );
+        let backups = fs::read_dir(&backup_root)
+            .expect("backup root")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("backup entries");
+        assert_eq!(backups.len(), 1);
+        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+        assert_eq!(
+            read_schema_version(&backup).expect("backup schema"),
+            "legacy.test"
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

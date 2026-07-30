@@ -4,31 +4,25 @@ Synthesis persistence is a sidecar beside Zotero Library. SQLite is the normal s
 
 Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not the normal Workbench read/write path.
 
-The current `runtime/synthesis/service-runtime` tree contains verified native
-manifest-v3 bundles and profile-scoped lifecycle state. The Rust
-production owner opens `state/synthesis.db` and `data/synthesis/**` only after
-an atomic, receipt-bound preflight/cutover; Node is not a packaged production
-runtime and cannot own those roots. Executable packaging state remains separate
-from domain state. The exact retained inventory and its local baseline are in
-`artifact/synthesis_r9a_retirement_baseline_20260727.md`; the migration plan
-records the separately governed R9b acceptance work.
+The current `runtime/synthesis/service-runtime` tree contains one verified
+XPI-owned native runtime and launch-scoped session state. Rust opens
+`state/synthesis.db` and `data/synthesis/**` while holding
+`state/synthesis.lock`. Executable packaging state remains separate from domain
+state.
 
 ## Storage Classes
 
 | Class | Location | Role |
 | --- | --- | --- |
 | Synthesis runtime DB | `state/synthesis.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
-| Rust cutover receipt | `state/synthesis-cutover/receipt.json` | Private, atomically replaced first-owner-transfer evidence. Phase progression is monotonic; an admitted receipt cannot return to a plugin/Node generation. Once runtime admission exists, restarts and compatible Rust upgrades do not rewrite this receipt. |
-| Rust runtime admission | `state/synthesis-runtime-admission.json` | Private, atomically replaced current Rust generation and optional pending-upgrade journal. It binds profile, target, protocol, data schema, bundle/build, capability, service and activation identity while leaving the first cutover evidence unchanged. |
-| Rust cutover backups | `data/synthesis-cutover-backups/<backupId>/{state,data}/**` | Content-addressed, verified DB/WAL/SHM and canonical-tree backup used only while all writers are stopped. Restore re-verifies source and restored bytes. |
+| Synthesis production lock | `state/synthesis.lock` | OS file-lock target held by the Rust process for its lifetime. File contents are not ownership authority. |
+| Schema migration backups | `data/synthesis-migration-backups/**` | Created only by Rust immediately before a registered schema migration. Same-schema startup creates no backup. |
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
-| Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable native manifest-v3 versions, mutable installer pointers and profile-scoped lifecycle state. Current and pending admission generations pin their content-addressed bundles independently of the active pointer. Only a receipt-bound, generation-admitted Rust executable may own production roots. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent shadow for **Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete**, containing foundation plus seven private domain table families, isolated auxiliary durable owners, a strict sync index, and one durable-import commit receipt. The private debug projection captures bounded schema/cache/operation/Topic facts transactionally and performs no writes; it exposes neither SQL/table/path/raw-row access nor an unbounded snapshot. The milestone is not Stage 1 completion, production cutover, or real-machine acceptance, and this store is not a production mirror, Workbench source, public route, or production mutation owner. |
-| Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current JSON and bounded Markdown. Single-Topic writes use identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Durable import adds one strict multi-Topic batch journal; a matching repository receipt rolls it forward, an uncommitted batch is discarded, and mismatched state fails closed. Authenticated inspect still returns hashes and descriptors only. |
-| Service WebDAV sync shadow state | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-webdav-sync/<dataRootId>/**` | Identity-bound, atomically written private queue/conflict/progress state. The current Node oracle Host port is disabled; the Rust candidate must preserve that boundary. No credentials, remote content, production paths, or hidden retry timers are persisted here. |
+| Product-owned sidecar runtime | `runtime/synthesis/service-runtime/current/**` | Verified native manifest-v3 bundle copied from the installed XPI. This is executable packaging state, not Synthesis domain state. |
+| Sidecar launch sessions | `runtime/synthesis/service-runtime/profiles/<profileId>/sessions/<supervisorInstanceId>/**` | Private config, discovery, and tokens for one process launch; removed after bounded shutdown. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -46,13 +40,11 @@ zotero-agents/
   state/
     zotero-agents.db
     synthesis.db
-    synthesis-cutover/receipt.json
+    synthesis.lock
     workflow-registry-status.json
     *.bak
   data/
-    synthesis-cutover-backups/<backupId>/
-      state/synthesis.db{-wal,-shm}
-      data/synthesis/**
+    synthesis-migration-backups/**   # only for registered migrations
     synthesis/
       topics/<topicId>/current/**
       sidecar/**             # legacy/migration, sync transaction, debug only
@@ -61,21 +53,10 @@ zotero-agents/
   runtime/
     synthesis/webdav-sync/**
     synthesis/service-runtime/
-      active.json
-      previous.json
-      staging/**
-      versions/<bundleId>/**
-      profiles/<profileId>/shadow-repository/<dataRootId>/
-        identity.json
-        synthesis.db
-      profiles/<profileId>/shadow-canonical/<dataRootId>/
-        identity.json
-        transaction.json       # present only during an in-flight commit
-        topics/<pathId>/current/{manifest,artifact,metadata}.json
-        topics/<pathId>/current/sections/*.json
-      profiles/<profileId>/shadow-webdav-sync/<dataRootId>/
-        identity.json
-        state.json
+      current/**
+      profiles/<profileId>/sessions/<supervisorInstanceId>/
+        config.json
+        discovery.json
     acp/**
     cache/**
     logs/**
@@ -87,25 +68,18 @@ zotero-agents/
 must not be called `state`: it is scoped to topic artifact companion files and
 must not be confused with the persistence-root `state/` directory.
 
-`runtime/synthesis/service-runtime` is owned exclusively by the product-owned
-runtime installer. Its manifest paths are strict relative paths; staging,
-repair, activation, rollback, and cleanup cannot target an external path. The
-directory does not prove that a service process is running or owns production
-data. Native manifest v3 binds the complete Rust file inventory, provenance and
-platform identity. Active/previous pointers cannot target a Node bundle.
+`runtime/synthesis/service-runtime` is owned exclusively by the XPI runtime
+installer. Native manifest v3 binds the complete Rust file inventory,
+provenance, and platform identity. The fixed `current` directory is the only
+executable selection. Legacy active/previous pointers and version directories
+are inert and remain untouched.
 
-The profile shadow repository is different from both the immutable runtime
-versions and production `state/synthesis.db`. Normal runtime configuration
-supplies only opaque profile/data-root identities. R9a production-copy and
-live-owner admission use a separate strict document whose paths must end in
-`state/synthesis.db` and `data/synthesis`. First cutover and an initial
-generation-1 restart may use admission v1. Later compatible Rust generations
-use generation-bound admission, which validates the immutable cutover receipt,
-`state/synthesis-runtime-admission.json`, and the selected current or pending
-generation before Rust opens either root. Marker/schema mismatch fails service
-startup before discovery. Shadow rows persist across service restart so interrupted `running`
+The launch config directly supplies `state/synthesis.db`,
+`data/synthesis`, reverse Host, and session identity. Rust holds the production
+OS lock before opening either root. Marker, receipt, admission, activation, and
+lease files are not runtime inputs. Interrupted `running`
 operations can become `canceled`; terminal operation history and cache-basis
-rows remain. The same isolated database stores strict Topic application state,
+rows remain. The production database stores strict Topic application state,
 JSON-safe derived graph/concept/interest/discovery projections, and private
 Citation Graph structure, metrics, layout, and active-basis state. These rows
 are private application state, not a production repository mirror. Independent
@@ -113,11 +87,11 @@ Concept KB and Topic Graph aggregates add complete rows, manifest revisions,
 stale markers, and last-good index payloads. Shutdown
 closes the handle but does not delete the shadow root.
 
-On a new profile, absence is valid only when both `state/synthesis.db` and
-`data/synthesis` are absent. The packaged Rust runtime creates both with their
-production identities before the verified backup is taken, and the cutover
-receipt records `sourceOwner: "empty-profile"`. A database-only,
-canonical-only, WAL-only or SHM-only source is partial state and fails closed.
+On a new profile, absence is valid only when the database, SQLite sidecars, and
+canonical root are all absent. Rust creates the database and canonical root
+while holding the production lock. Any partial combination fails closed without
+creating the missing half. Same-schema startup creates no backup; only a
+registered native schema migration may create a verified migration backup.
 
 Reference Refresh state records the active reference projection hash, canonical descriptor input hash, row counts, and reference/graph/related readiness. Full promotion removes absent sources; scoped promotion replaces only listed changed sources and preserves unrelated rows plus protected bindings, redirects, rejected decisions, and canonical-revision review state. Preparation itself changes no readiness. Citation Graph state separately records its active build-result/input/metrics hashes and counts; Graph replacement and later basis-bound metrics/layout behavior are unchanged. Reads never require an in-memory full mirror or production fallback.
 
@@ -145,7 +119,7 @@ holds at most one process-local, single-use receipt bound to the captured Tag
 revision and Concept/Topic manifests. Acknowledged apply performs complete
 three-domain replacement under one SQLite transaction and three-basis CAS.
 Tag staged suggestions, audit rows, and pending effects remain local; last-good
-indexes retain their payloads and become stale. Restart, discard, admission
+indexes retain their payloads and become stale. Restart, discard, service
 stop, or any apply attempt invalidates the receipt. The coordinator has no
 public route and does not replace production checkpoint files, durable bundles,
 or WebDAV synchronization.
@@ -219,10 +193,10 @@ staged suggestions, audits, and Host-effect receipts remain SQLite-owned. The
 environment-neutral Tag Vocabulary engine receives a bounded JSON-safe snapshot
 and returns validation or rebuildable index data; it does not open SQLite, write
 files, compute canonical manifests, or update the projection registry. The
-private sidecar application invokes both methods through the bounded worker and
-uses expected-revision CAS for promotion. Production plugin validation remains
-synchronous inside its existing transaction until cutover. A failed, malformed,
-or superseded result leaves the active index and durable vocabulary unchanged.
+Rust application invokes both methods through the bounded worker and uses
+expected-revision CAS for promotion inside its repository transaction. A
+failed, malformed, or superseded result leaves the active index and durable
+vocabulary unchanged.
 
 Concept KB concepts, senses, aliases, relations, review items, and topic links
 also remain SQLite-owned. The environment-neutral Concept KB index engine
