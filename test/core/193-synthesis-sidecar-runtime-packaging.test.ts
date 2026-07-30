@@ -260,9 +260,22 @@ describe("Synthesis sidecar native runtime packaging", function () {
 
     selected = createBundle("linux-x64", {
       bundleId: "2".repeat(64),
+      buildFingerprint: "e".repeat(64),
     });
     const second = await installer.ensureInstalled();
     assert.equal(second.bundleId, "2".repeat(64));
+    assert.equal(
+      (await installer.resolveInstalled("b".repeat(64))).bundleId,
+      "1".repeat(64),
+    );
+    assert.equal(
+      (await installer.resolveInstalled("e".repeat(64))).bundleId,
+      "2".repeat(64),
+    );
+    assert.equal(
+      (await installer.resolveInstalled("f".repeat(64))).state,
+      "missing",
+    );
     const rolledBack = await installer.rollback();
     assert.equal(rolledBack.bundleId, "1".repeat(64));
   });

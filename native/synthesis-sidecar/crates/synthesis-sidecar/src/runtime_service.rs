@@ -168,7 +168,7 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
     }
     let mutation_enabled = admission
         .as_ref()
-        .map(production_cutover_receipt_is_mutation_enabled)
+        .map(|admission| production_cutover_receipt_is_mutation_enabled(admission, &config))
         .transpose()?
         .unwrap_or(false);
     if let Some(admission) = admission.as_ref() {

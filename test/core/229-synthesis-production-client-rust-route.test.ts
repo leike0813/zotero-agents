@@ -59,6 +59,7 @@ function smokeDigest(args: {
         ...args.checkDigests,
         args.profileId,
         args.receiptId,
+        1,
         args.serviceInstanceId,
         args.supervisorInstanceId,
         args.capabilityFingerprint,
@@ -914,6 +915,7 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          runtimeAdmissionGeneration: 1,
           profileId: productionAdmission.profileId,
           serviceInstanceId: "another-service",
           supervisorInstanceId: productionAdmission.supervisorInstanceId,
@@ -940,6 +942,7 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          runtimeAdmissionGeneration: 1,
           profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
           supervisorInstanceId: productionAdmission.supervisorInstanceId,
@@ -973,6 +976,7 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          runtimeAdmissionGeneration: 1,
           profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
           supervisorInstanceId: productionAdmission.supervisorInstanceId,
@@ -999,6 +1003,7 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          runtimeAdmissionGeneration: 1,
           profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
           supervisorInstanceId: productionAdmission.supervisorInstanceId,
@@ -1040,6 +1045,7 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          runtimeAdmissionGeneration: 1,
           profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
           supervisorInstanceId: productionAdmission.supervisorInstanceId,

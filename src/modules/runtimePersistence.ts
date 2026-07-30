@@ -49,6 +49,7 @@ export type RuntimePersistencePaths = {
   synthesisDbPath: string;
   synthesisCutoverRoot: string;
   synthesisCutoverReceiptPath: string;
+  synthesisRuntimeAdmissionStatePath: string;
   synthesisCutoverBackupRoot: string;
   logsDir: string;
   runtimeLogPath: string;
@@ -827,10 +828,11 @@ export function getRuntimePersistencePaths(
       "synthesis-cutover",
       "receipt.json",
     ),
-    synthesisCutoverBackupRoot: joinPath(
-      dataDir,
-      "synthesis-cutover-backups",
+    synthesisRuntimeAdmissionStatePath: joinPath(
+      stateDir,
+      "synthesis-runtime-admission.json",
     ),
+    synthesisCutoverBackupRoot: joinPath(dataDir, "synthesis-cutover-backups"),
     logsDir,
     runtimeLogPath: joinPath(logsDir, RUNTIME_LOG_FILE_NAME),
     acpChatRoot,

@@ -53,6 +53,9 @@ pub(crate) fn run_sidecar_listener(
         discovery["mutationEnabled"] = json!(state.mutation_enabled.load(Ordering::Acquire));
         discovery["capabilityFingerprint"] = json!(admission.capability_fingerprint);
         discovery["cutoverReceiptId"] = json!(admission.cutover_receipt_id);
+        if let Some(generation) = admission.runtime_admission_generation {
+            discovery["runtimeAdmissionGeneration"] = json!(generation);
+        }
         discovery["readyClientCapabilities"] =
             json!(synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES);
     }

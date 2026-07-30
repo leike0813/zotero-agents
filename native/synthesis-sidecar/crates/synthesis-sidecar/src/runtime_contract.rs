@@ -104,6 +104,10 @@ pub struct ProductionAdmission {
     pub supervisor_instance_id: String,
     pub cutover_receipt_id: String,
     pub cutover_receipt_path: PathBuf,
+    #[serde(default)]
+    pub runtime_admission_state_path: Option<PathBuf>,
+    #[serde(default)]
+    pub runtime_admission_generation: Option<u64>,
     pub capability_fingerprint: String,
     pub repository_db_path: PathBuf,
     pub canonical_root: PathBuf,
@@ -129,6 +133,70 @@ struct ProductionCutoverReceipt {
     capability_fingerprint: String,
     service_instance_id: Option<String>,
     mutation_enabled: bool,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionRuntimeAdmissionIdentity {
+    profile_id: String,
+    target: String,
+    target_triple: String,
+    protocol_version: String,
+    schema_version: String,
+    bundle_id: String,
+    build_fingerprint: String,
+    capability_fingerprint: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionRuntimeAdmissionCurrent {
+    generation: u64,
+    profile_id: String,
+    target: String,
+    target_triple: String,
+    protocol_version: String,
+    schema_version: String,
+    bundle_id: String,
+    build_fingerprint: String,
+    capability_fingerprint: String,
+    service_instance_id: String,
+    activation_evidence_sha256: Option<String>,
+    admitted_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionRuntimeAdmissionPending {
+    generation: u64,
+    previous_generation: u64,
+    stage: String,
+    target: ProductionRuntimeAdmissionIdentity,
+    backup: ProductionRuntimeAdmissionBackup,
+    service_instance_id: Option<String>,
+    activation_evidence_sha256: Option<String>,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionRuntimeAdmissionBackup {
+    source_owner: String,
+    backup_id: String,
+    source_schema_version: String,
+    target_schema_version: String,
+    canonical_manifest_sha256: String,
+    durable_summary_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionRuntimeAdmissionState {
+    schema: String,
+    cutover_receipt_id: String,
+    current: ProductionRuntimeAdmissionCurrent,
+    pending_upgrade: Option<ProductionRuntimeAdmissionPending>,
     updated_at_ms: u64,
 }
 
@@ -574,10 +642,155 @@ pub fn read_native_launch_config(path: &Path) -> Result<NativeLaunchConfig, Stri
     rebuild_native_launch_config(&fs::read_to_string(path).map_err(|error| error.to_string())?)
 }
 
+fn runtime_admission_state(
+    admission: &ProductionAdmission,
+) -> Result<Option<ProductionRuntimeAdmissionState>, String> {
+    let Some(path) = admission.runtime_admission_state_path.as_deref() else {
+        return Ok(None);
+    };
+    let state: ProductionRuntimeAdmissionState = serde_json::from_str(
+        &fs::read_to_string(path)
+            .map_err(|_| "production_runtime_admission_unavailable".to_owned())?,
+    )
+    .map_err(|_| "production_runtime_admission_invalid".to_owned())?;
+    Ok(Some(state))
+}
+
+fn runtime_identity_matches(
+    identity: &ProductionRuntimeAdmissionIdentity,
+    admission: &ProductionAdmission,
+    config: &NativeLaunchConfig,
+) -> bool {
+    identity.profile_id == admission.profile_id
+        && identity.profile_id == config.profile_id
+        && identity.target == config.target
+        && identity.target_triple == config.target_triple
+        && identity.protocol_version == config.protocol_version
+        && identity.schema_version == config.schema_version
+        && identity.bundle_id == config.bundle_id
+        && identity.build_fingerprint == config.build_fingerprint
+        && identity.capability_fingerprint == admission.capability_fingerprint
+}
+
+fn validate_runtime_admission_state(
+    admission: &ProductionAdmission,
+    config: &NativeLaunchConfig,
+) -> Result<bool, String> {
+    let Some(state) = runtime_admission_state(admission)? else {
+        return Ok(false);
+    };
+    let generation = admission
+        .runtime_admission_generation
+        .ok_or_else(|| "production_runtime_admission_invalid".to_owned())?;
+    let current = &state.current;
+    let current_identity = ProductionRuntimeAdmissionIdentity {
+        profile_id: current.profile_id.clone(),
+        target: current.target.clone(),
+        target_triple: current.target_triple.clone(),
+        protocol_version: current.protocol_version.clone(),
+        schema_version: current.schema_version.clone(),
+        bundle_id: current.bundle_id.clone(),
+        build_fingerprint: current.build_fingerprint.clone(),
+        capability_fingerprint: current.capability_fingerprint.clone(),
+    };
+    let current_valid = current.generation > 0
+        && sha256(&current.profile_id)
+        && target_matches(&current.target, &current.target_triple)
+        && current.protocol_version == "synthesis-sidecar.v1"
+        && bounded_text(&current.schema_version, 128)
+        && sha256(&current.bundle_id)
+        && sha256(&current.build_fingerprint)
+        && current.capability_fingerprint == PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
+        && bounded_text(&current.service_instance_id, 128)
+        && current
+            .activation_evidence_sha256
+            .as_deref()
+            .is_none_or(sha256)
+        && current.admitted_at_ms > 0;
+    let selected_current = generation == current.generation
+        && current_valid
+        && runtime_identity_matches(&current_identity, admission, config);
+    let selected_pending = state.pending_upgrade.as_ref().is_some_and(|pending| {
+        let service_identity_valid = match pending.stage.as_str() {
+            "backup_verified" | "preflight_passed" => {
+                pending.service_instance_id.is_none()
+                    && pending.activation_evidence_sha256.is_none()
+            }
+            "candidate_started" | "smoke_passed" => {
+                pending
+                    .service_instance_id
+                    .as_deref()
+                    .is_some_and(|value| bounded_text(value, 128))
+                    && pending.activation_evidence_sha256.is_none()
+            }
+            "activation_persisted" => {
+                pending
+                    .service_instance_id
+                    .as_deref()
+                    .is_some_and(|value| bounded_text(value, 128))
+                    && pending
+                        .activation_evidence_sha256
+                        .as_deref()
+                        .is_some_and(sha256)
+            }
+            _ => false,
+        };
+        let backup_valid = matches!(
+            pending.backup.source_owner.as_str(),
+            "legacy-plugin" | "empty-profile"
+        ) && sha256(&pending.backup.backup_id)
+            && bounded_text(&pending.backup.source_schema_version, 128)
+            && bounded_text(&pending.backup.target_schema_version, 128)
+            && sha256(&pending.backup.canonical_manifest_sha256)
+            && sha256(&pending.backup.durable_summary_sha256);
+        pending.generation == current.generation.saturating_add(1)
+            && pending.previous_generation == current.generation
+            && generation == pending.generation
+            && current_valid
+            && pending.target.profile_id == current.profile_id
+            && pending.target.target == current.target
+            && pending.target.target_triple == current.target_triple
+            && pending.target.protocol_version == current.protocol_version
+            && pending.target.schema_version == current.schema_version
+            && pending.target.capability_fingerprint == current.capability_fingerprint
+            && pending.target.build_fingerprint != current.build_fingerprint
+            && service_identity_valid
+            && backup_valid
+            && pending.updated_at_ms > 0
+            && runtime_identity_matches(&pending.target, admission, config)
+    });
+    if state.schema != "synthesis-production-runtime-admission-state.v1"
+        || state.cutover_receipt_id != admission.cutover_receipt_id
+        || state.current.profile_id != admission.profile_id
+        || state.updated_at_ms < state.current.admitted_at_ms
+        || state
+            .pending_upgrade
+            .as_ref()
+            .is_some_and(|pending| state.updated_at_ms < pending.updated_at_ms)
+        || (!selected_current && !selected_pending)
+    {
+        return Err("production_runtime_admission_invalid".into());
+    }
+    Ok(selected_current)
+}
+
 pub fn rebuild_production_admission(value: &str) -> Result<ProductionAdmission, String> {
     let admission: ProductionAdmission =
         serde_json::from_str(value).map_err(|_| "invalid_production_admission".to_owned())?;
-    if admission.schema != "synthesis-production-admission.v1"
+    let legacy = admission.schema == "synthesis-production-admission.v1"
+        && admission.runtime_admission_state_path.is_none()
+        && admission.runtime_admission_generation.is_none();
+    let generation_bound = admission.schema == "synthesis-production-runtime-admission.v1"
+        && admission
+            .runtime_admission_state_path
+            .as_ref()
+            .is_some_and(|path| {
+                explicit_production_path(path, Path::new("state/synthesis-runtime-admission.json"))
+            })
+        && admission
+            .runtime_admission_generation
+            .is_some_and(|value| value > 0);
+    if (!legacy && !generation_bound)
         || !matches!(admission.purpose.as_str(), "preflight_copy" | "live_owner")
         || !sha256(&admission.profile_id)
         || !bounded_text(&admission.supervisor_instance_id, 128)
@@ -616,11 +829,15 @@ pub fn validate_production_cutover_receipt(
             .map_err(|_| "production_cutover_receipt_unavailable".to_owned())?,
     )
     .map_err(|_| "production_cutover_receipt_invalid".to_owned())?;
+    let generation_bound = admission.schema == "synthesis-production-runtime-admission.v1";
     let valid_phase = match admission.purpose.as_str() {
         "preflight_copy" => {
-            receipt.phase == "backup_verified"
+            (receipt.phase == "backup_verified"
                 && receipt.service_instance_id.is_none()
-                && !receipt.mutation_enabled
+                && !receipt.mutation_enabled)
+                || (generation_bound
+                    && receipt.phase == "mutation_enabled"
+                    && receipt.mutation_enabled)
         }
         "live_owner" => {
             (receipt.phase == "preflight_verified"
@@ -647,24 +864,33 @@ pub fn validate_production_cutover_receipt(
         || !bounded_text(&receipt.target_schema_version, 128)
         || !sha256(&receipt.canonical_manifest_sha256)
         || !sha256(&receipt.durable_summary_sha256)
-        || receipt.bundle_fingerprint != config.build_fingerprint
+        || (!generation_bound && receipt.bundle_fingerprint != config.build_fingerprint)
         || receipt.capability_fingerprint != admission.capability_fingerprint
         || receipt.updated_at_ms == 0
     {
         return Err("production_cutover_receipt_invalid".into());
+    }
+    if generation_bound {
+        validate_runtime_admission_state(admission, config)?;
     }
     Ok(())
 }
 
 pub fn production_cutover_receipt_is_mutation_enabled(
     admission: &ProductionAdmission,
+    config: &NativeLaunchConfig,
 ) -> Result<bool, String> {
     let receipt: ProductionCutoverReceipt = serde_json::from_str(
         &fs::read_to_string(&admission.cutover_receipt_path)
             .map_err(|_| "production_cutover_receipt_unavailable".to_owned())?,
     )
     .map_err(|_| "production_cutover_receipt_invalid".to_owned())?;
-    Ok(receipt.phase == "mutation_enabled" && receipt.mutation_enabled)
+    let current_generation = if admission.schema == "synthesis-production-runtime-admission.v1" {
+        validate_runtime_admission_state(admission, config)?
+    } else {
+        true
+    };
+    Ok(receipt.phase == "mutation_enabled" && receipt.mutation_enabled && current_generation)
 }
 
 pub fn current_time_ms() -> Result<u64, String> {
@@ -814,6 +1040,109 @@ mod production_admission_tests {
             validate_production_cutover_receipt(&admission, &launch_config(),).unwrap_err(),
             "production_cutover_receipt_invalid"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generation_bound_admission_accepts_a_compatible_pending_runtime() {
+        let root = std::env::temp_dir().join(format!(
+            "synthesis-runtime-admission-{}-{}",
+            std::process::id(),
+            current_time_ms().unwrap()
+        ));
+        fs::create_dir_all(root.join("state/synthesis-cutover")).unwrap();
+        fs::create_dir_all(root.join("data/synthesis")).unwrap();
+        fs::write(root.join("state/synthesis.db"), []).unwrap();
+        let receipt_path = root.join("state/synthesis-cutover/receipt.json");
+        fs::write(
+            &receipt_path,
+            json!({
+                "schema":"synthesis-production-cutover-receipt.v1",
+                "receiptId":"receipt-1",
+                "profileId":"1".repeat(64),
+                "phase":"mutation_enabled",
+                "sourceOwner":"legacy-plugin",
+                "targetOwner":"rust-native",
+                "backupId":"8".repeat(64),
+                "sourceSchemaVersion":"schema-1",
+                "targetSchemaVersion":"schema-1",
+                "canonicalManifestSha256":"9".repeat(64),
+                "durableSummarySha256":"a".repeat(64),
+                "bundleFingerprint":"e".repeat(64),
+                "capabilityFingerprint":PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+                "serviceInstanceId":"service-old",
+                "mutationEnabled":true,
+                "updatedAtMs":1
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let state_path = root.join("state/synthesis-runtime-admission.json");
+        let identity = json!({
+            "profileId":"1".repeat(64),
+            "target":"linux-x64",
+            "targetTriple":"x86_64-unknown-linux-gnu",
+            "protocolVersion":"synthesis-sidecar.v1",
+            "schemaVersion":"schema-1",
+            "bundleId":"4".repeat(64),
+            "buildFingerprint":"5".repeat(64),
+            "capabilityFingerprint":PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
+        });
+        fs::write(
+            &state_path,
+            json!({
+                "schema":"synthesis-production-runtime-admission-state.v1",
+                "cutoverReceiptId":"receipt-1",
+                "current":{
+                    "generation":1,
+                    "profileId":"1".repeat(64),
+                    "target":"linux-x64",
+                    "targetTriple":"x86_64-unknown-linux-gnu",
+                    "protocolVersion":"synthesis-sidecar.v1",
+                    "schemaVersion":"schema-1",
+                    "bundleId":"d".repeat(64),
+                    "buildFingerprint":"e".repeat(64),
+                    "capabilityFingerprint":PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+                    "serviceInstanceId":"service-old",
+                    "activationEvidenceSha256":null,
+                    "admittedAtMs":1
+                },
+                "pendingUpgrade":{
+                    "generation":2,
+                    "previousGeneration":1,
+                    "stage":"backup_verified",
+                    "target":identity,
+                    "backup":{
+                        "sourceOwner":"legacy-plugin",
+                        "backupId":"8".repeat(64),
+                        "sourceSchemaVersion":"schema-1",
+                        "targetSchemaVersion":"schema-1",
+                        "canonicalManifestSha256":"9".repeat(64),
+                        "durableSummarySha256":"a".repeat(64)
+                    },
+                    "serviceInstanceId":null,
+                    "activationEvidenceSha256":null,
+                    "updatedAtMs":2
+                },
+                "updatedAtMs":2
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut value = admission();
+        value["schema"] = json!("synthesis-production-runtime-admission.v1");
+        value["purpose"] = json!("preflight_copy");
+        value["cutoverReceiptPath"] = json!(receipt_path);
+        value["runtimeAdmissionStatePath"] = json!(state_path);
+        value["runtimeAdmissionGeneration"] = json!(2);
+        value["repositoryDbPath"] = json!(root.join("state/synthesis.db"));
+        value["canonicalRoot"] = json!(root.join("data/synthesis"));
+        let admission = rebuild_production_admission(&value.to_string()).unwrap();
+        let config = launch_config();
+
+        validate_production_cutover_receipt(&admission, &config).unwrap();
+        assert!(!production_cutover_receipt_is_mutation_enabled(&admission, &config).unwrap());
+
         fs::remove_dir_all(root).unwrap();
     }
 }

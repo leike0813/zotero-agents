@@ -4,9 +4,13 @@ import path from "node:path";
 import {
   SYNTHESIS_CUTOVER_RECEIPT_SCHEMA,
   SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA,
+  SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA,
+  SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA,
   SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA,
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   rebuildSynthesisProductionAdmission,
+  rebuildSynthesisProductionRuntimeAdmission,
+  rebuildSynthesisProductionRuntimeAdmissionState,
   rebuildSynthesisCutoverReceipt,
   rebuildSynthesisProductionDiscovery,
   rebuildSynthesisProductionHandshakeResult,
@@ -99,11 +103,36 @@ function productionAuthority() {
   return {
     ownerMode: "production",
     mutationEnabled: false,
+    runtimeAdmissionGeneration: 1,
     capabilityFingerprint:
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
     cutoverReceiptId: "receipt-1",
     readyClientCapabilities:
       SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+  };
+}
+
+function runtimeAdmissionState() {
+  return {
+    schema: SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA,
+    cutoverReceiptId: "receipt-1",
+    current: {
+      generation: 1,
+      profileId: "1".repeat(64),
+      target: "linux-x64",
+      targetTriple: "x86_64-unknown-linux-gnu",
+      protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
+      schemaVersion: "synthesis-repository-foundation.v1",
+      bundleId: "4".repeat(64),
+      buildFingerprint: "5".repeat(64),
+      capabilityFingerprint:
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+      serviceInstanceId: "service-1",
+      activationEvidenceSha256: null,
+      admittedAtMs: 1,
+    },
+    pendingUpgrade: null,
+    updatedAtMs: 1,
   };
 }
 
@@ -117,7 +146,12 @@ describe("Synthesis production cutover contract", function () {
 
   it("rejects the reviewed negative corpus", function () {
     for (const testCase of corpus.negative) {
-      assert.throws(() => rebuild(testCase), undefined, undefined, testCase.name);
+      assert.throws(
+        () => rebuild(testCase),
+        undefined,
+        undefined,
+        testCase.name,
+      );
     }
   });
 
@@ -134,6 +168,14 @@ describe("Synthesis production cutover contract", function () {
       SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA,
       "synthesis-production-admission.v1",
     );
+    assert.equal(
+      SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA,
+      "synthesis-production-runtime-admission.v1",
+    );
+    assert.equal(
+      SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_STATE_SCHEMA,
+      "synthesis-production-runtime-admission-state.v1",
+    );
   });
 
   it("admits only explicit live roots with mutation still disabled", function () {
@@ -143,8 +185,7 @@ describe("Synthesis production cutover contract", function () {
       profileId: "1".repeat(64),
       supervisorInstanceId: "supervisor-1",
       cutoverReceiptId: "receipt-1",
-      cutoverReceiptPath:
-        "/profile/state/synthesis-cutover/receipt.json",
+      cutoverReceiptPath: "/profile/state/synthesis-cutover/receipt.json",
       capabilityFingerprint: "2".repeat(64),
       repositoryDbPath: "/profile/state/synthesis.db",
       canonicalRoot: "/profile/data/synthesis",
@@ -167,6 +208,80 @@ describe("Synthesis production cutover contract", function () {
       rebuildSynthesisProductionAdmission({
         ...value,
         mutationEnabled: true,
+      }),
+    );
+  });
+
+  it("validates runtime admission state and generation-bound production admission", function () {
+    const state = runtimeAdmissionState();
+    assert.deepEqual(
+      rebuildSynthesisProductionRuntimeAdmissionState(state),
+      state,
+    );
+    assert.throws(() =>
+      rebuildSynthesisProductionRuntimeAdmissionState({
+        ...state,
+        current: { ...state.current, generation: 0 },
+      }),
+    );
+    assert.throws(() =>
+      rebuildSynthesisProductionRuntimeAdmissionState({
+        ...state,
+        pendingUpgrade: {
+          generation: 3,
+          previousGeneration: 1,
+          stage: "backup_verified",
+          target: {
+            ...state.current,
+            generation: undefined,
+            serviceInstanceId: undefined,
+            activationEvidenceSha256: undefined,
+            admittedAtMs: undefined,
+          },
+          backup: {
+            sourceOwner: "legacy-plugin",
+            backupId: "8".repeat(64),
+            sourceSchemaVersion: "source-1",
+            targetSchemaVersion: "target-1",
+            canonicalManifestSha256: "9".repeat(64),
+            durableSummarySha256: "a".repeat(64),
+          },
+          serviceInstanceId: null,
+          activationEvidenceSha256: null,
+          updatedAtMs: 2,
+        },
+        updatedAtMs: 2,
+      }),
+    );
+
+    const admission = {
+      schema: SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA,
+      purpose: "live_owner",
+      profileId: state.current.profileId,
+      supervisorInstanceId: "supervisor-1",
+      cutoverReceiptId: state.cutoverReceiptId,
+      cutoverReceiptPath: "/profile/state/synthesis-cutover/receipt.json",
+      runtimeAdmissionStatePath:
+        "/profile/state/synthesis-runtime-admission.json",
+      runtimeAdmissionGeneration: 1,
+      capabilityFingerprint: state.current.capabilityFingerprint,
+      repositoryDbPath: "/profile/state/synthesis.db",
+      canonicalRoot: "/profile/data/synthesis",
+      reverseHost: {
+        host: "127.0.0.1",
+        port: 9134,
+        authorizationToken: "3".repeat(64),
+      },
+      mutationEnabled: false,
+    };
+    assert.deepEqual(
+      rebuildSynthesisProductionRuntimeAdmission(admission),
+      admission,
+    );
+    assert.throws(() =>
+      rebuildSynthesisProductionRuntimeAdmission({
+        ...admission,
+        runtimeAdmissionGeneration: 0,
       }),
     );
   });

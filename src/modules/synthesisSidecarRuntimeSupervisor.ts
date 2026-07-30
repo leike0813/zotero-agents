@@ -3,11 +3,14 @@ import {
   SYNTHESIS_SIDECAR_LEASE_SCHEMA,
   SYNTHESIS_SIDECAR_PROTOCOL,
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+  SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA,
   rebuildSynthesisProductionAdmission,
+  rebuildSynthesisProductionRuntimeAdmission,
   rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
   type SynthesisProductionAdmission,
+  type SynthesisProductionRuntimeAdmission,
   type SynthesisProductionActivationEvidence,
   type SynthesisProductionDiscovery,
   type SynthesisSidecarDiscovery,
@@ -74,6 +77,7 @@ type BaseSupervisorOptions = {
   runtimeRoot?: string;
   profilePath?: string;
   installer?: SynthesisSidecarRuntimeInstaller;
+  resolvedInstall?: SynthesisSidecarRuntimeInstallSnapshot;
   subprocess?: SubprocessModule | null;
   now?: () => number;
   randomHex?: (bytes: number) => string;
@@ -94,7 +98,9 @@ type SupervisorOptions = BaseSupervisorOptions & {
 
 export type SynthesisProductionRuntimeSupervisorOptions =
   BaseSupervisorOptions & {
-    admission: SynthesisProductionAdmission;
+    admission:
+      | SynthesisProductionAdmission
+      | SynthesisProductionRuntimeAdmission;
     controlClient?: ReturnType<
       typeof createSynthesisProductionSidecarControlClient
     >;
@@ -666,7 +672,8 @@ function createSynthesisSidecarSupervisorCore<
         paths,
       } = launchIdentity;
       await ensureRuntimeDirectory(paths.sessionRoot);
-      const install = await installer.ensureInstalled();
+      const install =
+        options.resolvedInstall ?? (await installer.ensureInstalled());
       if (
         install.state !== "ready" ||
         !install.bundleId ||
@@ -1009,7 +1016,10 @@ export function createSynthesisSidecarRuntimeSupervisor(
 export function createSynthesisProductionRuntimeSupervisor(
   options: SynthesisProductionRuntimeSupervisorOptions,
 ) {
-  const admission = rebuildSynthesisProductionAdmission(options.admission);
+  const admission =
+    options.admission.schema === SYNTHESIS_PRODUCTION_RUNTIME_ADMISSION_SCHEMA
+      ? rebuildSynthesisProductionRuntimeAdmission(options.admission)
+      : rebuildSynthesisProductionAdmission(options.admission);
   if (admission.purpose !== "live_owner") {
     throw new Error("production_admission_identity_mismatch");
   }
@@ -1024,7 +1034,11 @@ export function createSynthesisProductionRuntimeSupervisor(
       if (
         discovery.ownerMode !== "production" ||
         discovery.capabilityFingerprint !== admission.capabilityFingerprint ||
-        discovery.cutoverReceiptId !== admission.cutoverReceiptId
+        discovery.cutoverReceiptId !== admission.cutoverReceiptId ||
+        ("runtimeAdmissionGeneration" in admission
+          ? discovery.runtimeAdmissionGeneration !==
+            admission.runtimeAdmissionGeneration
+          : discovery.runtimeAdmissionGeneration !== null)
       ) {
         throw new Error("sidecar_discovery_identity_mismatch");
       }

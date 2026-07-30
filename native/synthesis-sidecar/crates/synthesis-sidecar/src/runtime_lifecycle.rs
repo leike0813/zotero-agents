@@ -25,15 +25,21 @@ const PRODUCTION_SMOKE_CHECK_IDS: &[&str] = &[
 ];
 
 fn smoke_aggregate_digest(evidence: &ProductionActivationEvidence) -> String {
-    let mut parts = vec![evidence.smoke_roster_version.as_str()];
-    parts.extend(evidence.smoke_check_ids.iter().map(String::as_str));
-    parts.extend(evidence.smoke_check_digests.iter().map(String::as_str));
+    let mut parts = vec![json!(evidence.smoke_roster_version)];
+    parts.extend(evidence.smoke_check_ids.iter().map(|value| json!(value)));
+    parts.extend(
+        evidence
+            .smoke_check_digests
+            .iter()
+            .map(|value| json!(value)),
+    );
     parts.extend([
-        evidence.profile_id.as_str(),
-        evidence.receipt_id.as_str(),
-        evidence.service_instance_id.as_str(),
-        evidence.supervisor_instance_id.as_str(),
-        evidence.capability_fingerprint.as_str(),
+        json!(evidence.profile_id),
+        json!(evidence.receipt_id),
+        json!(evidence.runtime_admission_generation),
+        json!(evidence.service_instance_id),
+        json!(evidence.supervisor_instance_id),
+        json!(evidence.capability_fingerprint),
     ]);
     synthesis_protocol::canonical_sha256(&parts)
         .unwrap_or_default()
@@ -395,6 +401,7 @@ pub(crate) struct ProductionOwnership {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ProductionActivationEvidence {
     pub(crate) receipt_id: String,
+    pub(crate) runtime_admission_generation: u64,
     pub(crate) profile_id: String,
     pub(crate) service_instance_id: String,
     pub(crate) supervisor_instance_id: String,
@@ -567,6 +574,8 @@ impl ProductionOwnership {
                 .iter()
                 .all(|value| valid_digest(value));
         if evidence.receipt_id != admission.cutover_receipt_id
+            || evidence.runtime_admission_generation
+                != admission.runtime_admission_generation.unwrap_or(1)
             || evidence.profile_id != admission.profile_id
             || evidence.service_instance_id != self.service_instance_id
             || evidence.supervisor_instance_id != admission.supervisor_instance_id
@@ -591,6 +600,7 @@ impl ProductionOwnership {
                 "supervisorInstanceId":admission.supervisor_instance_id,
                 "serviceInstanceId":self.service_instance_id,
                 "cutoverReceiptId":admission.cutover_receipt_id,
+                "runtimeAdmissionGeneration":evidence.runtime_admission_generation,
                 "capabilityFingerprint":admission.capability_fingerprint,
                 "readyClientCapabilities":ready_client_capabilities,
                 "smokeRosterVersion":evidence.smoke_roster_version,
@@ -609,6 +619,7 @@ impl ProductionOwnership {
                 "supervisorInstanceId":admission.supervisor_instance_id,
                 "serviceInstanceId":self.service_instance_id,
                 "cutoverReceiptId":admission.cutover_receipt_id,
+                "runtimeAdmissionGeneration":evidence.runtime_admission_generation,
                 "capabilityFingerprint":admission.capability_fingerprint,
                 "repositoryDbPath":admission.repository_db_path,
                 "canonicalRoot":admission.canonical_root,
@@ -670,6 +681,8 @@ mod production_owner_tests {
             supervisor_instance_id: "supervisor-1".into(),
             cutover_receipt_id: "receipt-1".into(),
             cutover_receipt_path: root.join("state/synthesis-cutover/receipt.json"),
+            runtime_admission_state_path: None,
+            runtime_admission_generation: None,
             capability_fingerprint: PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT.into(),
             repository_db_path: root.join("state/synthesis.db"),
             canonical_root: root.join("data/synthesis"),
@@ -685,6 +698,7 @@ mod production_owner_tests {
     fn activation_evidence() -> ProductionActivationEvidence {
         let mut evidence = ProductionActivationEvidence {
             receipt_id: "receipt-1".into(),
+            runtime_admission_generation: 1,
             profile_id: "1".repeat(64),
             service_instance_id: "service-1".into(),
             supervisor_instance_id: "supervisor-1".into(),
@@ -766,6 +780,10 @@ mod production_owner_tests {
         for invalid in [
             ProductionActivationEvidence {
                 receipt_id: "receipt-2".into(),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                runtime_admission_generation: 2,
                 ..activation_evidence()
             },
             ProductionActivationEvidence {

@@ -110,6 +110,13 @@ service/protocol version, build fingerprint, platform signature, immutable
 install root and absolute `executablePath`. It contains no Node path or
 JavaScript entrypoint.
 
+Runtime admission resolves an installed version by exact build fingerprint and
+passes that verified snapshot directly to the supervisor. Current and pending
+generations therefore remain launchable even if the mutable active pointer
+advances during an attempt. Pre-activation recovery selects the exact previous
+admitted snapshot; it does not reinterpret `previous.json` as production
+authority or copy executables into a data backup.
+
 ## XPI and Synchronization Gates
 
 The source packaging command assembles one target at a time from a caller-built

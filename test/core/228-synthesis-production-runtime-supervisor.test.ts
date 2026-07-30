@@ -104,6 +104,7 @@ describe("Synthesis production runtime supervisor", function () {
       command: string;
       arguments?: string[];
     }> = [];
+    let installerResolutions = 0;
     let writtenAdmission: unknown;
     let resolveExit: () => void = () => undefined;
     const closed = new Promise<void>((resolve) => {
@@ -186,8 +187,12 @@ describe("Synthesis production runtime supervisor", function () {
       admission: productionAdmission,
       runtimeRoot: path.join(root, "runtime"),
       profilePath: PROFILE_PATH,
+      resolvedInstall: readyInstall(),
       installer: {
-        ensureInstalled: async () => readyInstall(),
+        ensureInstalled: async () => {
+          installerResolutions += 1;
+          return readyInstall();
+        },
         getSnapshot: () => readyInstall(),
         subscribe: () => () => undefined,
         retry: async () => readyInstall(),
@@ -208,6 +213,7 @@ describe("Synthesis production runtime supervisor", function () {
       invocations[0]?.arguments?.[4],
     ]);
     assert.deepEqual(writtenAdmission, productionAdmission);
+    assert.equal(installerResolutions, 0);
     assert.equal(
       supervisor.getReadyConnection()?.discovery.cutoverReceiptId,
       productionAdmission.cutoverReceiptId,

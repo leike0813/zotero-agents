@@ -7,6 +7,7 @@ import {
 export type SynthesisSidecarStartupPhase =
   | "startup"
   | "runtime-install"
+  | "runtime-admission"
   | "source-inspection"
   | "empty-profile-bootstrap"
   | "backup"
@@ -29,6 +30,10 @@ export type SynthesisSidecarDiagnosticEvidence = {
   sourceOwner?: "legacy-plugin" | "empty-profile";
   bundleId?: string;
   buildFingerprint?: string;
+  currentBuildFingerprint?: string;
+  targetBuildFingerprint?: string;
+  generation?: number;
+  status?: string;
   targetTriple?: string;
   runtimeRoot?: string;
   repositoryDbPath?: string;
@@ -61,6 +66,33 @@ let attemptSequence = 0;
 let snapshot: SynthesisSidecarDiagnosticSnapshot | undefined;
 const subscribers = new Set<Subscriber>();
 const PROCESS_TAIL_LIMIT = 8_192;
+
+export function synthesisSidecarDiagnosticCode(
+  error: unknown,
+  fallback = "synthesis_sidecar_startup_failed",
+) {
+  const value =
+    error && typeof error === "object"
+      ? (error as {
+          code?: unknown;
+          message?: unknown;
+          details?: { reason?: unknown };
+        })
+      : undefined;
+  for (const candidate of [
+    value?.details?.reason,
+    value?.code,
+    value?.message,
+  ]) {
+    if (
+      typeof candidate === "string" &&
+      /^[a-z][a-z0-9_.:-]{0,127}$/.test(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return fallback;
+}
 
 function sanitizeProcessTail(value: string | undefined) {
   if (typeof value !== "string") {

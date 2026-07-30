@@ -5,6 +5,7 @@ import {
   getSynthesisSidecarDiagnosticSnapshot,
   recordSynthesisSidecarStartupPhase,
   resetSynthesisSidecarDiagnosticsForTests,
+  synthesisSidecarDiagnosticCode,
 } from "../../src/modules/synthesisSidecarDiagnostics";
 import {
   buildRuntimeIssueDiagnosticBundle,
@@ -74,6 +75,44 @@ describe("Synthesis sidecar debug observability", function () {
       }).debugContext?.synthesisSidecar,
       snapshot,
     );
+  });
+
+  it("prefers structured runtime-admission reasons over prose", function () {
+    const error = {
+      code: "conflict",
+      message: "The admitted native owner does not match this runtime",
+      details: { reason: "runtime_mismatch" },
+    };
+    assert.equal(synthesisSidecarDiagnosticCode(error), "runtime_mismatch");
+    assert.equal(
+      synthesisSidecarDiagnosticCode(
+        new Error("The admitted native owner does not match this runtime"),
+      ),
+      "synthesis_sidecar_startup_failed",
+    );
+
+    const attemptId = beginSynthesisSidecarStartupAttempt();
+    recordSynthesisSidecarStartupPhase({
+      attemptId,
+      phase: "runtime-admission",
+      status: "running",
+      evidence: {
+        currentBuildFingerprint: "a".repeat(64),
+        targetBuildFingerprint: "b".repeat(64),
+      },
+    });
+    recordSynthesisSidecarStartupPhase({
+      attemptId,
+      phase: "runtime-admission",
+      status: "failed",
+      code: synthesisSidecarDiagnosticCode(error),
+      error,
+    });
+    const snapshot = getSynthesisSidecarDiagnosticSnapshot();
+    assert.equal(snapshot?.phase, "runtime-admission");
+    assert.equal(snapshot?.code, "runtime_mismatch");
+    assert.equal(snapshot?.evidence.currentBuildFingerprint, "a".repeat(64));
+    assert.equal(snapshot?.evidence.targetBuildFingerprint, "b".repeat(64));
   });
 
   it("does not retain diagnostic state outside debug mode", function () {

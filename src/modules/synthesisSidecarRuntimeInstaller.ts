@@ -18,6 +18,7 @@ import {
   ensureRuntimeDirectory,
   getRuntimeFilePermissions,
   getSynthesisSidecarRuntimePaths,
+  listRuntimeChildDirectories,
   moveRuntimePath,
   readRuntimeBytes,
   readRuntimeTextFile,
@@ -64,6 +65,9 @@ export type SynthesisSidecarRuntimeInstallPaths = SynthesisSidecarRuntimePaths;
 export type SynthesisSidecarRuntimeInstaller = {
   inspect: () => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
   ensureInstalled: () => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
+  resolveInstalled: (
+    buildFingerprint: string,
+  ) => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
   rollback: () => Promise<SynthesisSidecarRuntimeInstallSnapshot>;
 };
 
@@ -422,6 +426,46 @@ export function createSynthesisSidecarRuntimeInstaller(
     return ensurePromise;
   }
 
+  async function resolveInstalled(buildFingerprint: string) {
+    if (target === "unsupported") {
+      return diagnosticSnapshot("unsupported", target, "unsupported_target");
+    }
+    if (!/^[a-f0-9]{64}$/.test(buildFingerprint)) {
+      return diagnosticSnapshot(
+        "corrupt",
+        target,
+        "installed_build_fingerprint_invalid",
+      );
+    }
+    const matches: SynthesisSidecarRuntimeInstallSnapshot[] = [];
+    for (const installRoot of await listRuntimeChildDirectories(
+      paths.versionsDir,
+    )) {
+      const snapshot = await verifyInstalledRuntime({
+        target,
+        installRoot,
+        verificationPolicy,
+        nowMs: options.now?.(),
+        allowExpired: true,
+      });
+      if (
+        snapshot.state === "ready" &&
+        snapshot.buildFingerprint === buildFingerprint
+      ) {
+        matches.push(snapshot);
+      }
+    }
+    return matches.length === 1
+      ? matches[0]!
+      : diagnosticSnapshot(
+          matches.length ? "corrupt" : "missing",
+          target,
+          matches.length
+            ? "installed_build_fingerprint_ambiguous"
+            : "installed_build_fingerprint_missing",
+        );
+  }
+
   async function rollback() {
     if (target === "unsupported") {
       return diagnosticSnapshot("unsupported", target, "unsupported_target");
@@ -469,6 +513,7 @@ export function createSynthesisSidecarRuntimeInstaller(
   return {
     inspect,
     ensureInstalled,
+    resolveInstalled,
     rollback,
   };
 }

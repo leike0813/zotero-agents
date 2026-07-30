@@ -81,29 +81,45 @@ Health and handshake use path-free O(1) snapshots.
 R9a production startup runs the cutover in the background.
 `preflight-production` opens only an explicit production copy, while
 `serve-production` requires an explicit live-root admission, a matching
-durable `preflight_verified` cutover receipt, and an exclusive owner file
-beside `state/synthesis.db`. Both reject shadow paths and start with mutation
-disabled. The production supervisor writes the private admission, accepts only
-v3 discovery plus matching health/handshake authority, and keeps its connection
-separate from the shadow supervisor.
+durable cutover receipt, and an exclusive owner file beside
+`state/synthesis.db`. First cutover uses admission v1. A compatible later Rust
+build uses generation-bound admission that also validates
+`state/synthesis-runtime-admission.json`; pending-generation preflight and
+live-owner startup remain mutation disabled. Both reject shadow paths. The
+production supervisor writes the private admission, pins one already verified
+content-addressed executable, accepts only v3 discovery plus matching
+health/handshake generation and authority, and keeps its connection separate
+from the shadow supervisor.
 
-The production activation command requires the current receipt, profile,
-service and supervisor instance, capability fingerprint, exact 95-operation
+The production activation command requires the current receipt, runtime
+admission generation, profile, service and supervisor instance, capability
+fingerprint, exact 95-operation
 ready roster, the versioned nine-check critical-smoke roster with per-check and
 aggregate digests, and an evidence timestamp within one minute. Rust persists
 that evidence in the activation record, fsyncs the production owner marker,
 refreshes discovery, health, and handshake state, then opens its in-memory
-mutation gate. The plugin confirms the refreshed health and handshake before
-it persists the final `mutation_enabled` receipt. A durable native activation
-without that final receipt enters Rust-only repair on restart; it never returns
-to a legacy owner.
+mutation gate. The plugin confirms the refreshed health and handshake before it
+atomically promotes a pending generation. The first cutover alone advances the
+receipt to `mutation_enabled`. A durable native activation whose plugin
+promotion was interrupted is resumed from matching generation-bound Rust
+evidence; ambiguous evidence enters Rust-only repair and never returns to a
+legacy owner.
 
-For a matching admitted receipt, restart skips backup and preflight but does
-not reuse stale process evidence. The new owner reruns the public critical
-smoke roster, replaces native activation evidence, and refreshes only the
-receipt's service instance and monotonic update time. Receipt, owner, and
-activation therefore identify the same live service. A changed durable basis
-or fingerprint still enters Rust-only repair.
+For a matching current runtime admission, restart skips backup and preflight
+but does not reuse stale process evidence. The new owner reruns the public
+critical-smoke roster, replaces native activation evidence, and refreshes the
+current admission service identity. The first cutover receipt stays unchanged.
+
+When only the installed bundle/build changes, startup verifies both old and new
+content-addressed bundles and requires equal profile, target, protocol, data
+schema, and capability fingerprint. It stops the old Rust owner, creates and
+verifies a database/WAL/SHM plus canonical-tree backup, preflights the new
+bundle on that copy, and launches the pending generation mutation-disabled.
+Failure before durable activation restores the backup and exact previous Rust
+generation. Durable activation is the rollback boundary: promotion may resume
+after a crash, while reconcile/readiness failure after promotion remains on the
+new generation in Rust-only repair. Capability, protocol, schema, target, or
+profile changes fail closed before pending state is written.
 
 Default-client, Workflow, Workbench, Host Bridge, and MCP acquire the same
 generation-scoped native composition only after this verified readiness. Before

@@ -197,6 +197,13 @@ pub(crate) fn handle_connection(
                 synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
             );
             health["cutoverReceiptId"] = json!(state.cutover_receipt_id);
+            if let Some(generation) = state
+                .production_admission
+                .as_ref()
+                .and_then(|admission| admission.runtime_admission_generation)
+            {
+                health["runtimeAdmissionGeneration"] = json!(generation);
+            }
             health["readyClientCapabilities"] = json!(
                 synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
             );
@@ -427,6 +434,13 @@ pub(crate) fn handle_connection(
                     synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
                 );
                 handshake["cutoverReceiptId"] = json!(state.cutover_receipt_id);
+                if let Some(generation) = state
+                    .production_admission
+                    .as_ref()
+                    .and_then(|admission| admission.runtime_admission_generation)
+                {
+                    handshake["runtimeAdmissionGeneration"] = json!(generation);
+                }
                 handshake["readyClientCapabilities"] = json!(
                     synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
                 );
@@ -546,6 +560,7 @@ pub(crate) fn handle_connection(
                         "mutationEnabled":true,
                         "serviceInstanceId":state.service_instance_id,
                         "cutoverReceiptId":state.cutover_receipt_id,
+                        "runtimeAdmissionGeneration":evidence.runtime_admission_generation,
                     }),
                 ),
             )

@@ -4,6 +4,9 @@ import {
   rebuildSynthesisCutoverReceipt,
   type SynthesisCutoverReceipt,
   type SynthesisProductionActivationEvidence,
+  type SynthesisProductionRuntimeAdmissionIdentity,
+  type SynthesisProductionRuntimeAdmissionState,
+  type SynthesisRuntimeAdmissionUpgradeStage,
 } from "../../packages/synthesis-contracts/src";
 
 export type SynthesisCutoverBackupBasis = {
@@ -14,6 +17,316 @@ export type SynthesisCutoverBackupBasis = {
   canonicalManifestSha256: string;
   durableSummarySha256: string;
 };
+
+type SynthesisResolvedProductionRuntime = {
+  bundleId: string;
+  buildFingerprint: string;
+};
+
+export type SynthesisProductionRuntimeUpgradeDeps = {
+  now: () => number;
+  readAdmission: () => Promise<SynthesisProductionRuntimeAdmissionState>;
+  resolveRuntime: (
+    buildFingerprint: string,
+  ) => Promise<SynthesisResolvedProductionRuntime>;
+  stopCurrentOwner: () => Promise<void>;
+  createVerifiedBackup: () => Promise<SynthesisCutoverBackupBasis>;
+  beginUpgrade: (args: {
+    target: SynthesisProductionRuntimeAdmissionIdentity;
+    backup: SynthesisCutoverBackupBasis;
+    now: number;
+  }) => Promise<SynthesisProductionRuntimeAdmissionState>;
+  advanceUpgrade: (args: {
+    stage: Exclude<SynthesisRuntimeAdmissionUpgradeStage, "backup_verified">;
+    serviceInstanceId?: string;
+    activationEvidenceSha256?: string;
+    now: number;
+  }) => Promise<SynthesisProductionRuntimeAdmissionState>;
+  preflightTarget: (
+    runtime: SynthesisResolvedProductionRuntime,
+    basis: SynthesisCutoverBackupBasis,
+    generation: number,
+  ) => Promise<void>;
+  startTarget: (
+    runtime: SynthesisResolvedProductionRuntime,
+    generation: number,
+  ) => Promise<{ serviceInstanceId: string }>;
+  runCriticalSmoke: (
+    serviceInstanceId: string,
+    generation: number,
+  ) => Promise<SynthesisProductionActivationEvidence>;
+  activateTarget: (
+    evidence: SynthesisProductionActivationEvidence,
+  ) => Promise<string>;
+  readPersistedActivationEvidence: (
+    pending: NonNullable<
+      SynthesisProductionRuntimeAdmissionState["pendingUpgrade"]
+    >,
+  ) => Promise<string | null>;
+  promote: (args: {
+    now: number;
+  }) => Promise<SynthesisProductionRuntimeAdmissionState>;
+  reconcile: () => Promise<void>;
+  stopTarget: () => Promise<void>;
+  restoreBackup: (basis: SynthesisCutoverBackupBasis) => Promise<void>;
+  clearPending: (args: { now: number }) => Promise<unknown>;
+  restartPrevious: (
+    runtime: SynthesisResolvedProductionRuntime,
+    generation: number,
+  ) => Promise<void>;
+  enterRustOnlyRepair: () => Promise<void>;
+};
+
+function runtimeIdentityCompatible(
+  current: SynthesisProductionRuntimeAdmissionState["current"],
+  target: SynthesisProductionRuntimeAdmissionIdentity,
+) {
+  return (
+    current.profileId === target.profileId &&
+    current.target === target.target &&
+    current.targetTriple === target.targetTriple &&
+    current.protocolVersion === target.protocolVersion &&
+    current.schemaVersion === target.schemaVersion &&
+    current.capabilityFingerprint === target.capabilityFingerprint &&
+    current.buildFingerprint !== target.buildFingerprint
+  );
+}
+
+function requireResolvedRuntime(
+  runtime: SynthesisResolvedProductionRuntime,
+  identity: Pick<
+    SynthesisProductionRuntimeAdmissionIdentity,
+    "bundleId" | "buildFingerprint"
+  >,
+) {
+  if (
+    runtime.bundleId !== identity.bundleId ||
+    runtime.buildFingerprint !== identity.buildFingerprint
+  ) {
+    throw new SynthesisClientError(
+      "conflict",
+      "The verified Synthesis runtime does not match runtime admission",
+      { reason: "runtime_mismatch" },
+    );
+  }
+  return runtime;
+}
+
+export function createSynthesisProductionRuntimeUpgradeCoordinator(options: {
+  receipt: SynthesisCutoverReceipt;
+  target: SynthesisProductionRuntimeAdmissionIdentity;
+  deps: SynthesisProductionRuntimeUpgradeDeps;
+}) {
+  let running: Promise<{
+    status: "matching" | "upgraded" | "recovered";
+    admission: SynthesisProductionRuntimeAdmissionState;
+  }> | null = null;
+
+  async function recoverBeforeActivation(
+    state: SynthesisProductionRuntimeAdmissionState,
+    previousRuntime: SynthesisResolvedProductionRuntime,
+  ) {
+    const pending = state.pendingUpgrade;
+    if (!pending) {
+      await options.deps.restartPrevious(
+        previousRuntime,
+        state.current.generation,
+      );
+      return state;
+    }
+    await options.deps.stopTarget();
+    await options.deps.restoreBackup(pending.backup);
+    await options.deps.clearPending({ now: options.deps.now() });
+    await options.deps.restartPrevious(
+      previousRuntime,
+      state.current.generation,
+    );
+    return options.deps.readAdmission();
+  }
+
+  async function resumePending(
+    state: SynthesisProductionRuntimeAdmissionState,
+    previousRuntime: SynthesisResolvedProductionRuntime,
+  ) {
+    const pending = state.pendingUpgrade!;
+    if (pending.stage !== "activation_persisted") {
+      const persisted =
+        await options.deps.readPersistedActivationEvidence(pending);
+      if (pending.stage === "smoke_passed" && persisted) {
+        state = await options.deps.advanceUpgrade({
+          stage: "activation_persisted",
+          activationEvidenceSha256: persisted,
+          now: options.deps.now(),
+        });
+      } else {
+        return {
+          status: "recovered" as const,
+          admission: await recoverBeforeActivation(state, previousRuntime),
+        };
+      }
+    }
+    const promoted = await options.deps.promote({ now: options.deps.now() });
+    await options.deps.reconcile();
+    return { status: "upgraded" as const, admission: promoted };
+  }
+
+  async function resumePendingOrRepair(
+    state: SynthesisProductionRuntimeAdmissionState,
+    previousRuntime: SynthesisResolvedProductionRuntime,
+  ) {
+    try {
+      return await resumePending(state, previousRuntime);
+    } catch (error) {
+      await options.deps.enterRustOnlyRepair();
+      throw error;
+    }
+  }
+
+  async function execute() {
+    let state = await options.deps.readAdmission();
+    if (
+      state.cutoverReceiptId !== options.receipt.receiptId ||
+      state.current.profileId !== options.receipt.profileId ||
+      state.current.capabilityFingerprint !==
+        options.receipt.capabilityFingerprint
+    ) {
+      throw new SynthesisClientError(
+        "conflict",
+        "The Synthesis runtime admission does not match first cutover",
+        { reason: "runtime_mismatch" },
+      );
+    }
+    const previousRuntime = requireResolvedRuntime(
+      await options.deps.resolveRuntime(state.current.buildFingerprint),
+      state.current,
+    );
+    if (state.pendingUpgrade) {
+      requireResolvedRuntime(
+        await options.deps.resolveRuntime(
+          state.pendingUpgrade.target.buildFingerprint,
+        ),
+        state.pendingUpgrade.target,
+      );
+      return resumePendingOrRepair(state, previousRuntime);
+    }
+    if (
+      state.current.buildFingerprint === options.target.buildFingerprint &&
+      state.current.bundleId === options.target.bundleId
+    ) {
+      return { status: "matching" as const, admission: state };
+    }
+    if (!runtimeIdentityCompatible(state.current, options.target)) {
+      throw new SynthesisClientError(
+        "conflict",
+        "The installed native Synthesis runtime is not upgrade-compatible",
+        {
+          reason: "runtime_mismatch",
+          currentBuildFingerprint: state.current.buildFingerprint,
+          targetBuildFingerprint: options.target.buildFingerprint,
+        },
+      );
+    }
+    const targetRuntime = requireResolvedRuntime(
+      await options.deps.resolveRuntime(options.target.buildFingerprint),
+      options.target,
+    );
+
+    let currentStopped = false;
+    let activationAttempted = false;
+    try {
+      await options.deps.stopCurrentOwner();
+      currentStopped = true;
+      const backup = await options.deps.createVerifiedBackup();
+      state = await options.deps.beginUpgrade({
+        target: options.target,
+        backup,
+        now: options.deps.now(),
+      });
+      const generation = state.pendingUpgrade!.generation;
+      await options.deps.preflightTarget(targetRuntime, backup, generation);
+      state = await options.deps.advanceUpgrade({
+        stage: "preflight_passed",
+        now: options.deps.now(),
+      });
+      const owner = await options.deps.startTarget(targetRuntime, generation);
+      state = await options.deps.advanceUpgrade({
+        stage: "candidate_started",
+        serviceInstanceId: owner.serviceInstanceId,
+        now: options.deps.now(),
+      });
+      const evidence = await options.deps.runCriticalSmoke(
+        owner.serviceInstanceId,
+        generation,
+      );
+      if (evidence.runtimeAdmissionGeneration !== generation) {
+        throw new SynthesisClientError(
+          "conflict",
+          "The Synthesis smoke evidence generation is stale",
+          { reason: "runtime_mismatch" },
+        );
+      }
+      state = await options.deps.advanceUpgrade({
+        stage: "smoke_passed",
+        now: options.deps.now(),
+      });
+      activationAttempted = true;
+      const activationEvidenceSha256 =
+        await options.deps.activateTarget(evidence);
+      state = await options.deps.advanceUpgrade({
+        stage: "activation_persisted",
+        activationEvidenceSha256,
+        now: options.deps.now(),
+      });
+      const promoted = await options.deps.promote({
+        now: options.deps.now(),
+      });
+      await options.deps.reconcile();
+      return { status: "upgraded" as const, admission: promoted };
+    } catch (error) {
+      const latest = await options.deps.readAdmission();
+      const targetIsCurrent =
+        latest.current.buildFingerprint === options.target.buildFingerprint;
+      if (targetIsCurrent) {
+        await options.deps.enterRustOnlyRepair();
+      } else if (latest.pendingUpgrade?.stage === "activation_persisted") {
+        return await resumePendingOrRepair(latest, previousRuntime);
+      } else if (
+        activationAttempted &&
+        latest.pendingUpgrade?.stage === "smoke_passed"
+      ) {
+        const persisted = await options.deps.readPersistedActivationEvidence(
+          latest.pendingUpgrade,
+        );
+        if (persisted) {
+          try {
+            state = await options.deps.advanceUpgrade({
+              stage: "activation_persisted",
+              activationEvidenceSha256: persisted,
+              now: options.deps.now(),
+            });
+          } catch (resumeError) {
+            await options.deps.enterRustOnlyRepair();
+            throw resumeError;
+          }
+          return await resumePendingOrRepair(state, previousRuntime);
+        }
+        await options.deps.enterRustOnlyRepair();
+      } else if (currentStopped) {
+        await recoverBeforeActivation(latest, previousRuntime);
+      }
+      throw error;
+    }
+  }
+
+  return {
+    run() {
+      running ||= execute().finally(() => {
+        running = null;
+      });
+      return running;
+    },
+  };
+}
 
 export type SynthesisCutoverCoordinatorDeps<
   BackupBasis extends SynthesisCutoverBackupBasis = SynthesisCutoverBackupBasis,
@@ -56,6 +369,14 @@ type CoordinatorOptions<
   profileId: string;
   bundleFingerprint: string;
   capabilityFingerprint: string;
+  admittedRuntime?: {
+    generation: number;
+    buildFingerprint: string;
+    refresh: (
+      serviceInstanceId: string,
+      evidence: SynthesisProductionActivationEvidence,
+    ) => Promise<void>;
+  };
   deps: SynthesisCutoverCoordinatorDeps<BackupBasis>;
 };
 
@@ -115,7 +436,11 @@ export function createSynthesisProductionCutoverCoordinator<
     const existing = await options.deps.readReceipt();
     if (
       existing &&
-      sameIdentity(existing, options) &&
+      existing.profileId === options.profileId &&
+      existing.capabilityFingerprint === options.capabilityFingerprint &&
+      (options.admittedRuntime
+        ? options.admittedRuntime.buildFingerprint === options.bundleFingerprint
+        : sameIdentity(existing, options)) &&
       existing.phase === "mutation_enabled" &&
       existing.mutationEnabled
     ) {
@@ -138,6 +463,16 @@ export function createSynthesisProductionCutoverCoordinator<
           existing,
           smokeEvidence,
         );
+        if (options.admittedRuntime) {
+          await options.admittedRuntime.refresh(
+            owner.serviceInstanceId,
+            smokeEvidence,
+          );
+          return {
+            status: "mutation_enabled" as const,
+            receipt: existing,
+          };
+        }
         const refreshed = receipt(options, basis, {
           receiptId: existing.receiptId,
           phase: "mutation_enabled",

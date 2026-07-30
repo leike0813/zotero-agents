@@ -21,6 +21,17 @@ the verified backup; an admitted native owner remains in Rust-only repair and
 never falls back to Node or the plugin owner. Cross-platform and clean-machine
 acceptance are tracked separately as R9b and do not weaken these local rules.
 
+The first cutover receipt records that irreversible owner transition and is not
+the mutable runtime version pointer. Current Rust identity lives in the
+generation-scoped runtime-admission state. A build-only replacement is
+automatic when profile, target, protocol, production schema and capability
+fingerprint remain equal. Startup pins both verified bundles, backs up the
+database family and canonical tree, preflights the candidate on the copy, and
+requires generation-bound smoke and durable activation before promotion.
+Failure before activation restores the old bytes and old Rust generation;
+failure after activation cannot roll back and proceeds through promotion
+recovery or Rust-only repair.
+
 A profile whose production database and canonical root are both absent follows
 the same handoff. The verified Rust executable first creates an empty
 production basis through its private `prepare-empty-production` command, after
@@ -68,7 +79,9 @@ Plugin startup non-blockingly installs, preflights, launches, discovers, and
 supervises the native production owner. Cutover drain invalidates and awaits
 only the current default-client generation; it does not enter terminal add-on
 shutdown, so the admitted owner can back the next client acquisition. Startup
-reconciliation runs once after mutation admission. Restart, transport,
+reconciliation runs after first mutation admission or after a pending runtime
+generation has been promoted. It is outside the rollback-capable activation
+section. Restart, transport,
 deadline, worker, or identity failures do not retry through Node or the plugin
 owner. Runtime supervision is event-driven with one low-frequency deadline
 scheduler.
