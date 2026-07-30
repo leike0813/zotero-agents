@@ -175,7 +175,7 @@ type AssistantWorkspaceShell = {
   loaded: boolean;
   ready: boolean;
 };
-type AssistantWorkspaceHostRuntime = {
+export type AssistantWorkspaceHostRuntime = {
   win: _ZoteroTypes.MainWindow;
   activeTarget: AcpSidebarTarget | null;
   activeTab: AssistantWorkspaceTab;
@@ -2192,7 +2192,7 @@ async function handleAssistantWorkspaceMessage(
       return { ok: true, actionId };
     }
     if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION) {
-      await handleChildAction(
+      await dispatchAssistantWorkspaceChildAction(
         host,
         target,
         (data.payload || {}) as AssistantWorkspaceChildActionEnvelope,
@@ -2440,7 +2440,7 @@ function parseAssistantWorkspaceActionOwner(
   return null;
 }
 
-async function handleChildAction(
+export async function dispatchAssistantWorkspaceChildAction(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
   payload: AssistantWorkspaceChildActionEnvelope,
@@ -2895,7 +2895,8 @@ function recordWorkspacePublicationRenderObservation(
 // Actions the ACP routers accept: the registry-routed actions for the source
 // plus a defensive "ready" branch and dead routes without a known sender that
 // predate the registry (see the TODO(contract) markers in the router bodies).
-// The payload stays a merged record: handleChildAction merges the action
+// The payload stays a merged record: dispatchAssistantWorkspaceChildAction
+// merges the action
 // payload with the owner identity fields (backendId/conversationId or
 // requestId) before dispatch, and the routers keep their defensive runtime
 // reads; the per-action payload shapes are contract-typed at the envelope

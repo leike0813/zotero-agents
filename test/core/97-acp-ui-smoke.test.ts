@@ -12,6 +12,12 @@ import {
   captureSkillRunnerWorkspaceEnvelope,
   startSkillRunnerWorkspaceSnapshotHarness,
 } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
+import {
+  FakeDocument,
+  FakeElement,
+  installAssistantWorkspaceRendererGlobals,
+  restoreAssistantWorkspaceRendererGlobals,
+} from "../helpers/assistantWorkspaceAcpChildHarness";
 
 const root = path.resolve(import.meta.dirname, "../..");
 
@@ -27,189 +33,24 @@ async function loadWorkspaceChild() {
   return AssistantWorkspaceAcpChild;
 }
 
-class FakeElement {
-  parentNode: FakeElement | null = null;
-  children: FakeElement[] = [];
-  attributes = new Map<string, string>();
-  className = "";
-  textContent = "";
-  disabled = false;
-  type = "";
-  onclick: ((event: any) => void) | null = null;
-  listeners = new Map<string, Array<(event: any) => void>>();
-  failNextInsertBefore = false;
-  scrollTop = 0;
-  scrollHeight = 0;
-  clientHeight = 0;
-  offsetHeight = 0;
-  innerHTML = "";
-  style = { height: "", setProperty() {} };
-  classList = {
-    add: (...names: string[]) => {
-      const values = new Set(this.className.split(/\s+/).filter(Boolean));
-      names.forEach((name) => values.add(name));
-      this.className = [...values].join(" ");
-    },
-    remove: (...names: string[]) => {
-      const values = new Set(this.className.split(/\s+/).filter(Boolean));
-      names.forEach((name) => values.delete(name));
-      this.className = [...values].join(" ");
-    },
-    toggle: (name: string, force?: boolean) => {
-      const values = new Set(this.className.split(/\s+/).filter(Boolean));
-      const enabled = typeof force === "boolean" ? force : !values.has(name);
-      if (enabled) values.add(name);
-      else values.delete(name);
-      this.className = [...values].join(" ");
-    },
-    contains: (name: string) => this.className.split(/\s+/).includes(name),
-  };
-
-  constructor(
-    public readonly tagName: string,
-    public readonly ownerDocument: FakeDocument,
-  ) {}
-
-  get firstChild() {
-    return this.children[0] || null;
-  }
-
-  get firstElementChild() {
-    return this.firstChild;
-  }
-
-  appendChild(child: FakeElement) {
-    this.detach(child);
-    child.parentNode = this;
-    this.children.push(child);
-    return child;
-  }
-
-  insertBefore(child: FakeElement, before: FakeElement | null) {
-    if (this.failNextInsertBefore) {
-      this.failNextInsertBefore = false;
-      throw new Error("synthetic-dom-failure");
-    }
-    if (child === before) return child;
-    this.detach(child);
-    child.parentNode = this;
-    const index = before ? this.children.indexOf(before) : -1;
-    if (index < 0) this.children.push(child);
-    else this.children.splice(index, 0, child);
-    return child;
-  }
-
-  replaceChild(next: FakeElement, previous: FakeElement) {
-    const index = this.children.indexOf(previous);
-    if (index < 0) return previous;
-    this.detach(next);
-    next.parentNode = this;
-    previous.parentNode = null;
-    this.children[index] = next;
-    return previous;
-  }
-
-  removeChild(child: FakeElement) {
-    const index = this.children.indexOf(child);
-    if (index >= 0) this.children.splice(index, 1);
-    child.parentNode = null;
-    return child;
-  }
-
-  private detach(child: FakeElement) {
-    if (child.parentNode) child.parentNode.removeChild(child);
-  }
-
-  setAttribute(name: string, value: string) {
-    this.attributes.set(name, String(value));
-  }
-
-  getAttribute(name: string) {
-    return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
-  }
-
-  removeAttribute(name: string) {
-    this.attributes.delete(name);
-  }
-
-  getBoundingClientRect() {
-    return {
-      height:
-        this.offsetHeight ||
-        (this.classList.contains("assistant-transcript-row")
-          ? this.ownerDocument.transcriptRowHeight
-          : 0),
-    };
-  }
-
-  addEventListener(type: string, listener: (event: any) => void) {
-    const listeners = this.listeners.get(type) || [];
-    listeners.push(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  contains(node: FakeElement): boolean {
-    return node === this || this.children.some((child) => child.contains(node));
-  }
-
-  querySelector(selector: string) {
-    return this.querySelectorAll(selector)[0] || null;
-  }
-
-  querySelectorAll(selector: string) {
-    const directClass = /^:scope > \.([A-Za-z0-9_-]+)$/.exec(selector);
-    if (directClass) {
-      return this.children.filter((child) =>
-        child.classList.contains(directClass[1]),
-      );
-    }
-    const className = /^\.([A-Za-z0-9_-]+)$/.exec(selector);
-    if (className) {
-      return this.descendants().filter((child) =>
-        child.classList.contains(className[1]),
-      );
-    }
-    const attribute = /^\[([A-Za-z0-9_-]+)\]$/.exec(selector);
-    if (attribute) {
-      return this.descendants().filter(
-        (child) => child.getAttribute(attribute[1]) !== null,
-      );
-    }
-    return [];
-  }
-
-  private descendants(): FakeElement[] {
-    return this.children.flatMap((child) => [child, ...child.descendants()]);
-  }
-}
-
-class FakeDocument {
-  activeElement: FakeElement | null = null;
-  transcriptRowHeight = 0;
-
-  createElement(tagName: string) {
-    return new FakeElement(tagName.toUpperCase(), this);
-  }
-
-  createElementNS(_namespace: string, tagName: string) {
-    return this.createElement(tagName);
-  }
-}
-
 async function loadPanelRenderer(document: FakeDocument) {
-  const context = await loadAssistantRendererContext(document);
-  return (context.window as any).AssistantPanelRenderer;
+  installAssistantWorkspaceRendererGlobals(document);
+  return AssistantPanelRenderer;
 }
 
 async function loadTranscriptRenderer(
   document: FakeDocument,
   requestAnimationFrame?: (callback: () => void) => number,
 ) {
-  const context = await loadAssistantRendererContext(
-    document,
-    requestAnimationFrame,
-  );
-  return (context.window as any).AssistantTranscriptRenderer;
+  installAssistantWorkspaceRendererGlobals(document, {
+    requestAnimationFrame:
+      requestAnimationFrame ||
+      ((callback: () => void) => {
+        callback();
+        return 0;
+      }),
+  });
+  return AssistantTranscriptRenderer;
 }
 
 function createPanelManagedRegions(document: FakeDocument) {
@@ -267,64 +108,6 @@ function assertRegionSubtreesPreserved(
       );
     });
   }
-}
-
-// Mocha runs every suite in a single process. The sidebar renderer modules
-// read the bare `document` global at render time (and `window` for raf when
-// present), so each renderer loader installs the fake document plus a raf
-// shim before returning the module namespaces. Tests that need to control
-// frame timing inject their own requestAnimationFrame; the default shim runs
-// callbacks synchronously. The suite-level after hook restores the previous
-// global state so nothing leaks into other suites.
-let rendererGlobalDescriptors:
-  | Partial<Record<"document" | "window", PropertyDescriptor | undefined>>
-  | undefined;
-
-function installRendererGlobals(
-  document: FakeDocument,
-  requestAnimationFrame: (callback: () => void) => number = (callback) => {
-    callback();
-    return 0;
-  },
-) {
-  const runtime = globalThis as Record<string, unknown>;
-  if (!rendererGlobalDescriptors) {
-    rendererGlobalDescriptors = {
-      document: Object.getOwnPropertyDescriptor(runtime, "document"),
-      window: Object.getOwnPropertyDescriptor(runtime, "window"),
-    };
-  }
-  runtime.document = document;
-  runtime.window = {
-    requestAnimationFrame,
-  };
-}
-
-function restoreRendererGlobals() {
-  if (!rendererGlobalDescriptors) return;
-  const runtime = globalThis as Record<string, unknown>;
-  for (const key of ["document", "window"] as const) {
-    const descriptor = rendererGlobalDescriptors[key];
-    if (descriptor) {
-      Object.defineProperty(runtime, key, descriptor);
-    } else {
-      delete runtime[key];
-    }
-  }
-  rendererGlobalDescriptors = undefined;
-}
-
-async function loadAssistantRendererContext(
-  document: FakeDocument,
-  requestAnimationFrame?: (callback: () => void) => number,
-) {
-  installRendererGlobals(document, requestAnimationFrame);
-  return {
-    window: {
-      AssistantPanelRenderer,
-      AssistantTranscriptRenderer,
-    },
-  };
 }
 
 function createAnimationFrameHarness() {
@@ -553,7 +336,7 @@ function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
 
 describe("Assistant Workspace ACP UI v1", function () {
   after(function () {
-    restoreRendererGlobals();
+    restoreAssistantWorkspaceRendererGlobals();
   });
 
   it("loads both ACP documents through one shared child and identical roles", async function () {

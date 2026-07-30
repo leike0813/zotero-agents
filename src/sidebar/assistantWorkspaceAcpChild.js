@@ -1176,7 +1176,7 @@ function resolvePanelActionEnvelope(
   return null;
 }
 
-function createChildRuntime(source) {
+function createAssistantWorkspaceAcpChildRuntime(source) {
   const model = {
     projectAssistantWorkspacePanel,
   };
@@ -1875,12 +1875,13 @@ function boot() {
     document.body.setAttribute("data-acp-child-failure", "invalid-source");
     return null;
   }
-  return createChildRuntime(source);
+  return createAssistantWorkspaceAcpChildRuntime(source);
 }
 
 export {
   applyOwnerNavigationUiTransition,
   boot,
+  createAssistantWorkspaceAcpChildRuntime,
   createClient,
   createController,
   createPageRequest,

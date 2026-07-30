@@ -275,13 +275,13 @@ export const ASSISTANT_WORKSPACE_SHELL_ACTIONS = {
   CLOSE_SIDEBAR: "close-sidebar",
 } as const;
 
-/** Child -> host control-plane actions handled inline by handleChildAction. */
+/** Child -> host control-plane actions handled inline by the child dispatcher. */
 export const ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS = {
   READY: "ready",
   PUBLICATION_ACK: "publication-ack",
   PUBLICATION_RENDER_OBSERVATION: "publication-render-observation",
   // These two also exist in ASSISTANT_WORKSPACE_ACTION_REGISTRY, but the host
-  // short-circuits them inline inside handleChildAction before registry
+  // short-circuits them inline inside the child dispatcher before registry
   // routing; listed here so both sides share one vocabulary.
   LOAD_TRANSCRIPT_PAGE: "load-transcript-page",
   REQUEST_OWNER_DETAILS: "request-owner-details",

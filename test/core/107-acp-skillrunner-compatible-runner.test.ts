@@ -128,6 +128,16 @@ import {
   ACP_SKILLS_WORKSPACE_ADAPTER,
   readAcpSkillRunWorkspaceRegions,
 } from "../../src/modules/acpSkillsWorkspaceSurface";
+import {
+  createAcpSkillsWorkspaceOwner,
+  createAssistantWorkspaceUnownedScope,
+} from "../../src/modules/assistantWorkspacePublication";
+import {
+  dispatchAssistantWorkspaceChildAction,
+  type AssistantWorkspaceHostRuntime,
+} from "../../src/modules/assistantWorkspaceSidebar";
+import { assistantWorkspaceTestPublication } from "../helpers/assistantWorkspacePublicationHarness";
+import { createAssistantWorkspaceAcpChildHarness } from "../helpers/assistantWorkspaceAcpChildHarness";
 
 const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
   setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
@@ -250,6 +260,21 @@ function createDeferred<T = void>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function createAssistantWorkspaceDispatchHost() {
+  return {
+    activeTarget: "library",
+    activeTab: "acp-skills",
+    shell: {
+      frame: null,
+      frameWindow: {},
+      loaded: true,
+      ready: true,
+    },
+    readyTabs: new Set(["acp-skills"]),
+    snapshotRevision: 0,
+  } as unknown as AssistantWorkspaceHostRuntime;
 }
 
 const originalFsRm = fs.rm.bind(fs) as (...args: any[]) => Promise<void>;
@@ -9112,6 +9137,223 @@ describe("ACP SkillRunner-compatible runner", function () {
     } finally {
       await shutdownAcpSkillRunConversations().catch(() => undefined);
       await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("routes ACP Skills composer continuation through child, host, and the same ACP session", async function () {
+    this.timeout(20_000);
+    for (const trigger of ["click", "keyboard"] as const) {
+      resetAcpSkillRunsForTests();
+      const root = await mkTempRoot();
+      const { entry } = await createSkill(root, {
+        executionModes: ["interactive"],
+      });
+      let updateListener: ((event: any) => void | Promise<void>) | null = null;
+      const promptSessions: string[] = [];
+      const promptMessages: string[] = [];
+      const fakeAdapter: AcpConnectionAdapter = {
+        initialize: async () => ({
+          authMethods: [],
+          agentName: "composer-continuation-fixture",
+          agentVersion: "1",
+          commandLabel: "fixture",
+          commandLine: "fixture",
+          canLoadSession: false,
+          canResumeSession: false,
+          canUseHttpMcp: true,
+          canUseSseMcp: false,
+        }),
+        onUpdate: (listener) => {
+          updateListener = listener;
+          return () => {
+            updateListener = null;
+          };
+        },
+        onClose: () => () => undefined,
+        onDiagnostics: () => () => undefined,
+        onPermissionRequest: () => () => undefined,
+        newSession: async () => ({ sessionId: "session-composer-e2e" }),
+        loadSession: async () => ({ sessionId: "loaded" }),
+        resumeSession: async () => ({ sessionId: "resumed" }),
+        prompt: async ({ sessionId, message }) => {
+          promptSessions.push(sessionId);
+          promptMessages.push(message);
+          await updateListener?.({
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: JSON.stringify(
+                  promptMessages.length === 1
+                    ? {
+                        __SKILL_DONE__: false,
+                        message: "Need a composer reply.",
+                        ui_hints: {
+                          kind: "open_text",
+                          prompt: "Reply in the composer.",
+                        },
+                      }
+                    : { __SKILL_DONE__: true, ok: true },
+                ),
+              },
+            },
+          });
+          return { stopReason: "end_turn" };
+        },
+        cancel: async () => undefined,
+        setMode: async () => undefined,
+        setModel: async () => undefined,
+        authenticate: async () => undefined,
+        close: async () => undefined,
+      };
+      let requestId = "";
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: { execution_mode: "interactive" },
+        },
+        onProgress: (event) => {
+          if (event.type === "request-created") {
+            requestId = String(event.requestId || "");
+          }
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      let child:
+        | ReturnType<typeof createAssistantWorkspaceAcpChildHarness>
+        | undefined;
+      try {
+        const requestStartedAt = Date.now();
+        while (!requestId && Date.now() - requestStartedAt < 8_000) {
+          await delay(25);
+        }
+        assert.isNotEmpty(requestId, `${trigger}: request was not created`);
+        await waitForAcpSkillRun(
+          requestId,
+          (record) =>
+            record?.status === "waiting_user" &&
+            record.pendingInteraction?.message === "Need a composer reply.",
+        );
+        await selectAcpSkillRun(requestId);
+        const owner = createAcpSkillsWorkspaceOwner(requestId);
+        const [navigation, regions] = await Promise.all([
+          ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation(),
+          readAcpSkillRunWorkspaceRegions({
+            requestId,
+            kinds: ["owner-control", "composer"],
+          }),
+        ]);
+        child = createAssistantWorkspaceAcpChildHarness("acp-skills");
+        let deliverySequence = 0;
+        const publish = (
+          kind: "owner-navigation" | "owner-control" | "composer",
+          publicationOwner:
+            | typeof owner
+            | ReturnType<typeof createAssistantWorkspaceUnownedScope>,
+          payload: any,
+        ) => {
+          deliverySequence += 1;
+          child?.runtime.applyPublication(
+            assistantWorkspaceTestPublication({
+              owner: publicationOwner,
+              kind,
+              payload,
+              publicationId: `composer-${trigger}-${deliverySequence}`,
+              deliverySequence,
+            }),
+          );
+        };
+        publish(
+          "owner-navigation",
+          createAssistantWorkspaceUnownedScope("acp-skills"),
+          navigation,
+        );
+        publish("owner-control", owner, regions["owner-control"]);
+        publish("composer", owner, regions.composer);
+
+        const input = child.replyInput();
+        const button = child.replyButton();
+        assert.ok(input, `${trigger}: composer input was not rendered`);
+        assert.ok(button, `${trigger}: composer button was not rendered`);
+        const reply = `Continue via ${trigger}`;
+        input.value = reply;
+        const actionCountBeforeReply = child.actions.length;
+        if (trigger === "click") {
+          button.click();
+        } else {
+          input.dispatchEvent({
+            type: "keydown",
+            key: "Enter",
+            ctrlKey: true,
+            metaKey: false,
+            preventDefault() {},
+          });
+        }
+        const envelope = child.actions
+          .slice(actionCountBeforeReply)
+          .find((entry) => entry.action === "reply-run");
+        assert.ok(envelope, `${trigger}: child did not emit reply-run`);
+        assert.deepEqual(Object.keys(envelope).sort(), [
+          "action",
+          "actionId",
+          "owner",
+          "payload",
+          "source",
+        ]);
+        assert.deepEqual(envelope.payload, { message: reply });
+        assert.deepEqual(envelope.owner, owner);
+
+        if (trigger === "click") {
+          await dispatchAssistantWorkspaceChildAction(
+            createAssistantWorkspaceDispatchHost(),
+            "library",
+            {
+              ...envelope,
+              owner: createAcpSkillsWorkspaceOwner("stale-request"),
+            } as any,
+          );
+          assert.lengthOf(promptMessages, 1);
+          assert.equal(getAcpSkillRunRecord(requestId)?.status, "waiting_user");
+        }
+
+        await dispatchAssistantWorkspaceChildAction(
+          createAssistantWorkspaceDispatchHost(),
+          "library",
+          envelope as any,
+        );
+        const result = await execution;
+        assert.equal(result.status, "succeeded");
+        assert.deepEqual(promptSessions, [
+          "session-composer-e2e",
+          "session-composer-e2e",
+        ]);
+        assert.equal(promptMessages[1], reply);
+        const userMessages = readAcpSkillRunTranscriptRegionFromMemoryForTests({
+          requestId,
+        }).page.items.filter(
+          (item) => item.itemKind === "message" && item.role === "user",
+        );
+        assert.equal(userMessages.at(-1)?.text, reply);
+      } finally {
+        child?.dispose();
+        await shutdownAcpSkillRunConversations().catch(() => undefined);
+        await fs.rm(root, { recursive: true, force: true });
+      }
     }
   });
 
