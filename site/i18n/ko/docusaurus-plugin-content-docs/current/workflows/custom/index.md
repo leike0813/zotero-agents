@@ -90,9 +90,9 @@ Workflow Manager — 발견, 로드, 유효성 검증
 
 | 패턴 | 일반적인 사용 사례 | 백엔드 유형 |
 |---------|-----------------|--------------|
-| **pass-through** | 순수 로컬 작업(내보내기, 파일 처리), 원격 백엔드 불필요 | 없음 |
-| **skillrunner.job.v1** | SkillRunner에 제출하는 단일 단계 스킬 실행 | skillrunner / acp |
-| **skillrunner.sequence.v1** | 단계 간 릴레이가 있는 다단계 체인 스킬 실행 | acp |
+| **pass-through** | 순수 로컬 작업(내보내기, 파일 처리), 원격 백엔드 불필요 | Pass-through |
+| **skillrunner.job.v1** | SkillRunner에 제출하는 단일 단계 스킬 실행 | skillrunner |
+| **skillrunner.sequence.v1** | 단계 간 릴레이가 있는 다단계 체인 스킬 실행 | acp / skillrunner |
 | **generic-http.request.v1** | 단일 HTTP API 호출 | generic-http |
 | **generic-http.steps.v1** | 다단계 HTTP API 호출 | generic-http |
 

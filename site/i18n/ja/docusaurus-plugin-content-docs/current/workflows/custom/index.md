@@ -90,9 +90,9 @@ Workflow Manager — Discover, load, validate
 
 | パターン | 代表的な用途 | バックエンド種別 |
 |----------|-------------|----------------|
-| **pass-through** | 純粋なローカル操作（エクスポート、ファイル処理）。リモートバックエンド不要 | なし |
-| **skillrunner.job.v1** | SkillRunner に送信する単一ステップの Skill 実行 | skillrunner / acp |
-| **skillrunner.sequence.v1** | 複数ステップの連鎖的な Skill 実行。ステップ間でリレーを行う | acp |
+| **pass-through** | 純粋なローカル操作（エクスポート、ファイル処理）。リモートバックエンド不要 | Pass-through |
+| **skillrunner.job.v1** | SkillRunner に送信する単一ステップの Skill 実行 | skillrunner |
+| **skillrunner.sequence.v1** | 複数ステップの連鎖的な Skill 実行。ステップ間でリレーを行う | acp / skillrunner |
 | **generic-http.request.v1** | 単一の HTTP API 呼び出し | generic-http |
 | **generic-http.steps.v1** | 複数ステップの HTTP API 呼び出し | generic-http |
 

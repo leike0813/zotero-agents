@@ -90,9 +90,9 @@ Workflow Manager — 发现、加载、校验
 
 | 模式 | 典型用途 | 后端类型 |
 |------|---------|---------|
-| **pass-through** | 纯本地操作（导出、文件处理），无需远程后端 | 无 |
-| **skillrunner.job.v1** | 单步骤向 SkillRunner 提交 skill 执行 | skillrunner / acp |
-| **skillrunner.sequence.v1** | 多步骤串联技能执行，步间接力 | acp |
+| **pass-through** | 纯本地操作（导出、文件处理），无需远程后端 | Pass-through |
+| **skillrunner.job.v1** | 单步骤向 SkillRunner 提交 skill 执行 | skillrunner |
+| **skillrunner.sequence.v1** | 多步骤串联技能执行，步间接力 | acp / skillrunner |
 | **generic-http.request.v1** | 单个 HTTP API 调用 | generic-http |
 | **generic-http.steps.v1** | 多步骤 HTTP API 调用 | generic-http |
 

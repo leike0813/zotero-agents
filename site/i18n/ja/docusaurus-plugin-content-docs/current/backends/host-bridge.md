@@ -12,7 +12,7 @@ Zoteroプラグインプロセス
 ├── Host Bridge HTTPサーバー（ループバック: 127.0.0.1:<port>）
 │     ├── Bearer Token認証（全リクエスト）
 │     ├── 書き込み承認ゲート（オペレーションごと）
-│     └── ケイパビリティルーター（30以上のケイパビリティ）
+│     └── ケイパビリティルーター（60以上のケイパビリティ）
 │
 └── zotero-bridge CLI（コンパニオンバイナリ）
       ├── セマンティックコマンド（context、library、mutation、synthesis）
@@ -20,7 +20,7 @@ Zoteroプラグインプロセス
       └── Stdin/pipeモード（ACPエージェント統合用）
 ```
 
-プロトコルバージョン：`host-bridge.v1`。`GET /bridge/v1/health`以外のすべてのエンドポイントにはBearer Token認証が必要である。
+プロトコルバージョン：`host-bridge.v2`。`GET /bridge/v1/health`以外のすべてのエンドポイントにはBearer Token認証が必要である。ケイパビリティコントラクトは`host-bridge.capabilities.v2`を使用する。
 
 ## 設定
 
@@ -89,51 +89,179 @@ Zotero → 設定 → Zotero Agents → Host Bridge
 
 ### セマンティックコマンド
 
+<details>
+<summary>全125の標準コマンド</summary>
+
+#### surface — エージェントサーフェス
 ```
-zotero-bridge status                           # ヘルスチェック（認証不要）
-zotero-bridge manifest                         # 完全なケイパビリティマニフェスト
-zotero-bridge call <capability> [--input]      # 生のケイパビリティ呼び出し
-zotero-bridge item search --query <text>
-zotero-bridge item get --key <key>
-zotero-bridge item notes --key <key>
-zotero-bridge item attachments --key <key>
-zotero-bridge note get --key <key>
-zotero-bridge note payloads --key <key>
-zotero-bridge note payload --key <key>
-zotero-bridge library list --input '{"limit":50}'
-zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
-zotero-bridge topics list
-zotero-bridge topics get-context --input <JSON>
-zotero-bridge topics get-report --input <JSON>
-zotero-bridge schemas get
-zotero-bridge concepts query --input <JSON>
-zotero-bridge citation-graph query-cluster --input <JSON>
-zotero-bridge citation-graph get-overview
-zotero-bridge library-index get
-zotero-bridge resolvers resolve --input <JSON>
-zotero-bridge reference-index get
-zotero-bridge paper-artifacts get-manifest --input <JSON>
-zotero-bridge paper-artifacts read --input <JSON>
-zotero-bridge insights get-attention-queue
-zotero-bridge literature ingest --input <JSON>
-zotero-bridge workflow list
-zotero-bridge workflow describe --workflow <id>
-zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
-zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
-zotero-bridge workflow run <runId>
-zotero-bridge task list [--workflow <id>] [--active-only]
-zotero-bridge file download <fileId> --output <path>
+zotero-bridge surface identity --json
+zotero-bridge surface describe <command...> --json
+zotero-bridge surface search --intent <text>
 ```
 
+#### bridge — サーバーステータス＆プロファイル
+```
+zotero-bridge bridge status
+zotero-bridge bridge manifest
+zotero-bridge bridge profile inspect
+zotero-bridge bridge profile diagnose
+zotero-bridge bridge backend list
+zotero-bridge bridge backend status
+zotero-bridge call <capability> [--input <json>]
+```
+
+#### library — ライブラリの読み取り
+```
+zotero-bridge library items list [--cursor <c>]
+zotero-bridge library item search --query <text>
+zotero-bridge library item get --key <key>
+zotero-bridge library item notes --key <key>
+zotero-bridge library item attachments --key <key>
+zotero-bridge library note get --key <key>
+zotero-bridge library note payloads --key <key>
+zotero-bridge library note payload --key <key> --payload-id <id>
+zotero-bridge library annotation list --key <key>
+zotero-bridge library annotation export --key <key> --format json|markdown
+zotero-bridge library snapshot --input <json>
+zotero-bridge library readiness audit --input <json>
+zotero-bridge library readiness missing-pdf --input <json>
+zotero-bridge library readiness missing-markdown --input <json>
+zotero-bridge library readiness missing-analysis --input <json>
+```
+
+#### context — UIコンテキスト＆ナビゲーション
+```
+zotero-bridge context current
+zotero-bridge context selection get
+zotero-bridge context selection open
+zotero-bridge context item open --key <key>
+zotero-bridge context note open --key <key>
+zotero-bridge context collection open --key <key>
+```
+
+#### synthesis — Synthesisレイヤー
+```
+zotero-bridge synthesis topic list --input <json>
+zotero-bridge synthesis topic find-by-paper-ref --input <json>
+zotero-bridge synthesis topic get-context --input <json>
+zotero-bridge synthesis topic get-report --input <json>
+zotero-bridge synthesis topic get-review-input --input <json>
+zotero-bridge synthesis schema get
+zotero-bridge synthesis concept query --input <json>
+zotero-bridge synthesis graph overview --input <json>
+zotero-bridge synthesis graph query-cluster --input <json>
+zotero-bridge synthesis graph get-slice --input <json>
+zotero-bridge synthesis graph get-layout --input <json>
+zotero-bridge synthesis graph get-metrics --input <json>
+zotero-bridge synthesis graph rank-external-references --input <json>
+zotero-bridge synthesis graph rank-library-papers --input <json>
+zotero-bridge synthesis graph refresh-metrics --input <json>
+zotero-bridge synthesis graph update --input <json>
+zotero-bridge synthesis index status
+zotero-bridge synthesis index library get --input <json>
+zotero-bridge synthesis index reference get --input <json>
+zotero-bridge synthesis cache status
+zotero-bridge synthesis cache refresh-reference-sidecar --input <json>
+zotero-bridge synthesis cache invalidate --input <json>
+zotero-bridge synthesis resolver resolve --input <json>
+zotero-bridge synthesis artifact manifest --input <json>
+zotero-bridge synthesis artifact read --input <json>
+zotero-bridge synthesis artifact export-filtered --input <json>
+zotero-bridge synthesis artifact resolve-topic-digest --input <json>
+zotero-bridge synthesis insight attention-queue
+```
+
+#### mutation — 書き込みオペレーション
+```
+zotero-bridge mutation preview --input <json>
+zotero-bridge mutation apply --input <json>
+zotero-bridge mutation literature-ingest --input <json>
+zotero-bridge mutation tag add --input <json>
+zotero-bridge mutation tag remove --input <json>
+zotero-bridge mutation collection create --input <json>
+zotero-bridge mutation collection add-items --input <json>
+zotero-bridge mutation collection remove-items --input <json>
+zotero-bridge mutation item update --input <json>
+zotero-bridge mutation item attach-file --input <json>
+zotero-bridge mutation note create --input <json>
+zotero-bridge mutation note update --input <json>
+zotero-bridge mutation note upsert-payload --input <json>
+```
+
+#### workflow — Workflow管理
+```
+zotero-bridge workflow list
+zotero-bridge workflow submit --workflow <id> (--input <json> | --none)
+zotero-bridge workflow queue list [--workflow <id>]
+zotero-bridge workflow queue cancel --submission-id <id>
+zotero-bridge workflow submission get --submission-id <id>
+zotero-bridge workflow describe --workflow <id> [--json]
+zotero-bridge workflow validate --input <json>
+zotero-bridge workflow requirements --workflow <id> --input <json>
+zotero-bridge workflow profile list
+zotero-bridge workflow profile describe --profile <id>
+zotero-bridge workflow profile validate --profile <id>
+zotero-bridge workflow agent-run --workflow <id> (--input <json> | --none) --output-dir <dir>
+zotero-bridge workflow agent-bundle inspect --path <path>
+zotero-bridge workflow agent-result validate --input <json>
+zotero-bridge workflow agent-apply --run-id <id> --input <json>
+zotero-bridge workflow agent-apply-status --run-id <id>
+zotero-bridge workflow agent-renew --run-id <id>
+zotero-bridge workflow agent-abandon --run-id <id>
+```
+
+#### run — ランタイム観測
+```
+zotero-bridge run get --run-id <id>
+zotero-bridge run cancel --run-id <id>
+zotero-bridge run list [--workflow <id>]
+zotero-bridge run active
+zotero-bridge run recent
+zotero-bridge run workflow recent
+zotero-bridge run skill get --run-id <id>
+zotero-bridge run skill reply --run-id <id> --input <json>
+zotero-bridge run skill connect --run-id <id>
+zotero-bridge run skill recent
+zotero-bridge run skill events --run-id <id>
+zotero-bridge run notification list [--limit <n>]
+zotero-bridge run notification wait [--timeout-ms <ms>]
+zotero-bridge run notification ack --notification-id <id>
+zotero-bridge run permission pending
+zotero-bridge run permission get --request-id <id>
+```
+
+#### file — ファイル転送
+```
+zotero-bridge file download <fileId> --output <path>
+zotero-bridge file upload --path <path>
+```
+
+#### product — ダッシュボードプロダクト
+```
+zotero-bridge product list [--limit <n>]
+zotero-bridge product get --product-id <id>
+zotero-bridge product download --product-id <id> --output <path>
+zotero-bridge product remove --product-id <id>
+```
+
+#### operation — 永続オペレーション
+```
+zotero-bridge operation get --operation-id <id>
+```
+
+</details>
+
 入力は以下を受け付ける：インラインJSON、JSONファイルパス、`@file`構文、`-`（stdin）。
+
+完全で最新のコマンドカタログについては、`zotero-bridge surface identity --json`を実行して現在の`commandCatalogChecksum`を確認し、`zotero-bridge surface describe <command...>`で特定のコマンドのコントラクトを参照されたい。
 
 ### 出力契約
 
 stdoutは常に正確に1つのJSONオブジェクトを出力する。
 
 ```json
-{ "ok": true, "data": {...}, "meta": { "cli": "zotero-bridge", "schema": "zotero-bridge.cli.v1" } }
-{ "ok": false, "error": {...}, "meta": { "cli": "zotero-bridge", "schema": "zotero-bridge.cli.v1" } }
+{ "ok": true, "data": {...}, "meta": { "cliSchema": "zotero-bridge.cli.v5" } }
+{ "ok": false, "error": {...}, "meta": { "cliSchema": "zotero-bridge.cli.v5" } }
 ```
 
 エラー終了コード：
@@ -165,7 +293,7 @@ stdoutは常に正確に1つのJSONオブジェクトを出力する。
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
+  "protocol": "host-bridge.v2",
   "endpoint": "http://127.0.0.1:26570/bridge/v1",
   "connectionMode": "local",
   "auth": { "type": "bearer", "tokenEnv": "ZOTERO_BRIDGE_TOKEN" }
@@ -193,7 +321,7 @@ ACPエージェントがスキルを実行する際、プラグインは自動�
 ## 利用可能なケイパビリティ
 
 <details>
-<summary>全30以上のケイパビリティ</summary>
+<summary>全60以上のケイパビリティ</summary>
 
 ### Context
 
@@ -215,6 +343,9 @@ ACPエージェントがスキルを実行する際、プラグインは自動�
 | `library.list_note_payloads` | ノートのペイロードを一覧 |
 | `library.get_note_payload` | 特定のペイロードを取得 |
 | `library.get_item_attachments` | 添付ファイルを一覧 |
+| `library.list_annotations` | リーダーアノテーションを一覧 |
+| `library.export_annotations` | リーダーアノテーションをmarkdownまたはJSONとしてエクスポート |
+| `library.readiness_audit` | ページネーション付き読み取り専用ライブラリ準備状態監査 |
 
 ### Mutation
 
@@ -223,7 +354,14 @@ ACPエージェントがスキルを実行する際、プラグインは自動�
 | `mutation.preview` | 書き込みオペレーションをプレビュー（実行しない） |
 | `mutation.execute` | 書き込みオペレーションを実行（承認が必要） |
 
-### Synthesis
+### Workflow Products
+
+| ケイパビリティ | 説明 |
+|-----------|-------------|
+| `workflow_products.list` | Workflow生成プロダクトを一覧 |
+| `workflow_products.get` | Workflowプロダクトを取得 |
+
+### Synthesis — Topics
 
 | ケイパビリティ | 説明 |
 |-----------|-------------|
@@ -231,28 +369,71 @@ ACPエージェントがスキルを実行する際、プラグインは自動�
 | `topics.get_context` | トピックのコンテキストを取得 |
 | `topics.get_report` | トピックのレポートを取得 |
 | `topics.get_review_input` | トピックレビューパッケージを組立て |
-| `schemas.get` | スキーマ定義を取得 |
-| `concepts.query` | 概念ナレッジベースをクエリ |
+
+### Synthesis — Citation Graph
+
+| ケイパビリティ | 説明 |
+|-----------|-------------|
 | `citation_graph.query_cluster` | 引用クラスタをクエリ |
 | `citation_graph.get_overview` | グラフの概要を取得 |
 | `citation_graph.get_slice` | サブグラフスライスを抽出 |
 | `citation_graph.get_metrics` | グラフメトリクスを計算 |
 | `citation_graph.rank_external_references` | 外部参考文献をランキング |
 | `citation_graph.rank_library_papers` | ライブラリ論文をランキング |
+| `citation_graph.refresh_metrics` | 診断：永続化されたメトリクスをリフレッシュ |
+| `citation_graph.update` | アトミックな引用グラフ更新を開始 |
+
+### Synthesis — Concepts, Schemas, Resolvers
+
+| ケイパビリティ | 説明 |
+|-----------|-------------|
+| `concepts.query` | 概念ナレッジベースをクエリ |
+| `schemas.get` | スキーマ定義を取得 |
+| `resolvers.resolve` | 参考文献/トピックリゾルバを解決 |
+
+### Synthesis — Paper Artifacts
+
+| ケイパビリティ | 説明 |
+|-----------|-------------|
 | `paper_artifacts.get_manifest` | アーティファクトのマニフェストを取得 |
 | `paper_artifacts.read` | アーティファクトの内容を読む |
 | `paper_artifacts.export_filtered` | フィルタ済みアーティファクトをエクスポート |
 | `paper_artifacts.resolve_topic_digest` | トピックダイジェストを解決 |
-| `insights.get_attention_queue` | アテンションキューを取得 |
-| `resolvers.resolve` | 参考文献/トピックリゾルバを解決 |
+
+### Synthesis — Indexes & Insights
+
+| ケイパビリティ | 説明 |
+|-----------|-------------|
 | `reference_index.get` | 参考文献インデックスを取得 |
+| `reference_sidecar.refresh` | 参考文献サイドカーのリフレッシュを開始 |
 | `library_index.get` | ライブラリインデックスを取得 |
+| `insights.get_attention_queue` | アテンションキューを取得 |
+| `synthesis.operation.get` | 永続的なsynthesisオペレーションレシートを読み取る |
 
 ### Diagnostic
 
 | ケイパビリティ | 説明 |
 |-----------|-------------|
 | `diagnostic.get_status` | サービスステータスを取得 |
+
+### Debug（デバッグモードのみ）
+
+| ケイパビリティ | 説明 |
+|-----------|-------------|
+| `debug.status` | デバッグ用Host Bridgeステータススナップショット |
+| `debug.persistence.snapshot` | ランタイム永続化のスナップショット |
+| `debug.tasks.snapshot` | WorkflowタスクとACP実行の診断 |
+| `debug.zotero.eval` | Zoteroコンテキストで承認されたJavaScriptを実行 |
+| `debug.acpSkillRun.reapplyResult` | ACPスキル実行のapplyResultを再実行 |
+| `debug.skillrunner.connections.snapshot` | SkillRunner接続ガバナーの診断 |
+| `debug.synthesis.snapshot` | Synthesisオペレーションとキャッシュのスナップショット |
+| `debug.synthesis.diff` | Zoteroペイロードとリポジトリキャッシュを比較 |
+| `debug.synthesis.cache.list` | Synthesisサイドカーキャッシュ行を一覧 |
+| `debug.synthesis.operations.list` | Synthesisオペレーションを一覧 |
+| `debug.synthesis.paper.inspect` | キャッシュ間で1つの論文を検査 |
+| `debug.synthesis.topic.inspect` | アーティファクト間で1つのトピックを検査 |
+| `debug.synthesis.profiler.list` | Synthesisプロファイラー実行 |
+| `debug.synthesis.cleanInstallReset` | 危険：synthesis DB状態をリセット |
 
 </details>
 

@@ -7,8 +7,8 @@ Workflows determine which Provider (executor) handles the request by declaring `
 | `kind` | Applicable Provider | Description |
 |--------|--------------------|-------------|
 | `pass-through.run.v1` | pass-through | Pure local execution, no remote backend involved |
-| `skillrunner.job.v1` | skillrunner / acp | Single-step SkillRunner skill execution |
-| `skillrunner.sequence.v1` | acp | Multi-step chained skill execution |
+| `skillrunner.job.v1` | skillrunner | Single-step SkillRunner skill execution |
+| `skillrunner.sequence.v1` | acp / skillrunner | Multi-step chained skill execution |
 | `acp.prompt.v1` | acp | Send a prompt directly to the ACP backend |
 | `acp.skill.run.v1` | acp | Submit a skill run directly to the ACP backend |
 | `generic-http.request.v1` | generic-http | Single-step HTTP API call |
@@ -75,7 +75,7 @@ Submit a single skill execution request to the Skill-Runner backend. Polls for r
 | `poll.interval_ms` | Polling interval (milliseconds) |
 | `poll.timeout_ms` | Total timeout (milliseconds) |
 
-When the workflow selects the ACP backend, `skillrunner.job.v1` automatically adapts to `acp.skill.run.v1`, so workflows declared as `skillrunner.job.v1` are also compatible with the ACP backend.
+`skillrunner.job.v1` is compatible only with the SkillRunner backend. If you need single-step skill execution through ACP, declare `provider: "acp"` with request kind `acp.skill.run.v1`.
 
 ## skillrunner.sequence.v1 — Multi-Step Skill Chaining
 
@@ -243,8 +243,10 @@ Execute multiple HTTP request steps in sequence.
 |--------------------------|----------------|--------------|
 | Perform pure local operations, no remote calls | `pass-through` | `pass-through.run.v1` |
 | Submit a single skill to Skill-Runner | `skillrunner` | `skillrunner.job.v1` |
-| Chain multiple skills in sequence | `acp` | `skillrunner.sequence.v1` |
+| Chain multiple skills in sequence | `acp` or `skillrunner` | `skillrunner.sequence.v1` |
 | Call an HTTP API | `generic-http` | `generic-http.request.v1` |
+| Start an ACP conversation | `acp` | `acp.prompt.v1` |
+| Submit a single skill to ACP backend | `acp` | `acp.skill.run.v1` |
 
 Note: `provider` is the sole field that determines which backends a workflow is compatible with. `request.kind` is only used for routing to the correct executor and does not participate in backend compatibility inference.
 
