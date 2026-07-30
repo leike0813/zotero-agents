@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { config } from "../../package.json";
 import { execFile } from "child_process";
 import { createHash } from "crypto";
 import * as fs from "fs/promises";
@@ -1483,6 +1484,71 @@ describe("host bridge cli packaging and install", function () {
         (globalThis as { rootPath?: string }).rootPath = previousRootPath;
       } else {
         delete (globalThis as { rootPath?: string }).rootPath;
+      }
+    }
+  });
+
+  it("uses the installed plugin asset roots outside the plugin script context", function () {
+    const runtime = globalThis as typeof globalThis & {
+      rootURI?: string;
+      resourceURI?: string;
+      rootPath?: string;
+      Zotero: Record<string, any>;
+    };
+    const previousRoots = {
+      rootURI: runtime.rootURI,
+      resourceURI: runtime.resourceURI,
+      rootPath: runtime.rootPath,
+    };
+    const addonData = runtime.Zotero[config.addonInstance].data;
+    const previousPackagedAssets = addonData.packagedAssets;
+    delete runtime.rootURI;
+    delete runtime.resourceURI;
+    delete runtime.rootPath;
+    addonData.packagedAssets = {
+      rootURI: "https://installed.example/addon/",
+      resourceURI: "resource://installed-zotero-skills/",
+      rootPath: "D:\\Profiles\\extensions\\zotero-skills",
+    };
+    try {
+      const candidates =
+        packagedAssetResolverInternalsForTests.buildPackagedAssetCandidates(
+          "bin/win32-x64/zotero-acp-bridge.exe",
+        );
+      assert.equal(candidates.rootURI, addonData.packagedAssets.rootURI);
+      assert.equal(
+        candidates.resourceURI,
+        addonData.packagedAssets.resourceURI,
+      );
+      assert.equal(candidates.rootPath, addonData.packagedAssets.rootPath);
+      assert.include(
+        candidates.checkedUris,
+        "https://installed.example/addon/bin/win32-x64/zotero-acp-bridge.exe",
+      );
+      assert.include(
+        candidates.checkedPaths,
+        "D:\\Profiles\\extensions\\zotero-skills\\bin\\win32-x64\\zotero-acp-bridge.exe",
+      );
+    } finally {
+      if (typeof previousRoots.rootURI === "string") {
+        runtime.rootURI = previousRoots.rootURI;
+      } else {
+        delete runtime.rootURI;
+      }
+      if (typeof previousRoots.resourceURI === "string") {
+        runtime.resourceURI = previousRoots.resourceURI;
+      } else {
+        delete runtime.resourceURI;
+      }
+      if (typeof previousRoots.rootPath === "string") {
+        runtime.rootPath = previousRoots.rootPath;
+      } else {
+        delete runtime.rootPath;
+      }
+      if (previousPackagedAssets) {
+        addonData.packagedAssets = previousPackagedAssets;
+      } else {
+        delete addonData.packagedAssets;
       }
     }
   });

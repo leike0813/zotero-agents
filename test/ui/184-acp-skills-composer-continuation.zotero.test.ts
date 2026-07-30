@@ -246,15 +246,32 @@ describe("ACP Skills composer continuation through platform transport", function
     });
     void execution.catch(() => undefined);
 
-    const waiting = await waitFor(() => {
+    const initialRunOutcome = await waitFor(() => {
       if (!requestId) return null;
       const record = getAcpSkillRunRecord(requestId);
-      return record?.status === "waiting_user" ? record : null;
+      return record?.status === "waiting_user" ||
+        record?.status === "failed" ||
+        record?.status === "failed_retriable" ||
+        record?.status === "canceled"
+        ? record
+        : null;
     });
     assert.ok(
-      waiting,
+      initialRunOutcome,
       `ACP fixture did not reach waiting_user; evidence=${evidencePath}`,
     );
+    if (initialRunOutcome.status !== "waiting_user") {
+      const finalStatePath =
+        initialRunOutcome.auditTrail?.files?.finalState || "";
+      assert.fail(
+        [
+          `ACP fixture failed before waiting_user; status=${initialRunOutcome.status}`,
+          `error=${initialRunOutcome.error || "(none)"}`,
+          `finalState=${finalStatePath || "(unavailable)"}`,
+          `fixtureEvidence=${evidencePath} (not created before fixture startup)`,
+        ].join("; "),
+      );
+    }
     const transportKind =
       adapter?.getTransportSnapshot()?.transportLifecycle?.transportKind;
     assert.equal(
