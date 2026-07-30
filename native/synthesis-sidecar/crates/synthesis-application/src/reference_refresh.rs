@@ -95,6 +95,8 @@ pub struct ReferenceArtifactDescriptor {
     pub locator: String,
     pub payload_hash: String,
     #[serde(default)]
+    pub estimated_size: Option<usize>,
+    #[serde(default)]
     pub diagnostics: Vec<Value>,
 }
 
@@ -432,6 +434,14 @@ impl ReferenceRefreshApplication {
             preparation
         };
         let _active = ActiveApply(self);
+        if validate_reference_refresh_apply_request(&request).is_err() {
+            self.finish_operation(&preparation.operation_id, "failed", "invalid_request");
+            return self.mutation_result(
+                ReferenceRefreshStatus::InvalidRequest,
+                Vec::new(),
+                Vec::new(),
+            );
+        }
         if !exact_payloads(&preparation.reads, &request.payloads) {
             self.finish_operation(&preparation.operation_id, "failed", "payload_stale");
             return self.mutation_result(
@@ -1080,6 +1090,17 @@ fn validate_prepare(request: &ReferenceRefreshPrepareRequest) -> Result<(), Stri
     Ok(())
 }
 
+pub fn validate_reference_refresh_apply_request(
+    request: &ReferenceRefreshApplyRequest,
+) -> Result<(), &'static str> {
+    let bytes = serde_json::to_vec(request).map_err(|_| "reference_refresh_payload_invalid")?;
+    let value = serde_json::to_value(request).map_err(|_| "reference_refresh_payload_invalid")?;
+    if bytes.len() > MAX_BYTES || count_nodes(&value) > MAX_JSON_NODES {
+        return Err("reference_refresh_payload_too_large");
+    }
+    Ok(())
+}
+
 fn scoped_source_refs(request: &ReferenceRefreshPrepareRequest) -> Vec<String> {
     match &request.scope {
         ReferenceRefreshScope::Full => request
@@ -1239,6 +1260,27 @@ mod tests {
         ))
     }
 
+    fn application() -> (ReferenceRefreshApplication, PathBuf) {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let port = Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository))));
+        (
+            ReferenceRefreshApplication::with_factories(
+                port,
+                Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+                Arc::new(|| "refresh:1".into()),
+            ),
+            root,
+        )
+    }
+
     fn request(expected_reference_hash: Option<String>) -> ReferenceRefreshPrepareRequest {
         let paper_ref = "1:A".to_owned();
         let artifacts = [
@@ -1259,6 +1301,7 @@ mod tests {
                 artifact_type,
                 payload_type: payload_type.into(),
                 status: "available".into(),
+                estimated_size: None,
                 diagnostics: Vec::new(),
             },
         )
@@ -1304,21 +1347,7 @@ mod tests {
 
     #[test]
     fn plans_exact_reads_promotes_once_and_drains() {
-        let root = root();
-        let repository = Repository::open(
-            &root,
-            RepositoryIdentity {
-                profile_id: "profile".into(),
-                data_root_id: "data".into(),
-            },
-        )
-        .expect("open repository");
-        let port = Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository))));
-        let application = ReferenceRefreshApplication::with_factories(
-            port,
-            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
-            Arc::new(|| "refresh:1".into()),
-        );
+        let (application, root) = application();
         let prepared = application.prepare_refresh(request(None));
         assert_eq!(prepared.status, ReferenceRefreshStatus::Prepared);
         assert_eq!(prepared.reads.len(), 2);
@@ -1360,6 +1389,39 @@ mod tests {
                 .status,
             ReferenceRefreshStatus::Stopping
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_oversized_apply_payload_and_consumes_the_preparation() {
+        let (application, root) = application();
+        let prepared = application.prepare_refresh(request(None));
+        let preparation_id = prepared
+            .preparation_id
+            .clone()
+            .expect("prepared reference refresh");
+        let mut oversized_payloads = payloads(&prepared);
+        oversized_payloads[0].content = json!({ "blob": "x".repeat(MAX_BYTES) });
+
+        assert_eq!(
+            application
+                .apply_refresh(ReferenceRefreshApplyRequest {
+                    preparation_id: preparation_id.clone(),
+                    payloads: oversized_payloads,
+                })
+                .status,
+            ReferenceRefreshStatus::InvalidRequest
+        );
+        assert_eq!(
+            application
+                .apply_refresh(ReferenceRefreshApplyRequest {
+                    preparation_id,
+                    payloads: Vec::new(),
+                })
+                .status,
+            ReferenceRefreshStatus::PreparationMissing
+        );
+
         let _ = std::fs::remove_dir_all(root);
     }
 }

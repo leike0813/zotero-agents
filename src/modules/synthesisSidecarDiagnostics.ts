@@ -1,9 +1,12 @@
-import { isDebugModeEnabled } from "./debugMode";
+import { isSynthesisSidecarDiagnosticsAvailable } from "./debugMode";
 import {
   appendRuntimeLog,
   registerRuntimeIssueDebugContextProvider,
 } from "./runtimeLogManager";
-import type { SynthesisSidecarDiagnosticEvent } from "./synthesisSidecarDiagnosticEvents";
+import {
+  registerSynthesisSidecarDebugEventSink,
+  type SynthesisSidecarDiagnosticEvent,
+} from "./synthesisSidecarDiagnosticEvents";
 
 export type {
   SynthesisSidecarDiagnosticComponent,
@@ -142,7 +145,7 @@ function appendLifecycleLog(args: {
 }
 
 function emitDiagnosticConsole(event: SynthesisSidecarDiagnosticEvent) {
-  if (!isDebugModeEnabled()) {
+  if (!isSynthesisSidecarDiagnosticsAvailable()) {
     return;
   }
   const label = "[synthesis-sidecar]";
@@ -173,13 +176,17 @@ export function retainSynthesisSidecarDiagnosticEvent(
   publish();
 }
 
+registerSynthesisSidecarDebugEventSink(retainSynthesisSidecarDiagnosticEvent);
+
 export function listSynthesisSidecarDiagnosticEvents() {
-  return isDebugModeEnabled() ? events.map((event) => ({ ...event })) : [];
+  return isSynthesisSidecarDiagnosticsAvailable()
+    ? events.map((event) => ({ ...event }))
+    : [];
 }
 
 export function beginSynthesisSidecarStartupAttempt() {
   const attemptId = `synthesis-startup-${Date.now()}-${++attemptSequence}`;
-  if (!isDebugModeEnabled()) {
+  if (!isSynthesisSidecarDiagnosticsAvailable()) {
     return attemptId;
   }
   const now = new Date().toISOString();
@@ -192,11 +199,6 @@ export function beginSynthesisSidecarStartupAttempt() {
     updatedAt: now,
     evidence: {},
   };
-  appendLifecycleLog({
-    attemptId,
-    phase: "startup",
-    status: "started",
-  });
   publish();
   return attemptId;
 }
@@ -209,7 +211,7 @@ export function recordSynthesisSidecarStartupPhase(args: {
   evidence?: SynthesisSidecarDiagnosticEvidence;
   error?: unknown;
 }) {
-  if (!isDebugModeEnabled()) {
+  if (!isSynthesisSidecarDiagnosticsAvailable()) {
     if (args.status === "failed") {
       appendLifecycleLog({
         ...args,
@@ -218,10 +220,7 @@ export function recordSynthesisSidecarStartupPhase(args: {
     }
     return;
   }
-  if (
-    !snapshot ||
-    snapshot.attemptId !== args.attemptId
-  ) {
+  if (!snapshot || snapshot.attemptId !== args.attemptId) {
     return;
   }
   const evidence = sanitizeEvidence(args.evidence);
@@ -236,15 +235,17 @@ export function recordSynthesisSidecarStartupPhase(args: {
       ...evidence,
     },
   };
-  appendLifecycleLog({
-    ...args,
-    evidence,
-  });
+  if (args.status === "failed") {
+    appendLifecycleLog({
+      ...args,
+      evidence,
+    });
+  }
   publish();
 }
 
 export function getSynthesisSidecarDiagnosticSnapshot() {
-  if (!isDebugModeEnabled()) {
+  if (!isSynthesisSidecarDiagnosticsAvailable()) {
     return undefined;
   }
   return cloneSnapshot(snapshot);

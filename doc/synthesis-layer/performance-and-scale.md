@@ -150,9 +150,13 @@ budget check. Those three monolithic operations use 8 MiB UTF-8
 request and response envelopes, at most 250,000 request and 50,000 response JSON
 structural nodes, one active task, two waiting tasks, a five-second hard
 deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
-and system requests retain the 1 MiB cap. The byte envelope remains independent
-from the graph engines' 5,000-node/20,000-edge bounds, so an engine-valid but
-wire-oversized DTO fails closed. Graph build's larger 25,000-source /
+and system requests retain the 1 MiB cap. Reverse-Host responses also retain
+that general limit except for `library.artifacts.read`, whose explicit policy
+allows 8 MiB and ten seconds. Reference refresh then enforces 8 MiB/250,000-node
+admission on the complete apply aggregate before projection. The byte envelope
+remains independent from the graph engines' 5,000-node/20,000-edge bounds, so
+an engine-valid but wire-oversized DTO fails closed. Graph build's larger
+25,000-source /
 1,250,000-reference / 750,000-target contract therefore uses a separate bounded
 staging capability before any future production routing. Transfer pages cap at
 4 MiB / 100,000 JSON nodes, each direction at 256 pages / 1 GiB, and the service

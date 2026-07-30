@@ -13,13 +13,14 @@ use synthesis_application::reference_refresh::{
     ReferenceArtifactDescriptor, ReferenceArtifactType, ReferenceRefreshApplication,
     ReferenceRefreshApplyRequest, ReferenceRefreshItem, ReferenceRefreshPayload,
     ReferenceRefreshPrepareRequest, ReferenceRefreshScope, ReferenceRefreshStatus,
+    validate_reference_refresh_apply_request,
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     OperationRecord, ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, Repository,
 };
 
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
 
 const HOST_PAGE_LIMIT: usize = 100;
 const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 3;
@@ -1098,12 +1099,12 @@ impl ReferenceCanonicalApplication {
         )?;
         let outcome = (|| {
             let mut items = self.collect_host_items()?;
-            emit(
+            emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "items-scanned", "succeeded")
                     .capability("reference_sidecar_refresh")
                     .operation_id(REFRESH_JOB_ID)
-                    .returned(items.len()),
-            );
+                    .returned(items.len())
+            });
             let requested = refresh_scope_filter(request)?;
             if !requested.is_empty() {
                 items.retain(|item| requested.contains(&item.paper_ref));
@@ -1119,12 +1120,12 @@ impl ReferenceCanonicalApplication {
                 }));
             }
             let host_artifacts = self.collect_host_artifacts()?;
-            emit(
+            emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "artifacts-scanned", "succeeded")
                     .capability("reference_sidecar_refresh")
                     .operation_id(REFRESH_JOB_ID)
-                    .returned(host_artifacts.len()),
-            );
+                    .returned(host_artifacts.len())
+            });
             let artifacts = complete_artifact_manifest(&items, &host_artifacts)?;
             let expected_reference_hash = self.refresh.inspect()?.reference_hash;
             let scope = if requested.is_empty() {
@@ -1179,21 +1180,21 @@ impl ReferenceCanonicalApplication {
                 self.refresh.discard_preparation(&preparation_id);
                 return Err(error);
             }
-            emit(
+            emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "refresh-prepared", "succeeded")
                     .capability("reference_sidecar_refresh")
                     .operation_id(REFRESH_JOB_ID)
-                    .total(prepared.reads.len()),
-            );
+                    .total(prepared.reads.len())
+            });
             let mut payloads = Vec::with_capacity(prepared.reads.len());
             for (index, read) in prepared.reads.iter().enumerate() {
-                emit(
+                emit_debug(|| {
                     NativeDiagnosticEvent::new("operation", "artifact-read-started", "started")
                         .capability("library.artifacts.read")
                         .operation_id(REFRESH_JOB_ID)
                         .page(index)
-                        .total(prepared.reads.len()),
-                );
+                        .total(prepared.reads.len())
+                });
                 let payload = self
                     .host
                     .read_artifact(&read.locator, &read.expected_hash)
@@ -1201,7 +1202,7 @@ impl ReferenceCanonicalApplication {
                 match payload {
                     Ok(payload) => {
                         payloads.push(payload);
-                        emit(
+                        emit_debug(|| {
                             NativeDiagnosticEvent::new(
                                 "operation",
                                 "artifact-read-completed",
@@ -1210,8 +1211,8 @@ impl ReferenceCanonicalApplication {
                             .capability("library.artifacts.read")
                             .operation_id(REFRESH_JOB_ID)
                             .page(index)
-                            .total(prepared.reads.len()),
-                        );
+                            .total(prepared.reads.len())
+                        });
                     }
                     Err(error) => {
                         self.refresh.discard_preparation(&preparation_id);
@@ -1231,16 +1232,27 @@ impl ReferenceCanonicalApplication {
                     }
                 }
             }
-            emit(
+            emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "refresh-apply-started", "started")
                     .capability("reference_sidecar_refresh")
                     .operation_id(REFRESH_JOB_ID)
-                    .total(payloads.len()),
-            );
-            let applied = self.refresh.apply_refresh(ReferenceRefreshApplyRequest {
-                preparation_id,
-                payloads,
+                    .total(payloads.len())
             });
+            let apply_request = ReferenceRefreshApplyRequest {
+                preparation_id: preparation_id.clone(),
+                payloads,
+            };
+            if let Err(error) = validate_reference_refresh_apply_request(&apply_request) {
+                self.refresh.discard_preparation(&preparation_id);
+                emit(
+                    NativeDiagnosticEvent::new("operation", "refresh-apply-rejected", "failed")
+                        .capability("reference_sidecar_refresh")
+                        .operation_id(REFRESH_JOB_ID)
+                        .code(error),
+                );
+                return Err(error.into());
+            }
+            let applied = self.refresh.apply_refresh(apply_request);
             let ok = matches!(
                 applied.status,
                 ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
@@ -1460,11 +1472,11 @@ impl ReferenceCanonicalApplication {
             ..OperationRecord::default()
         };
         self.write_job(&record)?;
-        emit(
+        emit_debug(|| {
             NativeDiagnosticEvent::new("operation", "operation-started", "started")
                 .capability(operation_type)
-                .operation_id(operation_id),
-        );
+                .operation_id(operation_id)
+        });
         Ok(record)
     }
 
@@ -1491,26 +1503,25 @@ impl ReferenceCanonicalApplication {
                 job.completed_at = now.clone();
                 job.updated_at = now;
                 self.write_job(&job)?;
-                let mut event = NativeDiagnosticEvent::new(
-                    "operation",
-                    if ok {
-                        "operation-completed"
-                    } else {
-                        "operation-failed"
-                    },
-                    if ok { "succeeded" } else { "failed" },
-                )
-                .capability(&job.operation_type)
-                .operation_id(&job.operation_id);
-                if !ok {
-                    event = event.code(
-                        result
-                            .get("status")
-                            .and_then(Value::as_str)
-                            .unwrap_or("operation_failed"),
+                if ok {
+                    emit_debug(|| {
+                        NativeDiagnosticEvent::new("operation", "operation-completed", "succeeded")
+                            .capability(&job.operation_type)
+                            .operation_id(&job.operation_id)
+                    });
+                } else {
+                    emit(
+                        NativeDiagnosticEvent::new("operation", "operation-failed", "failed")
+                            .capability(&job.operation_type)
+                            .operation_id(&job.operation_id)
+                            .code(
+                                result
+                                    .get("status")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("operation_failed"),
+                            ),
                     );
                 }
-                emit(event);
                 Ok(result)
             }
             Err(error) => {
@@ -1746,17 +1757,14 @@ fn complete_artifact_manifest(
                     .map(|artifact| artifact.payload_hash.clone())
                     .filter(|value| !value.is_empty())
                     .unwrap_or(placeholder),
+                estimated_size: artifact.and_then(|artifact| artifact.estimated_size),
                 diagnostics: artifact
                     .map(|artifact| {
-                        let mut diagnostics = artifact
+                        artifact
                             .diagnostics
                             .iter()
                             .map(|diagnostic| Value::String(diagnostic.clone()))
-                            .collect::<Vec<_>>();
-                        if let Some(size) = artifact.estimated_size {
-                            diagnostics.push(json!({"estimatedSize":size}));
-                        }
-                        diagnostics
+                            .collect::<Vec<_>>()
                     })
                     .unwrap_or_default(),
             });

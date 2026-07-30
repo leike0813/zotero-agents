@@ -13,12 +13,7 @@ import {
   listRuntimeLogs,
   type RuntimeLogListFilters,
 } from "./runtimeLogManager";
-import {
-  getSynthesisSidecarDiagnosticSnapshot,
-  listSynthesisSidecarDiagnosticEvents,
-  subscribeSynthesisSidecarDiagnostics,
-  type SynthesisSidecarDiagnosticSnapshot,
-} from "./synthesisSidecarDiagnostics";
+import type { SynthesisSidecarDiagnosticSnapshot } from "./synthesisSidecarDiagnostics";
 import type { SynthesisSidecarDiagnosticEvent } from "./synthesisSidecarDiagnosticEvents";
 import {
   cleanupTaskDashboardHistory,
@@ -52,7 +47,13 @@ import {
   isAcpRuntimeSemanticTraceRecorderAvailable,
   isDebugModeEnabled,
   isSkillRunnerConnectionAuditAvailable,
+  isSynthesisSidecarDiagnosticsAvailable,
 } from "./debugMode";
+
+const SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE =
+  typeof __debug_mode__ === "undefined"
+    ? isSynthesisSidecarDiagnosticsAvailable()
+    : __debug_mode__ && __synthesis_sidecar_diagnostics_enabled__;
 import type { AcpRuntimeSemanticTraceRecorderView } from "./acpRuntimeSemanticTraceRecorder";
 import type { AcpRuntimeReplayControllerView } from "./acpRuntimeReplayController";
 import type { SkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionAudit";
@@ -234,6 +235,7 @@ type DashboardSnapshot = {
   tabs: Array<{
     key: string;
     label: string;
+    group: "system" | "backend";
     backendId?: string;
     backendType?: string;
     disabled?: boolean;
@@ -331,7 +333,6 @@ type DashboardSnapshot = {
   };
   synthesisSidecarView?: {
     snapshot?: SynthesisSidecarDiagnosticSnapshot;
-    lifecycleLogs: DashboardLogRow[];
     recentEvents: SynthesisSidecarDiagnosticEvent[];
   };
   skillRunnerConnectionAuditView?: {
@@ -1437,6 +1438,8 @@ async function buildDashboardSnapshot(args: {
   const summary =
     args.historySummary || summarizeTaskDashboardHistory(args.history);
   const debugModeEnabled = isDebugModeEnabled();
+  const synthesisSidecarDiagnosticsEnabled =
+    SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE;
   const skillRunnerConnectionAuditEnabled =
     __skillrunner_connection_audit_enabled__ &&
     debugModeEnabled &&
@@ -1449,6 +1452,7 @@ async function buildDashboardSnapshot(args: {
     requestedTabKey: args.state.selectedTabKey,
     backends: args.backends,
     debugModeEnabled,
+    synthesisSidecarDiagnosticsEnabled,
     skillRunnerConnectionAuditEnabled,
     acpTraceRecorderEnabled,
     acpReplayProfilerEnabled,
@@ -2063,24 +2067,29 @@ async function buildDashboardSnapshot(args: {
     {
       key: "home",
       label: labels.home,
+      group: "system" as const,
     },
     {
       key: "workflow-options",
       label: labels.tabWorkflowOptions,
+      group: "system" as const,
     },
     {
       key: "products",
       label: labels.tabProducts,
+      group: "system" as const,
     },
     {
       key: "runtime-logs",
       label: labels.runtimeLogsTabTitle,
+      group: "system" as const,
     },
-    ...(debugModeEnabled
+    ...(synthesisSidecarDiagnosticsEnabled
       ? [
           {
             key: "synthesis-sidecar",
             label: labels.synthesisSidecarTabTitle,
+            group: "system" as const,
           },
         ]
       : []),
@@ -2089,6 +2098,7 @@ async function buildDashboardSnapshot(args: {
           {
             key: "skillrunner-connection-audit",
             label: labels.skillRunnerConnectionAuditTabTitle,
+            group: "system" as const,
           },
         ]
       : []),
@@ -2097,6 +2107,7 @@ async function buildDashboardSnapshot(args: {
           {
             key: "acp-trace-replay",
             label: labels.acpTraceReplayTabTitle,
+            group: "system" as const,
           },
         ]
       : []),
@@ -2114,6 +2125,7 @@ async function buildDashboardSnapshot(args: {
       return {
         key: toBackendTabKey(backend.id),
         label: `${backendDisplayName} (${backend.type})`,
+        group: "backend" as const,
         backendId: backend.id,
         backendType: backend.type,
         disabled,
@@ -2152,14 +2164,16 @@ async function buildDashboardSnapshot(args: {
     backendLoadError: args.state.backendLoadError,
   };
 
-  if (resolvedSelectedTabKey === "synthesis-sidecar") {
+  if (
+    synthesisSidecarDiagnosticsEnabled &&
+    resolvedSelectedTabKey === "synthesis-sidecar"
+  ) {
+    const {
+      getSynthesisSidecarDiagnosticSnapshot,
+      listSynthesisSidecarDiagnosticEvents,
+    } = await import("./synthesisSidecarDiagnostics");
     snapshot.synthesisSidecarView = {
       snapshot: getSynthesisSidecarDiagnosticSnapshot(),
-      lifecycleLogs: listRuntimeLogs({
-        component: "synthesis-sidecar-lifecycle",
-        operation: "production-startup",
-        order: "asc",
-      }).map(mapLogRow),
       recentEvents: listSynthesisSidecarDiagnosticEvents(),
     };
     return finalizeDashboardSnapshot(snapshot);
@@ -2942,6 +2956,8 @@ export async function openTaskManagerDialog(args?: {
           Date.now() - lastBackendRegistryReadAt > 30000),
     );
     const debugModeEnabled = isDebugModeEnabled();
+    const synthesisSidecarDiagnosticsEnabled =
+      SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE;
     const skillRunnerConnectionAuditEnabled =
       __skillrunner_connection_audit_enabled__ &&
       debugModeEnabled &&
@@ -2954,6 +2970,7 @@ export async function openTaskManagerDialog(args?: {
       requestedTabKey: state.selectedTabKey,
       backends: state.backends,
       debugModeEnabled,
+      synthesisSidecarDiagnosticsEnabled,
       skillRunnerConnectionAuditEnabled,
       acpTraceRecorderEnabled,
       acpReplayProfilerEnabled,
@@ -4541,13 +4558,18 @@ export async function openTaskManagerDialog(args?: {
         refresh("queue-update");
       }
     });
-    unsubscribeSynthesisDiagnostics = subscribeSynthesisSidecarDiagnostics(
-      () => {
-        if (state.selectedTabKey === "synthesis-sidecar") {
-          refresh("diagnostic-update");
-        }
-      },
-    );
+    if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
+      void import("./synthesisSidecarDiagnostics").then(
+        ({ subscribeSynthesisSidecarDiagnostics }) => {
+          unsubscribeSynthesisDiagnostics =
+            subscribeSynthesisSidecarDiagnostics(() => {
+              if (state.selectedTabKey === "synthesis-sidecar") {
+                refresh("diagnostic-update");
+              }
+            });
+        },
+      );
+    }
     registerBackgroundRefreshTimer({
       owner: "task-dashboard-refresh",
       activationCondition: "dashboard frame mounted",

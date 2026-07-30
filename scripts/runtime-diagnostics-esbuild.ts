@@ -73,6 +73,11 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       build.initialOptions.define?.[
         runtimeDiagnosticsFeatureGroups.profiler.define
       ] === "false";
+    const synthesisSidecarDisabled =
+      debugDisabled ||
+      build.initialOptions.define?.[
+        runtimeDiagnosticsFeatureGroups.synthesisSidecar.define
+      ] === "false";
     build.onResolve(
       {
         filter: runtimeDiagnosticsModuleFilter,
@@ -99,7 +104,7 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
           };
         }
         if (
-          debugDisabled &&
+          synthesisSidecarDisabled &&
           path.basename(args.path) === synthesisSidecarDiagnosticsModuleBasename
         ) {
           return {

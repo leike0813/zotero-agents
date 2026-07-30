@@ -972,8 +972,33 @@ function hostArtifactDescriptor(
     ...(artifact.payload_hash || artifact.hash
       ? { payloadHash: cleanString(artifact.payload_hash || artifact.hash) }
       : {}),
+    ...(artifact.status === "available"
+      ? {
+          estimatedSize: new TextEncoder().encode(
+            JSON.stringify(hostArtifactContent(artifact, artifactType)),
+          ).byteLength,
+        }
+      : {}),
     diagnostics: [...(artifact.diagnostics || [])],
   };
+}
+
+function hostArtifactContent(
+  artifact: PaperArtifactReadResult,
+  artifactType: ReferenceSidecarArtifactType,
+) {
+  return artifactType === "digest"
+    ? {
+        kind: "text" as const,
+        text: cleanString(
+          artifact.markdown || artifact.decoded_text || artifact.payload,
+        ),
+        mediaType: "text/markdown" as const,
+      }
+    : {
+        kind: "json" as const,
+        value: toSynthesisJsonValue(artifact.payload),
+      };
 }
 
 export function createZoteroSynthesisHostReadPort(
@@ -1162,21 +1187,7 @@ export function createZoteroSynthesisHostReadPort(
             diagnostics: ["artifact_hash_changed"],
           };
         }
-        const content =
-          locator.artifactType === "digest"
-            ? {
-                kind: "text" as const,
-                text: cleanString(
-                  artifact.markdown ||
-                    artifact.decoded_text ||
-                    artifact.payload,
-                ),
-                mediaType: "text/markdown" as const,
-              }
-            : {
-                kind: "json" as const,
-                value: toSynthesisJsonValue(artifact.payload),
-              };
+        const content = hostArtifactContent(artifact, locator.artifactType);
         return {
           status: "available" as const,
           payloadHash: currentHash,

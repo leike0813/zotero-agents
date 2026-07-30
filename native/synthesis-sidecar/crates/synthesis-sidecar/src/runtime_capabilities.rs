@@ -13,7 +13,7 @@ use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
 use crate::runtime_http::{read_http, response};
 use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_client::{
@@ -89,11 +89,22 @@ fn call_response(request_id: &str, service_instance_id: &str, data: Value) -> Va
 }
 
 fn error_response(code: &str) -> Value {
+    let public_code = match code {
+        "reverse_host_response_too_large" => "response_body_too_large",
+        "reference_refresh_payload_too_large" => "request_body_too_large",
+        code if code.starts_with("reverse_host_") => "service_unavailable",
+        _ => code,
+    };
+    let details = if public_code == code {
+        json!({})
+    } else {
+        json!({"reason":code})
+    };
     json!({
         "ok":false,
         "requestId":"unknown",
         "serviceInstanceId":"unknown",
-        "error":{"code":code,"message":code,"retryable":false,"details":{}}
+        "error":{"code":public_code,"message":public_code,"retryable":false,"details":details}
     })
 }
 
@@ -228,12 +239,12 @@ pub(crate) fn handle_connection(
         return response(&mut stream, 413, error_response("request_too_large"));
     }
     let request_started_at = current_time_ms().unwrap_or_default();
-    emit(
+    emit_debug(|| {
         NativeDiagnosticEvent::new("rpc", "request-started", "started")
             .capability(&call.capability)
             .request_id(&call.request_id)
-            .request_bytes(body.len()),
-    );
+            .request_bytes(body.len())
+    });
     let outcome = match call.capability.as_str() {
         capability if capability.starts_with("client.") => {
             match dispatch_production_client(&state, capability, call.payload) {
@@ -464,7 +475,7 @@ pub(crate) fn handle_connection(
         _ => response(&mut stream, 404, error_response("capability_not_found")),
     };
     match &outcome {
-        Ok(()) => emit(
+        Ok(()) => emit_debug(|| {
             NativeDiagnosticEvent::new("rpc", "request-completed", "succeeded")
                 .capability(&call.capability)
                 .request_id(&call.request_id)
@@ -472,8 +483,8 @@ pub(crate) fn handle_connection(
                     current_time_ms()
                         .unwrap_or(request_started_at)
                         .saturating_sub(request_started_at),
-                ),
-        ),
+                )
+        }),
         Err(error) => emit(
             NativeDiagnosticEvent::new("rpc", "request-failed", "failed")
                 .capability(&call.capability)

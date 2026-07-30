@@ -1,6 +1,5 @@
-import { isDebugModeEnabled } from "./debugMode";
+import { isSynthesisSidecarDiagnosticsAvailable } from "./debugMode";
 import { appendRuntimeLog } from "./runtimeLogManager";
-import { retainSynthesisSidecarDiagnosticEvent } from "./synthesisSidecarDiagnostics";
 
 export type SynthesisSidecarDiagnosticComponent =
   | "lifecycle"
@@ -26,6 +25,8 @@ export type SynthesisSidecarDiagnosticEventInput = {
   durationMs?: number;
   requestBytes?: number;
   responseBytes?: number;
+  attemptedResponseBytes?: number;
+  limitBytes?: number;
   httpStatus?: number;
   returned?: number;
   total?: number;
@@ -39,8 +40,21 @@ export type SynthesisSidecarDiagnosticEvent =
     ts: string;
   };
 
+export type SynthesisSidecarDiagnosticEventRecorder = (
+  event: SynthesisSidecarDiagnosticEventInput,
+) => void;
+
 const EVENT_TEXT_LIMIT = 256;
 let eventSequence = 0;
+let debugEventSink:
+  | ((event: SynthesisSidecarDiagnosticEvent) => void)
+  | undefined;
+
+export function registerSynthesisSidecarDebugEventSink(
+  sink?: (event: SynthesisSidecarDiagnosticEvent) => void,
+) {
+  debugEventSink = sink;
+}
 
 export function synthesisSidecarDiagnosticCode(
   error: unknown,
@@ -110,6 +124,8 @@ function normalizeDiagnosticEvent(
     "durationMs",
     "requestBytes",
     "responseBytes",
+    "attemptedResponseBytes",
+    "limitBytes",
     "httpStatus",
     "returned",
     "total",
@@ -125,36 +141,72 @@ function normalizeDiagnosticEvent(
 export function recordSynthesisSidecarDiagnosticEvent(
   input: SynthesisSidecarDiagnosticEventInput,
 ) {
-  const debug = isDebugModeEnabled();
+  const debug = isSynthesisSidecarDiagnosticsAvailable();
   if (!debug && input.status !== "failed") {
     return undefined;
   }
   const event = normalizeDiagnosticEvent(input);
   if (debug) {
-    retainSynthesisSidecarDiagnosticEvent(event);
+    debugEventSink?.(event);
   }
-  appendRuntimeLog({
-    level: input.status === "failed" ? "error" : "info",
-    scope: "system",
-    component: "synthesis-sidecar",
-    operation: event.component,
-    requestId: event.requestId,
-    phase: event.capability,
-    stage: event.stage,
-    message:
-      event.code ||
-      `Synthesis sidecar ${event.component} ${event.stage} ${event.status}`,
-    transport:
-      typeof event.httpStatus === "number" ||
-      typeof event.durationMs === "number" ||
-      typeof event.responseBytes === "number"
-        ? {
-            status: event.httpStatus,
-            duration: event.durationMs,
-            size: event.responseBytes,
-          }
-        : undefined,
-    details: event,
-  });
+  if (input.status === "failed") {
+    appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      component: "synthesis-sidecar",
+      operation: event.component,
+      requestId: event.requestId,
+      phase: event.capability,
+      stage: event.stage,
+      message:
+        event.code ||
+        `Synthesis sidecar ${event.component} ${event.stage} failed`,
+      transport:
+        typeof event.httpStatus === "number" ||
+        typeof event.durationMs === "number" ||
+        typeof event.responseBytes === "number"
+          ? {
+              status: event.httpStatus,
+              duration: event.durationMs,
+              size: event.responseBytes,
+            }
+          : undefined,
+      details: event,
+    });
+  }
   return { ...event };
+}
+
+function safeRecorder(
+  recorder: SynthesisSidecarDiagnosticEventRecorder | undefined,
+) {
+  return recorder
+    ? (event: SynthesisSidecarDiagnosticEventInput) => {
+        try {
+          recorder(event);
+        } catch {
+          // Diagnostics must never alter the observed operation.
+        }
+      }
+    : undefined;
+}
+
+export function createSynthesisSidecarDiagnosticRecorders(
+  injected?: SynthesisSidecarDiagnosticEventRecorder,
+) {
+  const testRecorder =
+    typeof __env__ === "undefined" || __env__ !== "production"
+      ? injected
+      : undefined;
+  return {
+    debug: safeRecorder(
+      testRecorder ||
+        (isSynthesisSidecarDiagnosticsAvailable()
+          ? recordSynthesisSidecarDiagnosticEvent
+          : undefined),
+    ),
+    failure: safeRecorder(
+      testRecorder || recordSynthesisSidecarDiagnosticEvent,
+    )!,
+  };
 }

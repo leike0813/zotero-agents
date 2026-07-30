@@ -120,31 +120,43 @@ function bytesToBinaryString(bytes: Uint8Array) {
   return String.fromCharCode(...bytes);
 }
 
+function responseWireChunks(response: PreparedMemoryHttpResponse) {
+  return [new TextEncoder().encode(response.headers), response.bodyBytes];
+}
+
+function observeMemoryWrite(chunkIndex: number, byteLength: number) {
+  if (chunkIndex !== 1) return;
+  metrics.maxWriteChunkBytes = Math.max(metrics.maxWriteChunkBytes, byteLength);
+}
+
 function beginNodeMemoryCopy(args: {
   response: PreparedMemoryHttpResponse;
   outputStream: any;
 }) {
   let aborted = false;
   const completion = (async () => {
-    for (
-      let offset = 0;
-      offset < args.response.bodyBytes.byteLength;
-      offset += RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes
-    ) {
-      if (aborted) throw new Error("Runtime memory response was aborted");
-      const chunk = args.response.bodyBytes.subarray(
-        offset,
-        Math.min(
-          args.response.bodyBytes.byteLength,
-          offset + RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes,
-        ),
-      );
-      metrics.maxWriteChunkBytes = Math.max(
-        metrics.maxWriteChunkBytes,
-        chunk.byteLength,
-      );
-      args.outputStream.write(bytesToBinaryString(chunk), chunk.byteLength);
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const chunks = responseWireChunks(args.response);
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+      const source = chunks[chunkIndex];
+      for (let offset = 0; offset < source.byteLength; ) {
+        if (aborted) throw new Error("Runtime memory response was aborted");
+        const chunk = source.subarray(
+          offset,
+          Math.min(
+            source.byteLength,
+            offset + RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes,
+          ),
+        );
+        observeMemoryWrite(chunkIndex, chunk.byteLength);
+        const written = Number(
+          args.outputStream.write(bytesToBinaryString(chunk), chunk.byteLength),
+        );
+        if (!Number.isInteger(written) || written <= 0) {
+          throw new Error("Runtime memory response made no write progress");
+        }
+        offset += Math.min(written, chunk.byteLength);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
     }
     args.outputStream.close?.();
   })();
@@ -157,47 +169,41 @@ function beginNodeMemoryCopy(args: {
   };
 }
 
-function beginXpcMemoryCopy(args: {
+function resolveAsyncOutputStream(outputStream: any) {
+  if (typeof outputStream?.asyncWait === "function") {
+    return outputStream;
+  }
+  const { interfaces } = runtimeComponents();
+  if (
+    typeof outputStream?.QueryInterface !== "function" ||
+    !interfaces?.nsIAsyncOutputStream
+  ) {
+    return undefined;
+  }
+  try {
+    const resolved = outputStream.QueryInterface(
+      interfaces.nsIAsyncOutputStream,
+    );
+    return typeof resolved?.asyncWait === "function" ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function beginAsyncMemoryCopy(args: {
   response: PreparedMemoryHttpResponse;
   outputStream: any;
+  asyncOutputStream: any;
 }): RuntimeMemoryResponseTransfer {
-  const { components, classes, interfaces, results } = runtimeComponents();
-  const inputFactory = classes?.["@mozilla.org/io/arraybuffer-input-stream;1"];
-  const copierFactory = classes?.["@mozilla.org/network/async-stream-copier;1"];
-  if (
-    !inputFactory ||
-    !copierFactory ||
-    !interfaces?.nsIArrayBufferInputStream ||
-    !interfaces?.nsIAsyncStreamCopier2
-  ) {
+  const { components, results } = runtimeComponents();
+  if (typeof args.asyncOutputStream?.asyncWait !== "function") {
     throw new Error(
-      "Asynchronous Zotero memory response primitives are unavailable",
+      "Asynchronous Zotero memory response output is unavailable",
     );
   }
-  const input = inputFactory.createInstance(
-    interfaces.nsIArrayBufferInputStream,
-  );
-  input.setData(
-    args.response.bodyBytes.buffer,
-    args.response.bodyBytes.byteOffset,
-    args.response.bodyBytes.byteLength,
-  );
-  const copier = copierFactory.createInstance(interfaces.nsIAsyncStreamCopier2);
-  metrics.maxWriteChunkBytes = Math.max(
-    metrics.maxWriteChunkBytes,
-    Math.min(
-      RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes,
-      args.response.bodyBytes.byteLength,
-    ),
-  );
-  copier.init(
-    input,
-    args.outputStream,
-    null,
-    0,
-    true,
-    true,
-  );
+  const chunks = responseWireChunks(args.response);
+  let chunkIndex = 0;
+  let offset = 0;
   let settled = false;
   let resolveCompletion!: () => void;
   let rejectCompletion!: (error: unknown) => void;
@@ -205,41 +211,97 @@ function beginXpcMemoryCopy(args: {
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
-  const copyRequest =
-    typeof copier.QueryInterface === "function" &&
-    interfaces?.nsIAsyncStreamCopier
-      ? copier.QueryInterface(interfaces.nsIAsyncStreamCopier)
-      : copier;
-  copyRequest.asyncCopy(
-    {
-      onStartRequest() {},
-      onStopRequest(_request: unknown, status: number) {
-        if (settled) return;
-        settled = true;
-        const succeeded =
-          status === 0 ||
-          (typeof components?.isSuccessCode === "function" &&
-            components.isSuccessCode(status));
-        if (succeeded) resolveCompletion();
-        else
-          rejectCompletion(
-            new Error(`Memory response copy failed (${status})`),
-          );
-      },
+
+  const close = () => {
+    try {
+      args.outputStream.close?.();
+    } catch {
+      // Closing is best effort after completion or failure.
+    }
+  };
+  const fail = (error: unknown) => {
+    if (settled) return;
+    settled = true;
+    close();
+    rejectCompletion(error);
+  };
+  const complete = () => {
+    if (settled) return;
+    settled = true;
+    close();
+    resolveCompletion();
+  };
+  const wouldBlock = (error: unknown) => {
+    const code =
+      error && typeof error === "object"
+        ? Number((error as { result?: unknown }).result)
+        : Number.NaN;
+    return (
+      Number.isFinite(code) &&
+      code ===
+        Number(
+          results?.NS_BASE_STREAM_WOULD_BLOCK ??
+            components?.results?.NS_BASE_STREAM_WOULD_BLOCK,
+        )
+    );
+  };
+  const observer = {
+    onOutputStreamReady(stream: any) {
+      if (settled) return;
+      try {
+        while (chunkIndex < chunks.length && !chunks[chunkIndex].byteLength) {
+          chunkIndex += 1;
+          offset = 0;
+        }
+        if (chunkIndex >= chunks.length) {
+          complete();
+          return;
+        }
+        const source = chunks[chunkIndex];
+        const chunk = source.subarray(
+          offset,
+          Math.min(
+            source.byteLength,
+            offset + RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes,
+          ),
+        );
+        observeMemoryWrite(chunkIndex, chunk.byteLength);
+        const written = Number(
+          stream.write(bytesToBinaryString(chunk), chunk.byteLength),
+        );
+        if (!Number.isInteger(written) || written <= 0) {
+          throw new Error("Runtime memory response made no write progress");
+        }
+        offset += Math.min(written, chunk.byteLength);
+        if (offset >= source.byteLength) {
+          chunkIndex += 1;
+          offset = 0;
+        }
+        schedule();
+      } catch (error) {
+        if (wouldBlock(error)) {
+          schedule();
+        } else {
+          fail(error);
+        }
+      }
     },
-    null,
-  );
+  };
+  const schedule = () => {
+    if (settled) return;
+    try {
+      args.asyncOutputStream.asyncWait(observer, 0, 0, null);
+    } catch (error) {
+      fail(error);
+    }
+  };
+  schedule();
+
   return {
     completion,
     abort() {
       if (settled) return;
-      settled = true;
-      copier.cancel?.(
-        results?.NS_BINDING_ABORTED ||
-          components?.results?.NS_BINDING_ABORTED ||
-          0x804b0002,
-      );
-      rejectCompletion(new Error("Runtime memory response was aborted"));
+      fail(new Error("Runtime memory response was aborted"));
     },
   };
 }
@@ -248,14 +310,9 @@ export function beginRuntimeMemoryResponseTransfer(args: {
   response: PreparedMemoryHttpResponse;
   outputStream: any;
 }): RuntimeMemoryResponseTransfer {
-  args.outputStream.write(args.response.headers, args.response.headers.length);
-  if (!args.response.bodyBytes.byteLength) {
-    args.outputStream.close?.();
-    return { completion: Promise.resolve(), abort() {} };
-  }
-  const { classes } = runtimeComponents();
-  return classes?.["@mozilla.org/io/arraybuffer-input-stream;1"]
-    ? beginXpcMemoryCopy(args)
+  const asyncOutputStream = resolveAsyncOutputStream(args.outputStream);
+  return asyncOutputStream
+    ? beginAsyncMemoryCopy({ ...args, asyncOutputStream })
     : beginNodeMemoryCopy(args);
 }
 

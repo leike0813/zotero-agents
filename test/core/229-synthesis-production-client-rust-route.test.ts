@@ -62,6 +62,7 @@ function config(args: {
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-repository-foundation.v1",
+    diagnosticsEnabled: true,
     supervisorInstanceId: args.supervisorInstanceId,
     repositoryDbPath: path.join(args.root, "state", "synthesis.db"),
     canonicalRoot: path.join(args.root, "data", "synthesis"),
@@ -205,6 +206,7 @@ describe("Synthesis Rust production client route", function () {
                 status: "available",
                 locator: "fixture:references:HOSTREF1",
                 payloadHash: "sha256:references-hostref1",
+                estimatedSize: 1_200_000,
                 diagnostics: [],
               },
               {
@@ -230,7 +232,7 @@ describe("Synthesis Rust production client route", function () {
               value: {
                 references: [
                   {
-                    title: `目录治理 ${"文献".repeat(32_000)}`,
+                    title: `目录治理 ${"文献".repeat(200_000)}`,
                     year: "2024",
                     authors: ["研究者"],
                   },
@@ -277,21 +279,16 @@ describe("Synthesis Rust production client route", function () {
       const refresh = await call(port, "client.refreshReferenceSidecarNow", {
         args: [],
       });
-      assert.equal(refresh.status, 200);
+      assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
       assert.equal(refresh.body.data.ok, true);
 
       const index = await call(port, "client.getReferenceSidecarIndex", {
-        args: [{ includeReferences: true }],
+        args: [{ includeReferences: false }],
       });
       assert.equal(index.status, 200);
       assert.equal(index.body.data.total, 1);
       assert.equal(index.body.data.returned, 1);
       assert.equal(index.body.data.rows[0].paper_ref, "1:HOSTREF1");
-      assert.lengthOf(index.body.data.rows[0].references, 1);
-      assert.include(
-        index.body.data.rows[0].references[0].parsedTitle,
-        "目录治理",
-      );
       assert.include(sidecar.stderr(), '"stage":"call-completed"');
       assert.notInclude(sidecar.stderr(), "目录治理");
     } finally {

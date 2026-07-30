@@ -1641,6 +1641,70 @@ tr.clickable {
   box-sizing: border-box;
 }
 
+.synthesis-sidecar-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.synthesis-sidecar-summary .card-value {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.synthesis-sidecar-filters {
+  align-items: end;
+  gap: 10px;
+}
+
+.synthesis-sidecar-filter {
+  display: grid;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.synthesis-sidecar-filter-grow {
+  flex: 1 1 280px;
+}
+
+.synthesis-sidecar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.synthesis-sidecar-events {
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+}
+
+.synthesis-sidecar-events td {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.synthesis-sidecar-events tr.selected td {
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+}
+
+.synthesis-sidecar-detail {
+  min-width: 0;
+}
+
+.synthesis-sidecar-detail .payload-view {
+  max-height: calc(100vh - 340px);
+}
+
+@media (max-width: 1000px) {
+  .synthesis-sidecar-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 .logs-detail-empty {
   padding: 20px;
   text-align: center;

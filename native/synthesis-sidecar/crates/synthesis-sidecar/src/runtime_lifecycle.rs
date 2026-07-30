@@ -126,6 +126,7 @@ mod tests {
             protocol_version: "synthesis-sidecar.v1".into(),
             schema_version: "synthesis-repository-foundation.v1".into(),
             supervisor_instance_id: "supervisor-1".into(),
+            diagnostics_enabled: false,
             repository_db_path: root.join("state/synthesis.db"),
             canonical_root: root.join("data/synthesis"),
             reverse_host: ProductionReverseHost {

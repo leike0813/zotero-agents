@@ -79,6 +79,8 @@ pub struct NativeLaunchConfig {
     pub protocol_version: String,
     pub schema_version: String,
     pub supervisor_instance_id: String,
+    #[serde(default)]
+    pub diagnostics_enabled: bool,
     pub repository_db_path: PathBuf,
     pub canonical_root: PathBuf,
     pub reverse_host: ProductionReverseHost,

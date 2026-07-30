@@ -1,6 +1,7 @@
 import {
   SYNTHESIS_REVERSE_HOST_LIMITS,
   SynthesisClientError,
+  synthesisReverseHostResponseBodyLimit,
   toSynthesisJsonValue,
   type SynthesisJsonValue,
 } from "../../packages/synthesis-contracts/src";
@@ -17,7 +18,7 @@ import {
   prepareJsonHttpResponse,
 } from "./runtimeHttpResponse";
 import {
-  recordSynthesisSidecarDiagnosticEvent,
+  createSynthesisSidecarDiagnosticRecorders,
   type SynthesisSidecarDiagnosticEventInput,
 } from "./synthesisSidecarDiagnosticEvents";
 
@@ -202,9 +203,7 @@ type EndpointOptions = {
   allowUnboundServiceInstance?: boolean;
   handlers: SynthesisReverseHostHandlers;
   serverSocketFactory?: () => any;
-  recordDiagnosticEvent?: (
-    event: SynthesisSidecarDiagnosticEventInput,
-  ) => void;
+  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
 };
 
 export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
@@ -212,15 +211,9 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
   let server: any;
   let active = false;
   const reads = new Set<HostHttpRequestReadOperation>();
-  const recordDiagnosticEvent =
-    options.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
-  const record = (event: SynthesisSidecarDiagnosticEventInput) => {
-    try {
-      recordDiagnosticEvent(event);
-    } catch {
-      // Diagnostics must never alter the transport.
-    }
-  };
+  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
+    options.recordDiagnosticEvent,
+  );
   const broker = createSynthesisReverseHostBroker({
     profileId: options.profileId,
     serviceInstanceId: () => serviceInstanceId,
@@ -230,7 +223,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
     authorizeCapability: options.authorizeCapability,
     allowUnboundServiceInstance: options.allowUnboundServiceInstance === true,
     handlers: options.handlers,
-    recordDiagnosticEvent,
+    recordDiagnosticEvent: options.recordDiagnosticEvent,
   });
 
   async function handleTransport(transport: any) {
@@ -265,7 +258,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
             typeof call.operationId === "string" ? call.operationId : undefined,
         };
       }
-      record({
+      diagnosticRecorders.debug?.({
         component: "reverse-host",
         stage: "request-received",
         status: "started",
@@ -299,10 +292,11 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         status: result.status,
         body: toSynthesisJsonValue(result.body),
       });
-      if (
-        prepared.bodyByteLength >
-        SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes
-      ) {
+      const responseBodyLimit = synthesisReverseHostResponseBodyLimit(
+        context.capability,
+      );
+      const attemptedResponseBytes = prepared.bodyByteLength;
+      if (attemptedResponseBytes > responseBodyLimit) {
         responseStatus = 503;
         responseCode = "reverse_host_response_too_large";
         prepared = encodeHttpResponse({
@@ -321,7 +315,9 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         outputStream: output,
         response: prepared,
       }).completion;
-      record({
+      (responseStatus >= 400
+        ? diagnosticRecorders.failure
+        : diagnosticRecorders.debug)?.({
         component: "reverse-host",
         stage:
           responseStatus >= 400 ? "response-rejected" : "response-completed",
@@ -330,6 +326,12 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         code: responseCode,
         httpStatus: responseStatus,
         responseBytes: prepared.bodyByteLength,
+        ...(responseCode === "reverse_host_response_too_large"
+          ? {
+              attemptedResponseBytes,
+              limitBytes: responseBodyLimit,
+            }
+          : {}),
         durationMs: Math.max(0, options.now() - startedAt),
       });
     } catch (error) {
@@ -340,7 +342,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
           : responseStarted
             ? "reverse_host_response_transfer_failed"
             : "reverse_host_request_invalid";
-      record({
+      diagnosticRecorders.failure({
         component: "reverse-host",
         stage: responseStarted ? "response-failed" : "request-failed",
         status: "failed",

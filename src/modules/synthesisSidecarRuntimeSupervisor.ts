@@ -30,11 +30,12 @@ import {
   type SynthesisSidecarRuntimeInstaller,
 } from "./synthesisSidecarRuntimeInstaller";
 import {
-  recordSynthesisSidecarDiagnosticEvent,
+  createSynthesisSidecarDiagnosticRecorders,
   type SynthesisSidecarDiagnosticComponent,
   type SynthesisSidecarDiagnosticEventInput,
   type SynthesisSidecarDiagnosticEventStatus,
 } from "./synthesisSidecarDiagnosticEvents";
+import { isSynthesisSidecarDiagnosticsAvailable } from "./debugMode";
 
 type SubprocessModule = NonNullable<
   ReturnType<typeof getMozillaSubprocessModule>
@@ -92,9 +93,8 @@ type BaseSupervisorOptions = {
   discoveryTimeoutMs?: number;
   healthIntervalMs?: number;
   restartDelaysMs?: readonly number[];
-  recordDiagnosticEvent?: (
-    event: SynthesisSidecarDiagnosticEventInput,
-  ) => void;
+  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
+  diagnosticsEnabled?: boolean;
 };
 
 export type SynthesisProductionRuntimeSupervisorOptions =
@@ -207,8 +207,7 @@ function appendTail(current: string, chunk: string) {
     : combined.slice(-DIAGNOSTIC_TAIL_LIMIT);
 }
 
-const NATIVE_DIAGNOSTIC_SCHEMA =
-  "synthesis-sidecar-native-diagnostic-event.v1";
+const NATIVE_DIAGNOSTIC_SCHEMA = "synthesis-sidecar-native-diagnostic-event.v1";
 const DIAGNOSTIC_COMPONENTS = new Set<SynthesisSidecarDiagnosticComponent>([
   "lifecycle",
   "rpc",
@@ -345,8 +344,11 @@ export function createSynthesisProductionRuntimeSupervisor(
       : options.subprocess;
   const controlClient =
     options.controlClient || createSynthesisProductionSidecarControlClient();
-  const recordDiagnosticEvent =
-    options.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
+  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
+    options.recordDiagnosticEvent,
+  );
+  const diagnosticsEnabled =
+    options.diagnosticsEnabled ?? isSynthesisSidecarDiagnosticsAvailable();
 
   let snapshot: SynthesisSidecarSupervisorSnapshot = {
     status: "stopped",
@@ -405,8 +407,12 @@ export function createSynthesisProductionRuntimeSupervisor(
       for (const line of lines) {
         const event =
           kind === "stderr" ? parseNativeDiagnosticEvent(line) : undefined;
-        try {
-          recordDiagnosticEvent(
+        const recorder =
+          event?.status === "failed"
+            ? diagnosticRecorders.failure
+            : diagnosticRecorders.debug;
+        if (recorder && (event || diagnosticsEnabled)) {
+          recorder(
             event || {
               component: "process",
               stage: `${kind}-line`,
@@ -414,8 +420,6 @@ export function createSynthesisProductionRuntimeSupervisor(
               responseBytes: new TextEncoder().encode(line).byteLength,
             },
           );
-        } catch {
-          // Diagnostics must never affect process supervision.
         }
       }
       await yieldToEventLoop();
@@ -598,6 +602,7 @@ export function createSynthesisProductionRuntimeSupervisor(
         protocolVersion: install.protocolVersion,
         schemaVersion: SYNTHESIS_SCHEMA_VERSION,
         supervisorInstanceId,
+        diagnosticsEnabled,
         repositoryDbPath: options.repositoryDbPath,
         canonicalRoot: options.canonicalRoot,
         reverseHost: options.reverseHost,

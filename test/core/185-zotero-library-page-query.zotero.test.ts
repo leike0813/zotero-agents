@@ -11,6 +11,7 @@ import {
   SYNTHESIS_REVERSE_HOST_PATH,
 } from "../../src/modules/synthesisReverseHostEndpoint";
 import type { SynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostBroker";
+import type { SynthesisSidecarDiagnosticEventInput } from "../../src/modules/synthesisSidecarDiagnosticEvents";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -26,6 +27,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
     const authorizationToken = "a".repeat(64);
     const profileId = "b".repeat(64);
     const serviceInstanceId = "service-unicode";
+    const diagnosticEvents: SynthesisSidecarDiagnosticEventInput[] = [];
     let value = `目录治理 ${"文献".repeat(32_000)}`;
     const handlers = Object.fromEntries(
       SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((capability) => [
@@ -40,6 +42,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       isHostConnected: () => true,
       authorizeCapability: () => true,
       handlers,
+      recordDiagnosticEvent: (event) => diagnosticEvents.push(event),
     });
     const locator = endpoint.start();
     endpoint.bindServiceInstance(serviceInstanceId);
@@ -63,8 +66,16 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             payload: {},
           }),
         },
-      );
-      const source = await response.text();
+      ).catch((error) => {
+        throw new Error(`small-unicode-response: ${String(error)}`);
+      });
+      const source = await response.text().catch((error) => {
+        throw new Error(
+          `small-unicode-body: ${String(error)} ${JSON.stringify(
+            diagnosticEvents.slice(-3),
+          )}`,
+        );
+      });
       assert.equal(response.status, 200);
       assert.equal(
         Number(response.headers.get("content-length")),
@@ -73,7 +84,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       assert.equal(JSON.parse(source).result.value, value);
 
       value = "文".repeat(400_000);
-      const oversized = await fetch(
+      const aboveGeneralLimit = await fetch(
         `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
         {
           method: "POST",
@@ -92,8 +103,51 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             payload: {},
           }),
         },
-      );
-      const oversizedSource = await oversized.text();
+      ).catch((error) => {
+        throw new Error(`artifact-policy-response: ${String(error)}`);
+      });
+      const aboveGeneralLimitSource = await aboveGeneralLimit
+        .text()
+        .catch((error) => {
+          throw new Error(
+            `artifact-policy-body: ${String(error)} ${JSON.stringify(
+              diagnosticEvents.slice(-3),
+            )}`,
+          );
+        });
+      assert.equal(aboveGeneralLimit.status, 200);
+      assert.equal(JSON.parse(aboveGeneralLimitSource).result.value, value);
+
+      value = "文".repeat(2_800_000);
+      const oversized = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${authorizationToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-over-artifact-limit",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-over-artifact-limit",
+            capability: "library.artifacts.read",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: {},
+          }),
+        },
+      ).catch((error) => {
+        throw new Error(`oversized-error-response: ${String(error)}`);
+      });
+      const oversizedSource = await oversized.text().catch((error) => {
+        throw new Error(
+          `oversized-error-body: ${String(error)} ${JSON.stringify(
+            diagnosticEvents.slice(-3),
+          )}`,
+        );
+      });
       assert.equal(oversized.status, 503);
       assert.equal(
         Number(oversized.headers.get("content-length")),
@@ -102,6 +156,27 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       assert.equal(
         JSON.parse(oversizedSource).error.details.reason,
         "reverse_host_response_too_large",
+      );
+      assert.deepInclude(
+        diagnosticEvents.find(
+          (event) =>
+            event.requestId === "request-over-artifact-limit" &&
+            event.stage === "response-rejected",
+        ),
+        {
+          status: "failed",
+          code: "reverse_host_response_too_large",
+          attemptedResponseBytes: new TextEncoder().encode(
+            JSON.stringify({
+              ok: true,
+              result: {
+                capability: "library.artifacts.read",
+                value,
+              },
+            }),
+          ).byteLength,
+          limitBytes: 8 * 1024 * 1024,
+        },
       );
     } finally {
       endpoint.stop();

@@ -1,4 +1,8 @@
 (function () {
+  const SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE =
+    (typeof __debug_mode__ === "undefined" || __debug_mode__ === true) &&
+    (typeof __synthesis_sidecar_diagnostics_enabled__ === "undefined" ||
+      __synthesis_sidecar_diagnostics_enabled__ === true);
   const state = {
     snapshot: null,
     logsActiveReadingId: null,
@@ -15,6 +19,10 @@
     productsListCollapsed: false,
     dashboardScrollTopsByKey: Object.create(null),
     productExpandedTreePathsById: Object.create(null),
+    synthesisEventId: "",
+    synthesisStatusFilter: "",
+    synthesisComponentFilter: "",
+    synthesisCorrelationFilter: "",
   };
 
   function sendAction(action, payload) {
@@ -4032,7 +4040,11 @@
     main.appendChild(splitView);
   }
 
-  function renderSynthesisSidecar(main, snapshot) {
+  let renderSynthesisSidecar;
+  // Keep the complete diagnostic renderer inside the compile-time gate.
+  // prettier-ignore
+  if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
+    renderSynthesisSidecar = function (main, snapshot) {
     const view = snapshot.synthesisSidecarView || {};
     main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
     const current = view.snapshot;
@@ -4045,82 +4057,240 @@
         ),
       );
     } else {
-      const summary = el("section", "card");
-      summary.appendChild(
-        el(
-          "h3",
-          "",
+      const summary = el("section", "synthesis-sidecar-summary");
+      [
+        [
+          "Status",
           `${current.phase || "unknown"} · ${current.status || "unknown"}`,
-        ),
-      );
-      summary.appendChild(
-        el(
-          "div",
-          "muted",
-          current.code
-            ? `${current.attemptId} · ${current.code}`
-            : current.attemptId,
-        ),
-      );
-      const payload = el("pre", "log-view mono payload-view");
-      payload.textContent = JSON.stringify(current, null, 2);
-      summary.appendChild(payload);
+        ],
+        ["Attempt", current.attemptId || "-"],
+        [
+          "Instance",
+          (current.evidence && current.evidence.serviceInstanceId) || "-",
+        ],
+        ["Last code", current.code || "-"],
+      ].forEach(function (entry) {
+        const card = el("div", "card");
+        card.appendChild(el("div", "card-label", entry[0]));
+        card.appendChild(el("div", "card-value mono", String(entry[1])));
+        summary.appendChild(card);
+      });
       main.appendChild(summary);
     }
 
-    const timeline = Array.isArray(view.lifecycleLogs)
-      ? view.lifecycleLogs
-      : [];
-    main.appendChild(el("h3", "section-title", "Startup timeline"));
-    if (timeline.length === 0) {
-      main.appendChild(el("div", "empty-state", "No lifecycle events."));
-    } else {
-      const timelinePayload = el("pre", "log-view mono payload-view");
-      timelinePayload.textContent = timeline
-        .map(function (entry) {
-          return [
-            entry.ts,
-            String(entry.level || "").toUpperCase(),
-            entry.stage,
-            entry.message,
-          ]
-            .filter(Boolean)
-            .join("  ");
-        })
-        .join("\n");
-      main.appendChild(timelinePayload);
-    }
-
     const events = Array.isArray(view.recentEvents) ? view.recentEvents : [];
-    main.appendChild(el("h3", "section-title", "Runtime event stream"));
     if (events.length === 0) {
       main.appendChild(el("div", "empty-state", "No sidecar runtime events."));
       return;
     }
-    const eventPayload = el("pre", "log-view mono payload-view");
-    eventPayload.textContent = events
-      .map(function (event) {
-        return [
-          event.ts,
-          String(event.component || "").toUpperCase(),
-          event.status,
-          event.stage,
-          event.capability,
-          event.requestId,
-          event.operationId,
-          event.code,
-          typeof event.durationMs === "number"
-            ? `${event.durationMs}ms`
-            : "",
-          typeof event.responseBytes === "number"
-            ? `${event.responseBytes}B`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("  ");
-      })
-      .join("\n");
-    main.appendChild(eventPayload);
+
+    const controls = el("div", "toolbar synthesis-sidecar-filters");
+    function appendSelectFilter(label, stateKey, values) {
+      const wrap = el("label", "synthesis-sidecar-filter");
+      wrap.appendChild(el("span", "card-label", label));
+      const select = document.createElement("select");
+      select.className = "workflow-settings-field-control";
+      [["", "All"]].concat(values).forEach(function (entry) {
+        const option = document.createElement("option");
+        option.value = entry[0];
+        option.textContent = entry[1];
+        option.selected = entry[0] === state[stateKey];
+        select.appendChild(option);
+      });
+      select.addEventListener("change", function () {
+        state[stateKey] = select.value;
+        render();
+      });
+      wrap.appendChild(select);
+      controls.appendChild(wrap);
+    }
+    appendSelectFilter(
+      "Status",
+      "synthesisStatusFilter",
+      Array.from(
+        new Set(
+          events.map(function (event) {
+            return String(event.status || "");
+          }),
+        ),
+      )
+        .filter(Boolean)
+        .sort()
+        .map(function (value) {
+          return [value, value];
+        }),
+    );
+    appendSelectFilter(
+      "Component",
+      "synthesisComponentFilter",
+      Array.from(
+        new Set(
+          events.map(function (event) {
+            return String(event.component || "");
+          }),
+        ),
+      )
+        .filter(Boolean)
+        .sort()
+        .map(function (value) {
+          return [value, value];
+        }),
+    );
+    const correlationLabel = el(
+      "label",
+      "synthesis-sidecar-filter synthesis-sidecar-filter-grow",
+    );
+    correlationLabel.appendChild(el("span", "card-label", "Correlation"));
+    const correlationInput = document.createElement("input");
+    correlationInput.className = "workflow-settings-field-control mono";
+    correlationInput.placeholder = "request / operation / attempt";
+    correlationInput.value = state.synthesisCorrelationFilter;
+    correlationInput.addEventListener("change", function () {
+      state.synthesisCorrelationFilter = correlationInput.value.trim();
+      render();
+    });
+    correlationLabel.appendChild(correlationInput);
+    controls.appendChild(correlationLabel);
+    main.appendChild(controls);
+
+    const correlationNeedle = state.synthesisCorrelationFilter.toLowerCase();
+    const filtered = events.filter(function (event) {
+      if (
+        state.synthesisStatusFilter &&
+        event.status !== state.synthesisStatusFilter
+      ) {
+        return false;
+      }
+      if (
+        state.synthesisComponentFilter &&
+        event.component !== state.synthesisComponentFilter
+      ) {
+        return false;
+      }
+      if (!correlationNeedle) {
+        return true;
+      }
+      return [event.requestId, event.operationId, event.attemptId]
+        .filter(Boolean)
+        .some(function (value) {
+          return String(value).toLowerCase().includes(correlationNeedle);
+        });
+    });
+    const selected =
+      events.find(function (event) {
+        return event.id === state.synthesisEventId;
+      }) ||
+      filtered
+        .slice()
+        .reverse()
+        .find(function (event) {
+          return event.status === "failed";
+        }) ||
+      filtered[filtered.length - 1];
+    if (selected) {
+      state.synthesisEventId = selected.id;
+    }
+
+    const layout = el("div", "synthesis-sidecar-layout");
+    const tableWrap = el("div", "table-wrap synthesis-sidecar-events");
+    tableWrap.dataset.dashboardScrollKey = "synthesis-sidecar:events";
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const header = document.createElement("tr");
+    [
+      "Time",
+      "Status",
+      "Component",
+      "Stage",
+      "Capability",
+      "Code",
+      "Duration",
+      "Bytes",
+    ].forEach(function (label) {
+      header.appendChild(el("th", "", label));
+    });
+    thead.appendChild(header);
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    filtered.forEach(function (event) {
+      const row = document.createElement("tr");
+      row.className = "clickable-row";
+      if (selected && selected.id === event.id) {
+        row.classList.add("selected");
+      }
+      const bytes =
+        typeof event.attemptedResponseBytes === "number"
+          ? `${event.attemptedResponseBytes}/${event.limitBytes || "-"}`
+          : typeof event.responseBytes === "number"
+            ? String(event.responseBytes)
+            : typeof event.requestBytes === "number"
+              ? String(event.requestBytes)
+              : "-";
+      [
+        formatTime(event.ts),
+        event.status || "-",
+        event.component || "-",
+        event.stage || "-",
+        event.capability || "-",
+        event.code || "-",
+        typeof event.durationMs === "number" ? `${event.durationMs}ms` : "-",
+        bytes,
+      ].forEach(function (value) {
+        row.appendChild(el("td", "mono", String(value)));
+      });
+      row.addEventListener("click", function () {
+        state.synthesisEventId = event.id;
+        render();
+      });
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    layout.appendChild(tableWrap);
+
+    const detail = el("section", "panel synthesis-sidecar-detail");
+    detail.appendChild(el("h3", "panel-title", "Event detail"));
+    if (!selected) {
+      detail.appendChild(el("div", "empty-state", "No matching events."));
+    } else {
+      const identities = [
+        selected.requestId,
+        selected.operationId,
+        selected.attemptId,
+      ].filter(Boolean);
+      const related = events.filter(function (event) {
+        return identities.some(function (identity) {
+          return (
+            event.requestId === identity ||
+            event.operationId === identity ||
+            event.attemptId === identity
+          );
+        });
+      });
+      detail.appendChild(
+        el(
+          "div",
+          "muted mono",
+          related.length > 1
+            ? `${related.length} correlated events`
+            : "No additional correlated event",
+        ),
+      );
+      const copy = el("button", "btn", "Copy JSON");
+      copy.addEventListener("click", function () {
+        const text = JSON.stringify({ selected, related }, null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          void navigator.clipboard.writeText(text);
+        }
+      });
+      detail.appendChild(copy);
+      const payload = el("pre", "log-view mono payload-view");
+      payload.textContent = JSON.stringify({ selected, related }, null, 2);
+      detail.appendChild(payload);
+    }
+    layout.appendChild(detail);
+    main.appendChild(layout);
+    };
   }
 
   function render() {
@@ -4316,83 +4486,22 @@
     if (tabs.length === 0) {
       sidebar.appendChild(el("div", "empty", snapshot.labels.noBackends));
     } else {
-      const homeTab = tabs.find((tab) => tab.key === "home");
-      if (homeTab) {
-        const btn = createTabButton(homeTab, snapshot);
-        btn.addEventListener("click", function () {
-          sendAction("select-tab", {
-            tabKey: homeTab.key,
+      tabs
+        .filter((tab) => tab.group === "system")
+        .forEach(function (tab) {
+          const btn = createTabButton(tab, snapshot);
+          btn.addEventListener("click", function () {
+            sendAction("select-tab", { tabKey: tab.key });
           });
+          sidebar.appendChild(btn);
         });
-        sidebar.appendChild(btn);
-      }
-      const workflowOptionsTab = tabs.find(
-        (tab) => tab.key === "workflow-options",
-      );
-      if (workflowOptionsTab) {
-        const btn = createTabButton(workflowOptionsTab, snapshot);
-        btn.addEventListener("click", function () {
-          sendAction("select-tab", {
-            tabKey: workflowOptionsTab.key,
-          });
-        });
-        sidebar.appendChild(btn);
-      }
-      const productsTab = tabs.find((tab) => tab.key === "products");
-      if (productsTab) {
-        const btn = createTabButton(productsTab, snapshot);
-        btn.addEventListener("click", function () {
-          sendAction("select-tab", {
-            tabKey: productsTab.key,
-          });
-        });
-        sidebar.appendChild(btn);
-      }
-      const runtimeLogsTab = tabs.find((tab) => tab.key === "runtime-logs");
-      if (runtimeLogsTab) {
-        const btn = createTabButton(runtimeLogsTab, snapshot);
-        btn.addEventListener("click", function () {
-          sendAction("select-tab", {
-            tabKey: runtimeLogsTab.key,
-          });
-        });
-        sidebar.appendChild(btn);
-      }
-      const connectionAuditTab = tabs.find(
-        (tab) => tab.key === "skillrunner-connection-audit",
-      );
-      if (connectionAuditTab) {
-        const btn = createTabButton(connectionAuditTab, snapshot);
-        btn.addEventListener("click", function () {
-          sendAction("select-tab", {
-            tabKey: connectionAuditTab.key,
-          });
-        });
-        sidebar.appendChild(btn);
-      }
-      const diagnosticsTab = tabs.find((tab) => tab.key === "acp-trace-replay");
-      if (diagnosticsTab) {
-        const btn = createTabButton(diagnosticsTab, snapshot);
-        btn.addEventListener("click", function () {
-          sendAction("select-tab", { tabKey: diagnosticsTab.key });
-        });
-        sidebar.appendChild(btn);
-      }
       const divider = el("div", "tab-divider");
       sidebar.appendChild(divider);
       sidebar.appendChild(
         el("h3", "sidebar-title", labelText(snapshot.labels, "tabBackends")),
       );
       tabs
-        .filter(
-          (tab) =>
-            tab.key !== "home" &&
-            tab.key !== "workflow-options" &&
-            tab.key !== "products" &&
-            tab.key !== "runtime-logs" &&
-            tab.key !== "skillrunner-connection-audit" &&
-            tab.key !== "acp-trace-replay",
-        )
+        .filter((tab) => tab.group === "backend")
         .forEach(function (tab) {
           const isDisabled = tab.disabled === true;
           const btn = createTabButton(tab, snapshot);
@@ -4440,7 +4549,10 @@
     } else if (snapshot.selectedTabKey === "runtime-logs") {
       main.classList.add("skillrunner-fill"); // reuse the full-height flex config
       renderRuntimeLogs(main, snapshot);
-    } else if (snapshot.selectedTabKey === "synthesis-sidecar") {
+    } else if (
+      SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE &&
+      snapshot.selectedTabKey === "synthesis-sidecar"
+    ) {
       renderSynthesisSidecar(main, snapshot);
     } else if (snapshot.selectedTabKey === "skillrunner-connection-audit") {
       main.classList.add("skillrunner-fill");

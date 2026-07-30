@@ -16,22 +16,30 @@ import {
   clearRuntimeLogs,
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
-import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
-import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesisSidecarRpcClient";
+import {
+  setDebugModeOverrideForTests,
+  setSynthesisSidecarDiagnosticsSourceOverrideForTests,
+} from "../../src/modules/debugMode";
+import {
+  createSynthesisSidecarRpcClient,
+  SynthesisSidecarRpcError,
+} from "../../src/modules/synthesisSidecarRpcClient";
 
 describe("Synthesis sidecar debug observability", function () {
   beforeEach(function () {
     setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
     resetSynthesisSidecarDiagnosticsForTests();
     void clearRuntimeLogs();
   });
 
   afterEach(function () {
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
     setDebugModeOverrideForTests(undefined);
     resetSynthesisSidecarDiagnosticsForTests();
   });
 
-  it("projects one correlated startup attempt into snapshot and runtime logs", function () {
+  it("projects one correlated startup attempt while logging only its failure", function () {
     const attemptId = beginSynthesisSidecarStartupAttempt();
     recordSynthesisSidecarStartupPhase({
       attemptId,
@@ -67,11 +75,7 @@ describe("Synthesis sidecar debug observability", function () {
     });
     assert.deepEqual(
       logs.map((entry) => [entry.phase, entry.stage]),
-      [
-        ["startup", "started"],
-        ["runtime-install", "running"],
-        ["runtime-install", "failed"],
-      ],
+      [["runtime-install", "failed"]],
     );
     assert.isTrue(logs.every((entry) => entry.requestId === attemptId));
     assert.deepEqual(
@@ -139,6 +143,19 @@ describe("Synthesis sidecar debug observability", function () {
     assert.equal(logs[0]?.stage, "failed");
   });
 
+  it("does not retain diagnostic state when the independent source is disabled", function () {
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(false);
+    const attemptId = beginSynthesisSidecarStartupAttempt();
+    recordSynthesisSidecarStartupPhase({
+      attemptId,
+      phase: "runtime-install",
+      status: "running",
+    });
+
+    assert.isUndefined(getSynthesisSidecarDiagnosticSnapshot());
+    assert.deepEqual(listSynthesisSidecarDiagnosticEvents(), []);
+  });
+
   it("keeps only failure summaries in normal mode and full correlated events in debug mode", function () {
     recordSynthesisSidecarDiagnosticEvent({
       component: "reverse-host",
@@ -162,6 +179,13 @@ describe("Synthesis sidecar debug observability", function () {
     assert.deepEqual(
       listSynthesisSidecarDiagnosticEvents().map((event) => event.status),
       ["started", "succeeded"],
+    );
+    assert.lengthOf(
+      listRuntimeLogs({
+        component: "synthesis-sidecar",
+        requestId: "request-debug",
+      }),
+      0,
     );
 
     setDebugModeOverrideForTests(false);
@@ -191,6 +215,41 @@ describe("Synthesis sidecar debug observability", function () {
       normalLogs.map((entry) => [entry.stage, entry.level]),
       [["request-failed", "error"]],
     );
+  });
+
+  it("bounds the debug timeline and retains exact capacity evidence", function () {
+    const previousDebug = console.debug;
+    const previousError = console.error;
+    const runtime = globalThis as typeof globalThis & {
+      Zotero?: { debug?: (message: string) => void };
+    };
+    const previousZoteroDebug = runtime.Zotero?.debug;
+    console.debug = () => undefined;
+    console.error = () => undefined;
+    if (runtime.Zotero) runtime.Zotero.debug = () => undefined;
+    try {
+      for (let index = 0; index < 505; index += 1) {
+        recordSynthesisSidecarDiagnosticEvent({
+          component: "reverse-host",
+          stage: "response-rejected",
+          status: "failed",
+          requestId: `request-${index}`,
+          attemptedResponseBytes: 1_048_576 + index,
+          limitBytes: 8 * 1_024 * 1_024,
+          code: "reverse_host_response_too_large",
+        });
+      }
+    } finally {
+      console.debug = previousDebug;
+      console.error = previousError;
+      if (runtime.Zotero) runtime.Zotero.debug = previousZoteroDebug;
+    }
+
+    const events = listSynthesisSidecarDiagnosticEvents();
+    assert.lengthOf(events, 500);
+    assert.equal(events[0]?.requestId, "request-5");
+    assert.equal(events[499]?.attemptedResponseBytes, 1_049_080);
+    assert.equal(events[499]?.limitBytes, 8 * 1_024 * 1_024);
   });
 
   it("emits payload-free debug events to both console sinks", function () {
@@ -289,6 +348,58 @@ describe("Synthesis sidecar debug observability", function () {
     assert.notInclude(serialized, "must-not-be-logged");
   });
 
+  it("preserves a bounded nested failure reason across the RPC boundary", async function () {
+    const events: Record<string, unknown>[] = [];
+    const rpc = createSynthesisSidecarRpcClient({
+      recordDiagnosticEvent: (event) => events.push(event),
+      fetch: (async (_input: unknown, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body || "{}"));
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            requestId: request.requestId,
+            serviceInstanceId: "service-1",
+            error: {
+              code: "internal_error",
+              details: {
+                reason: "reverse_host_response_too_large",
+              },
+            },
+          }),
+          { status: 503 },
+        );
+      }) as typeof fetch,
+    });
+
+    let caught: unknown;
+    try {
+      await rpc.call({
+        connection: {
+          baseUrl: "http://127.0.0.1:1",
+          profileId: "profile-1",
+          clientToken: "secret-token",
+          serviceInstanceId: "service-1",
+        },
+        capability: "client.refreshReferenceSidecarNow",
+        payload: {},
+        rebuildResult: (value) => value,
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    assert.instanceOf(caught, SynthesisSidecarRpcError);
+    assert.equal((caught as SynthesisSidecarRpcError).code, "internal_error");
+    assert.deepEqual((caught as SynthesisSidecarRpcError).details, {
+      reason: "reverse_host_response_too_large",
+    });
+    assert.deepInclude(events[events.length - 1], {
+      stage: "request-failed",
+      status: "failed",
+      code: "reverse_host_response_too_large",
+    });
+  });
+
   it("ignores stale events from an earlier attempt", function () {
     const staleAttempt = beginSynthesisSidecarStartupAttempt();
     const currentAttempt = beginSynthesisSidecarStartupAttempt();
@@ -339,5 +450,14 @@ describe("Synthesis sidecar debug observability", function () {
 
     assert.include(workbenchBuild, "__debug_mode__: String(DEBUG_MODE)");
     assert.include(workbenchBuild, "minifySyntax: true");
+  });
+
+  it("binds the independent Synthesis source switch in plugin and Dashboard builds", async function () {
+    const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
+    assert.include(
+      config,
+      "__synthesis_sidecar_diagnostics_enabled__: String(",
+    );
+    assert.include(config, 'entryPoints: ["addon/content/dashboard/app.js"]');
   });
 });

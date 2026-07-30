@@ -9,7 +9,7 @@ import {
   type SynthesisSidecarProductionClientCapability,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
-  recordSynthesisSidecarDiagnosticEvent,
+  createSynthesisSidecarDiagnosticRecorders,
   type SynthesisSidecarDiagnosticEventInput,
 } from "./synthesisSidecarDiagnosticEvents";
 
@@ -34,14 +34,20 @@ const textDecoder = new TextDecoder();
 let requestSequence = 0;
 
 export class SynthesisSidecarRpcError extends Error {
-  constructor(readonly code: SynthesisSidecarErrorCode) {
+  constructor(
+    readonly code: SynthesisSidecarErrorCode,
+    readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
     super(code);
     this.name = "SynthesisSidecarRpcError";
   }
 }
 
-function fail(code: SynthesisSidecarErrorCode): never {
-  throw new SynthesisSidecarRpcError(code);
+function fail(
+  code: SynthesisSidecarErrorCode,
+  details: Readonly<Record<string, unknown>> = {},
+): never {
+  throw new SynthesisSidecarRpcError(code, details);
 }
 
 function contentLength(response: Response) {
@@ -148,9 +154,7 @@ export function createSynthesisSidecarRpcClient(options?: {
   requestIdPrefix?: string;
   transportErrors?: SynthesisSidecarRpcTransportErrors;
   now?: () => number;
-  recordDiagnosticEvent?: (
-    event: SynthesisSidecarDiagnosticEventInput,
-  ) => void;
+  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
 }) {
   const fetchImpl = options?.fetch ?? globalThis.fetch;
   const defaultDeadlineMs = options?.deadlineMs ?? 5_000;
@@ -162,15 +166,9 @@ export function createSynthesisSidecarRpcClient(options?: {
     unavailable: "worker_unavailable",
   };
   const now = options?.now ?? Date.now;
-  const recordDiagnosticEvent =
-    options?.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
-  const record = (event: SynthesisSidecarDiagnosticEventInput) => {
-    try {
-      recordDiagnosticEvent(event);
-    } catch {
-      // Diagnostics must never affect the RPC.
-    }
-  };
+  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
+    options?.recordDiagnosticEvent,
+  );
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_rpc_fetch_unavailable");
   }
@@ -204,7 +202,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           ? SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes
           : SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes)
       ) {
-        record({
+        diagnosticRecorders.failure({
           component: "rpc",
           stage: "request-rejected",
           status: "failed",
@@ -215,7 +213,7 @@ export function createSynthesisSidecarRpcClient(options?: {
         });
         return fail("request_body_too_large");
       }
-      record({
+      diagnosticRecorders.debug?.({
         component: "rpc",
         stage: "request-started",
         status: "started",
@@ -256,7 +254,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           requestId?: unknown;
           serviceInstanceId?: unknown;
           data?: unknown;
-          error?: { code?: unknown };
+          error?: { code?: unknown; details?: unknown };
         };
         try {
           body = JSON.parse(responseSource) as typeof body;
@@ -264,11 +262,16 @@ export function createSynthesisSidecarRpcClient(options?: {
           return fail(transportErrors.invalidResponse);
         }
         if (!response.ok || body.ok !== true) {
-          return fail(
-            isSynthesisSidecarErrorCode(body.error?.code)
-              ? body.error.code
-              : "internal_error",
-          );
+          const code = isSynthesisSidecarErrorCode(body.error?.code)
+            ? body.error.code
+            : "internal_error";
+          const details =
+            body.error?.details &&
+            typeof body.error.details === "object" &&
+            !Array.isArray(body.error.details)
+              ? (body.error.details as Record<string, unknown>)
+              : {};
+          return fail(code, details);
         }
         if (
           body.requestId !== requestId ||
@@ -278,7 +281,7 @@ export function createSynthesisSidecarRpcClient(options?: {
         }
         try {
           const result = args.rebuildResult(body.data);
-          record({
+          diagnosticRecorders.debug?.({
             component: "rpc",
             stage: "request-completed",
             status: "succeeded",
@@ -296,20 +299,23 @@ export function createSynthesisSidecarRpcClient(options?: {
         }
       } catch (error) {
         if (error instanceof SynthesisSidecarRpcError) {
-          record({
+          diagnosticRecorders.failure({
             component: "rpc",
             stage: "request-failed",
             status: "failed",
             capability: args.capability,
             requestId,
             serviceInstanceId: args.connection.serviceInstanceId,
-            code: error.code,
+            code:
+              typeof error.details.reason === "string"
+                ? error.details.reason
+                : error.code,
             durationMs: Math.max(0, now() - startedAt),
           });
           throw error;
         }
         if (args.signal?.aborted) {
-          record({
+          diagnosticRecorders.failure({
             component: "rpc",
             stage: "request-failed",
             status: "failed",
@@ -321,7 +327,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           return fail(transportErrors.canceled);
         }
         if (deadline.timedOut()) {
-          record({
+          diagnosticRecorders.failure({
             component: "rpc",
             stage: "request-failed",
             status: "failed",
@@ -332,7 +338,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           });
           return fail(transportErrors.timeout);
         }
-        record({
+        diagnosticRecorders.failure({
           component: "rpc",
           stage: "request-failed",
           status: "failed",

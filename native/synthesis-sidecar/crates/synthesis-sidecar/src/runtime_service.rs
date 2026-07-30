@@ -11,6 +11,7 @@ use synthesis_sidecar::production_capabilities::{
 use synthesis_sidecar::runtime_contract::{current_time_ms, read_native_launch_config};
 
 use crate::runtime_capabilities::ServeState;
+use crate::runtime_diagnostics::configure_debug_events;
 use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_ports::build_production_applications;
 use crate::runtime_reverse_host::probe_reverse_host;
@@ -73,6 +74,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
     production_ready_client_capabilities()?;
     let production_client_operations = production_client_operation_metadata()?;
     let config = read_native_launch_config(Path::new(config_path))?;
+    configure_debug_events(config.diagnostics_enabled);
     probe_reverse_host(&config)?;
     let ownership = Arc::new(RuntimeOwnership::acquire(&config)?);
     let repository_identity = RepositoryIdentity {

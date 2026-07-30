@@ -1,5 +1,8 @@
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use synthesis_sidecar::runtime_contract::current_time_ms;
+
+static DEBUG_EVENTS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,9 +120,20 @@ pub(crate) fn emit(event: NativeDiagnosticEvent) {
     }
 }
 
+pub(crate) fn configure_debug_events(enabled: bool) {
+    DEBUG_EVENTS_ENABLED.store(enabled, Ordering::Release);
+}
+
+pub(crate) fn emit_debug(build: impl FnOnce() -> NativeDiagnosticEvent) {
+    if DEBUG_EVENTS_ENABLED.load(Ordering::Acquire) {
+        emit(build());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
 
     #[test]
     fn diagnostic_event_has_only_bounded_metadata_fields() {
@@ -140,5 +154,16 @@ mod tests {
         for forbidden in ["payload", "authorization", "token", "locator", "paperRef"] {
             assert!(!source.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn disabled_debug_events_do_not_construct_event_payloads() {
+        let constructed = AtomicUsize::new(0);
+        configure_debug_events(false);
+        emit_debug(|| {
+            constructed.fetch_add(1, Ordering::Relaxed);
+            NativeDiagnosticEvent::new("process", "line-received", "succeeded")
+        });
+        assert_eq!(constructed.load(Ordering::Relaxed), 0);
     }
 }

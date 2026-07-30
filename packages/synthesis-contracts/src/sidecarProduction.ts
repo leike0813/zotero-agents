@@ -34,6 +34,7 @@ export const SYNTHESIS_REVERSE_HOST_LIMITS = Object.freeze({
   requestBodyBytes: 1024 * 1024,
   responseHeaderBytes: 16 * 1024,
   responseBodyBytes: 1024 * 1024,
+  callTimeoutMs: 2_000,
   idleTimeoutMs: 1_000,
   deadlineMs: 60_000,
 });
@@ -58,6 +59,29 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
 
 export type SynthesisReverseHostCapability =
   (typeof SYNTHESIS_REVERSE_HOST_CAPABILITIES)[number];
+
+export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
+  "library.artifacts.read": Object.freeze({
+    responseBodyBytes: 8 * 1024 * 1024,
+    callTimeoutMs: 10_000,
+  }),
+});
+
+export function synthesisReverseHostResponseBodyLimit(
+  capability: string | undefined,
+) {
+  return capability === "library.artifacts.read"
+    ? SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES["library.artifacts.read"]
+        .responseBodyBytes
+    : SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes;
+}
+
+export function synthesisReverseHostCallTimeoutMs(capability: string) {
+  return capability === "library.artifacts.read"
+    ? SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES["library.artifacts.read"]
+        .callTimeoutMs
+    : SYNTHESIS_REVERSE_HOST_LIMITS.callTimeoutMs;
+}
 
 export type SynthesisReverseHostCall = {
   schema: typeof SYNTHESIS_REVERSE_HOST_CALL_SCHEMA;

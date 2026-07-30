@@ -9,7 +9,7 @@ import {
 } from "../../packages/synthesis-contracts/src";
 import { timingSafeEqualString } from "../utils/timingSafeEqual";
 import {
-  recordSynthesisSidecarDiagnosticEvent,
+  createSynthesisSidecarDiagnosticRecorders,
   type SynthesisSidecarDiagnosticEventInput,
 } from "./synthesisSidecarDiagnosticEvents";
 
@@ -40,9 +40,7 @@ type BrokerOptions = {
     call: SynthesisReverseHostCall,
   ) => boolean | Promise<boolean>;
   handlers: SynthesisReverseHostHandlers;
-  recordDiagnosticEvent?: (
-    event: SynthesisSidecarDiagnosticEventInput,
-  ) => void;
+  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
 };
 
 type DispatchInput = {
@@ -97,23 +95,16 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
   let active = true;
   const completedEffects = new Map<string, EffectResult>();
   const inFlightEffects = new Map<string, Promise<SynthesisJsonValue>>();
-  const recordDiagnosticEvent =
-    options.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
-
-  const record = (event: SynthesisSidecarDiagnosticEventInput) => {
-    try {
-      recordDiagnosticEvent(event);
-    } catch {
-      // Diagnostics must not alter Host behavior.
-    }
-  };
+  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
+    options.recordDiagnosticEvent,
+  );
 
   async function execute(call: SynthesisReverseHostCall) {
     if (!(await options.authorizeCapability(call))) {
       failure("unavailable", "permission_denied");
     }
     const startedAt = options.now();
-    record({
+    diagnosticRecorders.debug?.({
       component: "reverse-host",
       stage: "handler-started",
       status: "started",
@@ -131,7 +122,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
         }),
         "synthesisReverseHostResult",
       );
-      record({
+      diagnosticRecorders.debug?.({
         component: "reverse-host",
         stage: "handler-completed",
         status: "succeeded",
@@ -147,7 +138,7 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
         error instanceof SynthesisClientError
           ? String(error.details?.reason || error.code)
           : "reverse_host_handler_failed";
-      record({
+      diagnosticRecorders.failure({
         component: "reverse-host",
         stage: "handler-failed",
         status: "failed",

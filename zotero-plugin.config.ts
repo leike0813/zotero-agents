@@ -10,6 +10,7 @@ import {
   ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
   SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
   SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
+  SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
   WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
 
@@ -160,6 +161,9 @@ export default defineConfig({
           __skillrunner_connection_audit_enabled__: String(
             SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
           ),
+          __synthesis_sidecar_diagnostics_enabled__: String(
+            SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
+          ),
           __workspace_publication_wire_assert_enabled__: String(
             WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
           ),
@@ -182,6 +186,19 @@ export default defineConfig({
         minifySyntax: true,
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
+      },
+      {
+        entryPoints: ["addon/content/dashboard/app.js"],
+        define: {
+          __debug_mode__: String(DEBUG_MODE),
+          __synthesis_sidecar_diagnostics_enabled__: String(
+            SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
+          ),
+        },
+        bundle: true,
+        minifySyntax: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/dashboard/app.js",
       },
       {
         entryPoints: ["src/workspaceApp.ts"],

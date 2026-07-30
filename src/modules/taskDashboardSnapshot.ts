@@ -180,6 +180,7 @@ export function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
   debugModeEnabled?: boolean;
+  synthesisSidecarDiagnosticsEnabled?: boolean;
   skillRunnerConnectionAuditEnabled?: boolean;
   acpTraceRecorderEnabled?: boolean;
   acpReplayProfilerEnabled?: boolean;
@@ -193,7 +194,11 @@ export function normalizeDashboardTabKey(args: {
   ) {
     return requested;
   }
-  if (args.debugModeEnabled === true && requested === "synthesis-sidecar") {
+  if (
+    args.debugModeEnabled === true &&
+    args.synthesisSidecarDiagnosticsEnabled === true &&
+    requested === "synthesis-sidecar"
+  ) {
     return requested;
   }
   if (

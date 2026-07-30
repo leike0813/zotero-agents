@@ -37,6 +37,7 @@ export type SynthesisSidecarLaunchConfig = {
   protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   schemaVersion: string;
   supervisorInstanceId: string;
+  diagnosticsEnabled: boolean;
   repositoryDbPath: string;
   canonicalRoot: string;
   reverseHost: {
@@ -159,8 +160,9 @@ export function rebuildSynthesisSidecarLaunchConfig(
   value: unknown,
 ): SynthesisSidecarLaunchConfig {
   const record = toSynthesisJsonObject(value, "sidecarLaunchConfig");
+  const { diagnosticsEnabled, ...requiredRecord } = record;
   exactKeys(
-    record,
+    requiredRecord,
     [
       "schema",
       "profileId",
@@ -186,6 +188,12 @@ export function rebuildSynthesisSidecarLaunchConfig(
     ],
     "sidecarLaunchConfig",
   );
+  if (
+    typeof diagnosticsEnabled !== "undefined" &&
+    typeof diagnosticsEnabled !== "boolean"
+  ) {
+    invalid("sidecarLaunchConfig.diagnosticsEnabled");
+  }
   if (
     record.schema !== SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA ||
     record.implementation !== SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION ||
@@ -277,6 +285,7 @@ export function rebuildSynthesisSidecarLaunchConfig(
       record.supervisorInstanceId,
       "sidecarLaunchConfig.supervisorInstanceId",
     ),
+    diagnosticsEnabled: diagnosticsEnabled === true,
     repositoryDbPath: strictAbsolutePath(
       record.repositoryDbPath,
       "sidecarLaunchConfig.repositoryDbPath",

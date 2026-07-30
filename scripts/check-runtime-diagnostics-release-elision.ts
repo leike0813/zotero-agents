@@ -18,6 +18,7 @@ type Switches = {
   recorder: boolean;
   replay: boolean;
   skillRunnerAudit: boolean;
+  synthesisSidecar: boolean;
 };
 
 async function bundle(switches: Switches) {
@@ -41,7 +42,31 @@ async function bundle(switches: Switches) {
       __skillrunner_connection_audit_enabled__: String(
         switches.skillRunnerAudit,
       ),
+      __synthesis_sidecar_diagnostics_enabled__: String(
+        switches.synthesisSidecar,
+      ),
       __env__: '"test"',
+    },
+    logLevel: "silent",
+  });
+}
+
+async function bundleDashboard(
+  switches: Pick<Switches, "debug" | "synthesisSidecar">,
+) {
+  return build({
+    entryPoints: ["addon/content/dashboard/app.js"],
+    bundle: true,
+    minifySyntax: true,
+    write: false,
+    target: "firefox115",
+    platform: "browser",
+    format: "iife",
+    define: {
+      __debug_mode__: String(switches.debug),
+      __synthesis_sidecar_diagnostics_enabled__: String(
+        switches.synthesisSidecar,
+      ),
     },
     logLevel: "silent",
   });
@@ -103,6 +128,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     recorder: true,
     replay: true,
     skillRunnerAudit: true,
+    synthesisSidecar: true,
   };
   const [
     release,
@@ -112,6 +138,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     recorderDisabled,
     replayDisabled,
     skillRunnerAuditDisabled,
+    synthesisSidecarDisabled,
+    releaseDashboard,
+    debugDashboard,
+    sourceDisabledDashboard,
   ] = await Promise.all([
     bundle({ ...enabled, debug: false }),
     bundle({ ...enabled, debug: false, replay: false }),
@@ -120,12 +150,17 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     bundle({ ...enabled, recorder: false }),
     bundle({ ...enabled, replay: false }),
     bundle({ ...enabled, skillRunnerAudit: false }),
+    bundle({ ...enabled, synthesisSidecar: false }),
+    bundleDashboard({ debug: false, synthesisSidecar: true }),
+    bundleDashboard({ debug: true, synthesisSidecar: true }),
+    bundleDashboard({ debug: true, synthesisSidecar: false }),
   ]);
   const releaseBytes = {
     profiler: assertAbsent("profiler", release),
     recorder: assertAbsent("recorder", release),
     replay: assertAbsent("replay", release),
     skillRunnerAudit: assertAbsent("skillRunnerAudit", release),
+    synthesisSidecar: assertAbsent("synthesisSidecar", release),
   };
   const releaseExclusiveBytes = groupBytes(
     release,
@@ -153,6 +188,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       "skillRunnerAudit",
       skillRunnerAuditDisabled,
     ),
+    synthesisSidecar: assertAbsent(
+      "synthesisSidecar",
+      synthesisSidecarDisabled,
+    ),
   };
   const debugBytes = {
     profiler: groupBytes(
@@ -170,6 +209,10 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     skillRunnerAudit: groupBytes(
       debug,
       runtimeDiagnosticsFeatureGroups.skillRunnerAudit.exclusiveModules,
+    ),
+    synthesisSidecar: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules,
     ),
   };
   for (const [name, bytes] of Object.entries(debugBytes)) {
@@ -190,12 +233,30 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
   ) {
     throw new Error("allowlisted static diagnostic Dashboard markers missing");
   }
+  const dashboardMarkers = ["Synthesis Sidecar", "synthesis-sidecar:events"];
+  const releaseDashboardText = outputText(releaseDashboard);
+  const sourceDisabledDashboardText = outputText(sourceDisabledDashboard);
+  const debugDashboardText = outputText(debugDashboard);
+  for (const marker of dashboardMarkers) {
+    if (
+      releaseDashboardText.includes(marker) ||
+      sourceDisabledDashboardText.includes(marker)
+    ) {
+      throw new Error(
+        `disabled Dashboard retained Synthesis diagnostic marker: ${marker}`,
+      );
+    }
+    if (!debugDashboardText.includes(marker)) {
+      throw new Error(`debug Dashboard did not retain marker: ${marker}`);
+    }
+  }
   return {
     releaseBytes,
     releaseExclusiveBytes,
     debugBytes,
     sourceDisabledBytes,
     retainedStaticMarkers,
+    dashboardMarkers,
     releaseReplayOutputEqual:
       outputText(release) === outputText(releaseReplayDisabled),
   };

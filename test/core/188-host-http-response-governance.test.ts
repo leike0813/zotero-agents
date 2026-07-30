@@ -26,6 +26,22 @@ class CapturingOutputStream {
   }
 }
 
+class PartialAsyncOutputStream extends CapturingOutputStream {
+  constructor(private readonly writeLimit: number) {
+    super();
+  }
+
+  override write(value: string, length: number) {
+    const accepted = Math.min(length, this.writeLimit);
+    this.chunks.push(value.slice(0, accepted));
+    return accepted;
+  }
+
+  asyncWait(callback: { onOutputStreamReady(stream: unknown): void }) {
+    queueMicrotask(() => callback.onOutputStreamReady(this));
+  }
+}
+
 describe("host HTTP response governance", function () {
   beforeEach(function () {
     runtimeHttpResponseInternalsForTests.resetMetrics();
@@ -83,5 +99,28 @@ describe("host HTTP response governance", function () {
       runtimeHttpResponseInternalsForTests.getMetrics().maxWriteChunkBytes,
       RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes,
     );
+  });
+
+  it("continues partial asynchronous output writes until framing is complete", async function () {
+    const response = prepareJsonHttpResponse({
+      status: 200,
+      reason: "OK",
+      body: {
+        value: "文".repeat(RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes * 2),
+      },
+    });
+    const output = new PartialAsyncOutputStream(997);
+
+    await beginRuntimeMemoryResponseTransfer({
+      response,
+      outputStream: output,
+    }).completion;
+
+    const expected = Buffer.concat([
+      Buffer.from(response.headers, "latin1"),
+      Buffer.from(response.bodyBytes),
+    ]);
+    assert.deepEqual(Array.from(output.bytes()), Array.from(expected));
+    assert.equal(output.closeCount, 1);
   });
 });
