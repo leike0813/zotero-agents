@@ -53,11 +53,14 @@
 - [x] 7.3 Replace ambiguous runtime-root strings with one expanded sidecar runtime path and prove the nested layout is unreachable
 - [x] 7.4 Keep startup reconcile behind native mutation admission and restore default-client acquisition after a cutover generation drain
 
-## 8. Add Debug-Only Sidecar Observability
+## 8. Complete Sidecar Observability and Real-Profile Repair
 
 - [x] 8.1 Add one sanitized attempt/phase snapshot and structured runtime-log events with bounded process evidence
 - [x] 8.2 Add the Workbench failure entry, read-only Task Manager Sidecar page, and diagnostic-bundle projection
 - [x] 8.3 Add direct-launcher packaged-runtime preflight, Zotero stream forwarding, and filtered lifecycle output
-- [ ] 8.4 Verify focused TypeScript/Rust tests, release elision, packaging gates, production build, and repeat the clean-profile real-machine check
+- [x] 8.4 Repair reverse-Host UTF-8 response framing, forbid fallback responses after transfer starts, and discard failed reference-refresh preparations
+- [x] 8.5 Add one payload-free correlated event sink across plugin RPC/reverse-Host, native RPC/operation/process, runtime logs, and debug console output
+- [x] 8.6 Extend the read-only Task Manager Sidecar page and diagnostic export from startup-only evidence to a bounded recent runtime timeline
+- [ ] 8.7 Verify focused TypeScript/Rust tests, release elision, packaging gates, production build, and repeat the clean-profile real-machine check
   - Focused tests, release elision, production/direct build, XPI inventory, empty-profile real-machine startup, all public Workbench surfaces, Task Manager diagnostics, and admitted cold restart pass locally.
-  - Seven-platform runtime freshness remains pending the separately governed prebuild for source fingerprint `e4e5c9b0efc6c2fc5e26d80a9ac3a06875dc0fb454a95c2070548207f35d4a07`.
+  - Seven-platform runtime freshness remains pending the separately governed prebuild for source fingerprint `5fb7e92c4729b5267288b423fa27e8d1bf07a65dac1725957d52f0f55e5274a0`.

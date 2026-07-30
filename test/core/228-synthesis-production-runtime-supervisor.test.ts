@@ -195,6 +195,7 @@ describe("Synthesis production runtime supervisor", function () {
 
     const invocations: Array<{ arguments?: string[] }> = [];
     const configs: LaunchConfig[] = [];
+    const diagnosticEvents: Record<string, unknown>[] = [];
     let closeProcess = () => undefined;
     const closed = new Promise<void>((resolve) => {
       closeProcess = resolve;
@@ -222,9 +223,15 @@ describe("Synthesis production runtime supervisor", function () {
             path.join(config.profileRuntimeRoot, "discovery.json"),
             JSON.stringify(discovery(config, "service-1")),
           );
+          const stderrChunks = [
+            '{"schema":"synthesis-sidecar-native-diagnostic-event.v1","tsMs":1,"component":"reverse-host","stage":"call-',
+            'failed","status":"failed","capability":"library.artifacts.read","requestId":"native:1","operationId":"native:read:1","code":"reverse_host_response_body_truncated"}\n',
+          ];
           return {
             stdout: { readString: async () => "" },
-            stderr: { readString: async () => "" },
+            stderr: {
+              readString: async () => stderrChunks.shift() || "",
+            },
             stdin: { close: async () => closeProcess() },
             wait: () => closed,
             kill: () => closeProcess(),
@@ -238,6 +245,7 @@ describe("Synthesis production runtime supervisor", function () {
       } as never,
       discoveryTimeoutMs: 500,
       healthIntervalMs: 0,
+      recordDiagnosticEvent: (event) => diagnosticEvents.push(event),
     });
 
     supervisor.start();
@@ -256,6 +264,16 @@ describe("Synthesis production runtime supervisor", function () {
       authorizationToken: "8".repeat(64),
     });
     assert.notProperty(configs[0], "leaseNonce");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepInclude(diagnosticEvents, {
+      component: "reverse-host",
+      stage: "call-failed",
+      status: "failed",
+      capability: "library.artifacts.read",
+      requestId: "native:1",
+      operationId: "native:read:1",
+      code: "reverse_host_response_body_truncated",
+    });
     assert.equal(fs.readFileSync(legacyActivePath, "utf8"), "legacy-active\n");
     assert.equal(
       fs.readFileSync(legacyVersionPath, "utf8"),

@@ -81,6 +81,7 @@ export type SynthesisHostArtifactScanPageRequest = SynthesisHostPageRequest & {
 };
 
 export type SynthesisHostArtifactScanPageResult = SynthesisHostPageResult & {
+  /** `returned` counts scanned source items; one item may emit several descriptors. */
   artifacts: SynthesisHostArtifactDescriptor[];
 };
 

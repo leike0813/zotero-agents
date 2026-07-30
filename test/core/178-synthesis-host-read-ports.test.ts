@@ -11,6 +11,11 @@ import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 async function createPaper(key: string, title: string) {
   const item = new Zotero.Item("journalArticle");
@@ -44,13 +49,32 @@ async function addPayloadNote(
 }
 
 describe("Synthesis Host read capability ports", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
+  afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
+  });
+
   it("pages JSON-safe library summaries and resolves finite stable refs", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
-    const paperB = await createPaper("HOSTREADB", "Host Read B");
     const paperA = await createPaper("HOSTREADA", "Host Read A");
+    const paperB = await createPaper("HOSTREADB", "Host Read B");
     const sortedKeys = [paperA.key, paperB.key].sort((left, right) =>
       left.localeCompare(right),
     );
+    const adapter = createMockZoteroLibraryPageQueryAdapter();
+    const hydrated: number[][] = [];
+    setZoteroLibraryPageQueryAdapterForTests({
+      ...adapter,
+      async hydrateItems(ids) {
+        hydrated.push([...ids]);
+        return adapter.hydrateItems(ids);
+      },
+    });
     const port: SynthesisHostReadPort = createZoteroSynthesisHostReadPort({
       libraryId,
     });
@@ -84,6 +108,7 @@ describe("Synthesis Host read capability ports", function () {
     assert.deepEqual(lookup.missingPaperRefs, [`${libraryId}:MISSING`]);
     assert.doesNotThrow(() => JSON.stringify({ first, second, lookup }));
     assert.notProperty(first.items[0], "notes");
+    assert.deepEqual(hydrated, [[paperA.id], [paperB.id]]);
   });
 
   it("scans payload-free descriptors and reads one hash-guarded locator", async function () {

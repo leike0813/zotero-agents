@@ -4044,30 +4044,29 @@
           "No Synthesis sidecar startup attempt has been observed in this debug session.",
         ),
       );
-      return;
+    } else {
+      const summary = el("section", "card");
+      summary.appendChild(
+        el(
+          "h3",
+          "",
+          `${current.phase || "unknown"} · ${current.status || "unknown"}`,
+        ),
+      );
+      summary.appendChild(
+        el(
+          "div",
+          "muted",
+          current.code
+            ? `${current.attemptId} · ${current.code}`
+            : current.attemptId,
+        ),
+      );
+      const payload = el("pre", "log-view mono payload-view");
+      payload.textContent = JSON.stringify(current, null, 2);
+      summary.appendChild(payload);
+      main.appendChild(summary);
     }
-
-    const summary = el("section", "card");
-    summary.appendChild(
-      el(
-        "h3",
-        "",
-        `${current.phase || "unknown"} · ${current.status || "unknown"}`,
-      ),
-    );
-    summary.appendChild(
-      el(
-        "div",
-        "muted",
-        current.code
-          ? `${current.attemptId} · ${current.code}`
-          : current.attemptId,
-      ),
-    );
-    const payload = el("pre", "log-view mono payload-view");
-    payload.textContent = JSON.stringify(current, null, 2);
-    summary.appendChild(payload);
-    main.appendChild(summary);
 
     const timeline = Array.isArray(view.lifecycleLogs)
       ? view.lifecycleLogs
@@ -4075,22 +4074,53 @@
     main.appendChild(el("h3", "section-title", "Startup timeline"));
     if (timeline.length === 0) {
       main.appendChild(el("div", "empty-state", "No lifecycle events."));
+    } else {
+      const timelinePayload = el("pre", "log-view mono payload-view");
+      timelinePayload.textContent = timeline
+        .map(function (entry) {
+          return [
+            entry.ts,
+            String(entry.level || "").toUpperCase(),
+            entry.stage,
+            entry.message,
+          ]
+            .filter(Boolean)
+            .join("  ");
+        })
+        .join("\n");
+      main.appendChild(timelinePayload);
+    }
+
+    const events = Array.isArray(view.recentEvents) ? view.recentEvents : [];
+    main.appendChild(el("h3", "section-title", "Runtime event stream"));
+    if (events.length === 0) {
+      main.appendChild(el("div", "empty-state", "No sidecar runtime events."));
       return;
     }
-    const timelinePayload = el("pre", "log-view mono payload-view");
-    timelinePayload.textContent = timeline
-      .map(function (entry) {
+    const eventPayload = el("pre", "log-view mono payload-view");
+    eventPayload.textContent = events
+      .map(function (event) {
         return [
-          entry.ts,
-          String(entry.level || "").toUpperCase(),
-          entry.stage,
-          entry.message,
+          event.ts,
+          String(event.component || "").toUpperCase(),
+          event.status,
+          event.stage,
+          event.capability,
+          event.requestId,
+          event.operationId,
+          event.code,
+          typeof event.durationMs === "number"
+            ? `${event.durationMs}ms`
+            : "",
+          typeof event.responseBytes === "number"
+            ? `${event.responseBytes}B`
+            : "",
         ]
           .filter(Boolean)
           .join("  ");
       })
       .join("\n");
-    main.appendChild(timelinePayload);
+    main.appendChild(eventPayload);
   }
 
   function render() {

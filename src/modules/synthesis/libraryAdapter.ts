@@ -4,6 +4,10 @@ import {
   type ZoteroNotePayloadBlock,
 } from "../notePayloadCodec";
 import {
+  queryZoteroLibraryPage,
+  ZoteroLibraryCursorError,
+} from "../zoteroLibraryPageQuery";
+import {
   SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT,
   SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
   SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
@@ -373,161 +377,6 @@ function isVisibleTopLevelRegular(item: any) {
 function itemByLibraryAndKey(libraryId: number, itemKey: string) {
   const zotero = zoteroRuntime();
   return zotero.Items?.getByLibraryAndKey?.(libraryId, itemKey) || null;
-}
-
-function itemById(itemId: number) {
-  const zotero = zoteroRuntime();
-  return zotero.Items?.get?.(itemId) || null;
-}
-
-function itemIdFromQueryRow(row: unknown) {
-  if (typeof row === "number") {
-    return Math.max(0, Math.floor(row));
-  }
-  if (!row || typeof row !== "object") {
-    return 0;
-  }
-  const record = row as Record<string, unknown>;
-  return Math.max(
-    0,
-    Math.floor(
-      Number(
-        record.itemID || record.itemId || record.item_id || record.id || 0,
-      ) || 0,
-    ),
-  );
-}
-
-async function queryVisibleTopLevelRegularItemIds(args: {
-  libraryId: number;
-  limit: number;
-  afterKey?: string;
-}) {
-  const zotero = zoteroRuntime();
-  const queryAsync = zotero.DB?.queryAsync;
-  if (typeof queryAsync !== "function") {
-    return null;
-  }
-  const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const afterKey = cleanString(args.afterKey);
-  const baseParams = [args.libraryId, afterKey, limit];
-  const queries = [
-    `
-      SELECT I.itemID
-      FROM items I
-      LEFT JOIN itemNotes N ON N.itemID = I.itemID
-      LEFT JOIN itemAttachments A ON A.itemID = I.itemID
-      LEFT JOIN deletedItems D ON D.itemID = I.itemID
-      WHERE I.libraryID = ?
-        AND I.key > ?
-        AND N.itemID IS NULL
-        AND A.itemID IS NULL
-        AND D.itemID IS NULL
-      ORDER BY I.key ASC
-      LIMIT ?
-    `,
-    `
-      SELECT I.itemID
-      FROM items I
-      LEFT JOIN itemNotes N ON N.itemID = I.itemID
-      LEFT JOIN itemAttachments A ON A.itemID = I.itemID
-      WHERE I.libraryID = ?
-        AND I.key > ?
-        AND N.itemID IS NULL
-        AND A.itemID IS NULL
-      ORDER BY I.key ASC
-      LIMIT ?
-    `,
-  ];
-  for (const sql of queries) {
-    try {
-      const rows = await queryAsync.call(zotero.DB, sql, baseParams);
-      return (Array.isArray(rows) ? rows : [])
-        .map(itemIdFromQueryRow)
-        .filter(Boolean);
-    } catch {
-      // Try the next schema-compatible query or fall back to a bounded scan.
-    }
-  }
-  return null;
-}
-
-function boundedVisibleTopLevelRegularItems(args: {
-  libraryId: number;
-  limit: number;
-}) {
-  const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const rows = [];
-  let misses = 0;
-  for (let id = 1; id <= 50000 && rows.length < limit; id += 1) {
-    const item = itemById(id);
-    if (!item) {
-      misses += 1;
-      if (misses >= 500) {
-        break;
-      }
-      continue;
-    }
-    misses = 0;
-    if (
-      isVisibleTopLevelRegular(item) &&
-      normalizeLibraryId(item?.libraryID, args.libraryId) === args.libraryId
-    ) {
-      rows.push(item);
-    }
-  }
-  return rows;
-}
-
-async function visibleTopLevelRegularItemsPage(args: {
-  libraryId: number;
-  limit: number;
-  afterKey?: string;
-}) {
-  const requestedLimit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const ids = await queryVisibleTopLevelRegularItemIds({
-    libraryId: args.libraryId,
-    limit: requestedLimit,
-    afterKey: args.afterKey,
-  });
-  if (ids) {
-    return ids
-      .map((id) => itemById(id))
-      .filter(isVisibleTopLevelRegular)
-      .filter(
-        (item: any) =>
-          normalizeLibraryId(item?.libraryID, args.libraryId) ===
-          args.libraryId,
-      )
-      .sort((left: any, right: any) =>
-        cleanString(left?.key).localeCompare(cleanString(right?.key)),
-      );
-  }
-  const getAll = zoteroRuntime().Items?.getAll;
-  if (typeof getAll === "function") {
-    const items = await getAll.call(zoteroRuntime().Items, args.libraryId);
-    return (Array.isArray(items) ? items : [])
-      .filter(isVisibleTopLevelRegular)
-      .filter(
-        (item: any) =>
-          normalizeLibraryId(item?.libraryID, args.libraryId) ===
-            args.libraryId &&
-          cleanString(item?.key) > cleanString(args.afterKey),
-      )
-      .sort((left: any, right: any) =>
-        cleanString(left?.key).localeCompare(cleanString(right?.key)),
-      )
-      .slice(0, requestedLimit);
-  }
-  return boundedVisibleTopLevelRegularItems({
-    libraryId: args.libraryId,
-    limit: Math.max(requestedLimit, SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX + 1),
-  })
-    .filter((item: any) => cleanString(item?.key) > cleanString(args.afterKey))
-    .sort((left: any, right: any) =>
-      cleanString(left?.key).localeCompare(cleanString(right?.key)),
-    )
-    .slice(0, requestedLimit);
 }
 
 function resolveCollection(ref: string, libraryId: number) {
@@ -994,29 +843,6 @@ function validateHostPageLimit(value: unknown) {
   return limit;
 }
 
-function encodeHostCursor(itemKey: string) {
-  return itemKey ? `v1:${encodeURIComponent(itemKey)}` : "";
-}
-
-function decodeHostCursor(cursor: unknown) {
-  const value = cleanString(cursor);
-  if (!value) {
-    return "";
-  }
-  if (!value.startsWith("v1:")) {
-    invalidHostRead("Host read cursor is invalid");
-  }
-  try {
-    const itemKey = decodeURIComponent(value.slice(3));
-    if (!itemKey) {
-      invalidHostRead("Host read cursor is invalid");
-    }
-    return itemKey;
-  } catch {
-    invalidHostRead("Host read cursor is invalid");
-  }
-}
-
 function hostPaperRef(libraryId: number, itemKey: string) {
   return `${libraryId}:${itemKey}`;
 }
@@ -1169,21 +995,33 @@ export function createZoteroSynthesisHostReadPort(
       });
     }
     const limit = validateHostPageLimit(request.limit);
-    const afterKey = decodeHostCursor(request.cursor);
-    const rows = await visibleTopLevelRegularItemsPage({
-      libraryId,
-      limit: limit + 1,
-      afterKey,
-    });
-    const hasMore = rows.length > limit;
-    const pageRows = rows.slice(0, limit);
-    const nextKey = hasMore ? cleanString(pageRows.at(-1)?.key) : "";
+    const cursor = cleanString(request.cursor);
+    let page: Awaited<ReturnType<typeof queryZoteroLibraryPage>>;
+    try {
+      page = await queryZoteroLibraryPage(
+        {
+          libraryId,
+          limit,
+          cursor: cursor || undefined,
+        },
+        {
+          defaultLibraryId: configuredLibraryId,
+          defaultLimit: limit,
+          maxLimit: SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+        },
+      );
+    } catch (error) {
+      if (error instanceof ZoteroLibraryCursorError) {
+        invalidHostRead("Host read cursor is invalid");
+      }
+      throw error;
+    }
     return {
-      items: pageRows.map((item) => hostItemSummary(item, libraryId)),
-      cursor: cleanString(request.cursor),
-      nextCursor: encodeHostCursor(nextKey),
-      hasMore,
-      returned: pageRows.length,
+      items: page.items.map((item) => hostItemSummary(item, libraryId)),
+      cursor,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      returned: page.items.length,
       limit,
     };
   }

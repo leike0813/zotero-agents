@@ -1935,6 +1935,12 @@ describe("Synthesis tab UI model", function () {
           `${command}[\\s\\S]{0,420}client\\.references\\s*\\.${method}\\(\\)`,
         ),
       );
+      assert.match(
+        referenceRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,500}client\\.references\\s*\\.${method}\\(\\)\\s*\\.then\\(failOnDiagnostic\\)`,
+        ),
+      );
     }
     for (const command of [
       "refreshReferenceSidecarNow",
@@ -2042,8 +2048,10 @@ describe("Synthesis tab UI model", function () {
     const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
     assert.include(diagnosticBlock, '"diagnostic" in result');
     assert.include(diagnosticBlock, ".diagnostic");
-    assert.notInclude(diagnosticBlock, '"diagnostics"');
-    assert.notInclude(diagnosticBlock, ".diagnostics");
+    assert.include(diagnosticBlock, '"ok" in result');
+    assert.include(diagnosticBlock, "row.ok === false");
+    assert.include(diagnosticBlock, '"diagnostics"');
+    assert.include(diagnosticBlock, ".diagnostics");
 
     const invalidationBlock = extractFunctionBlock(
       tabSource,
@@ -2176,7 +2184,7 @@ describe("Synthesis tab UI model", function () {
 
     const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
     assert.include(diagnosticBlock, '"diagnostic" in result');
-    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    assert.include(diagnosticBlock, '"diagnostics"');
 
     const invalidationBlock = extractFunctionBlock(
       tabSource,
@@ -2396,7 +2404,7 @@ describe("Synthesis tab UI model", function () {
 
     const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
     assert.include(diagnosticBlock, '"diagnostic" in result');
-    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    assert.include(diagnosticBlock, '"diagnostics"');
 
     const invalidationBlock = extractFunctionBlock(
       tabSource,
@@ -2529,7 +2537,7 @@ describe("Synthesis tab UI model", function () {
 
     const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
     assert.include(diagnosticBlock, '"diagnostic" in result');
-    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    assert.include(diagnosticBlock, '"diagnostics"');
     const invalidationBlock = extractFunctionBlock(
       tabSource,
       "surfacesInvalidatedByCommand",
@@ -2643,7 +2651,7 @@ describe("Synthesis tab UI model", function () {
     );
     const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
     assert.include(diagnosticBlock, '"diagnostic" in result');
-    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    assert.include(diagnosticBlock, '"diagnostics"');
     const protectedBlock = extractFunctionBlock(
       tabSource,
       "isProtectedRebuildCommand",
@@ -6117,7 +6125,8 @@ describe("Synthesis tab UI model", function () {
     assert.isAtLeast(pageStart, 0, "Host listItemsPage should exist");
     assert.isAbove(pageEnd, pageStart, "Host listItemsPage should be bounded");
     const pageBlock = libraryAdapter.slice(pageStart, pageEnd);
-    assert.include(pageBlock, "visibleTopLevelRegularItemsPage");
+    assert.include(pageBlock, "queryZoteroLibraryPage");
+    assert.include(pageBlock, "SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX");
     assert.notInclude(pageBlock, "getAllRegularZoteroItems");
     assert.include(libraryAdapter, "getItemsByRef");
     const repository = await fs.readFile(

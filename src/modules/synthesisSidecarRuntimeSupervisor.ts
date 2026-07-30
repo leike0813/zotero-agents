@@ -29,6 +29,12 @@ import {
   type SynthesisSidecarRuntimeInstallSnapshot,
   type SynthesisSidecarRuntimeInstaller,
 } from "./synthesisSidecarRuntimeInstaller";
+import {
+  recordSynthesisSidecarDiagnosticEvent,
+  type SynthesisSidecarDiagnosticComponent,
+  type SynthesisSidecarDiagnosticEventInput,
+  type SynthesisSidecarDiagnosticEventStatus,
+} from "./synthesisSidecarDiagnosticEvents";
 
 type SubprocessModule = NonNullable<
   ReturnType<typeof getMozillaSubprocessModule>
@@ -86,6 +92,9 @@ type BaseSupervisorOptions = {
   discoveryTimeoutMs?: number;
   healthIntervalMs?: number;
   restartDelaysMs?: readonly number[];
+  recordDiagnosticEvent?: (
+    event: SynthesisSidecarDiagnosticEventInput,
+  ) => void;
 };
 
 export type SynthesisProductionRuntimeSupervisorOptions =
@@ -103,6 +112,8 @@ type Session = {
   closed?: Promise<void>;
   stdoutTail: string;
   stderrTail: string;
+  stdoutLineBuffer: string;
+  stderrLineBuffer: string;
 };
 
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 10_000;
@@ -196,6 +207,79 @@ function appendTail(current: string, chunk: string) {
     : combined.slice(-DIAGNOSTIC_TAIL_LIMIT);
 }
 
+const NATIVE_DIAGNOSTIC_SCHEMA =
+  "synthesis-sidecar-native-diagnostic-event.v1";
+const DIAGNOSTIC_COMPONENTS = new Set<SynthesisSidecarDiagnosticComponent>([
+  "lifecycle",
+  "rpc",
+  "reverse-host",
+  "operation",
+  "process",
+]);
+const DIAGNOSTIC_STATUSES = new Set<SynthesisSidecarDiagnosticEventStatus>([
+  "started",
+  "succeeded",
+  "failed",
+]);
+
+function parseNativeDiagnosticEvent(
+  source: string,
+): SynthesisSidecarDiagnosticEventInput | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    record.schema !== NATIVE_DIAGNOSTIC_SCHEMA ||
+    typeof record.component !== "string" ||
+    !DIAGNOSTIC_COMPONENTS.has(
+      record.component as SynthesisSidecarDiagnosticComponent,
+    ) ||
+    typeof record.stage !== "string" ||
+    typeof record.status !== "string" ||
+    !DIAGNOSTIC_STATUSES.has(
+      record.status as SynthesisSidecarDiagnosticEventStatus,
+    )
+  ) {
+    return undefined;
+  }
+  const event: SynthesisSidecarDiagnosticEventInput = {
+    component: record.component as SynthesisSidecarDiagnosticComponent,
+    stage: record.stage,
+    status: record.status as SynthesisSidecarDiagnosticEventStatus,
+  };
+  for (const field of [
+    "capability",
+    "requestId",
+    "operationId",
+    "code",
+  ] as const) {
+    if (typeof record[field] === "string") {
+      event[field] = record[field];
+    }
+  }
+  for (const field of [
+    "durationMs",
+    "requestBytes",
+    "responseBytes",
+    "httpStatus",
+    "returned",
+    "total",
+    "page",
+  ] as const) {
+    if (typeof record[field] === "number") {
+      event[field] = record[field];
+    }
+  }
+  return event;
+}
+
 function waitForPromise(promise: Promise<unknown>, timeoutMs: number) {
   return Promise.race([
     promise.then(
@@ -261,6 +345,8 @@ export function createSynthesisProductionRuntimeSupervisor(
       : options.subprocess;
   const controlClient =
     options.controlClient || createSynthesisProductionSidecarControlClient();
+  const recordDiagnosticEvent =
+    options.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
 
   let snapshot: SynthesisSidecarSupervisorSnapshot = {
     status: "stopped",
@@ -310,6 +396,27 @@ export function createSynthesisProductionRuntimeSupervisor(
         current.stdoutTail = appendTail(current.stdoutTail, chunk);
       } else {
         current.stderrTail = appendTail(current.stderrTail, chunk);
+      }
+      const bufferKey =
+        kind === "stdout" ? "stdoutLineBuffer" : "stderrLineBuffer";
+      const source = `${current[bufferKey]}${chunk}`;
+      const lines = source.split(/\r?\n/);
+      current[bufferKey] = lines.pop()?.slice(-DIAGNOSTIC_TAIL_LIMIT) || "";
+      for (const line of lines) {
+        const event =
+          kind === "stderr" ? parseNativeDiagnosticEvent(line) : undefined;
+        try {
+          recordDiagnosticEvent(
+            event || {
+              component: "process",
+              stage: `${kind}-line`,
+              status: "succeeded",
+              responseBytes: new TextEncoder().encode(line).byteLength,
+            },
+          );
+        } catch {
+          // Diagnostics must never affect process supervision.
+        }
       }
       await yieldToEventLoop();
     }
@@ -471,6 +578,8 @@ export function createSynthesisProductionRuntimeSupervisor(
         install,
         stdoutTail: "",
         stderrTail: "",
+        stdoutLineBuffer: "",
+        stderrLineBuffer: "",
       };
       session = current;
       const config = rebuildSynthesisSidecarLaunchConfig({

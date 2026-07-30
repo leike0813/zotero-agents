@@ -1,6 +1,16 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
+import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { queryZoteroLibraryPage } from "../../src/modules/zoteroLibraryPageQuery";
+import {
+  SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+  SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+} from "../../packages/synthesis-contracts/src";
+import {
+  createSynthesisReverseHostEndpoint,
+  SYNTHESIS_REVERSE_HOST_PATH,
+} from "../../src/modules/synthesisReverseHostEndpoint";
+import type { SynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostBroker";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -12,6 +22,92 @@ function isRealZoteroRuntime() {
 const describeZotero = isRealZoteroRuntime() ? describe : describe.skip;
 
 describeZotero("zotero library page query in Zotero runtime", function () {
+  it("transfers one large Unicode reverse Host response with exact framing", async function () {
+    const authorizationToken = "a".repeat(64);
+    const profileId = "b".repeat(64);
+    const serviceInstanceId = "service-unicode";
+    let value = `目录治理 ${"文献".repeat(32_000)}`;
+    const handlers = Object.fromEntries(
+      SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((capability) => [
+        capability,
+        async () => ({ capability, value }),
+      ]),
+    ) as SynthesisReverseHostHandlers;
+    const endpoint = createSynthesisReverseHostEndpoint({
+      profileId,
+      authorizationToken,
+      now: Date.now,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers,
+    });
+    const locator = endpoint.start();
+    endpoint.bindServiceInstance(serviceInstanceId);
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${authorizationToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-unicode",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-unicode",
+            capability: "library.artifacts.read",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: {},
+          }),
+        },
+      );
+      const source = await response.text();
+      assert.equal(response.status, 200);
+      assert.equal(
+        Number(response.headers.get("content-length")),
+        new TextEncoder().encode(source).byteLength,
+      );
+      assert.equal(JSON.parse(source).result.value, value);
+
+      value = "文".repeat(400_000);
+      const oversized = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${authorizationToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-oversized",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-oversized",
+            capability: "library.artifacts.read",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: {},
+          }),
+        },
+      );
+      const oversizedSource = await oversized.text();
+      assert.equal(oversized.status, 503);
+      assert.equal(
+        Number(oversized.headers.get("content-length")),
+        new TextEncoder().encode(oversizedSource).byteLength,
+      );
+      assert.equal(
+        JSON.parse(oversizedSource).error.details.reason,
+        "reverse_host_response_too_large",
+      );
+    } finally {
+      endpoint.stop();
+    }
+  });
+
   it("queries real SQLite pages and hydrates only ordered page ids", async function () {
     const token = `keyset-${Date.now()}`;
     const collection = new Zotero.Collection();
@@ -38,6 +134,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
 
     const db = (Zotero as any).DB;
     const previousQueryAsync = db.queryAsync;
+    const previousGet = (Zotero.Items as any).get;
     const previousGetAsync = (Zotero.Items as any).getAsync;
     const previousGetAll = (Zotero.Items as any).getAll;
     const querySql: string[] = [];
@@ -178,8 +275,43 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       assert.strictEqual(getAllCalls, 0);
       assert.isAtLeast(querySql.length, 28);
       assert.isTrue(querySql.some((sql) => sql.includes("LIMIT ?")));
+
+      const coldItemId = pagedItems[0].id;
+      const coldItemKey = pagedItems[0].key;
+      (Zotero.Items as any).get = (idOrIds: number | number[]) => {
+        const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+        if (ids.includes(coldItemId)) {
+          throw new Error(`Item ${coldItemId} not yet loaded`);
+        }
+        return previousGet.call(Zotero.Items, idOrIds);
+      };
+      try {
+        const hostPort = createZoteroSynthesisHostReadPort({
+          libraryId: Zotero.Libraries.userLibraryID,
+        });
+        let cursor = "";
+        let coldItemFound = false;
+        do {
+          const page = await hostPort.library.listItemsPage({
+            libraryId: Zotero.Libraries.userLibraryID,
+            cursor,
+            limit: 100,
+          });
+          coldItemFound ||= page.items.some(
+            (item) => item.itemKey === coldItemKey,
+          );
+          cursor = page.nextCursor;
+          if (!page.hasMore) {
+            break;
+          }
+        } while (cursor);
+        assert.isTrue(coldItemFound);
+      } finally {
+        (Zotero.Items as any).get = previousGet;
+      }
     } finally {
       db.queryAsync = previousQueryAsync;
+      (Zotero.Items as any).get = previousGet;
       (Zotero.Items as any).getAsync = previousGetAsync;
       (Zotero.Items as any).getAll = previousGetAll;
       await Zotero.Items.trashTx(created.map((item) => item.id));

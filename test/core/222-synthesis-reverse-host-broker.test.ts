@@ -46,6 +46,50 @@ function reason(error: unknown) {
 }
 
 describe("Synthesis reverse Host broker", function () {
+  it("reports payload-free handler boundaries with shared correlation ids", async function () {
+    const events: Record<string, unknown>[] = [];
+    const broker = createSynthesisReverseHostBroker({
+      profileId,
+      serviceInstanceId,
+      authorizationToken: token,
+      now: () => 10_000,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers: makeHandlers(() => ({ value: "目录" })),
+      recordDiagnosticEvent: (event) => events.push(event),
+    });
+
+    await broker.dispatch({
+      authorizationToken: token,
+      call: call("library.artifacts.read"),
+    });
+
+    assert.deepEqual(
+      events.map((event) => [
+        event.stage,
+        event.status,
+        event.requestId,
+        event.operationId,
+      ]),
+      [
+        [
+          "handler-started",
+          "started",
+          "request-1",
+          "operation-1",
+        ],
+        [
+          "handler-completed",
+          "succeeded",
+          "request-1",
+          "operation-1",
+        ],
+      ],
+    );
+    assert.isAbove(Number(events[1]?.responseBytes), "目录".length);
+    assert.notInclude(JSON.stringify(events), "目录");
+  });
+
   it("routes the closed capability set through lifecycle-scoped authorization", async function () {
     const routed: string[] = [];
     const broker = createSynthesisReverseHostBroker({

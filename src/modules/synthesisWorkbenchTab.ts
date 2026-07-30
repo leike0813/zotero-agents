@@ -998,14 +998,33 @@ function runWorkbenchCommandOnce(
 }
 
 function failOnDiagnostic<T>(result: T): T {
-  const diagnostic =
-    result &&
-    typeof result === "object" &&
-    "diagnostic" in result &&
-    (result as { diagnostic?: unknown }).diagnostic;
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const row = result as Record<string, unknown>;
+  const diagnostic = "diagnostic" in result && row.diagnostic;
   if (diagnostic && typeof diagnostic === "object") {
-    const row = diagnostic as Record<string, unknown>;
-    throw new Error(String(row.message || row.code || "Action failed."));
+    const diagnosticRow = diagnostic as Record<string, unknown>;
+    throw new Error(
+      String(diagnosticRow.message || diagnosticRow.code || "Action failed."),
+    );
+  }
+  if ("ok" in result && row.ok === false) {
+    const diagnostics =
+      "diagnostics" in result && Array.isArray(row.diagnostics)
+        ? row.diagnostics
+        : [];
+    const firstDiagnostic = diagnostics.find(
+      (entry) =>
+        typeof entry === "string" ||
+        (entry !== null && typeof entry === "object"),
+    );
+    const message =
+      firstDiagnostic && typeof firstDiagnostic === "object"
+        ? (firstDiagnostic as Record<string, unknown>).message ||
+          (firstDiagnostic as Record<string, unknown>).code
+        : firstDiagnostic;
+    throw new Error(String(message || row.status || "Action failed."));
   }
   return result;
 }
@@ -2407,7 +2426,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references.refreshReferenceSidecarNow();
+        return client.references
+          .refreshReferenceSidecarNow()
+          .then(failOnDiagnostic);
       },
       { deferStart: true },
     );
@@ -2420,7 +2441,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references.retryReferenceSidecarRefresh();
+        return client.references
+          .retryReferenceSidecarRefresh()
+          .then(failOnDiagnostic);
       },
     );
     return;
@@ -2432,7 +2455,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references.runAdvancedReferenceMatchingNow();
+        return client.references
+          .runAdvancedReferenceMatchingNow()
+          .then(failOnDiagnostic);
       },
       { deferStart: true },
     );
@@ -2445,7 +2470,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references.retryAdvancedReferenceMatching();
+        return client.references
+          .retryAdvancedReferenceMatching()
+          .then(failOnDiagnostic);
       },
       { deferStart: true },
     );

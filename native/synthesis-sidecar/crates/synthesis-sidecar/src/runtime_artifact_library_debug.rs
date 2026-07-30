@@ -123,11 +123,11 @@ fn scan_descriptors(apps: &ProductionApplications, request: &Value) -> Result<Ve
         )?;
         let object = page
             .as_object()
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         let rows = object
             .get("artifacts")
             .and_then(Value::as_array)
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         descriptors.extend(rows.iter().cloned());
         if descriptors.len() > COLLECT_MAX {
             return Err("artifact_limit_exceeded".into());
@@ -155,15 +155,15 @@ fn artifact_from_descriptor(
 ) -> Result<Value, String> {
     let object = descriptor
         .as_object()
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
     let paper_ref = object
         .get("paperRef")
         .and_then(Value::as_str)
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
     let artifact_type = object
         .get("artifactType")
         .and_then(Value::as_str)
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
     let payload_type = object
         .get("payloadType")
         .and_then(Value::as_str)
@@ -186,18 +186,18 @@ fn artifact_from_descriptor(
         let locator = object
             .get("locator")
             .and_then(Value::as_str)
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         let expected_hash = object
             .get("payloadHash")
             .and_then(Value::as_str)
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         let content = apps.call_host(
             "library.artifacts.read",
             json!({"locator":locator,"expectedHash":expected_hash}),
         )?;
         let content_object = content
             .as_object()
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         match content_object.get("status").and_then(Value::as_str) {
             Some("available") => {
                 if let Some(payload) = content_object.get("content") {
@@ -216,7 +216,7 @@ fn artifact_from_descriptor(
                     .cloned()
                     .unwrap_or_else(|| json!([]));
             }
-            None => return Err("reverse_host_response_invalid".into()),
+            None => return Err("reverse_host_result_invalid".into()),
         }
     }
     Ok(result)
@@ -336,11 +336,11 @@ fn all_library_items(apps: &ProductionApplications) -> Result<Vec<Value>, String
         )?;
         let object = page
             .as_object()
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         let rows = object
             .get("items")
             .and_then(Value::as_array)
-            .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         items.extend(rows.iter().cloned());
         if items.len() > COLLECT_MAX {
             return Err("library_limit_exceeded".into());
@@ -437,7 +437,7 @@ fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value,
 fn host_paper(item: &Value) -> Result<Value, String> {
     let item = item
         .as_object()
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
     Ok(
         json!({"paper_ref":item.get("paperRef").cloned().unwrap_or(Value::String(String::new())),"library_id":item.get("libraryId").cloned().unwrap_or(Value::from(1)),"item_key":item.get("itemKey").cloned().unwrap_or(Value::String(String::new())),"title":item.get("title").cloned().unwrap_or(Value::String(String::new())),"year":item.get("year").cloned().unwrap_or(Value::String(String::new())),"item_type":item.get("itemType").cloned().unwrap_or(Value::String(String::new())),"creators":item.get("creators").cloned().unwrap_or_else(|| json!([])),"tags":item.get("tags").cloned().unwrap_or_else(|| json!([])),"collections":item.get("collections").cloned().unwrap_or_else(|| json!([]))}),
     )

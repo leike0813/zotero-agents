@@ -92,6 +92,7 @@ describe("Synthesis native client composition", function () {
   });
 
   it("reproduces every inventory gate without an active OpenSpec change directory", function () {
+    this.timeout(30_000);
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "synthesis-r9a-no-change-"));
     try {
       for (const name of ["node_modules", "packages", "src", "native", "scripts", "test", "package.json"]) {

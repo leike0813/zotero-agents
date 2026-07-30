@@ -1,29 +1,36 @@
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use synthesis_sidecar::runtime_contract::{NativeLaunchConfig, current_time_ms};
 
 use crate::runtime_deadline::bounded_timeout;
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit};
 
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
-const MAX_REVERSE_HOST_RESPONSE_BYTES: u64 = 1024 * 1024;
+const MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES: u64 = 16 * 1024;
+const MAX_REVERSE_HOST_RESPONSE_BODY_BYTES: u64 = 1024 * 1024;
+static REVERSE_HOST_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn response_body(bytes: &[u8]) -> Result<&[u8], String> {
     let header_end = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .map(|index| index + 4)
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_response_header_missing".to_owned())?;
+    if header_end as u64 > MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES {
+        return Err("reverse_host_response_header_too_large".into());
+    }
     let header = std::str::from_utf8(&bytes[..header_end])
-        .map_err(|_| "reverse_host_response_invalid".to_owned())?;
+        .map_err(|_| "reverse_host_response_header_invalid".to_owned())?;
     let mut lines = header.split("\r\n");
     let status = lines
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|value| value.parse::<u16>().ok())
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_response_status_invalid".to_owned())?;
     if status != 200 {
         return Err("reverse_host_unavailable".into());
     }
@@ -31,33 +38,25 @@ fn response_body(bytes: &[u8]) -> Result<&[u8], String> {
         .filter_map(|line| line.split_once(':'))
         .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
         .and_then(|(_, value)| value.trim().parse::<usize>().ok())
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_response_content_length_invalid".to_owned())?;
+    if content_length as u64 > MAX_REVERSE_HOST_RESPONSE_BODY_BYTES {
+        return Err("reverse_host_response_too_large".into());
+    }
     let body = &bytes[header_end..];
-    if content_length != body.len() {
-        return Err("reverse_host_response_invalid".into());
+    if content_length > body.len() {
+        return Err("reverse_host_response_body_truncated".into());
+    }
+    if content_length < body.len() {
+        return Err("reverse_host_response_trailing_bytes".into());
     }
     Ok(body)
 }
 
-pub(crate) fn call_reverse_host(
+fn send_reverse_host_request(
     config: &NativeLaunchConfig,
-    service_instance_id: &str,
-    capability: &str,
-    payload: Value,
-) -> Result<Value, String> {
-    let now = current_time_ms()?;
-    let timeout = bounded_timeout(REVERSE_HOST_TIMEOUT)?;
-    let body = serde_json::to_vec(&json!({
-        "schema":"synthesis-reverse-host-call.v1",
-        "requestId":format!("native:{now}"),
-        "profileId":config.profile_id,
-        "serviceInstanceId":service_instance_id,
-        "operationId":format!("native:{capability}:{now}"),
-        "capability":capability,
-        "deadlineAtMs":now.saturating_add(timeout.as_millis() as u64),
-        "payload":payload,
-    }))
-    .map_err(|_| "reverse_host_request_invalid".to_owned())?;
+    timeout: Duration,
+    body: &[u8],
+) -> Result<(Value, usize), String> {
     let address = SocketAddr::V4(SocketAddrV4::new(
         Ipv4Addr::LOCALHOST,
         config.reverse_host.port,
@@ -75,30 +74,90 @@ pub(crate) fn call_reverse_host(
         config.reverse_host.authorization_token,
         body.len(),
     )
-    .and_then(|_| stream.write_all(&body))
+    .and_then(|_| stream.write_all(body))
     .and_then(|_| stream.flush())
     .map_err(|_| "reverse_host_unavailable".to_owned())?;
     let mut bytes = Vec::new();
     stream
-        .take(MAX_REVERSE_HOST_RESPONSE_BYTES + 1)
+        .take(MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES + MAX_REVERSE_HOST_RESPONSE_BODY_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| "reverse_host_unavailable".to_owned())?;
-    if bytes.len() as u64 > MAX_REVERSE_HOST_RESPONSE_BYTES {
+    if bytes.len() as u64
+        > MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES + MAX_REVERSE_HOST_RESPONSE_BODY_BYTES
+    {
         return Err("reverse_host_response_too_large".into());
     }
     let response: Value = serde_json::from_slice(response_body(&bytes)?)
-        .map_err(|_| "reverse_host_response_invalid".to_owned())?;
+        .map_err(|_| "reverse_host_response_json_invalid".to_owned())?;
     let object = response
         .as_object()
         .filter(|object| object.len() == 2)
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())?;
+        .ok_or_else(|| "reverse_host_response_envelope_invalid".to_owned())?;
     if object.get("ok") != Some(&Value::Bool(true)) {
         return Err("reverse_host_unavailable".into());
     }
-    object
+    let result = object
         .get("result")
         .cloned()
-        .ok_or_else(|| "reverse_host_response_invalid".to_owned())
+        .ok_or_else(|| "reverse_host_response_result_missing".to_owned())?;
+    Ok((result, bytes.len()))
+}
+
+pub(crate) fn call_reverse_host(
+    config: &NativeLaunchConfig,
+    service_instance_id: &str,
+    capability: &str,
+    payload: Value,
+) -> Result<Value, String> {
+    let now = current_time_ms()?;
+    let sequence = REVERSE_HOST_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let request_id = format!("native:{now}:{sequence}");
+    let operation_id = format!("native:{capability}:{now}:{sequence}");
+    let timeout = bounded_timeout(REVERSE_HOST_TIMEOUT)?;
+    let body = serde_json::to_vec(&json!({
+        "schema":"synthesis-reverse-host-call.v1",
+        "requestId":request_id.clone(),
+        "profileId":config.profile_id,
+        "serviceInstanceId":service_instance_id,
+        "operationId":operation_id.clone(),
+        "capability":capability,
+        "deadlineAtMs":now.saturating_add(timeout.as_millis() as u64),
+        "payload":payload,
+    }))
+    .map_err(|_| "reverse_host_request_invalid".to_owned())?;
+    emit(
+        NativeDiagnosticEvent::new("reverse-host", "call-started", "started")
+            .capability(capability)
+            .request_id(&request_id)
+            .operation_id(&operation_id)
+            .request_bytes(body.len()),
+    );
+    let result = send_reverse_host_request(config, timeout, &body);
+    match result {
+        Ok((result, response_bytes)) => {
+            emit(
+                NativeDiagnosticEvent::new("reverse-host", "call-completed", "succeeded")
+                    .capability(capability)
+                    .request_id(request_id)
+                    .operation_id(operation_id)
+                    .duration_ms(current_time_ms()?.saturating_sub(now))
+                    .response_bytes(response_bytes)
+                    .http_status(200),
+            );
+            Ok(result)
+        }
+        Err(error) => {
+            emit(
+                NativeDiagnosticEvent::new("reverse-host", "call-failed", "failed")
+                    .capability(capability)
+                    .request_id(request_id)
+                    .operation_id(operation_id)
+                    .code(&error)
+                    .duration_ms(current_time_ms().unwrap_or(now).saturating_sub(now)),
+            );
+            Err(error)
+        }
+    }
 }
 
 pub(crate) fn probe_reverse_host(config: &NativeLaunchConfig) -> Result<(), String> {
@@ -122,6 +181,17 @@ mod tests {
             b"{}"
         );
         assert!(response_body(b"HTTP/1.1 503 Error\r\nContent-Length: 2\r\n\r\n{}").is_err());
-        assert!(response_body(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n{}").is_err());
+        assert_eq!(
+            response_body(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n{}"),
+            Err("reverse_host_response_body_truncated".into())
+        );
+        assert_eq!(
+            response_body(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n{}"),
+            Err("reverse_host_response_trailing_bytes".into())
+        );
+        assert_eq!(
+            response_body(b"HTTP/1.1 200 OK\r\n\r\n{}"),
+            Err("reverse_host_response_content_length_invalid".into())
+        );
     }
 }

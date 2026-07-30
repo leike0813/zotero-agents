@@ -3,6 +3,14 @@ import {
   appendRuntimeLog,
   registerRuntimeIssueDebugContextProvider,
 } from "./runtimeLogManager";
+import type { SynthesisSidecarDiagnosticEvent } from "./synthesisSidecarDiagnosticEvents";
+
+export type {
+  SynthesisSidecarDiagnosticComponent,
+  SynthesisSidecarDiagnosticEvent,
+  SynthesisSidecarDiagnosticEventInput,
+  SynthesisSidecarDiagnosticEventStatus,
+} from "./synthesisSidecarDiagnosticEvents";
 
 export type SynthesisSidecarStartupPhase =
   | "startup"
@@ -57,35 +65,10 @@ type Subscriber = (
 
 let attemptSequence = 0;
 let snapshot: SynthesisSidecarDiagnosticSnapshot | undefined;
+let events: SynthesisSidecarDiagnosticEvent[] = [];
 const subscribers = new Set<Subscriber>();
 const PROCESS_TAIL_LIMIT = 8_192;
-
-export function synthesisSidecarDiagnosticCode(
-  error: unknown,
-  fallback = "synthesis_sidecar_startup_failed",
-) {
-  const value =
-    error && typeof error === "object"
-      ? (error as {
-          code?: unknown;
-          message?: unknown;
-          details?: { reason?: unknown };
-        })
-      : undefined;
-  for (const candidate of [
-    value?.details?.reason,
-    value?.code,
-    value?.message,
-  ]) {
-    if (
-      typeof candidate === "string" &&
-      /^[a-z][a-z0-9_.:-]{0,127}$/.test(candidate)
-    ) {
-      return candidate;
-    }
-  }
-  return fallback;
-}
+const EVENT_LIMIT = 500;
 
 function sanitizeProcessTail(value: string | undefined) {
   if (typeof value !== "string") {
@@ -158,6 +141,42 @@ function appendLifecycleLog(args: {
   });
 }
 
+function emitDiagnosticConsole(event: SynthesisSidecarDiagnosticEvent) {
+  if (!isDebugModeEnabled()) {
+    return;
+  }
+  const label = "[synthesis-sidecar]";
+  const runtime = globalThis as typeof globalThis & {
+    Zotero?: { debug?: (message: string) => void };
+  };
+  const method =
+    event.status === "failed"
+      ? globalThis.console?.error
+      : globalThis.console?.debug;
+  try {
+    method?.call(globalThis.console, label, event);
+  } catch {
+    // Diagnostics must never affect the observed operation.
+  }
+  try {
+    runtime.Zotero?.debug?.(`${label} ${JSON.stringify(event)}`);
+  } catch {
+    // Diagnostics must never affect the observed operation.
+  }
+}
+
+export function retainSynthesisSidecarDiagnosticEvent(
+  event: SynthesisSidecarDiagnosticEvent,
+) {
+  events = [...events, { ...event }].slice(-EVENT_LIMIT);
+  emitDiagnosticConsole(event);
+  publish();
+}
+
+export function listSynthesisSidecarDiagnosticEvents() {
+  return isDebugModeEnabled() ? events.map((event) => ({ ...event })) : [];
+}
+
 export function beginSynthesisSidecarStartupAttempt() {
   const attemptId = `synthesis-startup-${Date.now()}-${++attemptSequence}`;
   if (!isDebugModeEnabled()) {
@@ -190,8 +209,16 @@ export function recordSynthesisSidecarStartupPhase(args: {
   evidence?: SynthesisSidecarDiagnosticEvidence;
   error?: unknown;
 }) {
+  if (!isDebugModeEnabled()) {
+    if (args.status === "failed") {
+      appendLifecycleLog({
+        ...args,
+        evidence: sanitizeEvidence(args.evidence),
+      });
+    }
+    return;
+  }
   if (
-    !isDebugModeEnabled() ||
     !snapshot ||
     snapshot.attemptId !== args.attemptId
   ) {
@@ -231,6 +258,7 @@ export function subscribeSynthesisSidecarDiagnostics(subscriber: Subscriber) {
 export function resetSynthesisSidecarDiagnosticsForTests() {
   snapshot = undefined;
   attemptSequence = 0;
+  events = [];
   publish();
 }
 

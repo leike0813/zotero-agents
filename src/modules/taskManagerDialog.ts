@@ -15,9 +15,11 @@ import {
 } from "./runtimeLogManager";
 import {
   getSynthesisSidecarDiagnosticSnapshot,
+  listSynthesisSidecarDiagnosticEvents,
   subscribeSynthesisSidecarDiagnostics,
   type SynthesisSidecarDiagnosticSnapshot,
 } from "./synthesisSidecarDiagnostics";
+import type { SynthesisSidecarDiagnosticEvent } from "./synthesisSidecarDiagnosticEvents";
 import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
@@ -330,6 +332,7 @@ type DashboardSnapshot = {
   synthesisSidecarView?: {
     snapshot?: SynthesisSidecarDiagnosticSnapshot;
     lifecycleLogs: DashboardLogRow[];
+    recentEvents: SynthesisSidecarDiagnosticEvent[];
   };
   skillRunnerConnectionAuditView?: {
     generatedAt: string;
@@ -2157,6 +2160,7 @@ async function buildDashboardSnapshot(args: {
         operation: "production-startup",
         order: "asc",
       }).map(mapLogRow),
+      recentEvents: listSynthesisSidecarDiagnosticEvents(),
     };
     return finalizeDashboardSnapshot(snapshot);
   }

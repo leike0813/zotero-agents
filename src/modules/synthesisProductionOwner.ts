@@ -19,9 +19,9 @@ import {
   beginSynthesisSidecarStartupAttempt,
   getSynthesisSidecarDiagnosticSnapshot,
   recordSynthesisSidecarStartupPhase,
-  synthesisSidecarDiagnosticCode,
   type SynthesisSidecarStartupPhase,
 } from "./synthesisSidecarDiagnostics";
+import { synthesisSidecarDiagnosticCode } from "./synthesisSidecarDiagnosticEvents";
 
 type ReverseHostLocator = {
   host: "127.0.0.1";

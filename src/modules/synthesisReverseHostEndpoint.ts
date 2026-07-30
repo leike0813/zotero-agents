@@ -1,4 +1,5 @@
 import {
+  SYNTHESIS_REVERSE_HOST_LIMITS,
   SynthesisClientError,
   toSynthesisJsonValue,
   type SynthesisJsonValue,
@@ -15,6 +16,10 @@ import {
   beginRuntimeMemoryResponseTransfer,
   prepareJsonHttpResponse,
 } from "./runtimeHttpResponse";
+import {
+  recordSynthesisSidecarDiagnosticEvent,
+  type SynthesisSidecarDiagnosticEventInput,
+} from "./synthesisSidecarDiagnosticEvents";
 
 export const SYNTHESIS_REVERSE_HOST_PATH = "/synthesis/v1/host-call" as const;
 
@@ -197,6 +202,9 @@ type EndpointOptions = {
   allowUnboundServiceInstance?: boolean;
   handlers: SynthesisReverseHostHandlers;
   serverSocketFactory?: () => any;
+  recordDiagnosticEvent?: (
+    event: SynthesisSidecarDiagnosticEventInput,
+  ) => void;
 };
 
 export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
@@ -204,6 +212,15 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
   let server: any;
   let active = false;
   const reads = new Set<HostHttpRequestReadOperation>();
+  const recordDiagnosticEvent =
+    options.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
+  const record = (event: SynthesisSidecarDiagnosticEventInput) => {
+    try {
+      recordDiagnosticEvent(event);
+    } catch {
+      // Diagnostics must never alter the transport.
+    }
+  };
   const broker = createSynthesisReverseHostBroker({
     profileId: options.profileId,
     serviceInstanceId: () => serviceInstanceId,
@@ -213,44 +230,137 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
     authorizeCapability: options.authorizeCapability,
     allowUnboundServiceInstance: options.allowUnboundServiceInstance === true,
     handlers: options.handlers,
+    recordDiagnosticEvent,
   });
 
   async function handleTransport(transport: any) {
+    const startedAt = options.now();
     const input = transport.openInputStream(0, 0, 0);
     const output = transport.openOutputStream(0, 0, 0);
+    let responseStarted = false;
+    let context: Pick<
+      SynthesisSidecarDiagnosticEventInput,
+      "capability" | "requestId" | "operationId"
+    > = {};
     const read = beginHostHttpRequestRead(input, {
       limits: {
-        maxHeaderBytes: 16 * 1024,
-        maxBodyBytes: 1024 * 1024,
-        idleTimeoutMs: 1_000,
-        totalTimeoutMs: 60_000,
+        maxHeaderBytes: SYNTHESIS_REVERSE_HOST_LIMITS.requestHeaderBytes,
+        maxBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.requestBodyBytes,
+        idleTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.idleTimeoutMs,
+        totalTimeoutMs: SYNTHESIS_REVERSE_HOST_LIMITS.deadlineMs,
       },
     });
     reads.add(read);
     try {
-      const request = parseHttpRequest((await read.completion).bytes);
+      const readResult = await read.completion;
+      const request = parseHttpRequest(readResult.bytes);
+      if (request.body && typeof request.body === "object") {
+        const call = request.body as Record<string, unknown>;
+        context = {
+          capability:
+            typeof call.capability === "string" ? call.capability : undefined,
+          requestId:
+            typeof call.requestId === "string" ? call.requestId : undefined,
+          operationId:
+            typeof call.operationId === "string" ? call.operationId : undefined,
+        };
+      }
+      record({
+        component: "reverse-host",
+        stage: "request-received",
+        status: "started",
+        ...context,
+        requestBytes: readResult.bytes.byteLength,
+      });
       const result = await handleSynthesisReverseHostHttpRequest(
         request,
         broker,
       );
-      await beginRuntimeMemoryResponseTransfer({
-        outputStream: output,
-        response: encodeHttpResponse({
-          status: result.status,
-          body: toSynthesisJsonValue(result.body),
-        }),
-      }).completion;
-    } catch {
-      await beginRuntimeMemoryResponseTransfer({
-        outputStream: output,
-        response: encodeHttpResponse({
-          status: 400,
+      let responseStatus = result.status;
+      const responseBody =
+        result.body && typeof result.body === "object"
+          ? (result.body as Record<string, unknown>)
+          : undefined;
+      const responseError =
+        responseBody?.error && typeof responseBody.error === "object"
+          ? (responseBody.error as Record<string, unknown>)
+          : undefined;
+      const responseDetails =
+        responseError?.details && typeof responseError.details === "object"
+          ? (responseError.details as Record<string, unknown>)
+          : undefined;
+      let responseCode =
+        typeof responseDetails?.reason === "string"
+          ? responseDetails.reason
+          : typeof responseError?.code === "string"
+            ? responseError.code
+            : undefined;
+      let prepared = encodeHttpResponse({
+        status: result.status,
+        body: toSynthesisJsonValue(result.body),
+      });
+      if (
+        prepared.bodyByteLength >
+        SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes
+      ) {
+        responseStatus = 503;
+        responseCode = "reverse_host_response_too_large";
+        prepared = encodeHttpResponse({
+          status: responseStatus,
           body: {
             ok: false,
-            error: { code: "invalid_request" },
+            error: {
+              code: "unavailable",
+              details: { reason: "reverse_host_response_too_large" },
+            },
           },
-        }),
-      }).completion.catch(() => undefined);
+        });
+      }
+      responseStarted = true;
+      await beginRuntimeMemoryResponseTransfer({
+        outputStream: output,
+        response: prepared,
+      }).completion;
+      record({
+        component: "reverse-host",
+        stage:
+          responseStatus >= 400 ? "response-rejected" : "response-completed",
+        status: responseStatus >= 400 ? "failed" : "succeeded",
+        ...context,
+        code: responseCode,
+        httpStatus: responseStatus,
+        responseBytes: prepared.bodyByteLength,
+        durationMs: Math.max(0, options.now() - startedAt),
+      });
+    } catch (error) {
+      const code =
+        error instanceof Error &&
+        /^[a-z][a-z0-9_.:-]{0,127}$/.test(error.message)
+          ? error.message
+          : responseStarted
+            ? "reverse_host_response_transfer_failed"
+            : "reverse_host_request_invalid";
+      record({
+        component: "reverse-host",
+        stage: responseStarted ? "response-failed" : "request-failed",
+        status: "failed",
+        ...context,
+        code,
+        durationMs: Math.max(0, options.now() - startedAt),
+      });
+      if (!responseStarted) {
+        responseStarted = true;
+        await beginRuntimeMemoryResponseTransfer({
+          outputStream: output,
+          response: encodeHttpResponse({
+            status: 400,
+            body: {
+              ok: false,
+              error: { code: "invalid_request" },
+            },
+          }),
+        }).completion.catch(() => undefined);
+      }
     } finally {
       reads.delete(read);
       input.close?.();

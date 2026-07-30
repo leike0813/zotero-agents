@@ -13,6 +13,7 @@ use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit};
 use crate::runtime_http::{read_http, response};
 use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_client::{
@@ -226,7 +227,14 @@ pub(crate) fn handle_connection(
     if !call.capability.starts_with("compute.") && body.len() > MAX_READ_BODY_BYTES {
         return response(&mut stream, 413, error_response("request_too_large"));
     }
-    match call.capability.as_str() {
+    let request_started_at = current_time_ms().unwrap_or_default();
+    emit(
+        NativeDiagnosticEvent::new("rpc", "request-started", "started")
+            .capability(&call.capability)
+            .request_id(&call.request_id)
+            .request_bytes(body.len()),
+    );
+    let outcome = match call.capability.as_str() {
         capability if capability.starts_with("client.") => {
             match dispatch_production_client(&state, capability, call.payload) {
                 Ok(data) => bounded_response(
@@ -454,5 +462,29 @@ pub(crate) fn handle_connection(
             )
         }
         _ => response(&mut stream, 404, error_response("capability_not_found")),
+    };
+    match &outcome {
+        Ok(()) => emit(
+            NativeDiagnosticEvent::new("rpc", "request-completed", "succeeded")
+                .capability(&call.capability)
+                .request_id(&call.request_id)
+                .duration_ms(
+                    current_time_ms()
+                        .unwrap_or(request_started_at)
+                        .saturating_sub(request_started_at),
+                ),
+        ),
+        Err(error) => emit(
+            NativeDiagnosticEvent::new("rpc", "request-failed", "failed")
+                .capability(&call.capability)
+                .request_id(&call.request_id)
+                .code(error)
+                .duration_ms(
+                    current_time_ms()
+                        .unwrap_or(request_started_at)
+                        .saturating_sub(request_started_at),
+                ),
+        ),
     }
+    outcome
 }

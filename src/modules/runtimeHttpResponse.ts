@@ -163,15 +163,11 @@ function beginXpcMemoryCopy(args: {
 }): RuntimeMemoryResponseTransfer {
   const { components, classes, interfaces, results } = runtimeComponents();
   const inputFactory = classes?.["@mozilla.org/io/arraybuffer-input-stream;1"];
-  const transportFactory =
-    classes?.["@mozilla.org/network/stream-transport-service;1"];
   const copierFactory = classes?.["@mozilla.org/network/async-stream-copier;1"];
   if (
     !inputFactory ||
-    !transportFactory ||
     !copierFactory ||
     !interfaces?.nsIArrayBufferInputStream ||
-    !interfaces?.nsIStreamTransportService ||
     !interfaces?.nsIAsyncStreamCopier2
   ) {
     throw new Error(
@@ -186,9 +182,6 @@ function beginXpcMemoryCopy(args: {
     args.response.bodyBytes.byteOffset,
     args.response.bodyBytes.byteLength,
   );
-  const transportService = transportFactory.getService(
-    interfaces.nsIStreamTransportService,
-  );
   const copier = copierFactory.createInstance(interfaces.nsIAsyncStreamCopier2);
   metrics.maxWriteChunkBytes = Math.max(
     metrics.maxWriteChunkBytes,
@@ -200,8 +193,8 @@ function beginXpcMemoryCopy(args: {
   copier.init(
     input,
     args.outputStream,
-    transportService,
-    RUNTIME_HTTP_RESPONSE_POLICY.chunkBytes,
+    null,
+    0,
     true,
     true,
   );
@@ -212,7 +205,12 @@ function beginXpcMemoryCopy(args: {
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
-  copier.asyncCopy(
+  const copyRequest =
+    typeof copier.QueryInterface === "function" &&
+    interfaces?.nsIAsyncStreamCopier
+      ? copier.QueryInterface(interfaces.nsIAsyncStreamCopier)
+      : copier;
+  copyRequest.asyncCopy(
     {
       onStartRequest() {},
       onStopRequest(_request: unknown, status: number) {

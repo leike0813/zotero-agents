@@ -29,6 +29,14 @@ import {
 
 export const SYNTHESIS_REVERSE_HOST_CALL_SCHEMA =
   "synthesis-reverse-host-call.v1" as const;
+export const SYNTHESIS_REVERSE_HOST_LIMITS = Object.freeze({
+  requestHeaderBytes: 16 * 1024,
+  requestBodyBytes: 1024 * 1024,
+  responseHeaderBytes: 16 * 1024,
+  responseBodyBytes: 1024 * 1024,
+  idleTimeoutMs: 1_000,
+  deadlineMs: 60_000,
+});
 export const SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA =
   "synthesis-sidecar-discovery.v5" as const;
 

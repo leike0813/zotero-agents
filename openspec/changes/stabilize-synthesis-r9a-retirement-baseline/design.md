@@ -214,15 +214,28 @@ unchanged. The default client accepts discovery only against the ordered ready
 roster, and Rust Workbench dispatch accepts the eight public surface names from
 the shared contract.
 
-### 10. Publish one debug lifecycle projection
+### 10. Publish one correlated sidecar diagnostic stream
 
-Debug builds maintain one sanitized snapshot keyed by `attemptId` across
-install, source classification, backup/bootstrap, preflight, supervisor,
-handshake, smoke, activation, and client readiness. Workbench shows a compact
-failure entry, Task Manager shows the complete read-only snapshot, runtime
-diagnostic bundles export it under existing redaction policy, and
-`start:direct:build` prints the same structured lifecycle events. Production
-builds exclude the debug projection and process tails.
+The plugin owns one sanitized event sink for lifecycle, RPC, reverse-Host,
+operation, and process boundaries. Production retains only bounded failure
+summaries. Debug builds additionally retain start/success events, mirror them
+to the Zotero console, and expose a recent read-only timeline in Task Manager.
+Events carry capability, request/operation identity, duration, byte counts,
+status, and aggregate counts; they never carry credentials, payloads, artifact
+locators, paper identifiers, note text, or WebDAV content.
+
+Rust writes strict diagnostic NDJSON to stderr while stdout remains reserved
+for discovery/protocol output. The supervisor reconstructs chunked lines,
+validates the event schema, and sends them through the same plugin sink.
+Workbench shows a compact failure entry and runtime diagnostic bundles reuse
+the existing bounded/redacted runtime-log storage.
+
+Reverse-Host response framing has one owner on each side. The plugin prepares
+one complete UTF-8 response before transfer and never appends a fallback
+response after transfer begins. Rust validates bounded headers, exact
+Content-Length, JSON, envelope, and result stages separately. A reference
+refresh that fails after preparation discards that preparation before
+returning, so a same-process retry remains valid.
 
 ## Risks / Trade-offs
 

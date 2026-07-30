@@ -58,6 +58,8 @@ export function beginSynthesisSidecarStartupAttempt() { return ""; }
 export function recordSynthesisSidecarStartupPhase() {}
 export function getSynthesisSidecarDiagnosticSnapshot() { return undefined; }
 export function subscribeSynthesisSidecarDiagnostics() { return () => {}; }
+export function retainSynthesisSidecarDiagnosticEvent() {}
+export function listSynthesisSidecarDiagnosticEvents() { return []; }
 export function resetSynthesisSidecarDiagnosticsForTests() {}
 `;
 

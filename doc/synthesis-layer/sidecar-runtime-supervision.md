@@ -58,3 +58,28 @@ production.
 Unexpected process exit uses bounded in-session restart delays. Every launch
 gets a new session directory and new tokens. Recovery does not inspect legacy
 receipt, admission, activation, pointer, version, owner, or lease files.
+
+## Diagnostics
+
+The plugin owns one sidecar diagnostic sink. Normal builds retain only bounded
+failure summaries. Debug builds also retain start and success events, mirror
+them to the Zotero console, and expose the recent stream in Task Manager.
+
+Events cover lifecycle, plugin RPC, native RPC dispatch, reverse-Host calls,
+native operations, and process output boundaries. Correlation uses capability,
+request ID, and operation ID. Safe metadata includes duration, HTTP status,
+byte counts, page number, and aggregate counts. Credentials, authorization
+headers, payloads, artifact locators, paper references, note text, and WebDAV
+content are never event fields.
+
+The native process writes strict diagnostic NDJSON to stderr. Stdout remains
+reserved for discovery/protocol output. The supervisor reconstructs chunked
+stderr lines, validates their schema, and routes them through the plugin sink;
+unstructured output remains available only as a bounded, redacted process tail.
+
+Reverse-Host responses are prepared as one UTF-8 byte sequence before transfer.
+If transfer has started, failure closes the connection and cannot append a
+second HTTP response. Native parsing distinguishes header, status,
+Content-Length, truncated/trailing body, JSON, envelope, and result failures.
+Reference refresh discards any preparation left by a subsequent Host-read
+failure, allowing a retry in the same process.

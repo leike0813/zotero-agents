@@ -3,16 +3,21 @@ import { promises as fs } from "node:fs";
 import {
   beginSynthesisSidecarStartupAttempt,
   getSynthesisSidecarDiagnosticSnapshot,
+  listSynthesisSidecarDiagnosticEvents,
   recordSynthesisSidecarStartupPhase,
   resetSynthesisSidecarDiagnosticsForTests,
-  synthesisSidecarDiagnosticCode,
 } from "../../src/modules/synthesisSidecarDiagnostics";
+import {
+  recordSynthesisSidecarDiagnosticEvent,
+  synthesisSidecarDiagnosticCode,
+} from "../../src/modules/synthesisSidecarDiagnosticEvents";
 import {
   buildRuntimeIssueDiagnosticBundle,
   clearRuntimeLogs,
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesisSidecarRpcClient";
 
 describe("Synthesis sidecar debug observability", function () {
   beforeEach(function () {
@@ -126,12 +131,162 @@ describe("Synthesis sidecar debug observability", function () {
     });
 
     assert.isUndefined(getSynthesisSidecarDiagnosticSnapshot());
-    assert.lengthOf(
-      listRuntimeLogs({
-        component: "synthesis-sidecar-lifecycle",
-      }),
-      0,
+    const logs = listRuntimeLogs({
+      component: "synthesis-sidecar-lifecycle",
+    });
+    assert.lengthOf(logs, 1);
+    assert.equal(logs[0]?.level, "error");
+    assert.equal(logs[0]?.stage, "failed");
+  });
+
+  it("keeps only failure summaries in normal mode and full correlated events in debug mode", function () {
+    recordSynthesisSidecarDiagnosticEvent({
+      component: "reverse-host",
+      stage: "request-started",
+      status: "started",
+      capability: "library.artifacts.read",
+      requestId: "request-debug",
+      operationId: "operation-debug",
+      requestBytes: 128,
+    });
+    recordSynthesisSidecarDiagnosticEvent({
+      component: "reverse-host",
+      stage: "response-completed",
+      status: "succeeded",
+      capability: "library.artifacts.read",
+      requestId: "request-debug",
+      operationId: "operation-debug",
+      responseBytes: 512,
+      durationMs: 4,
+    });
+    assert.deepEqual(
+      listSynthesisSidecarDiagnosticEvents().map((event) => event.status),
+      ["started", "succeeded"],
     );
+
+    setDebugModeOverrideForTests(false);
+    recordSynthesisSidecarDiagnosticEvent({
+      component: "rpc",
+      stage: "request-started",
+      status: "started",
+      capability: "client.refreshReferenceSidecarNow",
+      requestId: "request-normal",
+    });
+    recordSynthesisSidecarDiagnosticEvent({
+      component: "rpc",
+      stage: "request-failed",
+      status: "failed",
+      capability: "client.refreshReferenceSidecarNow",
+      requestId: "request-normal",
+      code: "reverse_host_response_body_truncated",
+      durationMs: 8,
+    });
+
+    const normalLogs = listRuntimeLogs({
+      component: "synthesis-sidecar",
+      requestId: "request-normal",
+      order: "asc",
+    });
+    assert.deepEqual(
+      normalLogs.map((entry) => [entry.stage, entry.level]),
+      [["request-failed", "error"]],
+    );
+  });
+
+  it("emits payload-free debug events to both console sinks", function () {
+    const consoleCalls: unknown[][] = [];
+    const zoteroCalls: string[] = [];
+    const previousDebug = console.debug;
+    const runtime = globalThis as typeof globalThis & {
+      Zotero?: { debug?: (message: string) => void };
+    };
+    const previousZotero = runtime.Zotero;
+    const previousZoteroDebug = previousZotero?.debug;
+    console.debug = (...args: unknown[]) => consoleCalls.push(args);
+    if (runtime.Zotero) {
+      runtime.Zotero.debug = (message: string) => zoteroCalls.push(message);
+    } else {
+      runtime.Zotero = {
+        debug: (message: string) => zoteroCalls.push(message),
+      };
+    }
+    try {
+      recordSynthesisSidecarDiagnosticEvent({
+        component: "reverse-host",
+        stage: "handler-completed",
+        status: "succeeded",
+        capability: "library.artifacts.read",
+        requestId: "request-console",
+        operationId: "operation-console",
+        responseBytes: 256,
+      });
+    } finally {
+      console.debug = previousDebug;
+      if (previousZotero) {
+        previousZotero.debug = previousZoteroDebug;
+        runtime.Zotero = previousZotero;
+      } else {
+        delete runtime.Zotero;
+      }
+    }
+
+    assert.lengthOf(consoleCalls, 1);
+    assert.lengthOf(zoteroCalls, 1);
+    const serialized = JSON.stringify([consoleCalls, zoteroCalls]);
+    assert.include(serialized, "[synthesis-sidecar]");
+    assert.notInclude(serialized, "authorization");
+    assert.notInclude(serialized, "payload");
+  });
+
+  it("correlates RPC request and response metadata without retaining payloads", async function () {
+    const events: Record<string, unknown>[] = [];
+    let clock = 10;
+    const rpc = createSynthesisSidecarRpcClient({
+      now: () => clock++,
+      recordDiagnosticEvent: (event) => events.push(event),
+      fetch: (async (_input: unknown, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body || "{}"));
+        const source = JSON.stringify({
+          ok: true,
+          requestId: request.requestId,
+          serviceInstanceId: "service-1",
+          data: { accepted: true },
+        });
+        return new Response(source, {
+          status: 200,
+          headers: { "content-length": String(Buffer.byteLength(source)) },
+        });
+      }) as typeof fetch,
+    });
+
+    assert.deepEqual(
+      await rpc.call({
+        connection: {
+          baseUrl: "http://127.0.0.1:1",
+          profileId: "profile-1",
+          clientToken: "secret-token",
+          serviceInstanceId: "service-1",
+        },
+        capability: "client.refreshReferenceSidecarNow",
+        payload: { privateValue: "must-not-be-logged" },
+        rebuildResult: (value) => value,
+      }),
+      { accepted: true },
+    );
+
+    assert.deepEqual(
+      events.map((event) => [event.stage, event.status]),
+      [
+        ["request-started", "started"],
+        ["request-completed", "succeeded"],
+      ],
+    );
+    assert.equal(events[0]?.requestId, events[1]?.requestId);
+    assert.isAbove(Number(events[0]?.requestBytes), 0);
+    assert.isAbove(Number(events[1]?.responseBytes), 0);
+    const serialized = JSON.stringify(events);
+    assert.notInclude(serialized, "secret-token");
+    assert.notInclude(serialized, "must-not-be-logged");
   });
 
   it("ignores stale events from an earlier attempt", function () {

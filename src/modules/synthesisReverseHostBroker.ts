@@ -8,6 +8,10 @@ import {
   type SynthesisReverseHostCapability,
 } from "../../packages/synthesis-contracts/src";
 import { timingSafeEqualString } from "../utils/timingSafeEqual";
+import {
+  recordSynthesisSidecarDiagnosticEvent,
+  type SynthesisSidecarDiagnosticEventInput,
+} from "./synthesisSidecarDiagnosticEvents";
 
 type HandlerContext = {
   requestId: string;
@@ -36,6 +40,9 @@ type BrokerOptions = {
     call: SynthesisReverseHostCall,
   ) => boolean | Promise<boolean>;
   handlers: SynthesisReverseHostHandlers;
+  recordDiagnosticEvent?: (
+    event: SynthesisSidecarDiagnosticEventInput,
+  ) => void;
 };
 
 type DispatchInput = {
@@ -49,7 +56,7 @@ type EffectResult = {
 };
 
 const MAX_DEADLINE_AHEAD_MS = 60_000;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
+const textEncoder = new TextEncoder();
 
 function failure(
   code: ConstructorParameters<typeof SynthesisClientError>[0],
@@ -90,24 +97,68 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
   let active = true;
   const completedEffects = new Map<string, EffectResult>();
   const inFlightEffects = new Map<string, Promise<SynthesisJsonValue>>();
+  const recordDiagnosticEvent =
+    options.recordDiagnosticEvent ?? recordSynthesisSidecarDiagnosticEvent;
+
+  const record = (event: SynthesisSidecarDiagnosticEventInput) => {
+    try {
+      recordDiagnosticEvent(event);
+    } catch {
+      // Diagnostics must not alter Host behavior.
+    }
+  };
 
   async function execute(call: SynthesisReverseHostCall) {
     if (!(await options.authorizeCapability(call))) {
       failure("unavailable", "permission_denied");
     }
-    const handler = options.handlers[call.capability];
-    const result = toSynthesisJsonValue(
-      await handler(call.payload, {
+    const startedAt = options.now();
+    record({
+      component: "reverse-host",
+      stage: "handler-started",
+      status: "started",
+      capability: call.capability,
+      requestId: call.requestId,
+      operationId: call.operationId,
+    });
+    try {
+      const handler = options.handlers[call.capability];
+      const result = toSynthesisJsonValue(
+        await handler(call.payload, {
+          requestId: call.requestId,
+          operationId: call.operationId,
+          deadlineAtMs: call.deadlineAtMs,
+        }),
+        "synthesisReverseHostResult",
+      );
+      record({
+        component: "reverse-host",
+        stage: "handler-completed",
+        status: "succeeded",
+        capability: call.capability,
         requestId: call.requestId,
         operationId: call.operationId,
-        deadlineAtMs: call.deadlineAtMs,
-      }),
-      "synthesisReverseHostResult",
-    );
-    if (JSON.stringify(result).length > MAX_RESPONSE_BYTES) {
-      failure("invalid_request", "reverse_host_response_too_large");
+        durationMs: Math.max(0, options.now() - startedAt),
+        responseBytes: textEncoder.encode(JSON.stringify(result)).byteLength,
+      });
+      return result;
+    } catch (error) {
+      const reason =
+        error instanceof SynthesisClientError
+          ? String(error.details?.reason || error.code)
+          : "reverse_host_handler_failed";
+      record({
+        component: "reverse-host",
+        stage: "handler-failed",
+        status: "failed",
+        capability: call.capability,
+        requestId: call.requestId,
+        operationId: call.operationId,
+        durationMs: Math.max(0, options.now() - startedAt),
+        code: reason,
+      });
+      throw error;
     }
-    return result;
   }
 
   async function dispatch(input: DispatchInput) {

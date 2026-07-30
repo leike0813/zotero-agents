@@ -19,7 +19,10 @@ use synthesis_repository::{
     OperationRecord, ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, Repository,
 };
 
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit};
+
 const HOST_PAGE_LIMIT: usize = 100;
+const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 3;
 const MAX_HOST_PAGES: usize = 1_000;
 const MAX_HOST_ROWS: usize = 100_000;
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
@@ -1095,6 +1098,12 @@ impl ReferenceCanonicalApplication {
         )?;
         let outcome = (|| {
             let mut items = self.collect_host_items()?;
+            emit(
+                NativeDiagnosticEvent::new("operation", "items-scanned", "succeeded")
+                    .capability("reference_sidecar_refresh")
+                    .operation_id(REFRESH_JOB_ID)
+                    .returned(items.len()),
+            );
             let requested = refresh_scope_filter(request)?;
             if !requested.is_empty() {
                 items.retain(|item| requested.contains(&item.paper_ref));
@@ -1110,6 +1119,12 @@ impl ReferenceCanonicalApplication {
                 }));
             }
             let host_artifacts = self.collect_host_artifacts()?;
+            emit(
+                NativeDiagnosticEvent::new("operation", "artifacts-scanned", "succeeded")
+                    .capability("reference_sidecar_refresh")
+                    .operation_id(REFRESH_JOB_ID)
+                    .returned(host_artifacts.len()),
+            );
             let artifacts = complete_artifact_manifest(&items, &host_artifacts)?;
             let expected_reference_hash = self.refresh.inspect()?.reference_hash;
             let scope = if requested.is_empty() {
@@ -1156,18 +1171,74 @@ impl ReferenceCanonicalApplication {
             job.scope_ref = prepared.preparation_id.clone().unwrap_or_default();
             job.source_hash = prepared.input_hash.clone().unwrap_or_default();
             job.updated_at = now_string();
-            self.write_job(&job)?;
+            let preparation_id = prepared
+                .preparation_id
+                .clone()
+                .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
+            if let Err(error) = self.write_job(&job) {
+                self.refresh.discard_preparation(&preparation_id);
+                return Err(error);
+            }
+            emit(
+                NativeDiagnosticEvent::new("operation", "refresh-prepared", "succeeded")
+                    .capability("reference_sidecar_refresh")
+                    .operation_id(REFRESH_JOB_ID)
+                    .total(prepared.reads.len()),
+            );
             let mut payloads = Vec::with_capacity(prepared.reads.len());
-            for read in &prepared.reads {
+            for (index, read) in prepared.reads.iter().enumerate() {
+                emit(
+                    NativeDiagnosticEvent::new("operation", "artifact-read-started", "started")
+                        .capability("library.artifacts.read")
+                        .operation_id(REFRESH_JOB_ID)
+                        .page(index)
+                        .total(prepared.reads.len()),
+                );
                 let payload = self
                     .host
-                    .read_artifact(&read.locator, &read.expected_hash)?;
-                payloads.push(refresh_payload(read, payload)?);
+                    .read_artifact(&read.locator, &read.expected_hash)
+                    .and_then(|payload| refresh_payload(read, payload));
+                match payload {
+                    Ok(payload) => {
+                        payloads.push(payload);
+                        emit(
+                            NativeDiagnosticEvent::new(
+                                "operation",
+                                "artifact-read-completed",
+                                "succeeded",
+                            )
+                            .capability("library.artifacts.read")
+                            .operation_id(REFRESH_JOB_ID)
+                            .page(index)
+                            .total(prepared.reads.len()),
+                        );
+                    }
+                    Err(error) => {
+                        self.refresh.discard_preparation(&preparation_id);
+                        emit(
+                            NativeDiagnosticEvent::new(
+                                "operation",
+                                "artifact-read-failed",
+                                "failed",
+                            )
+                            .capability("library.artifacts.read")
+                            .operation_id(REFRESH_JOB_ID)
+                            .page(index)
+                            .total(prepared.reads.len())
+                            .code(&error),
+                        );
+                        return Err(error);
+                    }
+                }
             }
+            emit(
+                NativeDiagnosticEvent::new("operation", "refresh-apply-started", "started")
+                    .capability("reference_sidecar_refresh")
+                    .operation_id(REFRESH_JOB_ID)
+                    .total(payloads.len()),
+            );
             let applied = self.refresh.apply_refresh(ReferenceRefreshApplyRequest {
-                preparation_id: prepared
-                    .preparation_id
-                    .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?,
+                preparation_id,
                 payloads,
             });
             let ok = matches!(
@@ -1282,7 +1353,7 @@ impl ReferenceCanonicalApplication {
         let mut items = Vec::new();
         for _ in 0..MAX_HOST_PAGES {
             let page = self.host.list_items_page(&cursor, HOST_PAGE_LIMIT)?;
-            validate_page(
+            validate_item_page(
                 &cursor,
                 &page.cursor,
                 page.returned,
@@ -1326,7 +1397,7 @@ impl ReferenceCanonicalApplication {
         let mut artifacts = Vec::new();
         for _ in 0..MAX_HOST_PAGES {
             let page = self.host.scan_artifacts_page(&cursor, HOST_PAGE_LIMIT)?;
-            validate_page(
+            validate_artifact_page(
                 &cursor,
                 &page.cursor,
                 page.returned,
@@ -1389,6 +1460,11 @@ impl ReferenceCanonicalApplication {
             ..OperationRecord::default()
         };
         self.write_job(&record)?;
+        emit(
+            NativeDiagnosticEvent::new("operation", "operation-started", "started")
+                .capability(operation_type)
+                .operation_id(operation_id),
+        );
         Ok(record)
     }
 
@@ -1415,6 +1491,26 @@ impl ReferenceCanonicalApplication {
                 job.completed_at = now.clone();
                 job.updated_at = now;
                 self.write_job(&job)?;
+                let mut event = NativeDiagnosticEvent::new(
+                    "operation",
+                    if ok {
+                        "operation-completed"
+                    } else {
+                        "operation-failed"
+                    },
+                    if ok { "succeeded" } else { "failed" },
+                )
+                .capability(&job.operation_type)
+                .operation_id(&job.operation_id);
+                if !ok {
+                    event = event.code(
+                        result
+                            .get("status")
+                            .and_then(Value::as_str)
+                            .unwrap_or("operation_failed"),
+                    );
+                }
+                emit(event);
                 Ok(result)
             }
             Err(error) => {
@@ -1426,6 +1522,12 @@ impl ReferenceCanonicalApplication {
                 job.completed_at = now.clone();
                 job.updated_at = now;
                 self.write_job(&job)?;
+                emit(
+                    NativeDiagnosticEvent::new("operation", "operation-failed", "failed")
+                        .capability(&job.operation_type)
+                        .operation_id(&job.operation_id)
+                        .code(&error),
+                );
                 Err(error)
             }
         }
@@ -1702,7 +1804,27 @@ fn refresh_payload(
     })
 }
 
-fn validate_page(
+fn validate_page_metadata(
+    requested_cursor: &str,
+    returned_cursor: &str,
+    returned: usize,
+    limit: usize,
+    has_more: bool,
+    next_cursor: &str,
+) -> Result<(), String> {
+    if returned_cursor != requested_cursor
+        || limit == 0
+        || limit > HOST_PAGE_LIMIT
+        || returned > limit
+        || (has_more && (next_cursor.is_empty() || next_cursor == requested_cursor))
+        || (!has_more && !next_cursor.is_empty())
+    {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(())
+}
+
+fn validate_item_page(
     requested_cursor: &str,
     returned_cursor: &str,
     returned: usize,
@@ -1711,14 +1833,38 @@ fn validate_page(
     has_more: bool,
     next_cursor: &str,
 ) -> Result<(), String> {
-    if returned_cursor != requested_cursor
-        || returned != actual
-        || limit == 0
-        || limit > HOST_PAGE_LIMIT
-        || returned > limit
-        || (has_more && (next_cursor.is_empty() || next_cursor == requested_cursor))
-        || (!has_more && !next_cursor.is_empty())
-    {
+    validate_page_metadata(
+        requested_cursor,
+        returned_cursor,
+        returned,
+        limit,
+        has_more,
+        next_cursor,
+    )?;
+    if returned != actual {
+        return Err("reverse_host_result_invalid".into());
+    }
+    Ok(())
+}
+
+fn validate_artifact_page(
+    requested_cursor: &str,
+    returned_cursor: &str,
+    returned: usize,
+    actual: usize,
+    limit: usize,
+    has_more: bool,
+    next_cursor: &str,
+) -> Result<(), String> {
+    validate_page_metadata(
+        requested_cursor,
+        returned_cursor,
+        returned,
+        limit,
+        has_more,
+        next_cursor,
+    )?;
+    if actual > returned.saturating_mul(HOST_ARTIFACT_TYPES_PER_ITEM) {
         return Err("reverse_host_result_invalid".into());
     }
     Ok(())
@@ -2122,6 +2268,7 @@ mod tests {
     struct FakeHost {
         item_calls: Arc<AtomicUsize>,
         fail_items: Arc<AtomicBool>,
+        fail_reads: Arc<AtomicBool>,
     }
 
     impl FakeHost {
@@ -2129,6 +2276,7 @@ mod tests {
             Self {
                 item_calls: Arc::new(AtomicUsize::new(0)),
                 fail_items: Arc::new(AtomicBool::new(false)),
+                fail_reads: Arc::new(AtomicBool::new(false)),
             }
         }
 
@@ -2217,6 +2365,16 @@ mod tests {
                         estimated_size: Some(100),
                         diagnostics: Vec::new(),
                     },
+                    ReferenceHostArtifact {
+                        paper_ref: "1:AAAA1111".into(),
+                        artifact_type: "digest".into(),
+                        payload_type: "text/markdown".into(),
+                        status: "missing".into(),
+                        locator: String::new(),
+                        payload_hash: String::new(),
+                        estimated_size: None,
+                        diagnostics: Vec::new(),
+                    },
                 ],
                 cursor: String::new(),
                 next_cursor: String::new(),
@@ -2231,6 +2389,9 @@ mod tests {
             locator: &str,
             expected_hash: &str,
         ) -> Result<ReferenceHostArtifactRead, String> {
+            if self.fail_reads.load(Ordering::Relaxed) {
+                return Err("reverse_host_response_body_truncated".into());
+            }
             let title = match locator {
                 "reference:a" => "External A",
                 "reference:b" => "External B",
@@ -2433,6 +2594,41 @@ mod tests {
             1
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn discards_prepared_refresh_after_host_read_failure_and_allows_same_process_retry() {
+        let root = test_root("refresh-read-retry");
+        let host = Arc::new(FakeHost::new());
+        let fail = Arc::new(AtomicBool::new(false));
+        let app = application(&root, host.clone(), fail);
+
+        host.fail_reads.store(true, Ordering::Relaxed);
+        assert_eq!(
+            app.refresh_now(),
+            Err("reverse_host_response_body_truncated".into())
+        );
+
+        let preparation_id = app
+            .read_job(REFRESH_JOB_ID)
+            .expect("refresh receipt")
+            .expect("refresh job")
+            .scope_ref;
+        let repository = app.repository.owner();
+        let repository = repository.lock().expect("repository");
+        assert_eq!(
+            repository
+                .get_operation(&format!("operation:{preparation_id}"))
+                .expect("preparation receipt")
+                .expect("preparation operation")
+                .status,
+            "canceled"
+        );
+        drop(repository);
+
+        host.fail_reads.store(false, Ordering::Relaxed);
+        let retried = app.retry_refresh().expect("same-process retry");
+        assert_eq!(retried["status"], "promoted");
     }
 
     #[test]

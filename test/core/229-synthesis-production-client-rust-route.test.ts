@@ -144,6 +144,164 @@ describe("Synthesis Rust production client route", function () {
     });
   });
 
+  it("refreshes a non-empty Reference index through the reverse Host", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-reference-route-"),
+    );
+    const reverseHost = http.createServer((request, response) => {
+      let requestBody = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        requestBody += chunk;
+      });
+      request.on("end", () => {
+        const call = JSON.parse(requestBody) as {
+          capability: string;
+          payload: {
+            cursor?: string;
+            limit?: number;
+            expectedHash?: string;
+          };
+        };
+        const cursor = call.payload.cursor || "";
+        const limit = call.payload.limit || 100;
+        let result: Record<string, unknown>;
+        if (call.capability === "webdav.describe") {
+          result = { configured: false };
+        } else if (call.capability === "library.items.list_page") {
+          result = {
+            items: [
+              {
+                paperRef: "1:HOSTREF1",
+                libraryId: 1,
+                itemKey: "HOSTREF1",
+                itemType: "journalArticle",
+                title: "Reverse Host Reference",
+                year: "2026",
+                metadataHash: "sha256:hostref1",
+              },
+            ],
+            cursor,
+            nextCursor: "",
+            hasMore: false,
+            returned: 1,
+            limit,
+          };
+        } else if (call.capability === "library.artifacts.scan_page") {
+          result = {
+            artifacts: [
+              {
+                paperRef: "1:HOSTREF1",
+                artifactType: "digest",
+                payloadType: "digest-markdown",
+                status: "missing",
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF1",
+                artifactType: "references",
+                payloadType: "references-json",
+                status: "available",
+                locator: "fixture:references:HOSTREF1",
+                payloadHash: "sha256:references-hostref1",
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF1",
+                artifactType: "citation_analysis",
+                payloadType: "citation-analysis-json",
+                status: "missing",
+                diagnostics: [],
+              },
+            ],
+            cursor,
+            nextCursor: "",
+            hasMore: false,
+            returned: 1,
+            limit,
+          };
+        } else if (call.capability === "library.artifacts.read") {
+          result = {
+            status: "available",
+            payloadHash: call.payload.expectedHash,
+            content: {
+              kind: "json",
+              value: {
+                references: [
+                  {
+                    title: `目录治理 ${"文献".repeat(32_000)}`,
+                    year: "2024",
+                    authors: ["研究者"],
+                  },
+                ],
+              },
+            },
+            diagnostics: [],
+          };
+        } else {
+          result = {};
+        }
+        const body = JSON.stringify({ ok: true, result });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "reference");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-reference",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    const sidecar = start(configPath);
+    try {
+      const { port } = await sidecar.listening;
+      const refresh = await call(port, "client.refreshReferenceSidecarNow", {
+        args: [],
+      });
+      assert.equal(refresh.status, 200);
+      assert.equal(refresh.body.data.ok, true);
+
+      const index = await call(port, "client.getReferenceSidecarIndex", {
+        args: [{ includeReferences: true }],
+      });
+      assert.equal(index.status, 200);
+      assert.equal(index.body.data.total, 1);
+      assert.equal(index.body.data.returned, 1);
+      assert.equal(index.body.data.rows[0].paper_ref, "1:HOSTREF1");
+      assert.lengthOf(index.body.data.rows[0].references, 1);
+      assert.include(
+        index.body.data.rows[0].references[0].parsedTitle,
+        "目录治理",
+      );
+      assert.include(sidecar.stderr(), '"stage":"call-completed"');
+      assert.notInclude(sidecar.stderr(), "目录治理");
+    } finally {
+      if (sidecar.child.exitCode === null) {
+        await stop(sidecar.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+    }
+  });
+
   it("initializes once, holds the production lock, and ignores legacy lifecycle files", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-route-"));
