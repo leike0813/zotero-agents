@@ -334,3 +334,76 @@ Loading conversation..." to owner-first spinner + page-first paint is the
 one sanctioned perceptible change; acceptance and release notes classify it
 as an intended improvement. Everything else in §6/§8.7 of the behavior
 analysis must hold byte-for-byte.
+
+## Phase 3 implementation notes (2026-07-26)
+
+**Status: implemented.** OpenSpec change:
+`openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence/`.
+Landed in five commits on `dev-assistant-ui`:
+
+- `63a27358` — wire schema admits `skillrunner` (third owner branch,
+  request-scoped owner key with run-key fallback; 26 typed actions; domain
+  mapping exhaustive for three sources with `plan`/`service-status`
+  declared not-applicable).
+- `4006024e` — read model + `SKILLRUNNER_WORKSPACE_ADAPTER` (dark).
+  Transcript publishes snapshots only; the publication runtime gained a
+  snapshot-only transcript lane (queued kind without mutations → flush
+  re-reads a full page) and the coordinator now accepts steady-state
+  snapshots. ACP mutation paths unchanged. Canonical conversation-entry →
+  transcript-item projection is a host-side SSOT in
+  `skillRunnerRunDialog.ts`.
+- `12f9caeb` — atomic cutover: `skillrunner.html` boots the shared
+  `acp-child.bundle.js` with `data-source="skillrunner"`; shell legacy
+  snapshot channel and legacy action forwarding deleted; child
+  source/envelope/action-owner branches added; sidebar actions routed
+  through the typed registry (`dispatchSkillRunnerWorkspaceAction`).
+  Includes the waiting_auth "auth suite" fix: the shared interaction DTO
+  gained an optional `auth` block (authUrl/userCode/lastError/methods/
+  importFiles) projected from the read model, so the hint region renders
+  the full auth affordances byte-identically to the legacy child. Test
+  migrations: 71 rewritten to publication-boundary behavior tests (11
+  cases), 97 SkillRunner section rewritten to drive the shared child
+  through publications with subtree node-identity assertions (9 cases).
+  Also fixed two real observer races exposed by the faster publication
+  funnel (stop-during-init stream leak; shutdown/start interleave orphan
+  observer).
+- `d078e255` — legacy deletion (−6772 LOC): `runDialog.js`,
+  `runDialogApp.js`, `chatThinkingCore.js`, `run-dialog.html`,
+  `skillRunnerSnapshotContract.ts`, the SkillRunner branches of
+  `assistantPanelModel.js`/`assistantPanelRenderer.js`,
+  `adaptLegacyTranscriptItem`, the push plane in
+  `skillRunnerRunDialog.ts` (6634→5555 LOC), standalone dialog mode.
+  `pushSnapshot` survives only as `publishRunWorkspaceState`: the
+  transcript publication clock plus the change-notify funnel. markdown-it
+  consolidated into the `src/sidebar/markdownParser.js` singleton.
+- Phase 3.5 — docs and gates (this note, AGENTS.md cold-mirror wording).
+
+Deviation notes:
+
+- Test 97's drawer task-card assertion changed from "card replaced" to
+  "card patched in place" — Preact keyed reconcile is strictly stronger;
+  the visible semantics (unchanged cards keep identity, changed card
+  content updates) are locked either way.
+- The waiting-state history catch-up test in 193 now triggers an explicit
+  workspace refresh: the old push path's ~60 localize calls incidentally
+  widened a re-sync window. Production semantics unchanged; a systematic
+  catch-up mechanism for waiting runs would be new feature work.
+- `assistantPanelRenderer.js`'s imperative chrome render functions no
+  longer have production callers but remain locked by test 97 — deferred
+  cleanup candidate for Phase 4.
+- One flake observed in `108-host-bridge-workflow-control` during a full
+  core run; passes in isolation and on rerun, unrelated to this change.
+
+Acceptance: `test:node:core` 2827 passing / 0 failing; build, lint,
+localization governance, help-docs, ssot-invariants, OpenSpec strict
+validation, and `test:lite` all green. A dedicated §6/§8.7 acceptance
+sweep against the behavior baseline found three regressions the test
+suites had missed (control-indicator badges, auto-reply indicator,
+backend-unreachable drawer groups) plus seven divergences (composer
+busy-Cancel and auth-paste labels, ACP-only dropdowns/usage gauge on the
+SkillRunner composer, "Loading conversation..." status row, details
+section depth, attention tooltip, empty-state text); all were restored
+to baseline and locked by new tests. Two perceptible changes are
+sanctioned (user-approved): owner-first run switching, and the
+permission "View details" sheet now opening (inert in the legacy UI).
+Manual Zotero 7/9 smoke remains a manual item before merge to `main`.

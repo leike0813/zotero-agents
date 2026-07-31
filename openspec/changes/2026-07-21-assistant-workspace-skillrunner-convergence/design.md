@@ -146,11 +146,17 @@ action, matching the native workflow queue merged from dev.
 is the SkillRunner-tab behavior contract (seven lifecycle states, auth
 hint suite, no free-form composer, revision entries, auto-reply and
 control-indicator badges, backend-unreachable drawer state, no
-permission drawer/usage gauge/plan region). The single sanctioned
-perceptible change is run switching moving from a full transcript rebuild
-to the owner-first loading sequence — classified as an intended
-improvement, per
-`artifact/assistant-workspace-refactor-improvement-candidates-20260725.md`.
+usage gauge/plan region). Two sanctioned perceptible changes
+(user-approved 2026-07-26): run switching moves from a full transcript
+rebuild to the owner-first loading sequence, and the permission
+"View details" affordance now opens the bottom sheet (inert in the
+legacy UI), matching the ACP tabs. Everything else holds byte-for-byte;
+the acceptance pass restored the control-indicator and auto-reply
+badges, the backend-unreachable drawer groups, the composer busy-Cancel
+and auth-paste labels (without the ACP dropdowns/usage gauge), the full
+owner-details sections, the "Loading conversation..." status row, and
+the standalone revision row for rejected drafts (the final message keeps
+its revision badge alongside it).
 
 ## Risks
 

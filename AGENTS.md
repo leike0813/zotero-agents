@@ -155,6 +155,7 @@
 - Assistant Workspace 中任何 selected transcript owner 切换都必须 owner-first：ACP Chat conversation/backend 切换、ACP Skills run 切换等路径必须先发布新 owner 的 loading-first/empty snapshot；indexed page read 与 full mirror hydrate 不得阻塞 owner first paint。
 - live/prompting/lifecycle-open transcript mirror 必须 pinned，不参与 cold mirror LRU 淘汰；cold full mirror cache 只是性能缓存，不能成为 transcript 可见性的必要条件。
 - cold full mirror LRU 按 owner 维护：ACP Skills 使用 `requestId`，ACP Chat 使用 `backendId + "\n" + conversationId`；缓存命中可以加速切换，缓存未命中必须仍能通过 indexed page read 渲染 selected page。
+- SkillRunner transcript owner 使用 `requestId`（未分配 requestId 的 local run 回退 `runKey`）；SkillRunner 不维护 cold full mirror cache——有界的内存会话历史（上限 500 条）即是 mirror，分页读直接由其供页，transcript 以 snapshot 形式发布（无增量通道）。
 - 新增 transcript cold-load / hydrate / mirror cache 逻辑时，不得把分页缓存设计成正确性 SSOT，也不得改写历史 transcript store 格式来满足 UI 首屏性能。
 
 # ACP Transcript Projection硬约束

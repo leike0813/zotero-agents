@@ -30,11 +30,11 @@
 
 ## 5. Documentation And Gates
 
-- [ ] 5.1 `AGENTS.md`: extend the cold-mirror/LRU hard-constraint wording with the skillrunner owner rule (request id) and note SkillRunner serves pages from the bounded in-memory mirror without a cold LRU layer; behavior invariants unchanged.
-- [ ] 5.2 Append Phase 3 implementation notes to `artifact/assistant-workspace-refactor-plan-20260718.md`.
-- [ ] 5.3 `openspec validate 2026-07-21-assistant-workspace-skillrunner-convergence --strict`.
-- [ ] 5.4 `npm run build` (help-docs + scaffold + both `tsc --noEmit` programs).
-- [ ] 5.5 Focused suites green: 97 / 184 / 190 / 192 + the rewritten 71 + the new skillrunner surface test + the acp family; plus `npm run test:node:core`.
-- [ ] 5.6 `npm run lint:check`, `npm run check:localization-governance`, `npm run check:help-docs`, `npm run check:ssot-invariants`.
-- [ ] 5.7 `npm run test:lite` Zotero mock harness smoke; manual Zotero 7/9 smoke recorded as a manual item.
-- [ ] 5.8 Acceptance pass against `artifact/assistant-workspace-user-behavior-analysis-20260725.md` §6/§8.7 (seven lifecycle states, auth hint suite, revision entries, auto-reply/control indicators, backend-unreachable drawer); the run-switch owner-first change is recorded as the single sanctioned perceptible difference per Decision 10.
+- [x] 5.1 `AGENTS.md`: extend the cold-mirror/LRU hard-constraint wording with the skillrunner owner rule (request id) and note SkillRunner serves pages from the bounded in-memory mirror without a cold LRU layer; behavior invariants unchanged.
+- [x] 5.2 Append Phase 3 implementation notes to `artifact/assistant-workspace-refactor-plan-20260718.md`.
+- [x] 5.3 `openspec validate 2026-07-21-assistant-workspace-skillrunner-convergence --strict`.
+- [x] 5.4 `npm run build` (help-docs + scaffold + both `tsc --noEmit` programs).
+- [x] 5.5 Focused suites green: 97 / 184 / 190 / 192 + the rewritten 71 + the new skillrunner surface test + the acp family; plus `npm run test:node:core`.
+- [x] 5.6 `npm run lint:check`, `npm run check:localization-governance`, `npm run check:help-docs`, `npm run check:ssot-invariants`.
+- [x] 5.7 `npm run test:lite` Zotero mock harness smoke; manual Zotero 7/9 smoke recorded as a manual item.
+- [x] 5.8 Acceptance pass against `artifact/assistant-workspace-user-behavior-analysis-20260725.md` §6/§8.7 (seven lifecycle states, auth hint suite, revision entries, auto-reply/control indicators, backend-unreachable drawer); the run-switch owner-first change is recorded as the single sanctioned perceptible difference per Decision 10.
