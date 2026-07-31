@@ -7,12 +7,14 @@ Governs the build pipeline and import boundaries for Assistant Workspace sidebar
 
 Assistant Workspace sidebar page scripts SHALL live as ES modules under
 `src/sidebar/` and SHALL be delivered to pages only as esbuild-produced
-bundles (`acp-child.bundle.js`, `run-dialog.bundle.js`,
-`assistant-workspace.bundle.js`) referenced by body-end classic script
-tags. Hand-written script files SHALL NOT be added under
-`addon/content/sidebar/` or `addon/content/shared/assistant/`.
+bundles (`acp-child.bundle.js`, `assistant-workspace.bundle.js`)
+referenced by body-end classic script tags. Hand-written script files
+SHALL NOT be added under `addon/content/sidebar/` or
+`addon/content/shared/assistant/`. The SkillRunner page SHALL load the
+shared `acp-child.bundle.js`; a SkillRunner-specific bundle SHALL NOT
+exist.
 
-ACP child chrome regions MAY be implemented as Preact components in
+Assistant child chrome regions MAY be implemented as Preact components in
 `src/sidebar/components/*.tsx`, compiled by esbuild with the Preact JSX
 automatic runtime and delivered inside the page bundle. Preact SHALL NOT
 be added as a static vendor script. Component sources SHALL type-check

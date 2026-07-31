@@ -3,16 +3,16 @@
 ## Purpose
 Defines the shared v1 publication vocabulary, canonical browser state, semantic
 presentation and action registries, transcript region model, mutation buffer,
-and page request protocol used by both ACP Chat and ACP Skills surfaces in
-Assistant Workspace.
+and page request protocol used by ACP Chat, ACP Skills, and SkillRunner
+surfaces in Assistant Workspace.
 ## Requirements
 ### Requirement: Workspace publication uses one strict v1 registry
 
-ACP Chat and ACP Skills SHALL use the v1 region and presentation registries as
-the sole source of publication kind, payload, semantic presentation fields,
-browser key, managed region, and source support. Non-v1 publications, generic
-banner arrays, producer labels, presentation tasks, aliases, and dual writes
-SHALL be rejected.
+ACP Chat, ACP Skills, and SkillRunner SHALL use the v1 region and
+presentation registries as the sole source of publication kind, payload,
+semantic presentation fields, browser key, managed region, and source
+support. Non-v1 publications, generic banner arrays, producer labels,
+presentation tasks, aliases, and dual writes SHALL be rejected.
 
 #### Scenario: A non-v1 presentation reaches the child
 
@@ -111,9 +111,12 @@ The shared mutation buffer SHALL merge consecutive same-item appends and SHALL b
 - **THEN** it sends one terminal rejection acknowledgement
 - **AND** the host reads and publishes the current page once.
 
-### Requirement: Domain mappings are exhaustive for both surfaces
+### Requirement: Domain mappings are exhaustive for every registered source
 
-Every publication kind SHALL have a compile-time Chat and Skills mapping or explicit `not-applicable` declaration. Unknown runtime changes SHALL NOT fall back to baseline or full snapshot.
+Every publication kind SHALL have a compile-time mapping or an explicit
+`not-applicable` declaration for each registered source (ACP Chat, ACP
+Skills, SkillRunner). Unknown runtime changes SHALL NOT fall back to a
+baseline or a full snapshot.
 
 #### Scenario: A new domain kind is introduced
 
@@ -445,3 +448,34 @@ The publication coordinator SHALL maintain one canonical live-tail mutation base
 - **WHEN** selection changes to owner B with the same visible loading semantics
 - **THEN** the owner-scoped signature SHALL still commit owner B's state
 - **AND** no transcript DOM or canonical state from owner A SHALL be retained.
+
+### Requirement: SkillRunner owner identity is request scoped
+
+The SkillRunner workspace owner SHALL carry `source: "skillrunner"`, an
+`ownerKey`, the `requestId`, and the `runKey`. The `ownerKey` SHALL be the
+request id when one is assigned and SHALL fall back to the run key for
+unassigned local runs. A late request-id assignment SHALL surface as an
+owner switch and SHALL follow the owner-first loading sequence.
+
+#### Scenario: A local run receives its request id
+
+- **GIVEN** a SkillRunner run was selected before its request id was assigned
+- **WHEN** the backend assigns the request id
+- **THEN** the owner key changes to the request id
+- **AND** the workspace republishes the new owner with a loading-first transcript snapshot.
+
+### Requirement: SkillRunner transcript publishes as snapshots
+
+The SkillRunner surface SHALL publish transcript updates only as
+transcript snapshots, never as incremental mutations, because the
+SkillRunner channel has no incremental event stream at this boundary.
+Transcript revisions SHALL come from the producer-side boundary signature,
+unchanged region payloads SHALL be absorbed by coordinator signature
+dedup, and conversation entries SHALL be projected to canonical transcript
+items producer-side.
+
+#### Scenario: A streaming SkillRunner run appends chat entries
+
+- **WHEN** new SkillRunner chat entries cross a producer boundary signature
+- **THEN** a transcript snapshot with an incremented revision is published
+- **AND** non-transcript regions with unchanged payloads are not republished.

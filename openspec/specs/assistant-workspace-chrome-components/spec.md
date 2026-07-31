@@ -1,7 +1,7 @@
 # assistant-workspace-chrome-components Specification
 
 ## Purpose
-Governs the componentization of ACP child chrome regions as Preact components, ensuring synchronous failure-safe rendering, imperative transcript rendering behind a component boundary, and backward compatibility with the SkillRunner imperative path.
+Governs the componentization of Assistant child chrome regions as Preact components, ensuring synchronous failure-safe rendering, imperative transcript rendering behind a component boundary, and convergence of the SkillRunner source onto the shared assistant child page.
 ## Requirements
 ### Requirement: ACP child chrome regions are Preact components
 
@@ -77,16 +77,31 @@ re-rendering through the wrapper.
 - **AND** no code outside the wrapper SHALL clear or fill the transcript
   container directly.
 
-### Requirement: Region migration preserves the SkillRunner imperative path
+### Requirement: Assistant child page serves the SkillRunner source
 
-Chrome component takeover SHALL apply only to the ACP child page. The
-SkillRunner run-dialog SHALL keep using the shared imperative renderer
-and its guard primitives until SkillRunner convergence. Deleted render
-code SHALL be limited to branches that only the ACP `exact` panel path
-can reach.
+The shared assistant child page (`acp-child.bundle.js`) SHALL boot with
+`data-source="skillrunner"` from the SkillRunner page and SHALL render all
+SkillRunner chrome regions through the same region components and props
+equality boundaries as the ACP sources. SkillRunner-only DOM structures
+outside the shared components SHALL NOT be introduced.
 
-#### Scenario: SkillRunner panel renders during migration
+#### Scenario: SkillRunner page boots the shared child
 
-- **WHEN** any subset of ACP chrome regions has been componentized
-- **THEN** the run-dialog page SHALL still render its full panel through
-  the shared imperative renderer with unchanged behavior.
+- **WHEN** `skillrunner.html` loads with `data-source="skillrunner"`
+- **THEN** the shared child runtime boots against the SkillRunner source
+- **AND** chrome regions render through the region components with props-level memoization.
+
+### Requirement: Context drawer renders SkillRunner task navigation
+
+For the SkillRunner source, the context drawer component SHALL render the
+workspace task navigation as Running and Completed sections containing
+backend groups and task cards, preserving selected, related, and disabled
+task states and the Completed-section collapse action. SkillRunner tasks
+SHALL NOT be flattened into a generic context-entry list.
+
+#### Scenario: SkillRunner navigation renders grouped tasks
+
+- **GIVEN** an owner-navigation publication with running and completed task groups
+- **WHEN** the context drawer renders for the SkillRunner source
+- **THEN** tasks appear under their Running or Completed section and backend group
+- **AND** collapse and selection state behave as they did in the legacy drawer.

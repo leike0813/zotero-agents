@@ -255,7 +255,10 @@ workflow result content.
 
 ### Requirement: SkillRunner managed runtime
 
-SkillRunner SHALL continue to load `run-dialog.html`, but the visible layout and controls SHALL be rendered through the managed Assistant runtime.
+SkillRunner SHALL load the shared assistant child page (`skillrunner.html`
+with `data-source="skillrunner"`) and SHALL be refreshed only through the v1
+publication plane; the visible layout and controls SHALL be rendered through
+the managed Assistant runtime.
 
 SkillRunner SHALL preserve backend protocol, output convergence, run history, waiting_user/auth/cancel semantics, and assistant revision/replacement audit semantics.
 
@@ -272,10 +275,11 @@ related task states, disabled task states, and the Completed-section collapse
 action. It SHALL NOT flatten SkillRunner tasks into a generic context-entry
 list.
 
-SkillRunner `assistant_process` items with `processType` or
+SkillRunner `assistant_process` entries with `processType` or
 `correlation.process_type` equal to `tool_call` or `command_execution` SHALL be
-projected as shared `tool` transcript rows. Reasoning-like or unknown
-`assistant_process` items SHALL remain shared `process` rows.
+projected as canonical `tool-call` transcript items. Reasoning-like or unknown
+`assistant_process` entries SHALL be projected as canonical `thought`
+transcript items.
 
 #### Scenario: SkillRunner native semantics remain intact
 
@@ -283,22 +287,6 @@ projected as shared `tool` transcript rows. Reasoning-like or unknown
 - **When** the SkillRunner tab renders inside the Assistant shell
 - **Then** the SkillRunner adapter preserves it as SkillRunner-owned revision metadata and details diagnostics
 - **And** ACP Chat does not inherit SkillRunner-specific revision semantics.
-
-#### Scenario: SkillRunner Sessions drawer keeps workspace/task grouping
-
-- **Given** SkillRunner receives a workspace snapshot with drawer sections and backend groups
-- **When** the Sessions drawer is opened in the Assistant shell
-- **Then** Running and Completed sections are rendered with backend groups and task cards
-- **And** selecting a task emits `select-task` with the task key
-- **And** toggling the Completed section emits `toggle-drawer-section` with `sectionId=completed`.
-
-#### Scenario: SkillRunner tool-like process rows use shared tool styling
-
-- **Given** SkillRunner emits `assistant_process` data with `processType=tool_call`
-- **Or** SkillRunner emits `assistant_process` data with `processType=command_execution`
-- **When** the SkillRunner transcript is projected into `AssistantConversationView`
-- **Then** those rows are rendered as shared `tool` rows
-- **And** they are not concatenated into the reasoning/process text block.
 
 ### Requirement: Managed drawer run lifecycle actions
 
