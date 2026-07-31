@@ -500,9 +500,119 @@ fn workbench_surface_from_compat(
     {
         return Err("invalid_request".into());
     }
+    if surface == "index" {
+        return apps.reference_canonical.workbench_index(state);
+    }
     // The native surface currently owns the coherent operational projection.
     // Surface-specific data remains with the corresponding typed application.
     apps.workbench.read_json()
+}
+
+fn workbench_chrome_from_compat(apps: &ProductionApplications) -> Result<Value, String> {
+    let chrome = apps.workbench.read()?;
+    let reference = chrome
+        .maintenance
+        .cache_readiness
+        .iter()
+        .find(|cache| cache.cache_key == "reference-sidecar:library");
+    let citation = chrome
+        .maintenance
+        .cache_readiness
+        .iter()
+        .find(|cache| cache.cache_key == "citation-graph:library");
+    let caches = [reference, citation];
+    let missing = caches
+        .iter()
+        .flatten()
+        .filter(|cache| cache.status == "missing")
+        .map(|cache| cache.cache_key.clone())
+        .collect::<Vec<_>>();
+    let stale = caches
+        .iter()
+        .flatten()
+        .filter(|cache| cache.status == "stale")
+        .map(|cache| cache.cache_key.clone())
+        .collect::<Vec<_>>();
+    let failed = caches
+        .iter()
+        .flatten()
+        .filter(|cache| cache.status == "failed")
+        .map(|cache| cache.cache_key.clone())
+        .collect::<Vec<_>>();
+    let active_jobs = chrome
+        .maintenance
+        .background_jobs
+        .iter()
+        .filter(|job| job.status != "failed")
+        .collect::<Vec<_>>();
+    let partial = if missing.len() == 1 {
+        missing.clone()
+    } else {
+        Vec::new()
+    };
+    let status = if !active_jobs.is_empty() {
+        "running"
+    } else if !failed.is_empty() {
+        "failed"
+    } else if missing.len() > 1 {
+        "missing"
+    } else if !partial.is_empty() {
+        "partial"
+    } else if !stale.is_empty() {
+        "stale"
+    } else {
+        "ready"
+    };
+    let mut recommended_commands = Vec::new();
+    if reference
+        .is_some_and(|cache| matches!(cache.status.as_str(), "missing" | "stale" | "failed"))
+    {
+        recommended_commands.push("refreshReferenceSidecarNow");
+    }
+    if citation.is_some_and(|cache| matches!(cache.status.as_str(), "missing" | "stale" | "failed"))
+    {
+        recommended_commands.push("rebuildCitationGraphCache");
+    }
+    let latest_reference = reference
+        .map(|cache| {
+            if cache.refreshed_at.is_empty() {
+                cache.updated_at.as_str()
+            } else {
+                cache.refreshed_at.as_str()
+            }
+        })
+        .filter(|value| !value.is_empty());
+    let latest_citation = citation
+        .map(|cache| {
+            if cache.refreshed_at.is_empty() {
+                cache.updated_at.as_str()
+            } else {
+                cache.refreshed_at.as_str()
+            }
+        })
+        .filter(|value| !value.is_empty());
+    Ok(json!({
+        "maintenance":{
+            "summary":{
+                "status":status,
+                "latestUsable":{
+                    "referenceSidecar":latest_reference.map(|updated_at|json!({"updated_at":updated_at})),
+                    "citationGraph":latest_citation.map(|updated_at|json!({"updated_at":updated_at})),
+                },
+                "pendingDirtyCount":0,
+                "activeWorkerCount":active_jobs.len(),
+                "activeWorkerKind":active_jobs.first().map(|job|job.source.as_str()),
+                "canonicalSyncPending":false,
+                "canonicalEpoch":0,
+                "stale":stale,
+                "partial":partial,
+                "missing":missing,
+                "recommendedCommands":recommended_commands,
+                "diagnostics":[],
+            },
+            "backgroundJobs":chrome.maintenance.background_jobs,
+        },
+    }))
 }
 
 fn expected_hash_request(args: &[Value], names: &[&str]) -> Result<String, String> {
@@ -725,7 +835,7 @@ register_production_client_handlers!(
         if !one::<Value>(args)?.is_object() {
             return Err("invalid_request".into());
         }
-        apps.workbench.read_json()
+        workbench_chrome_from_compat(apps)
     }),
     ("client.getSynthesisWorkbenchSurfaceInput", |apps, args| {
         workbench_surface_from_compat(apps, args)

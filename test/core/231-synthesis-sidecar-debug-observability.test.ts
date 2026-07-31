@@ -24,6 +24,7 @@ import {
   createSynthesisSidecarRpcClient,
   SynthesisSidecarRpcError,
 } from "../../src/modules/synthesisSidecarRpcClient";
+import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesisProductionRpcPolicy";
 
 describe("Synthesis sidecar debug observability", function () {
   beforeEach(function () {
@@ -341,11 +342,75 @@ describe("Synthesis sidecar debug observability", function () {
       ],
     );
     assert.equal(events[0]?.requestId, events[1]?.requestId);
+    assert.equal(events[0]?.correlationId, events[0]?.requestId);
+    assert.equal(events[1]?.correlationId, events[0]?.requestId);
     assert.isAbove(Number(events[0]?.requestBytes), 0);
     assert.isAbove(Number(events[1]?.responseBytes), 0);
     const serialized = JSON.stringify(events);
     assert.notInclude(serialized, "secret-token");
     assert.notInclude(serialized, "must-not-be-logged");
+  });
+
+  it("preserves native operation timeout and keeps local production timeout distinct", async function () {
+    const connection = {
+      baseUrl: "http://127.0.0.1:1",
+      profileId: "profile-1",
+      clientToken: "secret-token",
+      serviceInstanceId: "service-1",
+    };
+    const nativeTimeout = createSynthesisSidecarRpcClient({
+      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      fetch: (async (_input: unknown, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body || "{}"));
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            requestId: request.requestId,
+            serviceInstanceId: "service-1",
+            error: { code: "operation_timeout", details: {} },
+          }),
+          { status: 408 },
+        );
+      }) as typeof fetch,
+    });
+    let nativeFailure: unknown;
+    try {
+      await nativeTimeout.call({
+        connection,
+        capability: "client.refreshReferenceSidecarNow",
+        payload: {},
+        rebuildResult: (value) => value,
+      });
+    } catch (error) {
+      nativeFailure = error;
+    }
+    assert.instanceOf(nativeFailure, SynthesisSidecarRpcError);
+    assert.equal(
+      (nativeFailure as SynthesisSidecarRpcError).code,
+      "operation_timeout",
+    );
+
+    const localTimeout = createSynthesisSidecarRpcClient({
+      deadlineMs: 1,
+      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      fetch: (() => new Promise<Response>(() => undefined)) as typeof fetch,
+    });
+    let localFailure: unknown;
+    try {
+      await localTimeout.call({
+        connection,
+        capability: "client.refreshReferenceSidecarNow",
+        payload: {},
+        rebuildResult: (value) => value,
+      });
+    } catch (error) {
+      localFailure = error;
+    }
+    assert.instanceOf(localFailure, SynthesisSidecarRpcError);
+    assert.equal(
+      (localFailure as SynthesisSidecarRpcError).code,
+      "request_timeout",
+    );
   });
 
   it("preserves a bounded nested failure reason across the RPC boundary", async function () {

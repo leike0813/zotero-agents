@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use synthesis_application::RepositoryPort;
 use synthesis_application::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchingApplication, ReferenceMatchingPrepareRequest,
@@ -10,16 +10,20 @@ use synthesis_application::reference_matching::{
     ReferenceReviewDecision,
 };
 use synthesis_application::reference_refresh::{
+    REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES, REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES,
     ReferenceArtifactDescriptor, ReferenceArtifactType, ReferenceRefreshApplication,
-    ReferenceRefreshApplyRequest, ReferenceRefreshItem, ReferenceRefreshPayload,
-    ReferenceRefreshPrepareRequest, ReferenceRefreshScope, ReferenceRefreshStatus,
+    ReferenceRefreshApplyCapacity, ReferenceRefreshApplyRequest, ReferenceRefreshItem,
+    ReferenceRefreshPayload, ReferenceRefreshPrepareRequest, ReferenceRefreshScope,
+    ReferenceRefreshStatus, measure_reference_refresh_apply_request,
     validate_reference_refresh_apply_request,
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    OperationRecord, ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, Repository,
+    OperationRecord, RawReferenceRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
+    ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, Repository,
 };
 
+use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
 
 const HOST_PAGE_LIMIT: usize = 100;
@@ -28,6 +32,23 @@ const MAX_HOST_PAGES: usize = 1_000;
 const MAX_HOST_ROWS: usize = 100_000;
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
+const REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES: usize =
+    REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES - 64 * 1024;
+
+enum RefreshBatchAttempt {
+    Converged {
+        promoted: bool,
+        reference_hash: Option<String>,
+        input_hash: Option<String>,
+        affected_source_refs: Vec<String>,
+        warnings: Vec<String>,
+    },
+    Split,
+    Failed {
+        code: String,
+        capacity: Option<ReferenceRefreshApplyCapacity>,
+    },
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -103,6 +124,22 @@ pub(crate) struct ReferenceHostArtifactsPage {
     pub has_more: bool,
     pub returned: usize,
     pub limit: usize,
+}
+
+#[derive(Clone, Debug)]
+struct ReferenceIndexFactReference {
+    raw: RawReferenceRecord,
+    binding: Option<ReferenceBindingFactRecord>,
+}
+
+#[derive(Clone, Debug)]
+struct ReferenceIndexFactRow {
+    item: ReferenceHostItem,
+    artifact_coverage: String,
+    missing_artifacts: Vec<String>,
+    references: Vec<ReferenceIndexFactReference>,
+    reference_count: usize,
+    unbound_reference_count: usize,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -255,40 +292,53 @@ impl ReferenceCanonicalApplication {
             &["sourceRefs", "source_refs", "sourceRef", "source_ref"],
             250,
         )?;
-        let repository = self.repository.owner();
-        let repository = repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        let mut sources = repository.list_reference_sources()?;
+        let mut items = match self.collect_host_items() {
+            Ok(items) => items,
+            Err(error) if error == "reverse_host_unavailable" => {
+                let repository = self.repository.owner();
+                let repository = repository
+                    .lock()
+                    .map_err(|_| "repository_unavailable".to_owned())?;
+                if repository.list_reference_sources()?.is_empty() {
+                    Vec::new()
+                } else {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        };
         if !source_filter.is_empty() {
             let selected = source_filter.into_iter().collect::<HashSet<_>>();
-            sources.retain(|source| selected.contains(&source.paper_ref));
+            items.retain(|item| selected.contains(&item.paper_ref));
         }
-        sources.sort_by(|left, right| left.paper_ref.cmp(&right.paper_ref));
-        let total = sources.len();
-        let raw_references = include_references
-            .then(|| repository.list_raw_references())
-            .transpose()?
-            .unwrap_or_default();
-        let rows = sources
+        let total = items.len();
+        let page_items = items
             .into_iter()
             .skip(query.cursor)
             .take(query.limit)
-            .map(|source| {
+            .collect::<Vec<_>>();
+        let fact_rows = self.project_reference_index_rows(page_items)?;
+        let rows = fact_rows
+            .iter()
+            .map(|fact| {
                 let mut row = json!({
-                    "paper_ref":source.paper_ref,
-                    "library_id":source.library_id,
-                    "item_key":source.item_key,
-                    "title":source.title,
-                    "year":source.year,
-                    "metadata_hash":source.metadata_hash,
-                    "updated_at":source.updated_at,
+                    "paper_ref":fact.item.paper_ref,
+                    "library_id":fact.item.library_id,
+                    "item_key":fact.item.item_key,
+                    "title":fact.item.title,
+                    "year":fact.item.year,
+                    "metadata_hash":fact.item.metadata_hash,
+                    "updated_at":fact.item.updated_at,
+                    "artifactCoverage":fact.artifact_coverage,
+                    "missing_artifacts":fact.missing_artifacts,
+                    "reference_count":fact.reference_count,
+                    "unbound_reference_count":fact.unbound_reference_count,
                 });
                 if include_references {
-                    let references = raw_references
+                    let references = fact
+                        .references
                         .iter()
-                        .filter(|reference| reference.source_ref == source.paper_ref)
-                        .cloned()
+                        .map(|reference| reference.raw.clone())
                         .collect::<Vec<_>>();
                     row["references"] = serde_json::to_value(references)
                         .unwrap_or_else(|_| Value::Array(Vec::new()));
@@ -297,7 +347,14 @@ impl ReferenceCanonicalApplication {
             })
             .collect::<Vec<_>>();
         let next = query.cursor + rows.len();
+        let repository = self.repository.owner();
+        let repository = repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
         let basis = reference_basis_hash(&repository)?;
+        let cache_ready = repository
+            .get_cache_basis("reference-sidecar:library")?
+            .is_some_and(|row| row.status != "missing");
         Ok(json!({
             "rows":rows,
             "cursor":query.cursor.to_string(),
@@ -307,21 +364,91 @@ impl ReferenceCanonicalApplication {
             "total":total,
             "limit":query.limit,
             "diagnostics":{
-                "cache_found":total > 0,
+                "cache_found":cache_ready,
                 "storage":"sqlite",
                 "stale":false,
-                "warnings":if total == 0 {
+                "warnings":if !cache_ready {
                     vec!["reference index rows are missing"]
                 } else {
                     Vec::<&str>::new()
                 },
-                "recommended_commands":if total == 0 {
+                "recommended_commands":if !cache_ready {
                     vec!["refreshReferenceSidecarNow"]
                 } else {
                     Vec::<&str>::new()
                 },
                 "repository_basis_hash":basis,
                 "canonical_basis_hash":canonical_basis_hash(&repository)?,
+            },
+        }))
+    }
+
+    pub(crate) fn workbench_index(&self, state: &Value) -> Result<Value, String> {
+        let registry = state
+            .get("registry")
+            .and_then(Value::as_object)
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let scope = registry
+            .get("scope")
+            .and_then(Value::as_str)
+            .unwrap_or("library");
+        if !matches!(scope, "library" | "referenced") {
+            return Err("invalid_request".into());
+        }
+        let expanded_source_refs = string_list_field(
+            &Value::Object(registry.clone()),
+            &["expandedSourceRefs", "expanded_source_refs"],
+            100,
+        )?
+        .into_iter()
+        .collect::<HashSet<_>>();
+        let items = if scope == "referenced" {
+            self.collect_host_items()?
+        } else {
+            self.collect_host_items_bounded(100)?
+        };
+        let mut rows = self.project_reference_index_rows(items)?;
+        if scope == "referenced" {
+            rows.retain(|row| row.reference_count > 0);
+            rows.truncate(100);
+        }
+        let library_id = rows.first().map(|row| row.item.library_id).unwrap_or(0);
+        let rows = rows
+            .iter()
+            .map(|row| {
+                let include_references =
+                    scope == "referenced" || expanded_source_refs.contains(&row.item.paper_ref);
+                let references = if include_references {
+                    row.references
+                        .iter()
+                        .map(workbench_reference_row)
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                json!({
+                    "libraryId":row.item.library_id,
+                    "itemKey":row.item.item_key,
+                    "paper_ref":row.item.paper_ref,
+                    "title":row.item.title,
+                    "year":row.item.year,
+                    "artifactCoverage":row.artifact_coverage,
+                    "missing_artifacts":row.missing_artifacts,
+                    "index_scope":scope,
+                    "literature_item_id":row.item.paper_ref,
+                    "reference_count":row.reference_count,
+                    "unbound_reference_count":row.unbound_reference_count,
+                    "referenced_by_count":0,
+                    "references":references,
+                    "needsTagRegulation":false,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "libraryId":library_id,
+            "registry":{
+                "rows":rows,
+                "cacheStatus":self.reference_cache_status()?,
             },
         }))
     }
@@ -1109,16 +1236,6 @@ impl ReferenceCanonicalApplication {
             if !requested.is_empty() {
                 items.retain(|item| requested.contains(&item.paper_ref));
             }
-            if items.is_empty() {
-                return Ok(json!({
-                    "ok":true,
-                    "status":"unchanged",
-                    "operation_id":REFRESH_JOB_ID,
-                    "processed_paper_refs":[],
-                    "failed_paper_refs":[],
-                    "retryable":false,
-                }));
-            }
             let host_artifacts = self.collect_host_artifacts()?;
             emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "artifacts-scanned", "succeeded")
@@ -1127,148 +1244,373 @@ impl ReferenceCanonicalApplication {
                     .returned(host_artifacts.len())
             });
             let artifacts = complete_artifact_manifest(&items, &host_artifacts)?;
-            let expected_reference_hash = self.refresh.inspect()?.reference_hash;
-            let scope = if requested.is_empty() {
-                ReferenceRefreshScope::Full
-            } else {
-                ReferenceRefreshScope::Sources {
-                    source_refs: items.iter().map(|item| item.paper_ref.clone()).collect(),
-                }
-            };
-            let prepared = self
-                .refresh
-                .prepare_refresh(ReferenceRefreshPrepareRequest {
-                    expected_reference_hash,
-                    force: retry,
-                    scope,
-                    items: items.iter().map(refresh_item).collect(),
-                    artifacts,
-                });
-            match prepared.status {
-                ReferenceRefreshStatus::Unchanged => {
-                    return Ok(json!({
-                        "ok":true,
-                        "status":"unchanged",
-                        "operation_id":REFRESH_JOB_ID,
-                        "processed_paper_refs":items.iter().map(|item|item.paper_ref.clone()).collect::<Vec<_>>(),
-                        "failed_paper_refs":[],
-                        "reference_basis_hash":prepared.reference_hash,
-                        "retryable":false,
-                    }));
-                }
-                ReferenceRefreshStatus::Prepared => {}
-                status => {
-                    return Ok(json!({
-                        "ok":false,
-                        "status":status,
-                        "operation_id":REFRESH_JOB_ID,
-                        "processed_paper_refs":[],
-                        "failed_paper_refs":items.iter().map(|item|item.paper_ref.clone()).collect::<Vec<_>>(),
-                        "retryable":true,
-                    }));
-                }
-            }
-            job.phase = "prepared".into();
-            job.scope_ref = prepared.preparation_id.clone().unwrap_or_default();
-            job.source_hash = prepared.input_hash.clone().unwrap_or_default();
-            job.updated_at = now_string();
-            let preparation_id = prepared
-                .preparation_id
-                .clone()
-                .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
-            if let Err(error) = self.write_job(&job) {
-                self.refresh.discard_preparation(&preparation_id);
-                return Err(error);
-            }
-            emit_debug(|| {
-                NativeDiagnosticEvent::new("operation", "refresh-prepared", "succeeded")
-                    .capability("reference_sidecar_refresh")
-                    .operation_id(REFRESH_JOB_ID)
-                    .total(prepared.reads.len())
-            });
-            let mut payloads = Vec::with_capacity(prepared.reads.len());
-            for (index, read) in prepared.reads.iter().enumerate() {
-                emit_debug(|| {
-                    NativeDiagnosticEvent::new("operation", "artifact-read-started", "started")
-                        .capability("library.artifacts.read")
-                        .operation_id(REFRESH_JOB_ID)
-                        .page(index)
-                        .total(prepared.reads.len())
-                });
-                let payload = self
-                    .host
-                    .read_artifact(&read.locator, &read.expected_hash)
-                    .and_then(|payload| refresh_payload(read, payload));
-                match payload {
-                    Ok(payload) => {
-                        payloads.push(payload);
-                        emit_debug(|| {
-                            NativeDiagnosticEvent::new(
-                                "operation",
-                                "artifact-read-completed",
-                                "succeeded",
-                            )
-                            .capability("library.artifacts.read")
-                            .operation_id(REFRESH_JOB_ID)
-                            .page(index)
-                            .total(prepared.reads.len())
-                        });
+            let mut batches = VecDeque::from(partition_refresh_batches(&items, &artifacts));
+            let mut processed = BTreeSet::new();
+            let mut failed = BTreeSet::new();
+            let mut warnings = Vec::new();
+            let mut promoted = false;
+            let mut failure_code = None;
+            let mut failure_capacity = None;
+            let mut batch_ordinal = 0;
+
+            while let Some(batch) = batches.pop_front() {
+                if bounded_timeout(Duration::from_secs(60)).is_err() {
+                    failed.extend(batch.iter().map(|item| item.paper_ref.clone()));
+                    for pending in batches {
+                        failed.extend(pending.into_iter().map(|item| item.paper_ref));
                     }
-                    Err(error) => {
-                        self.refresh.discard_preparation(&preparation_id);
-                        emit(
-                            NativeDiagnosticEvent::new(
-                                "operation",
-                                "artifact-read-failed",
-                                "failed",
-                            )
-                            .capability("library.artifacts.read")
-                            .operation_id(REFRESH_JOB_ID)
-                            .page(index)
-                            .total(prepared.reads.len())
-                            .code(&error),
-                        );
-                        return Err(error);
+                    failure_code = Some("operation_timeout".to_owned());
+                    break;
+                }
+                batch_ordinal += 1;
+                let batch_artifacts = artifacts
+                    .iter()
+                    .filter(|artifact| {
+                        batch
+                            .binary_search_by(|item| item.paper_ref.cmp(&artifact.paper_ref))
+                            .is_ok()
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                match self.run_refresh_batch(&batch, batch_artifacts, batch_ordinal, &mut job)? {
+                    RefreshBatchAttempt::Converged {
+                        promoted: batch_promoted,
+                        reference_hash,
+                        input_hash,
+                        affected_source_refs,
+                        warnings: batch_warnings,
+                    } => {
+                        promoted |= batch_promoted;
+                        processed.extend(batch.iter().map(|item| item.paper_ref.clone()));
+                        warnings.extend(batch_warnings);
+                        job.source_hash = input_hash.unwrap_or_default();
+                        job.basis_value = reference_hash.unwrap_or_default();
+                        job.processed_count = processed.len() as i64;
+                        job.total_count = items.len() as i64;
+                        job.phase = "batching".into();
+                        job.progress_mode = "determinate".into();
+                        job.updated_at = now_string();
+                        job.diagnostics_json = serde_json::to_string(&vec![json!({
+                            "batchOrdinal":batch_ordinal,
+                            "affectedSourceCount":affected_source_refs.len(),
+                        })])
+                        .map_err(|_| "serialization_failed")?;
+                        self.write_job(&job)?;
+                    }
+                    RefreshBatchAttempt::Split => {
+                        let midpoint = batch.len() / 2;
+                        let right = batch[midpoint..].to_vec();
+                        let left = batch[..midpoint].to_vec();
+                        batches.push_front(right);
+                        batches.push_front(left);
+                    }
+                    RefreshBatchAttempt::Failed { code, capacity } => {
+                        failed.extend(batch.iter().map(|item| item.paper_ref.clone()));
+                        for pending in batches {
+                            failed.extend(pending.into_iter().map(|item| item.paper_ref));
+                        }
+                        failure_code = Some(code);
+                        failure_capacity = capacity;
+                        break;
                     }
                 }
             }
-            emit_debug(|| {
-                NativeDiagnosticEvent::new("operation", "refresh-apply-started", "started")
-                    .capability("reference_sidecar_refresh")
-                    .operation_id(REFRESH_JOB_ID)
-                    .total(payloads.len())
-            });
-            let apply_request = ReferenceRefreshApplyRequest {
-                preparation_id: preparation_id.clone(),
-                payloads,
-            };
-            if let Err(error) = validate_reference_refresh_apply_request(&apply_request) {
-                self.refresh.discard_preparation(&preparation_id);
-                emit(
-                    NativeDiagnosticEvent::new("operation", "refresh-apply-rejected", "failed")
-                        .capability("reference_sidecar_refresh")
-                        .operation_id(REFRESH_JOB_ID)
-                        .code(error),
-                );
-                return Err(error.into());
+
+            if failure_code.is_none() && requested.is_empty() {
+                match self.run_reference_refresh_full_sweep(&items, artifacts, batch_ordinal + 1)? {
+                    RefreshBatchAttempt::Converged {
+                        promoted: sweep_promoted,
+                        warnings: sweep_warnings,
+                        ..
+                    } => {
+                        promoted |= sweep_promoted;
+                        warnings.extend(sweep_warnings);
+                    }
+                    RefreshBatchAttempt::Failed { code, capacity } => {
+                        failure_code = Some(code);
+                        failure_capacity = capacity;
+                    }
+                    RefreshBatchAttempt::Split => {
+                        failure_code = Some("reference_refresh_full_sweep_invalid".into());
+                    }
+                }
             }
-            let applied = self.refresh.apply_refresh(apply_request);
-            let ok = matches!(
-                applied.status,
-                ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
-            );
+
+            let inspection = self.refresh.inspect()?;
+            let ok = failure_code.is_none();
             Ok(json!({
                 "ok":ok,
-                "status":applied.status,
+                "status":if ok {
+                    if promoted { "promoted" } else { "unchanged" }
+                } else {
+                    failure_code.as_deref().unwrap_or("reference_refresh_failed")
+                },
                 "operation_id":REFRESH_JOB_ID,
-                "affected_source_refs":applied.affected_source_refs,
-                "warnings":applied.warnings,
-                "reference_basis_hash":applied.reference_hash,
-                "input_hash":applied.input_hash,
+                "affected_source_refs":processed.iter().cloned().collect::<Vec<_>>(),
+                "processed_paper_refs":processed.into_iter().collect::<Vec<_>>(),
+                "failed_paper_refs":failed.into_iter().collect::<Vec<_>>(),
+                "warnings":warnings,
+                "reference_basis_hash":inspection.reference_hash,
+                "input_hash":inspection.input_hash,
                 "retryable":!ok,
+                "retry":retry,
+                "actual_bytes":failure_capacity.map(|capacity|capacity.bytes),
+                "limit_bytes":failure_capacity.map(|_|REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES),
+                "actual_json_nodes":failure_capacity.map(|capacity|capacity.json_nodes),
+                "limit_json_nodes":failure_capacity.map(|_|REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES),
             }))
         })();
         self.finish_job(job, outcome)
+    }
+
+    fn run_refresh_batch(
+        &self,
+        items: &[ReferenceHostItem],
+        artifacts: Vec<ReferenceArtifactDescriptor>,
+        batch_ordinal: usize,
+        job: &mut OperationRecord,
+    ) -> Result<RefreshBatchAttempt, String> {
+        let source_refs = items
+            .iter()
+            .map(|item| item.paper_ref.clone())
+            .collect::<Vec<_>>();
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("operation", "refresh-batch-started", "started")
+                .capability("reference_sidecar_refresh")
+                .operation_id(REFRESH_JOB_ID)
+                .batch_ordinal(batch_ordinal)
+                .source_count(items.len())
+        });
+        let prepared = self
+            .refresh
+            .prepare_refresh(ReferenceRefreshPrepareRequest {
+                expected_reference_hash: self.refresh.inspect()?.reference_hash,
+                force: false,
+                scope: ReferenceRefreshScope::Sources {
+                    source_refs: source_refs.clone(),
+                },
+                items: items.iter().map(refresh_item).collect(),
+                artifacts,
+            });
+        if prepared.status == ReferenceRefreshStatus::Unchanged {
+            return Ok(RefreshBatchAttempt::Converged {
+                promoted: false,
+                reference_hash: prepared.reference_hash,
+                input_hash: prepared.input_hash,
+                affected_source_refs: Vec::new(),
+                warnings: Vec::new(),
+            });
+        }
+        if prepared.status != ReferenceRefreshStatus::Prepared {
+            return Ok(RefreshBatchAttempt::Failed {
+                code: refresh_status_name(&prepared.status),
+                capacity: None,
+            });
+        }
+        job.phase = "prepared".into();
+        job.scope_ref = prepared.preparation_id.clone().unwrap_or_default();
+        job.source_hash = prepared.input_hash.clone().unwrap_or_default();
+        job.updated_at = now_string();
+        let preparation_id = prepared
+            .preparation_id
+            .clone()
+            .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
+        if let Err(error) = self.write_job(job) {
+            self.refresh.discard_preparation(&preparation_id);
+            return Err(error);
+        }
+        let mut payloads = Vec::with_capacity(prepared.reads.len());
+        for (index, read) in prepared.reads.iter().enumerate() {
+            if bounded_timeout(Duration::from_secs(10)).is_err() {
+                self.refresh.discard_preparation(&preparation_id);
+                return Ok(RefreshBatchAttempt::Failed {
+                    code: "operation_timeout".into(),
+                    capacity: None,
+                });
+            }
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("operation", "artifact-read-started", "started")
+                    .capability("library.artifacts.read")
+                    .operation_id(REFRESH_JOB_ID)
+                    .batch_ordinal(batch_ordinal)
+                    .page(index)
+                    .total(prepared.reads.len())
+            });
+            match self
+                .host
+                .read_artifact(&read.locator, &read.expected_hash)
+                .and_then(|payload| refresh_payload(read, payload))
+            {
+                Ok(payload) => payloads.push(payload),
+                Err(error) => {
+                    self.refresh.discard_preparation(&preparation_id);
+                    emit(
+                        NativeDiagnosticEvent::new("operation", "artifact-read-failed", "failed")
+                            .capability("library.artifacts.read")
+                            .operation_id(REFRESH_JOB_ID)
+                            .batch_ordinal(batch_ordinal)
+                            .page(index)
+                            .total(prepared.reads.len())
+                            .code(&error),
+                    );
+                    return Ok(RefreshBatchAttempt::Failed {
+                        code: error,
+                        capacity: None,
+                    });
+                }
+            }
+        }
+        let apply_request = ReferenceRefreshApplyRequest {
+            preparation_id: preparation_id.clone(),
+            payloads,
+        };
+        let capacity = match measure_reference_refresh_apply_request(&apply_request) {
+            Ok(capacity) => capacity,
+            Err(error) => {
+                self.refresh.discard_preparation(&preparation_id);
+                return Ok(RefreshBatchAttempt::Failed {
+                    code: error.into(),
+                    capacity: None,
+                });
+            }
+        };
+        if let Err(error) = validate_reference_refresh_apply_request(&apply_request) {
+            self.refresh.discard_preparation(&preparation_id);
+            emit(
+                NativeDiagnosticEvent::new("operation", "refresh-apply-rejected", "failed")
+                    .capability("reference_sidecar_refresh")
+                    .operation_id(REFRESH_JOB_ID)
+                    .batch_ordinal(batch_ordinal)
+                    .source_count(items.len())
+                    .payload_count(apply_request.payloads.len())
+                    .actual_bytes(capacity.bytes)
+                    .limit_bytes(REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES)
+                    .actual_json_nodes(capacity.json_nodes)
+                    .limit_json_nodes(REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES)
+                    .code(error),
+            );
+            return if items.len() > 1 && error == "reference_refresh_payload_too_large" {
+                Ok(RefreshBatchAttempt::Split)
+            } else {
+                Ok(RefreshBatchAttempt::Failed {
+                    code: error.into(),
+                    capacity: Some(capacity),
+                })
+            };
+        }
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("operation", "refresh-apply-started", "started")
+                .capability("reference_sidecar_refresh")
+                .operation_id(REFRESH_JOB_ID)
+                .batch_ordinal(batch_ordinal)
+                .source_count(items.len())
+                .payload_count(apply_request.payloads.len())
+                .actual_bytes(capacity.bytes)
+                .limit_bytes(REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES)
+                .actual_json_nodes(capacity.json_nodes)
+                .limit_json_nodes(REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES)
+        });
+        let applied = self.refresh.apply_refresh(apply_request);
+        if !matches!(
+            applied.status,
+            ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
+        ) {
+            return Ok(RefreshBatchAttempt::Failed {
+                code: refresh_status_name(&applied.status),
+                capacity: None,
+            });
+        }
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("operation", "refresh-batch-completed", "succeeded")
+                .capability("reference_sidecar_refresh")
+                .operation_id(REFRESH_JOB_ID)
+                .batch_ordinal(batch_ordinal)
+                .source_count(items.len())
+                .payload_count(prepared.reads.len())
+                .actual_bytes(capacity.bytes)
+                .limit_bytes(REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES)
+                .actual_json_nodes(capacity.json_nodes)
+                .limit_json_nodes(REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES)
+        });
+        Ok(RefreshBatchAttempt::Converged {
+            promoted: applied.status == ReferenceRefreshStatus::Promoted,
+            reference_hash: applied.reference_hash,
+            input_hash: applied.input_hash,
+            affected_source_refs: applied.affected_source_refs,
+            warnings: applied.warnings,
+        })
+    }
+
+    fn run_reference_refresh_full_sweep(
+        &self,
+        items: &[ReferenceHostItem],
+        artifacts: Vec<ReferenceArtifactDescriptor>,
+        batch_ordinal: usize,
+    ) -> Result<RefreshBatchAttempt, String> {
+        let prepared = self
+            .refresh
+            .prepare_refresh(ReferenceRefreshPrepareRequest {
+                expected_reference_hash: self.refresh.inspect()?.reference_hash,
+                force: false,
+                scope: ReferenceRefreshScope::Full,
+                items: items.iter().map(refresh_item).collect(),
+                artifacts,
+            });
+        if prepared.status == ReferenceRefreshStatus::Unchanged {
+            return Ok(RefreshBatchAttempt::Converged {
+                promoted: false,
+                reference_hash: prepared.reference_hash,
+                input_hash: prepared.input_hash,
+                affected_source_refs: Vec::new(),
+                warnings: Vec::new(),
+            });
+        }
+        if prepared.status != ReferenceRefreshStatus::Prepared {
+            return Ok(RefreshBatchAttempt::Failed {
+                code: refresh_status_name(&prepared.status),
+                capacity: None,
+            });
+        }
+        let preparation_id = prepared
+            .preparation_id
+            .clone()
+            .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
+        if !prepared.reads.is_empty() {
+            self.refresh.discard_preparation(&preparation_id);
+            return Ok(RefreshBatchAttempt::Failed {
+                code: "reference_refresh_full_sweep_not_converged".into(),
+                capacity: None,
+            });
+        }
+        let apply_request = ReferenceRefreshApplyRequest {
+            preparation_id,
+            payloads: Vec::new(),
+        };
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("operation", "refresh-full-sweep", "started")
+                .capability("reference_sidecar_refresh")
+                .operation_id(REFRESH_JOB_ID)
+                .batch_ordinal(batch_ordinal)
+                .source_count(items.len())
+                .payload_count(0)
+        });
+        let applied = self.refresh.apply_refresh(apply_request);
+        if !matches!(
+            applied.status,
+            ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
+        ) {
+            return Ok(RefreshBatchAttempt::Failed {
+                code: refresh_status_name(&applied.status),
+                capacity: None,
+            });
+        }
+        Ok(RefreshBatchAttempt::Converged {
+            promoted: applied.status == ReferenceRefreshStatus::Promoted,
+            reference_hash: applied.reference_hash,
+            input_hash: applied.input_hash,
+            affected_source_refs: applied.affected_source_refs,
+            warnings: applied.warnings,
+        })
     }
 
     fn run_matching(&self, retry: bool) -> Result<Value, String> {
@@ -1357,6 +1699,195 @@ impl ReferenceCanonicalApplication {
             }))
         })();
         self.finish_job(job, outcome)
+    }
+
+    fn project_reference_index_rows(
+        &self,
+        items: Vec<ReferenceHostItem>,
+    ) -> Result<Vec<ReferenceIndexFactRow>, String> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let source_refs = items
+            .iter()
+            .map(|item| item.paper_ref.clone())
+            .collect::<Vec<_>>();
+        let repository = self.repository.owner();
+        let repository = repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        let artifacts = repository.list_reference_artifacts(&source_refs)?;
+        let raw_references = repository
+            .list_raw_references_for_sources(&source_refs)?
+            .into_iter()
+            .filter(|reference| reference.status == "active")
+            .collect::<Vec<_>>();
+        let redirects = repository.list_reference_redirects()?;
+        let mut effective_canonical_ids = BTreeSet::new();
+        for reference in &raw_references {
+            if !reference.canonical_reference_id.is_empty() {
+                effective_canonical_ids.insert(resolve_effective_canonical_id(
+                    &reference.canonical_reference_id,
+                    &redirects,
+                )?);
+            }
+        }
+        let bindings = repository.list_reference_bindings_for_canonicals(
+            &effective_canonical_ids.into_iter().collect::<Vec<_>>(),
+        )?;
+        drop(repository);
+
+        let artifact_by_key = artifacts
+            .into_iter()
+            .map(|artifact| {
+                (
+                    (artifact.paper_ref.clone(), artifact.artifact_type.clone()),
+                    artifact,
+                )
+            })
+            .collect::<HashMap<(String, String), ReferenceArtifactRecord>>();
+        let binding_by_canonical = bindings
+            .into_iter()
+            .filter(|binding| binding.status != "revoked")
+            .map(|binding| (binding.canonical_reference_id.clone(), binding))
+            .collect::<BTreeMap<_, _>>();
+        let mut references_by_source = BTreeMap::<String, Vec<_>>::new();
+        for raw in raw_references {
+            let binding = if raw.canonical_reference_id.is_empty() {
+                None
+            } else {
+                let effective =
+                    resolve_effective_canonical_id(&raw.canonical_reference_id, &redirects)?;
+                binding_by_canonical.get(&effective).cloned()
+            };
+            references_by_source
+                .entry(raw.source_ref.clone())
+                .or_default()
+                .push(ReferenceIndexFactReference { raw, binding });
+        }
+
+        Ok(items
+            .into_iter()
+            .map(|item| {
+                let missing_artifacts = ["digest", "references", "citation_analysis"]
+                    .into_iter()
+                    .filter(|artifact_type| {
+                        artifact_by_key
+                            .get(&(item.paper_ref.clone(), (*artifact_type).into()))
+                            .is_none_or(|artifact| artifact.status != "available")
+                    })
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                let artifact_coverage = if missing_artifacts.is_empty() {
+                    "complete"
+                } else if missing_artifacts.len() == 3 {
+                    "missing"
+                } else {
+                    "partial"
+                }
+                .to_owned();
+                let references = references_by_source
+                    .remove(&item.paper_ref)
+                    .unwrap_or_default();
+                let unbound_reference_count = references
+                    .iter()
+                    .filter(|reference| reference.binding.is_none())
+                    .count();
+                ReferenceIndexFactRow {
+                    item,
+                    artifact_coverage,
+                    missing_artifacts,
+                    reference_count: references.len(),
+                    unbound_reference_count,
+                    references,
+                }
+            })
+            .collect())
+    }
+
+    fn reference_cache_status(&self) -> Result<Value, String> {
+        let repository = self.repository.owner();
+        let repository = repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        let basis = repository.get_cache_basis("reference-sidecar:library")?;
+        let status = basis
+            .as_ref()
+            .map(|row| row.status.as_str())
+            .filter(|status| {
+                matches!(
+                    *status,
+                    "missing" | "ready" | "stale" | "refreshing" | "failed"
+                )
+            })
+            .unwrap_or("missing");
+        let diagnostics = basis
+            .as_ref()
+            .map(|row| parse_json(&row.diagnostics_json, json!([])))
+            .unwrap_or_else(|| json!([]));
+        let mut allowed_actions = if status == "refreshing" {
+            Vec::new()
+        } else {
+            vec!["refreshReferenceSidecarNow"]
+        };
+        if matches!(status, "stale" | "failed") {
+            allowed_actions.push("retryReferenceSidecarRefresh");
+        }
+        Ok(json!({
+            "cache_key":"reference-sidecar:library",
+            "status":status,
+            "source_hash":basis.as_ref().map(|row|row.source_hash.as_str()).unwrap_or_default(),
+            "basis_hash":basis.as_ref().map(|row|row.basis_value.as_str()).unwrap_or_default(),
+            "refreshed_at":basis.as_ref().map(|row|row.refreshed_at.as_str()).unwrap_or_default(),
+            "updated_at":basis.as_ref().map(|row|row.updated_at.as_str()).unwrap_or_default(),
+            "diagnostics":diagnostics,
+            "allowed_actions":allowed_actions,
+        }))
+    }
+
+    fn collect_host_items_bounded(
+        &self,
+        max_rows: usize,
+    ) -> Result<Vec<ReferenceHostItem>, String> {
+        let mut cursor = String::new();
+        let mut seen = HashSet::new();
+        let mut items = Vec::new();
+        for _ in 0..MAX_HOST_PAGES {
+            let page = self.host.list_items_page(&cursor, HOST_PAGE_LIMIT)?;
+            validate_item_page(
+                &cursor,
+                &page.cursor,
+                page.returned,
+                page.items.len(),
+                page.limit,
+                page.has_more,
+                &page.next_cursor,
+            )?;
+            if !seen.insert(page.cursor.clone()) {
+                return Err("reverse_host_page_cycle".into());
+            }
+            let remaining = max_rows.saturating_sub(items.len());
+            items.extend(page.items.into_iter().take(remaining));
+            if items.len() >= max_rows || !page.has_more {
+                items.sort_by(|left, right| {
+                    left.paper_ref
+                        .cmp(&right.paper_ref)
+                        .then_with(|| left.item_key.cmp(&right.item_key))
+                });
+                if items
+                    .iter()
+                    .map(|item| item.paper_ref.as_str())
+                    .collect::<HashSet<_>>()
+                    .len()
+                    != items.len()
+                {
+                    return Err("reverse_host_result_invalid".into());
+                }
+                return Ok(items);
+            }
+            cursor = page.next_cursor;
+        }
+        Err("reverse_host_page_limit_exceeded".into())
     }
 
     fn collect_host_items(&self) -> Result<Vec<ReferenceHostItem>, String> {
@@ -1561,6 +2092,55 @@ impl ReferenceCanonicalApplication {
     }
 }
 
+fn partition_refresh_batches(
+    items: &[ReferenceHostItem],
+    artifacts: &[ReferenceArtifactDescriptor],
+) -> Vec<Vec<ReferenceHostItem>> {
+    let estimated_by_source = artifacts
+        .iter()
+        .filter(|artifact| {
+            matches!(
+                artifact.artifact_type,
+                ReferenceArtifactType::References | ReferenceArtifactType::CitationAnalysis
+            )
+        })
+        .fold(HashMap::<&str, usize>::new(), |mut sizes, artifact| {
+            let size = sizes.entry(artifact.paper_ref.as_str()).or_default();
+            *size = size.saturating_add(artifact.estimated_size.unwrap_or_default());
+            sizes
+        });
+    let mut batches = Vec::new();
+    let mut batch = Vec::new();
+    let mut estimated_bytes = 0usize;
+    for item in items {
+        let item_bytes = estimated_by_source
+            .get(item.paper_ref.as_str())
+            .copied()
+            .unwrap_or_default();
+        if !batch.is_empty()
+            && (batch.len() == HOST_PAGE_LIMIT
+                || estimated_bytes.saturating_add(item_bytes)
+                    > REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES)
+        {
+            batches.push(std::mem::take(&mut batch));
+            estimated_bytes = 0;
+        }
+        estimated_bytes = estimated_bytes.saturating_add(item_bytes);
+        batch.push(item.clone());
+    }
+    if !batch.is_empty() {
+        batches.push(batch);
+    }
+    batches
+}
+
+fn refresh_status_name(status: &ReferenceRefreshStatus) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "reference_refresh_failed".into())
+}
+
 #[derive(Clone, Copy)]
 struct PageQuery {
     cursor: usize,
@@ -1702,6 +2282,30 @@ fn refresh_item(item: &ReferenceHostItem) -> ReferenceRefreshItem {
         year: item.year.clone(),
         metadata,
     }
+}
+
+fn workbench_reference_row(reference: &ReferenceIndexFactReference) -> Value {
+    let target_paper_ref = reference
+        .binding
+        .as_ref()
+        .map(|binding| format!("{}:{}", binding.library_id, binding.item_key))
+        .unwrap_or_default();
+    json!({
+        "reference_instance_id":reference.raw.raw_reference_id,
+        "reference_index":reference.raw.reference_index,
+        "title":if reference.raw.parsed_title.is_empty() {
+            reference.raw.raw_reference.as_str()
+        } else {
+            reference.raw.parsed_title.as_str()
+        },
+        "year":reference.raw.year,
+        "raw_reference":reference.raw.raw_reference,
+        "confidence":reference.binding.as_ref().map(|binding|binding.confidence.as_str()).unwrap_or_default(),
+        "target_literature_item_id":target_paper_ref,
+        "target_paper_ref":target_paper_ref,
+        "target_binding":if reference.binding.is_some() { "library" } else { "none" },
+        "binding_status":reference.binding.as_ref().map(|binding|binding.status.as_str()).unwrap_or("unbound"),
+    })
 }
 
 fn complete_artifact_manifest(
@@ -2277,6 +2881,10 @@ mod tests {
         item_calls: Arc<AtomicUsize>,
         fail_items: Arc<AtomicBool>,
         fail_reads: Arc<AtomicBool>,
+        fail_locator: Arc<Mutex<Option<String>>>,
+        read_locators: Arc<Mutex<Vec<String>>>,
+        include_second: Arc<AtomicBool>,
+        large_estimates: Arc<AtomicBool>,
     }
 
     impl FakeHost {
@@ -2285,6 +2893,10 @@ mod tests {
                 item_calls: Arc::new(AtomicUsize::new(0)),
                 fail_items: Arc::new(AtomicBool::new(false)),
                 fail_reads: Arc::new(AtomicBool::new(false)),
+                fail_locator: Arc::new(Mutex::new(None)),
+                read_locators: Arc::new(Mutex::new(Vec::new())),
+                include_second: Arc::new(AtomicBool::new(true)),
+                large_estimates: Arc::new(AtomicBool::new(false)),
             }
         }
 
@@ -2323,14 +2935,21 @@ mod tests {
                 return Err("reverse_host_unavailable".into());
             }
             match cursor {
-                "" => Ok(ReferenceHostItemsPage {
-                    items: vec![Self::item("1:AAAA1111", "AAAA1111", "Paper A")],
-                    cursor: String::new(),
-                    next_cursor: "items:2".into(),
-                    has_more: true,
-                    returned: 1,
-                    limit,
-                }),
+                "" => {
+                    let has_more = self.include_second.load(Ordering::Relaxed);
+                    Ok(ReferenceHostItemsPage {
+                        items: vec![Self::item("1:AAAA1111", "AAAA1111", "Paper A")],
+                        cursor: String::new(),
+                        next_cursor: if has_more {
+                            "items:2".into()
+                        } else {
+                            String::new()
+                        },
+                        has_more,
+                        returned: 1,
+                        limit,
+                    })
+                }
                 "items:2" => Ok(ReferenceHostItemsPage {
                     items: vec![Self::item("1:BBBB2222", "BBBB2222", "Paper B")],
                     cursor: cursor.into(),
@@ -2360,7 +2979,11 @@ mod tests {
                         status: "available".into(),
                         locator: "reference:a".into(),
                         payload_hash: "sha256:reference-a".into(),
-                        estimated_size: Some(100),
+                        estimated_size: Some(if self.large_estimates.load(Ordering::Relaxed) {
+                            REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1
+                        } else {
+                            100
+                        }),
                         diagnostics: Vec::new(),
                     },
                     ReferenceHostArtifact {
@@ -2370,7 +2993,11 @@ mod tests {
                         status: "available".into(),
                         locator: "reference:b".into(),
                         payload_hash: "sha256:reference-b".into(),
-                        estimated_size: Some(100),
+                        estimated_size: Some(if self.large_estimates.load(Ordering::Relaxed) {
+                            REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1
+                        } else {
+                            100
+                        }),
                         diagnostics: Vec::new(),
                     },
                     ReferenceHostArtifact {
@@ -2398,6 +3025,13 @@ mod tests {
             expected_hash: &str,
         ) -> Result<ReferenceHostArtifactRead, String> {
             if self.fail_reads.load(Ordering::Relaxed) {
+                return Err("reverse_host_response_body_truncated".into());
+            }
+            self.read_locators
+                .lock()
+                .expect("read locator log")
+                .push(locator.into());
+            if self.fail_locator.lock().expect("failed locator").as_deref() == Some(locator) {
                 return Err("reverse_host_response_body_truncated".into());
             }
             let title = match locator {
@@ -2612,10 +3246,10 @@ mod tests {
         let app = application(&root, host.clone(), fail);
 
         host.fail_reads.store(true, Ordering::Relaxed);
-        assert_eq!(
-            app.refresh_now(),
-            Err("reverse_host_response_body_truncated".into())
-        );
+        let failed = app.refresh_now().expect("partial refresh result");
+        assert_eq!(failed["ok"], false);
+        assert_eq!(failed["status"], "reverse_host_response_body_truncated");
+        assert_eq!(failed["retryable"], true);
 
         let preparation_id = app
             .read_job(REFRESH_JOB_ID)
@@ -2637,6 +3271,106 @@ mod tests {
         host.fail_reads.store(false, Ordering::Relaxed);
         let retried = app.retry_refresh().expect("same-process retry");
         assert_eq!(retried["status"], "promoted");
+    }
+
+    #[test]
+    fn partitions_refresh_sources_by_stable_count_and_estimated_capacity() {
+        let items = (0..101)
+            .map(|index| FakeHost::item(&format!("1:{index:08}"), &format!("{index:08}"), "Paper"))
+            .collect::<Vec<_>>();
+        let artifacts = items
+            .iter()
+            .map(|item| ReferenceArtifactDescriptor {
+                paper_ref: item.paper_ref.clone(),
+                artifact_type: ReferenceArtifactType::References,
+                payload_type: "application/json".into(),
+                status: "available".into(),
+                locator: format!("reference:{}", item.paper_ref),
+                payload_hash: format!("sha256:{}", item.paper_ref),
+                estimated_size: Some(1),
+                diagnostics: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let count_batches = partition_refresh_batches(&items, &artifacts);
+        assert_eq!(
+            count_batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![100, 1]
+        );
+
+        let large_items = items[..3].to_vec();
+        let large_artifacts = large_items
+            .iter()
+            .map(|item| ReferenceArtifactDescriptor {
+                paper_ref: item.paper_ref.clone(),
+                artifact_type: ReferenceArtifactType::References,
+                payload_type: "application/json".into(),
+                status: "available".into(),
+                locator: format!("reference:{}", item.paper_ref),
+                payload_hash: format!("sha256:{}", item.paper_ref),
+                estimated_size: Some(REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1),
+                diagnostics: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            partition_refresh_batches(&large_items, &large_artifacts)
+                .iter()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            vec![1, 1, 1]
+        );
+    }
+
+    #[test]
+    fn retains_completed_batches_retries_only_stale_sources_and_sweeps_deletions() {
+        let root = test_root("refresh-batch-convergence");
+        let host = Arc::new(FakeHost::new());
+        host.large_estimates.store(true, Ordering::Relaxed);
+        *host.fail_locator.lock().expect("failed locator") = Some("reference:b".into());
+        let app = application(&root, host.clone(), Arc::new(AtomicBool::new(false)));
+
+        let partial = app.refresh_now().expect("partial refresh");
+        assert_eq!(partial["ok"], false);
+        assert_eq!(partial["processed_paper_refs"], json!(["1:AAAA1111"]));
+        assert_eq!(partial["failed_paper_refs"], json!(["1:BBBB2222"]));
+        let partial_index = app.sidecar_index(&json!({})).expect("partial index");
+        assert_eq!(partial_index["total"], 2);
+        assert_eq!(partial_index["rows"][0]["artifactCoverage"], "partial");
+        assert_eq!(partial_index["rows"][1]["artifactCoverage"], "missing");
+        assert_eq!(
+            host.read_locators
+                .lock()
+                .expect("read locators")
+                .iter()
+                .filter(|locator| locator.as_str() == "reference:a")
+                .count(),
+            1
+        );
+
+        *host.fail_locator.lock().expect("failed locator") = None;
+        let retried = app.retry_refresh().expect("retry convergence");
+        assert_eq!(retried["ok"], true);
+        assert_eq!(
+            app.sidecar_index(&json!({})).expect("converged index")["total"],
+            2
+        );
+        assert_eq!(
+            host.read_locators
+                .lock()
+                .expect("read locators")
+                .iter()
+                .filter(|locator| locator.as_str() == "reference:a")
+                .count(),
+            1,
+            "the converged source must not be read again",
+        );
+
+        host.include_second.store(false, Ordering::Relaxed);
+        let swept = app.refresh_now().expect("deletion sweep");
+        assert_eq!(swept["ok"], true);
+        let index = app.sidecar_index(&json!({})).expect("swept index");
+        assert_eq!(index["total"], 1);
+        assert_eq!(index["rows"][0]["paper_ref"], "1:AAAA1111");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

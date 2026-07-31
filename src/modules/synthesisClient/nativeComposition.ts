@@ -11,6 +11,10 @@ import {
   SynthesisSidecarRpcError,
   type SynthesisSidecarRpcConnection,
 } from "../synthesisSidecarRpcClient";
+import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+  synthesisProductionTransportDeadlineMs,
+} from "../synthesisProductionRpcPolicy";
 import { getReadySynthesisProductionControlConnection } from "../synthesisSidecarRuntimeSupervisor";
 import {
   createSynthesisClientFromPort,
@@ -127,6 +131,9 @@ function createNativePort(args: {
             ),
             rebuildResult: (value) =>
               toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
+            deadlineMs: synthesisProductionTransportDeadlineMs(
+              capability as SynthesisSidecarProductionClientCapability,
+            ),
           });
         } catch (error) {
           throw normalizeRpcError(error);
@@ -146,9 +153,12 @@ export function createNativeSynthesisClientComposition(options?: {
 } {
   let active = true;
   const getReadyConnection =
-    options?.getReadyConnection ??
-    getReadySynthesisProductionControlConnection;
-  const rpcClient = options?.rpcClient ?? createSynthesisSidecarRpcClient();
+    options?.getReadyConnection ?? getReadySynthesisProductionControlConnection;
+  const rpcClient =
+    options?.rpcClient ??
+    createSynthesisSidecarRpcClient({
+      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+    });
   const client = createSynthesisClientFromPort(
     createNativePort({
       isActive: () => active,

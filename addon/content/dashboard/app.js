@@ -525,6 +525,7 @@
   }
 
   const DASHBOARD_BUSY_STATUS_TOKENS = new Set([
+    "started",
     "running",
     "prompting",
     "repairing",
@@ -4059,10 +4060,6 @@
     } else {
       const summary = el("section", "synthesis-sidecar-summary");
       [
-        [
-          "Status",
-          `${current.phase || "unknown"} · ${current.status || "unknown"}`,
-        ],
         ["Attempt", current.attemptId || "-"],
         [
           "Instance",
@@ -4075,6 +4072,17 @@
         card.appendChild(el("div", "card-value mono", String(entry[1])));
         summary.appendChild(card);
       });
+      const statusCard = el("div", "card");
+      statusCard.appendChild(el("div", "card-label", "Status"));
+      const statusValue = el("div", "card-value synthesis-sidecar-status-value");
+      statusValue.appendChild(
+        renderStatusBadge(current.status, current.status || "unknown"),
+      );
+      statusValue.appendChild(
+        el("span", "muted mono", current.phase || "unknown"),
+      );
+      summary.prepend(statusCard);
+      statusCard.appendChild(statusValue);
       main.appendChild(summary);
     }
 
@@ -4143,7 +4151,7 @@
     correlationLabel.appendChild(el("span", "card-label", "Correlation"));
     const correlationInput = document.createElement("input");
     correlationInput.className = "workflow-settings-field-control mono";
-    correlationInput.placeholder = "request / operation / attempt";
+    correlationInput.placeholder = "correlation / request / operation / attempt";
     correlationInput.value = state.synthesisCorrelationFilter;
     correlationInput.addEventListener("change", function () {
       state.synthesisCorrelationFilter = correlationInput.value.trim();
@@ -4170,7 +4178,12 @@
       if (!correlationNeedle) {
         return true;
       }
-      return [event.requestId, event.operationId, event.attemptId]
+      return [
+        event.correlationId,
+        event.requestId,
+        event.operationId,
+        event.attemptId,
+      ]
         .filter(Boolean)
         .some(function (value) {
           return String(value).toLowerCase().includes(correlationNeedle);
@@ -4226,9 +4239,13 @@
             : typeof event.requestBytes === "number"
               ? String(event.requestBytes)
               : "-";
+      row.appendChild(el("td", "mono", formatTime(event.ts)));
+      const statusCell = el("td", "mono");
+      statusCell.appendChild(
+        renderStatusBadge(event.status, event.status || "unknown"),
+      );
+      row.appendChild(statusCell);
       [
-        formatTime(event.ts),
-        event.status || "-",
         event.component || "-",
         event.stage || "-",
         event.capability || "-",
@@ -4249,25 +4266,36 @@
     layout.appendChild(tableWrap);
 
     const detail = el("section", "panel synthesis-sidecar-detail");
-    detail.appendChild(el("h3", "panel-title", "Event detail"));
     if (!selected) {
+      detail.appendChild(el("h3", "panel-title", "Event detail"));
       detail.appendChild(el("div", "empty-state", "No matching events."));
     } else {
       const identities = [
+        selected.correlationId,
         selected.requestId,
         selected.operationId,
         selected.attemptId,
       ].filter(Boolean);
       const related = events.filter(function (event) {
+        if (
+          selected.correlationId &&
+          event.correlationId === selected.correlationId
+        ) {
+          return true;
+        }
         return identities.some(function (identity) {
           return (
+            event.correlationId === identity ||
             event.requestId === identity ||
             event.operationId === identity ||
             event.attemptId === identity
           );
         });
       });
-      detail.appendChild(
+      const detailHeader = el("div", "synthesis-sidecar-detail-header");
+      const detailHeading = el("div");
+      detailHeading.appendChild(el("h3", "panel-title", "Event detail"));
+      detailHeading.appendChild(
         el(
           "div",
           "muted mono",
@@ -4276,17 +4304,88 @@
             : "No additional correlated event",
         ),
       );
+      detailHeader.appendChild(detailHeading);
       const copy = el("button", "btn", "Copy JSON");
+      copy.type = "button";
       copy.addEventListener("click", function () {
         const text = JSON.stringify({ selected, related }, null, 2);
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          void navigator.clipboard.writeText(text);
-        }
+        copyTextToClipboard(text).then(
+          function () {
+            copy.textContent = "Copied";
+            showToast("JSON copied");
+            window.setTimeout(function () {
+              copy.textContent = "Copy JSON";
+            }, 1200);
+          },
+          function () {
+            copy.textContent = "Copy failed";
+            showToast("Copy failed");
+            window.setTimeout(function () {
+              copy.textContent = "Copy JSON";
+            }, 1200);
+          },
+        );
       });
-      detail.appendChild(copy);
+      detailHeader.appendChild(copy);
+      detail.appendChild(detailHeader);
+
+      const detailSummary = el(
+        "div",
+        "synthesis-sidecar-detail-summary",
+      );
+      function appendDetailSummary(label, value, node) {
+        if (!node && (value === undefined || value === null || value === "")) {
+          return;
+        }
+        const item = el("div", "synthesis-sidecar-detail-summary-item");
+        item.appendChild(el("div", "card-label", label));
+        if (node) {
+          item.appendChild(node);
+        } else {
+          item.appendChild(el("div", "mono", String(value)));
+        }
+        detailSummary.appendChild(item);
+      }
+      appendDetailSummary(
+        "Status",
+        selected.status,
+        renderStatusBadge(selected.status, selected.status || "unknown"),
+      );
+      appendDetailSummary("Time", formatTime(selected.ts));
+      appendDetailSummary("Component", selected.component);
+      appendDetailSummary("Stage", selected.stage);
+      appendDetailSummary("Capability", selected.capability);
+      appendDetailSummary("Code", selected.code);
+      appendDetailSummary(
+        "Duration",
+        typeof selected.durationMs === "number"
+          ? `${selected.durationMs}ms`
+          : undefined,
+      );
+      appendDetailSummary(
+        "Bytes",
+        typeof selected.attemptedResponseBytes === "number"
+          ? `${selected.attemptedResponseBytes}/${selected.limitBytes || "-"}`
+          : typeof selected.responseBytes === "number"
+            ? selected.responseBytes
+            : typeof selected.requestBytes === "number"
+              ? selected.requestBytes
+              : undefined,
+      );
+      appendDetailSummary("Correlation", selected.correlationId);
+      appendDetailSummary("Request", selected.requestId);
+      appendDetailSummary("Operation", selected.operationId);
+      appendDetailSummary("Attempt", selected.attemptId);
+      appendDetailSummary("Batch", selected.batchOrdinal);
+      appendDetailSummary("Sources", selected.sourceCount);
+      detail.appendChild(detailSummary);
+
+      const jsonSection = el("section", "synthesis-sidecar-json-section");
+      jsonSection.appendChild(el("h4", "panel-title", "JSON"));
       const payload = el("pre", "log-view mono payload-view");
       payload.textContent = JSON.stringify({ selected, related }, null, 2);
-      detail.appendChild(payload);
+      jsonSection.appendChild(payload);
+      detail.appendChild(jsonSection);
     }
     layout.appendChild(detail);
     main.appendChild(layout);

@@ -89,6 +89,7 @@ export type SynthesisReverseHostCall = {
   profileId: string;
   serviceInstanceId: string;
   operationId: string;
+  correlationId?: string;
   capability: SynthesisReverseHostCapability;
   deadlineAtMs: number;
   payload: SynthesisJsonObject;
@@ -538,6 +539,7 @@ export function rebuildSynthesisReverseHostCall(
       "profileId",
       "serviceInstanceId",
       "operationId",
+      ...(record.correlationId === undefined ? [] : ["correlationId"]),
       "capability",
       "deadlineAtMs",
       "payload",
@@ -566,6 +568,15 @@ export function rebuildSynthesisReverseHostCall(
       `${location}.operationId`,
       512,
     ),
+    ...(record.correlationId === undefined
+      ? {}
+      : {
+          correlationId: boundedString(
+            record.correlationId,
+            `${location}.correlationId`,
+            512,
+          ),
+        }),
     capability: record.capability as SynthesisReverseHostCapability,
     deadlineAtMs: safeInteger(
       record.deadlineAtMs,

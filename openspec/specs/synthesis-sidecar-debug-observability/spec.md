@@ -24,33 +24,48 @@ reason by tokenizing human-readable error text.
 
 ### Requirement: Sidecar diagnostics SHALL preserve boundary identity
 
-Production SHALL invoke a bounded, sanitized failure recorder only from failed
-lifecycle, RPC, reverse-Host, native operation, and process boundaries. Debug
-builds SHALL additionally retain and print correlated start/success/failure
-events only when the independent Synthesis Sidecar diagnostic source switch and
-`__debug_mode__` are both enabled.
+Production SHALL invoke a bounded, sanitized failure recorder only from failed lifecycle, RPC, reverse-Host, native operation, batch, and process boundaries. Debug builds SHALL additionally retain and print correlated start/success/failure events only when the independent Synthesis Sidecar diagnostic source switch and `__debug_mode__` are both enabled. The outer plugin RPC request ID SHALL be the root `correlationId`; native RPC request IDs, operation IDs, Reverse Host request IDs, and batch ordinals SHALL remain distinct local identities.
 
 #### Scenario: Debug reference refresh
-- **WHEN** refresh crosses the RPC and reverse-Host boundaries with both diagnostic gates enabled
-- **THEN** events expose capability, request/operation identity, stage, duration, status, attempted and accepted byte counts, configured limits, and aggregate counts
+- **WHEN** refresh crosses the RPC, batch, apply, and reverse-Host boundaries with both diagnostic gates enabled
+- **THEN** every event carries the root `correlationId` and its own applicable local identity
+- **AND** events expose capability, stage, duration, status, batch ordinal, source and payload counts, measured and configured bytes and JSON nodes, and aggregate counts
 - **AND** credentials, payloads, locators, paper references, note text, WebDAV content, and unrestricted process output are absent
+
+#### Scenario: Dashboard selects an outer failure
+- **WHEN** a user selects a correlated outer RPC failure
+- **THEN** the Synthesis Sidecar page includes its native RPC, batch, Reverse Host, apply, and terminal events ordered as one causal timeline
+- **AND** older events without `correlationId` remain joinable through request or operation ID equality
 
 #### Scenario: Production success
 - **WHEN** debug mode is disabled and an operation succeeds
-- **THEN** no debug event is constructed, serialized, written, parsed, retained, subscribed, or rendered
+- **THEN** no debug correlation string or success event is constructed, serialized, written, parsed, retained, subscribed, or rendered
 
 #### Scenario: Production failure
 - **WHEN** debug mode is disabled and an operation fails
 - **THEN** one bounded causal failure summary for each distinct failed boundary remains available in runtime logs
 - **AND** the summary prefers a safe structured root reason over a generic outer error
 
-### Requirement: Failed refresh preparation SHALL be discarded
+### Requirement: Debug Dashboard SHALL present actionable correlated event detail
 
-Reference refresh SHALL discard a preparation when a later Host read, response
-capacity check, decoding step, or apply admission fails, so the internal
-operation is terminal and a same-process retry is admitted.
+The debug-only Synthesis Sidecar Dashboard SHALL render lifecycle and operation statuses with the shared semantic status badge system. A selected event SHALL expose a compact structured summary and the complete selected/related JSON payload, and JSON copy SHALL provide visible success or failure feedback.
 
-#### Scenario: Artifact response fails after preparation
-- **WHEN** the prepared refresh cannot read or admit an artifact
-- **THEN** the preparation is discarded before failure returns
-- **AND** retry can prepare and promote without restarting the sidecar
+#### Scenario: Event timeline is displayed
+- **WHEN** started, succeeded, and failed events are present
+- **THEN** their statuses use accent, success, and error badge tones respectively
+- **AND** the selected event summary exposes only available identifiers and capacity fields
+
+#### Scenario: JSON copy succeeds
+- **WHEN** the user copies selected and related event JSON
+- **THEN** the button temporarily reports success
+- **AND** the existing Dashboard toast confirms the copy
+
+#### Scenario: JSON copy fails
+- **WHEN** the clipboard operation rejects
+- **THEN** the button reports failure
+- **AND** the Dashboard presents a failure toast
+
+#### Scenario: Production build is created
+- **WHEN** debug diagnostics are compile-time disabled
+- **THEN** the Sidecar Dashboard renderer, status projection, detail construction, and copy handler remain absent from the production artifact
+

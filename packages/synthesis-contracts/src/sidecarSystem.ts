@@ -369,6 +369,7 @@ export const SYNTHESIS_SIDECAR_ERROR_CODES = [
   "request_json_too_large",
   "request_string_too_long",
   "request_timeout",
+  "operation_timeout",
   "request_canceled",
   "response_invalid",
   "service_unavailable",

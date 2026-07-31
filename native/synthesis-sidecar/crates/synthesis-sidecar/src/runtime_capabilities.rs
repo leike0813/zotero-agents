@@ -13,7 +13,7 @@ use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, debug_events_enabled, emit, emit_debug};
 use crate::runtime_http::{read_http, response};
 use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_client::{
@@ -243,11 +243,12 @@ pub(crate) fn handle_connection(
         NativeDiagnosticEvent::new("rpc", "request-started", "started")
             .capability(&call.capability)
             .request_id(&call.request_id)
+            .correlation_id(&call.request_id)
             .request_bytes(body.len())
     });
     let outcome = match call.capability.as_str() {
         capability if capability.starts_with("client.") => {
-            match dispatch_production_client(&state, capability, call.payload) {
+            match dispatch_production_client(&state, &call.request_id, capability, call.payload) {
                 Ok(data) => bounded_response(
                     &mut stream,
                     200,
@@ -479,14 +480,15 @@ pub(crate) fn handle_connection(
             NativeDiagnosticEvent::new("rpc", "request-completed", "succeeded")
                 .capability(&call.capability)
                 .request_id(&call.request_id)
+                .correlation_id(&call.request_id)
                 .duration_ms(
                     current_time_ms()
                         .unwrap_or(request_started_at)
                         .saturating_sub(request_started_at),
                 )
         }),
-        Err(error) => emit(
-            NativeDiagnosticEvent::new("rpc", "request-failed", "failed")
+        Err(error) => {
+            let event = NativeDiagnosticEvent::new("rpc", "request-failed", "failed")
                 .capability(&call.capability)
                 .request_id(&call.request_id)
                 .code(error)
@@ -494,8 +496,13 @@ pub(crate) fn handle_connection(
                     current_time_ms()
                         .unwrap_or(request_started_at)
                         .saturating_sub(request_started_at),
-                ),
-        ),
+                );
+            emit(if debug_events_enabled() {
+                event.correlation_id(&call.request_id)
+            } else {
+                event
+            });
+        }
     }
     outcome
 }

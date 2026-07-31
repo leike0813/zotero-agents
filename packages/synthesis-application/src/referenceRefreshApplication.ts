@@ -223,9 +223,9 @@ export function createSynthesisReferenceRefreshApplication(options: Options) {
     try {
       if (
         byteLengthSynthesisEngineText(JSON.stringify(requestInput)) >
-          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.requestBytes ||
+          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.preparationBytes ||
         countSynthesisEngineJsonNodes(requestInput) >
-          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.requestJsonNodes
+          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.preparationJsonNodes
       ) {
         return emptyResult(
           "invalid_request",
@@ -379,9 +379,9 @@ export function createSynthesisReferenceRefreshApplication(options: Options) {
     try {
       if (
         byteLengthSynthesisEngineText(JSON.stringify(requestInput)) >
-          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.requestBytes ||
+          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.materializedBatchBytes ||
         countSynthesisEngineJsonNodes(requestInput) >
-          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.requestJsonNodes
+          SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.materializedBatchJsonNodes
       ) {
         throw new Error("reference_refresh_payload_too_large");
       }

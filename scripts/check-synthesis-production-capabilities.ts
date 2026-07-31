@@ -28,6 +28,7 @@ type OperationManifest = {
   requestBytes: number;
   responseBytes: number;
   deadlineMs: number;
+  deadlineOverridesMs: Record<string, number>;
   access: Record<string, string>;
 };
 
@@ -66,8 +67,11 @@ function difference(left: readonly string[], right: readonly string[]) {
 }
 
 function duplicateValues(values: readonly string[]) {
-  return [...new Set(values.filter((value, index) => values.indexOf(value) !== index))]
-    .sort();
+  return [
+    ...new Set(
+      values.filter((value, index) => values.indexOf(value) !== index),
+    ),
+  ].sort();
 }
 
 function extractPortCapabilities() {
@@ -98,9 +102,9 @@ function extractPortCapabilities() {
 }
 
 function extractRustDispatcherCapabilities(source: string) {
-  const registrations = source.match(
-    /register_production_client_handlers!\((.*?)\n\);/s,
-  )?.[1] || "";
+  const registrations =
+    source.match(/register_production_client_handlers!\((.*?)\n\);/s)?.[1] ||
+    "";
   return [...registrations.matchAll(/\(\s*"(client\.[A-Za-z0-9_]+)"/g)].map(
     (match) => match[1]!,
   );
@@ -155,14 +159,12 @@ export function inspectSynthesisProductionCapabilities(
   const corpusCapabilities = surfaceCorpora.flatMap(({ corpus }) =>
     corpus.operations.map((operation) => operation.id),
   );
-  const evidenceGaps = surfaceCorpora.flatMap(
-    ({ corpus, evidencePath }) => {
-      const source = fs.readFileSync(path.join(ROOT, evidencePath), "utf8");
-      return corpus.operations.map((operation) => operation.id).filter(
-        (capability) => !source.includes(`"${capability}"`),
-      );
-    },
-  );
+  const evidenceGaps = surfaceCorpora.flatMap(({ corpus, evidencePath }) => {
+    const source = fs.readFileSync(path.join(ROOT, evidencePath), "utf8");
+    return corpus.operations
+      .map((operation) => operation.id)
+      .filter((capability) => !source.includes(`"${capability}"`));
+  });
   const rustDispatcherCapabilities =
     options.rustDispatcherCapabilities ??
     extractRustDispatcherCapabilities(rustCompatDispatchSource);
@@ -179,14 +181,8 @@ export function inspectSynthesisProductionCapabilities(
           ? []
           : ["invalid manifest identity"],
       duplicates: duplicateValues(manifestCapabilities),
-      missingFromManifest: difference(
-        portCapabilities,
-        manifestCapabilities,
-      ),
-      unknownInManifest: difference(
-        manifestCapabilities,
-        portCapabilities,
-      ),
+      missingFromManifest: difference(portCapabilities, manifestCapabilities),
+      unknownInManifest: difference(manifestCapabilities, portCapabilities),
       missingFromTypescript: difference(
         manifestCapabilities,
         typescriptCapabilities,
@@ -206,15 +202,10 @@ export function inspectSynthesisProductionCapabilities(
         rustSource.includes(
           `PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT: &str =\n    "${actualFingerprint}"`,
         ) &&
-        rustSource.includes(
-          "synthesis-production-client-v1/capabilities.json",
-        )
+        rustSource.includes("synthesis-production-client-v1/capabilities.json")
           ? []
           : ["Rust production capability binding mismatch"],
-      readyNotDeclared: difference(
-        readyCapabilities,
-        manifestCapabilities,
-      ),
+      readyNotDeclared: difference(readyCapabilities, manifestCapabilities),
       readyRustBinding: [
         ...difference(readyCapabilities, rustReadyCapabilities),
         ...difference(rustReadyCapabilities, readyCapabilities),
@@ -238,16 +229,15 @@ export function inspectSynthesisProductionCapabilities(
         dispatcherCapabilities,
         manifestCapabilities,
       ),
-      dispatcherDuplicates: duplicateValues(
-        rustDispatcherCapabilities,
-      ),
-      surfaceCorpusIdentity: surfaceCorpora.flatMap(({ id, schema, operations, operationFingerprint, corpus }) =>
-        corpus.schema === schema &&
-        corpus.operations.length === operations &&
-        synthesisProductionSurfaceOperationFingerprint(corpus.operations) ===
-          operationFingerprint
-          ? []
-          : [`invalid surface corpus: ${id}`],
+      dispatcherDuplicates: duplicateValues(rustDispatcherCapabilities),
+      surfaceCorpusIdentity: surfaceCorpora.flatMap(
+        ({ id, schema, operations, operationFingerprint, corpus }) =>
+          corpus.schema === schema &&
+          corpus.operations.length === operations &&
+          synthesisProductionSurfaceOperationFingerprint(corpus.operations) ===
+            operationFingerprint
+            ? []
+            : [`invalid surface corpus: ${id}`],
       ),
       surfaceCorpusSet: [
         ...difference(
@@ -260,8 +250,14 @@ export function inspectSynthesisProductionCapabilities(
         ),
       ],
       surfaceCorpusDuplicates: duplicateValues(corpusCapabilities),
-      missingFromSurfaceCorpora: difference(manifestCapabilities, corpusCapabilities),
-      unknownInSurfaceCorpora: difference(corpusCapabilities, manifestCapabilities),
+      missingFromSurfaceCorpora: difference(
+        manifestCapabilities,
+        corpusCapabilities,
+      ),
+      unknownInSurfaceCorpora: difference(
+        corpusCapabilities,
+        manifestCapabilities,
+      ),
       missingBoundaryCases: surfaceCorpora.flatMap(({ corpus }) =>
         corpus.operations
           .filter((operation) =>
@@ -282,8 +278,7 @@ export function inspectSynthesisProductionCapabilities(
       ),
       missingSurfaceEvidence: evidenceGaps,
       operationMetadata:
-        operations.schema ===
-          "synthesis-production-client-operations.v1" &&
+        operations.schema === "synthesis-production-client-operations.v1" &&
         operations.requestCodec === "synthesis-client-args.v1" &&
         operations.resultCodec === "synthesis-client-result.v1" &&
         Number.isSafeInteger(operations.requestBytes) &&
@@ -295,10 +290,15 @@ export function inspectSynthesisProductionCapabilities(
         Number.isSafeInteger(operations.deadlineMs) &&
         operations.deadlineMs >= 100 &&
         operations.deadlineMs <= 60_000 &&
-        difference(manifestCapabilities, operationCapabilities).length ===
-          0 &&
-        difference(operationCapabilities, manifestCapabilities).length ===
-          0 &&
+        Object.entries(operations.deadlineOverridesMs || {}).every(
+          ([capability, deadline]) =>
+            capability in operations.access &&
+            Number.isSafeInteger(deadline) &&
+            deadline >= 100 &&
+            deadline <= 60_000,
+        ) &&
+        difference(manifestCapabilities, operationCapabilities).length === 0 &&
+        difference(operationCapabilities, manifestCapabilities).length === 0 &&
         operationCapabilities.every((capability) =>
           ["read", "mutation"].includes(operations.access[capability]!),
         )

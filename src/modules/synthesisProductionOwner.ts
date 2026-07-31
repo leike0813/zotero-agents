@@ -7,6 +7,10 @@ import { createSynthesisReverseHostEndpoint } from "./synthesisReverseHostEndpoi
 import { createDefaultSynthesisReverseHostHandlers } from "./synthesisReverseHostHandlers";
 import { createSynthesisSidecarRpcClient } from "./synthesisSidecarRpcClient";
 import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+  synthesisProductionTransportDeadlineMs,
+} from "./synthesisProductionRpcPolicy";
+import {
   createSynthesisSidecarRuntimeInstaller,
   type SynthesisSidecarRuntimeInstallSnapshot,
 } from "./synthesisSidecarRuntimeInstaller";
@@ -334,7 +338,9 @@ async function createDefaultSynthesisProductionOwner(attemptId: string) {
           serviceInstanceId: connection.discovery.serviceInstanceId,
         },
       });
-      await createSynthesisSidecarRpcClient().call({
+      await createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      }).call({
         connection: {
           baseUrl: `http://${connection.discovery.host}:${connection.discovery.port}`,
           profileId,
@@ -344,6 +350,9 @@ async function createDefaultSynthesisProductionOwner(attemptId: string) {
         capability: "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         payload: toSynthesisJsonObject({ args: [] }, "$.productionReconcile"),
         rebuildResult: (value) => value,
+        deadlineMs: synthesisProductionTransportDeadlineMs(
+          "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+        ),
       });
       recordSynthesisSidecarStartupPhase({
         attemptId,

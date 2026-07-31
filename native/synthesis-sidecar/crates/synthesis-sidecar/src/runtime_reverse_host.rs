@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use synthesis_sidecar::runtime_contract::{NativeLaunchConfig, current_time_ms};
 
-use crate::runtime_deadline::bounded_timeout;
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
+use crate::runtime_deadline::{bounded_timeout, current_request_correlation_id};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, correlate, emit, emit_debug};
 
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
@@ -144,7 +144,8 @@ pub(crate) fn call_reverse_host(
     } else {
         MAX_REVERSE_HOST_RESPONSE_BODY_BYTES
     };
-    let body = serde_json::to_vec(&json!({
+    let correlation_id = current_request_correlation_id();
+    let mut call = json!({
         "schema":"synthesis-reverse-host-call.v1",
         "requestId":request_id.clone(),
         "profileId":config.profile_id,
@@ -153,39 +154,46 @@ pub(crate) fn call_reverse_host(
         "capability":capability,
         "deadlineAtMs":now.saturating_add(timeout.as_millis() as u64),
         "payload":payload,
-    }))
-    .map_err(|_| "reverse_host_request_invalid".to_owned())?;
+    });
+    if let Some(correlation_id) = &correlation_id {
+        call["correlationId"] = Value::String(correlation_id.clone());
+    }
+    let body = serde_json::to_vec(&call).map_err(|_| "reverse_host_request_invalid".to_owned())?;
     emit_debug(|| {
-        NativeDiagnosticEvent::new("reverse-host", "call-started", "started")
-            .capability(capability)
-            .request_id(&request_id)
-            .operation_id(&operation_id)
-            .request_bytes(body.len())
+        correlate(
+            NativeDiagnosticEvent::new("reverse-host", "call-started", "started")
+                .capability(capability)
+                .request_id(&request_id)
+                .operation_id(&operation_id)
+                .request_bytes(body.len()),
+        )
     });
     let result = send_reverse_host_request(config, timeout, &body, max_response_body_bytes);
     match result {
         Ok((result, response_bytes)) => {
             let duration_ms = current_time_ms()?.saturating_sub(now);
             emit_debug(|| {
-                NativeDiagnosticEvent::new("reverse-host", "call-completed", "succeeded")
-                    .capability(capability)
-                    .request_id(request_id)
-                    .operation_id(operation_id)
-                    .duration_ms(duration_ms)
-                    .response_bytes(response_bytes)
-                    .http_status(200)
+                correlate(
+                    NativeDiagnosticEvent::new("reverse-host", "call-completed", "succeeded")
+                        .capability(capability)
+                        .request_id(request_id)
+                        .operation_id(operation_id)
+                        .duration_ms(duration_ms)
+                        .response_bytes(response_bytes)
+                        .http_status(200),
+                )
             });
             Ok(result)
         }
         Err(error) => {
-            emit(
+            emit(correlate(
                 NativeDiagnosticEvent::new("reverse-host", "call-failed", "failed")
                     .capability(capability)
                     .request_id(request_id)
                     .operation_id(operation_id)
                     .code(&error)
                     .duration_ms(current_time_ms().unwrap_or(now).saturating_sub(now)),
-            );
+            ));
             Err(error)
         }
     }

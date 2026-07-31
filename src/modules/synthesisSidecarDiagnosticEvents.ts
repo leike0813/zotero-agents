@@ -6,6 +6,7 @@ export type SynthesisSidecarDiagnosticComponent =
   | "rpc"
   | "reverse-host"
   | "operation"
+  | "batch"
   | "process";
 
 export type SynthesisSidecarDiagnosticEventStatus =
@@ -20,6 +21,7 @@ export type SynthesisSidecarDiagnosticEventInput = {
   capability?: string;
   requestId?: string;
   operationId?: string;
+  correlationId?: string;
   serviceInstanceId?: string;
   code?: string;
   durationMs?: number;
@@ -31,6 +33,12 @@ export type SynthesisSidecarDiagnosticEventInput = {
   returned?: number;
   total?: number;
   page?: number;
+  batchOrdinal?: number;
+  sourceCount?: number;
+  payloadCount?: number;
+  actualBytes?: number;
+  actualJsonNodes?: number;
+  limitJsonNodes?: number;
 };
 
 export type SynthesisSidecarDiagnosticEvent =
@@ -113,6 +121,7 @@ function normalizeDiagnosticEvent(
     "capability",
     "requestId",
     "operationId",
+    "correlationId",
     "serviceInstanceId",
     "code",
   ] as const;
@@ -130,6 +139,12 @@ function normalizeDiagnosticEvent(
     "returned",
     "total",
     "page",
+    "batchOrdinal",
+    "sourceCount",
+    "payloadCount",
+    "actualBytes",
+    "actualJsonNodes",
+    "limitJsonNodes",
   ] as const;
   for (const field of numberFields) {
     const value = boundedInteger(input[field]);

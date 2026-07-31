@@ -182,11 +182,29 @@ describe("Synthesis Rust production client route", function () {
                 year: "2026",
                 metadataHash: "sha256:hostref1",
               },
+              {
+                paperRef: "1:HOSTREF2",
+                libraryId: 1,
+                itemKey: "HOSTREF2",
+                itemType: "journalArticle",
+                title: "Reverse Host Reference Two",
+                year: "2026",
+                metadataHash: "sha256:hostref2",
+              },
+              {
+                paperRef: "1:HOSTREF3",
+                libraryId: 1,
+                itemKey: "HOSTREF3",
+                itemType: "journalArticle",
+                title: "Reverse Host Reference Three",
+                year: "2026",
+                metadataHash: "sha256:hostref3",
+              },
             ],
             cursor,
             nextCursor: "",
             hasMore: false,
-            returned: 1,
+            returned: 3,
             limit,
           };
         } else if (call.capability === "library.artifacts.scan_page") {
@@ -206,7 +224,31 @@ describe("Synthesis Rust production client route", function () {
                 status: "available",
                 locator: "fixture:references:HOSTREF1",
                 payloadHash: "sha256:references-hostref1",
-                estimatedSize: 1_200_000,
+                estimatedSize: 4_300_000,
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF2",
+                artifactType: "digest",
+                payloadType: "digest-markdown",
+                status: "missing",
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF2",
+                artifactType: "references",
+                payloadType: "references-json",
+                status: "available",
+                locator: "fixture:references:HOSTREF2",
+                payloadHash: "sha256:references-hostref2",
+                estimatedSize: 4_300_000,
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF2",
+                artifactType: "citation_analysis",
+                payloadType: "citation-analysis-json",
+                status: "missing",
                 diagnostics: [],
               },
               {
@@ -216,14 +258,41 @@ describe("Synthesis Rust production client route", function () {
                 status: "missing",
                 diagnostics: [],
               },
+              {
+                paperRef: "1:HOSTREF3",
+                artifactType: "digest",
+                payloadType: "digest-markdown",
+                status: "missing",
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF3",
+                artifactType: "references",
+                payloadType: "references-json",
+                status: "available",
+                locator: "fixture:references:HOSTREF3",
+                payloadHash: "sha256:references-hostref3",
+                estimatedSize: 128,
+                diagnostics: [],
+              },
+              {
+                paperRef: "1:HOSTREF3",
+                artifactType: "citation_analysis",
+                payloadType: "citation-analysis-json",
+                status: "missing",
+                diagnostics: [],
+              },
             ],
             cursor,
             nextCursor: "",
             hasMore: false,
-            returned: 1,
+            returned: 3,
             limit,
           };
         } else if (call.capability === "library.artifacts.read") {
+          const smallReference = String(call.payload.expectedHash).includes(
+            "hostref3",
+          );
           result = {
             status: "available",
             payloadHash: call.payload.expectedHash,
@@ -232,7 +301,9 @@ describe("Synthesis Rust production client route", function () {
               value: {
                 references: [
                   {
-                    title: `目录治理 ${"文献".repeat(200_000)}`,
+                    title: smallReference
+                      ? "Small expanded reference"
+                      : `目录治理 ${String(call.payload.expectedHash).includes("hostref2") ? "乙" : "甲"} ${"文献".repeat(700_000)}`,
                     year: "2024",
                     authors: ["研究者"],
                   },
@@ -276,21 +347,230 @@ describe("Synthesis Rust production client route", function () {
     const sidecar = start(configPath);
     try {
       const { port } = await sidecar.listening;
+      const initialIndexSurface = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            {
+              registry: {
+                scope: "library",
+                expandedSourceRefs: [],
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(initialIndexSurface.status, 200);
+      assert.equal(
+        initialIndexSurface.body.data.registry.cacheStatus.status,
+        "missing",
+      );
+      assert.lengthOf(initialIndexSurface.body.data.registry.rows, 3);
+      assert.equal(
+        initialIndexSurface.body.data.registry.rows[0].artifactCoverage,
+        "missing",
+      );
+
       const refresh = await call(port, "client.refreshReferenceSidecarNow", {
         args: [],
       });
       assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
       assert.equal(refresh.body.data.ok, true);
 
+      const chrome = await call(
+        port,
+        "client.getSynthesisWorkbenchChromeInput",
+        {
+          args: [{ registry: { scope: "library" } }],
+        },
+      );
+      assert.equal(chrome.status, 200);
+      assert.equal(chrome.body.data.maintenance.summary.status, "partial");
+      assert.isArray(chrome.body.data.maintenance.backgroundJobs);
+      assert.notProperty(chrome.body.data.maintenance, "cacheReadiness");
+
+      const workbenchIndex = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            {
+              registry: {
+                scope: "library",
+                expandedSourceRefs: ["1:HOSTREF3"],
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(workbenchIndex.status, 200);
+      assert.equal(
+        workbenchIndex.body.data.registry.cacheStatus.status,
+        "ready",
+      );
+      assert.lengthOf(workbenchIndex.body.data.registry.rows, 3);
+      assert.deepInclude(workbenchIndex.body.data.registry.rows[0], {
+        libraryId: 1,
+        itemKey: "HOSTREF1",
+        paper_ref: "1:HOSTREF1",
+        artifactCoverage: "partial",
+        reference_count: 1,
+        unbound_reference_count: 1,
+      });
+      assert.deepEqual(
+        workbenchIndex.body.data.registry.rows[0].missing_artifacts,
+        ["digest", "citation_analysis"],
+      );
+      assert.deepEqual(
+        workbenchIndex.body.data.registry.rows[0].references,
+        [],
+      );
+      assert.lengthOf(workbenchIndex.body.data.registry.rows[2].references, 1);
+      assert.equal(
+        workbenchIndex.body.data.registry.rows[2].references[0].title,
+        "Small expanded reference",
+      );
+
+      const repeatedWorkbenchIndex = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            {
+              registry: {
+                scope: "library",
+                expandedSourceRefs: [],
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(repeatedWorkbenchIndex.status, 200);
+      assert.equal(
+        repeatedWorkbenchIndex.body.data.registry.cacheStatus.status,
+        "ready",
+      );
+      assert.deepEqual(
+        repeatedWorkbenchIndex.body.data.registry.rows.map(
+          (row: Record<string, unknown>) => row.paper_ref,
+        ),
+        ["1:HOSTREF1", "1:HOSTREF2", "1:HOSTREF3"],
+      );
+
       const index = await call(port, "client.getReferenceSidecarIndex", {
         args: [{ includeReferences: false }],
       });
       assert.equal(index.status, 200);
-      assert.equal(index.body.data.total, 1);
-      assert.equal(index.body.data.returned, 1);
+      assert.equal(index.body.data.total, 3);
+      assert.equal(index.body.data.returned, 3);
       assert.equal(index.body.data.rows[0].paper_ref, "1:HOSTREF1");
+      assert.equal(index.body.data.rows[1].paper_ref, "1:HOSTREF2");
+      assert.equal(index.body.data.rows[2].paper_ref, "1:HOSTREF3");
       assert.include(sidecar.stderr(), '"stage":"call-completed"');
       assert.notInclude(sidecar.stderr(), "目录治理");
+    } finally {
+      if (sidecar.child.exitCode === null) {
+        await stop(sidecar.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+    }
+  });
+
+  it("keeps an empty refreshed Reference index ready", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-empty-reference-route-"),
+    );
+    const reverseHost = http.createServer((request, response) => {
+      let requestBody = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        requestBody += chunk;
+      });
+      request.on("end", () => {
+        const call = JSON.parse(requestBody) as {
+          capability: string;
+          payload: { cursor?: string; limit?: number };
+        };
+        const cursor = call.payload.cursor || "";
+        const limit = call.payload.limit || 100;
+        const result =
+          call.capability === "webdav.describe"
+            ? { configured: false }
+            : call.capability === "library.items.list_page"
+              ? {
+                  items: [],
+                  cursor,
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 0,
+                  limit,
+                }
+              : call.capability === "library.artifacts.scan_page"
+                ? {
+                    artifacts: [],
+                    cursor,
+                    nextCursor: "",
+                    hasMore: false,
+                    returned: 0,
+                    limit,
+                  }
+                : {};
+        const body = JSON.stringify({ ok: true, result });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "reference-empty");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-reference-empty",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    const sidecar = start(configPath);
+    try {
+      const { port } = await sidecar.listening;
+      const refresh = await call(port, "client.refreshReferenceSidecarNow", {
+        args: [],
+      });
+      assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
+      assert.equal(refresh.body.data.ok, true);
+
+      const index = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            { registry: { scope: "library", expandedSourceRefs: [] } },
+          ],
+        },
+      );
+      assert.equal(index.status, 200);
+      assert.equal(index.body.data.registry.cacheStatus.status, "ready");
+      assert.deepEqual(index.body.data.registry.rows, []);
     } finally {
       if (sidecar.child.exitCode === null) {
         await stop(sidecar.child);

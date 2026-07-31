@@ -71,9 +71,13 @@ that page, its retained event store, and native debug-event construction when
 either gate is disabled.
 
 Events cover lifecycle, plugin RPC, native RPC dispatch, reverse-Host calls,
-native operations, and process output boundaries. Correlation uses capability,
-request ID, and operation ID. Safe metadata includes duration, HTTP status,
-byte counts, page number, and aggregate counts. Credentials, authorization
+Reference Refresh batches and apply, native operations, and process output
+boundaries. The outer plugin request ID is the debug-only `correlationId`;
+native request, operation, and Reverse Host IDs remain distinct local
+identities. The Dashboard joins by `correlationId` first and falls back to ID
+equality for older events. Safe metadata includes duration, HTTP status, byte
+and JSON-node actual/limit pairs, batch ordinal, source and payload counts,
+page number, and aggregate counts. Credentials, authorization
 headers, payloads, artifact locators, paper references, note text, and WebDAV
 content are never event fields.
 

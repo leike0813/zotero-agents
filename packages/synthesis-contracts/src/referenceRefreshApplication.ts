@@ -13,8 +13,10 @@ import type {
 export const SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS = {
   scopedSources: 100,
   page: 100,
-  requestBytes: 8 * 1024 * 1024,
-  requestJsonNodes: 250_000,
+  preparationBytes: 8 * 1024 * 1024,
+  preparationJsonNodes: 250_000,
+  materializedBatchBytes: 2 * 8 * 1024 * 1024 + 64 * 1024,
+  materializedBatchJsonNodes: 2 * 250_000 + 1_024,
   deltaSources: 100,
 } as const;
 
@@ -357,7 +359,7 @@ export function rebuildSynthesisReferenceRefreshPrepareRequest(
     .map(rebuildItem)
     .sort((left, right) => left.paperRef.localeCompare(right.paperRef));
   if (
-    !items.length ||
+    (scope.kind === "sources" && !items.length) ||
     new Set(items.map((item) => item.paperRef)).size !== items.length
   ) {
     invalid("referenceRefreshPrepare.items");

@@ -4,10 +4,9 @@
 //! the narrow state and replacement DTOs needed by private applications; SQL table
 //! selection is internal and fixed so callers cannot turn this into a generic store.
 
-use crate::{Repository, row_integer, row_text};
+use crate::{Repository, row_integer, row_text, validate_identity_part};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -514,19 +513,17 @@ impl Repository {
         &self,
         source_refs: &[String],
     ) -> Result<Vec<ReferenceArtifactRecord>, String> {
-        let mut records = self
-            .query(
-                "SELECT * FROM synt_reference_artifact ORDER BY paper_ref ASC,artifact_type ASC",
-                &[],
-            )?
-            .into_iter()
-            .map(reference_artifact_record)
-            .collect::<Result<Vec<_>, _>>()?;
-        if !source_refs.is_empty() {
-            let selected = source_refs.iter().collect::<HashSet<_>>();
-            records.retain(|record| selected.contains(&record.paper_ref));
-        }
-        Ok(records)
+        let (clause, values) = scoped_string_clause("paper_ref", source_refs)?;
+        self.query(
+            &format!(
+                "SELECT * FROM synt_reference_artifact {clause}
+                 ORDER BY paper_ref ASC,artifact_type ASC"
+            ),
+            &values,
+        )?
+        .into_iter()
+        .map(reference_artifact_record)
+        .collect()
     }
 
     pub fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
@@ -534,6 +531,26 @@ impl Repository {
             "SELECT * FROM synt_reference_raw
              ORDER BY source_ref ASC,reference_index ASC,raw_reference_id ASC",
             &[],
+        )?
+        .into_iter()
+        .map(raw_reference_record)
+        .collect()
+    }
+
+    pub fn list_raw_references_for_sources(
+        &self,
+        source_refs: &[String],
+    ) -> Result<Vec<RawReferenceRecord>, String> {
+        if source_refs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (clause, values) = scoped_string_clause("source_ref", source_refs)?;
+        self.query(
+            &format!(
+                "SELECT * FROM synt_reference_raw {clause}
+                 ORDER BY source_ref ASC,reference_index ASC,raw_reference_id ASC"
+            ),
+            &values,
         )?
         .into_iter()
         .map(raw_reference_record)
@@ -558,6 +575,33 @@ impl Repository {
         .into_iter()
         .map(reference_binding_record)
         .collect()
+    }
+
+    pub fn list_reference_bindings_for_canonicals(
+        &self,
+        canonical_reference_ids: &[String],
+    ) -> Result<Vec<ReferenceBindingFactRecord>, String> {
+        if canonical_reference_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut result = Vec::new();
+        for ids in canonical_reference_ids.chunks(250) {
+            let (clause, values) = scoped_string_clause("canonical_reference_id", ids)?;
+            result.extend(
+                self.query(
+                    &format!(
+                        "SELECT * FROM synt_reference_binding {clause}
+                         ORDER BY binding_id ASC"
+                    ),
+                    &values,
+                )?
+                .into_iter()
+                .map(reference_binding_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+        result.sort_by(|left, right| left.binding_id.cmp(&right.binding_id));
+        Ok(result)
     }
 
     pub fn list_reference_redirects(&self) -> Result<Vec<ReferenceRedirectFactRecord>, String> {
@@ -2061,6 +2105,23 @@ fn delete_in(
         )?;
     }
     Ok(())
+}
+
+fn scoped_string_clause(column: &str, values: &[String]) -> Result<(String, Vec<Value>), String> {
+    if values.is_empty() {
+        return Ok((String::new(), Vec::new()));
+    }
+    let mut bindings = Vec::with_capacity(values.len());
+    let mut placeholders = Vec::with_capacity(values.len());
+    for value in values {
+        validate_identity_part(value)?;
+        bindings.push(json!(value));
+        placeholders.push(format!("?{}", bindings.len()));
+    }
+    Ok((
+        format!("WHERE {column} IN ({})", placeholders.join(",")),
+        bindings,
+    ))
 }
 
 fn delete_not_in(

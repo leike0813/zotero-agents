@@ -1653,6 +1653,13 @@ tr.clickable {
   overflow-wrap: anywhere;
 }
 
+.synthesis-sidecar-status-value {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .synthesis-sidecar-filters {
   align-items: end;
   gap: 10px;
@@ -1692,7 +1699,44 @@ tr.clickable {
 }
 
 .synthesis-sidecar-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-width: 0;
+}
+
+.synthesis-sidecar-detail-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.synthesis-sidecar-detail-header .panel-title,
+.synthesis-sidecar-json-section .panel-title {
+  margin-bottom: 4px;
+}
+
+.synthesis-sidecar-detail-summary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.synthesis-sidecar-detail-summary-item {
+  background: var(--zs-panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 8px;
+}
+
+.synthesis-sidecar-json-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .synthesis-sidecar-detail .payload-view {

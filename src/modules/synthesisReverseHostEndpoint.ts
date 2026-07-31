@@ -233,7 +233,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
     let responseStarted = false;
     let context: Pick<
       SynthesisSidecarDiagnosticEventInput,
-      "capability" | "requestId" | "operationId"
+      "capability" | "requestId" | "operationId" | "correlationId"
     > = {};
     const read = beginHostHttpRequestRead(input, {
       limits: {
@@ -256,6 +256,10 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
             typeof call.requestId === "string" ? call.requestId : undefined,
           operationId:
             typeof call.operationId === "string" ? call.operationId : undefined,
+          correlationId:
+            typeof call.correlationId === "string"
+              ? call.correlationId
+              : undefined,
         };
       }
       diagnosticRecorders.debug?.({

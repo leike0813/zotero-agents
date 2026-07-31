@@ -5,6 +5,11 @@
   "requestBytes": 1048576,
   "responseBytes": 1048576,
   "deadlineMs": 10000,
+  "deadlineOverridesMs": {
+    "client.startReferenceSidecarRefresh": 60000,
+    "client.refreshReferenceSidecarNow": 60000,
+    "client.retryReferenceSidecarRefresh": 60000
+  },
   "access": {
     "client.listTopics": "read",
     "client.findTopicsByPaperRef": "read",

@@ -19,6 +19,8 @@ pub(crate) struct NativeDiagnosticEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     operation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    correlation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     duration_ms: Option<u64>,
@@ -34,6 +36,20 @@ pub(crate) struct NativeDiagnosticEvent {
     total: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     page: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    batch_ordinal: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    actual_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    actual_json_nodes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit_json_nodes: Option<u64>,
 }
 
 impl NativeDiagnosticEvent {
@@ -47,6 +63,7 @@ impl NativeDiagnosticEvent {
             capability: None,
             request_id: None,
             operation_id: None,
+            correlation_id: crate::runtime_deadline::current_request_correlation_id(),
             code: None,
             duration_ms: None,
             request_bytes: None,
@@ -55,6 +72,13 @@ impl NativeDiagnosticEvent {
             returned: None,
             total: None,
             page: None,
+            batch_ordinal: None,
+            source_count: None,
+            payload_count: None,
+            actual_bytes: None,
+            limit_bytes: None,
+            actual_json_nodes: None,
+            limit_json_nodes: None,
         }
     }
 
@@ -70,6 +94,11 @@ impl NativeDiagnosticEvent {
 
     pub(crate) fn operation_id(mut self, value: impl Into<String>) -> Self {
         self.operation_id = Some(value.into());
+        self
+    }
+
+    pub(crate) fn correlation_id(mut self, value: impl Into<String>) -> Self {
+        self.correlation_id = Some(value.into());
         self
     }
 
@@ -112,6 +141,41 @@ impl NativeDiagnosticEvent {
         self.page = Some(value as u64);
         self
     }
+
+    pub(crate) fn batch_ordinal(mut self, value: usize) -> Self {
+        self.batch_ordinal = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn source_count(mut self, value: usize) -> Self {
+        self.source_count = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn payload_count(mut self, value: usize) -> Self {
+        self.payload_count = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn actual_bytes(mut self, value: usize) -> Self {
+        self.actual_bytes = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn limit_bytes(mut self, value: usize) -> Self {
+        self.limit_bytes = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn actual_json_nodes(mut self, value: usize) -> Self {
+        self.actual_json_nodes = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn limit_json_nodes(mut self, value: usize) -> Self {
+        self.limit_json_nodes = Some(value as u64);
+        self
+    }
 }
 
 pub(crate) fn emit(event: NativeDiagnosticEvent) {
@@ -122,6 +186,17 @@ pub(crate) fn emit(event: NativeDiagnosticEvent) {
 
 pub(crate) fn configure_debug_events(enabled: bool) {
     DEBUG_EVENTS_ENABLED.store(enabled, Ordering::Release);
+}
+
+pub(crate) fn debug_events_enabled() -> bool {
+    DEBUG_EVENTS_ENABLED.load(Ordering::Acquire)
+}
+
+pub(crate) fn correlate(event: NativeDiagnosticEvent) -> NativeDiagnosticEvent {
+    match crate::runtime_deadline::current_request_correlation_id() {
+        Some(correlation_id) => event.correlation_id(correlation_id),
+        None => event,
+    }
 }
 
 pub(crate) fn emit_debug(build: impl FnOnce() -> NativeDiagnosticEvent) {

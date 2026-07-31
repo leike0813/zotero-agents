@@ -133,6 +133,7 @@ struct ProductionClientOperationManifest {
     request_bytes: usize,
     response_bytes: usize,
     deadline_ms: u64,
+    deadline_overrides_ms: BTreeMap<String, u64>,
     access: BTreeMap<String, ProductionClientAccess>,
 }
 
@@ -156,6 +157,12 @@ fn production_client_operation_manifest() -> Result<ProductionClientOperationMan
         || manifest.response_bytes == 0
         || manifest.response_bytes > 8 * 1024 * 1024
         || !(100..=60_000).contains(&manifest.deadline_ms)
+        || manifest
+            .deadline_overrides_ms
+            .iter()
+            .any(|(capability, deadline)| {
+                !manifest.access.contains_key(capability) || !(100..=60_000).contains(deadline)
+            })
     {
         return Err("invalid_production_operation_manifest".into());
     }
@@ -169,13 +176,18 @@ pub fn production_client_operation_metadata()
         .access
         .into_iter()
         .map(|(capability, access)| {
+            let deadline_ms = manifest
+                .deadline_overrides_ms
+                .get(&capability)
+                .copied()
+                .unwrap_or(manifest.deadline_ms);
             (
                 capability,
                 ProductionClientOperationMetadata {
                     access,
                     request_bytes: manifest.request_bytes,
                     response_bytes: manifest.response_bytes,
-                    deadline_ms: manifest.deadline_ms,
+                    deadline_ms,
                 },
             )
         })
@@ -246,5 +258,14 @@ mod tests {
             operations.access["client.applyTopicSynthesisResult"],
             ProductionClientAccess::Mutation
         );
+        let metadata = production_client_operation_metadata().unwrap();
+        assert_eq!(metadata["client.listTopics"].deadline_ms, 10_000);
+        for capability in [
+            "client.startReferenceSidecarRefresh",
+            "client.refreshReferenceSidecarNow",
+            "client.retryReferenceSidecarRefresh",
+        ] {
+            assert_eq!(metadata[capability].deadline_ms, 60_000);
+        }
     }
 }

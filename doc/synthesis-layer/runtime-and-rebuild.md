@@ -41,6 +41,10 @@ engines remain plugin-owned. Compute request and response envelopes are each
 capped at 8 MiB; general and system calls retain the 1 MiB request cap.
 Reverse-Host calls retain a 1 MiB/two-second default, while
 `library.artifacts.read` has an explicit 8 MiB/ten-second capability policy.
+The production operation manifest supplies the native deadline and the plugin
+transport waits for that deadline plus two seconds. Ordinary operations use ten
+seconds; the three Reference Refresh entry points use sixty seconds so Rust can
+return `operation_timeout` before the plugin reports a transport timeout.
 The active domain runtime model remains explicit, bounded cache maintenance
 rather than automatic library-wide synchronization.
 
@@ -207,7 +211,9 @@ Legacy sidecar state files, sidecar index files, graph index files, and graph ma
 
 ## Two-Stage Reference Sidecar Refresh
 
-The private sidecar foundation represents this boundary as `prepareRefresh` plus `applyRefresh`. Preparation admits one full or at-most-100-source descriptor set under the 8 MiB/250,000-node limits, persists an operation receipt without changing readiness, and returns only changed references plus same-source citation-analysis reads. Apply independently admits the complete materialized payload aggregate under the same 8 MiB/250,000-node limits, is single-use, and requires an exact locator/hash/result set; oversized, missing, extra, duplicate, stale, or mismatched payloads consume the preparation and fail before projection writes. Parsing and quality/canonical/binding projection run outside SQLite, and promotion rechecks the active reference hash in one transaction. Advanced Matching, generic review mutations, graph execution, related-item effects, and large-library paging remain outside this foundation.
+The private sidecar foundation represents this boundary as `prepareRefresh` plus `applyRefresh`. Preparation retains its 8 MiB/250,000-node admission and returns only changed references plus same-source citation-analysis reads. Production sorts sources by `paper_ref` and feeds the application source-scoped batches of at most 100 sources. Descriptor `estimated_size` fills batches conservatively; every rebuilt apply request is then measured against the independent materialized limit of two 8 MiB artifact responses plus 64 KiB of envelope capacity and the corresponding two-artifact JSON-node bound.
+
+Each successful batch performs its own reference-hash CAS and becomes readable immediately. A measured multi-source overflow discards its preparation and is split in half; a single-source overflow returns `reference_refresh_payload_too_large` with measured and configured capacity. Later failure or deadline exhaustion stops new batches but retains completed batches and reports processed/failed source refs for retry. Retry compares current descriptor hashes and does not reread a completed source that remains current. Once every current source converges, one payload-free full-scope sweep removes sources no longer present in Zotero. Missing, extra, duplicate, stale, or mismatched payloads still consume their preparation before any batch write. Parsing and quality/canonical/binding projection run outside SQLite, and every promotion rechecks the active reference hash in one transaction. Advanced Matching, generic review mutations, graph execution, related-item effects, and preparation paging beyond the 8 MiB/250,000-node descriptor bound remain outside this boundary.
 
 Reference sidecar refresh is the broadest ordinary maintenance operation and must stay cheaper than the old Registry rebuild.
 

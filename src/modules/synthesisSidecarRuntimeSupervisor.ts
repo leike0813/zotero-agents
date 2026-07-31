@@ -213,6 +213,7 @@ const DIAGNOSTIC_COMPONENTS = new Set<SynthesisSidecarDiagnosticComponent>([
   "rpc",
   "reverse-host",
   "operation",
+  "batch",
   "process",
 ]);
 const DIAGNOSTIC_STATUSES = new Set<SynthesisSidecarDiagnosticEventStatus>([
@@ -257,6 +258,7 @@ function parseNativeDiagnosticEvent(
     "capability",
     "requestId",
     "operationId",
+    "correlationId",
     "code",
   ] as const) {
     if (typeof record[field] === "string") {
@@ -271,6 +273,13 @@ function parseNativeDiagnosticEvent(
     "returned",
     "total",
     "page",
+    "batchOrdinal",
+    "sourceCount",
+    "payloadCount",
+    "actualBytes",
+    "limitBytes",
+    "actualJsonNodes",
+    "limitJsonNodes",
   ] as const) {
     if (typeof record[field] === "number") {
       event[field] = record[field];

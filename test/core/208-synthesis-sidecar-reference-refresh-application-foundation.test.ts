@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS,
   rebuildSynthesisReferenceRefreshApplyRequest,
   rebuildSynthesisReferenceRefreshPageRequest,
   rebuildSynthesisReferenceRefreshPrepareRequest,
@@ -140,6 +141,14 @@ describe("Synthesis sidecar Reference Refresh application foundation", function 
   });
 
   it("strictly rebuilds bounded prepare, apply, and page requests", function () {
+    assert.equal(
+      SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.preparationBytes,
+      8 * 1024 * 1024,
+    );
+    assert.isAbove(
+      SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.materializedBatchBytes,
+      SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS.preparationBytes,
+    );
     const rebuilt = rebuildSynthesisReferenceRefreshPrepareRequest(
       prepareInput({ expectedReferenceHash: null }),
     );
@@ -172,6 +181,16 @@ describe("Synthesis sidecar Reference Refresh application foundation", function 
         affectedSourceRefs: [],
         unknown: true,
       }),
+    );
+    assert.deepEqual(
+      rebuildSynthesisReferenceRefreshPrepareRequest({
+        expectedReferenceHash: null,
+        force: false,
+        scope: { kind: "full" },
+        items: [],
+        artifacts: [],
+      }).items,
+      [],
     );
     assert.throws(() =>
       rebuildSynthesisReferenceRefreshPrepareRequest({
@@ -358,6 +377,28 @@ describe("Synthesis sidecar Reference Refresh application foundation", function 
         .rows.map((row) => row.sourceRef),
       ["1:A", "1:B"],
     );
+
+    const beforeSweep = application.inspect();
+    const sweep = await application.prepareRefresh({
+      expectedReferenceHash: beforeSweep.referenceHash,
+      force: false,
+      scope: { kind: "full" },
+      items: [],
+      artifacts: [],
+    });
+    assert.equal(sweep.status, "prepared");
+    if (sweep.status !== "prepared") return;
+    assert.deepEqual(sweep.reads, []);
+    assert.equal(
+      (
+        await application.applyRefresh({
+          preparationId: sweep.preparationId,
+          payloads: [],
+        })
+      ).status,
+      "promoted",
+    );
+    assert.equal(application.inspect().sourceCount, 0);
     repository.close();
   });
 

@@ -12,9 +12,17 @@ use synthesis_repository::{
     ReferenceProjectionScope, ReferenceRevisionReviewRecord, ReferenceSourceRecord,
 };
 
-const MAX_BYTES: usize = 8 * 1024 * 1024;
-const MAX_JSON_NODES: usize = 250_000;
+const MAX_PREPARATION_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PREPARATION_JSON_NODES: usize = 250_000;
+pub const REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES: usize = 2 * 8 * 1024 * 1024 + 64 * 1024;
+pub const REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES: usize = 2 * 250_000 + 1_024;
 const MAX_SOURCES: usize = 100;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReferenceRefreshApplyCapacity {
+    pub bytes: usize,
+    pub json_nodes: usize,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -94,7 +102,7 @@ pub struct ReferenceArtifactDescriptor {
     pub status: String,
     pub locator: String,
     pub payload_hash: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_size: Option<usize>,
     #[serde(default)]
     pub diagnostics: Vec<Value>,
@@ -1022,19 +1030,18 @@ impl WithPreparation for ReferenceRefreshPrepareResult {
 
 fn validate_prepare(request: &ReferenceRefreshPrepareRequest) -> Result<(), String> {
     let bytes = serde_json::to_vec(request).map_err(|_| "invalid_request")?;
-    if bytes.len() > MAX_BYTES
+    if bytes.len() > MAX_PREPARATION_BYTES
         || count_nodes(&serde_json::to_value(request).map_err(|_| "invalid_request")?)
-            > MAX_JSON_NODES
+            > MAX_PREPARATION_JSON_NODES
     {
         return Err("invalid_request".into());
     }
     let source_refs = scoped_source_refs(request);
-    if source_refs.is_empty()
-        || matches!(
-            &request.scope,
-            ReferenceRefreshScope::Sources { source_refs } if source_refs.len() > MAX_SOURCES
-        )
-        || source_refs.iter().collect::<HashSet<_>>().len() != source_refs.len()
+    if matches!(
+        &request.scope,
+        ReferenceRefreshScope::Sources { source_refs }
+            if source_refs.is_empty() || source_refs.len() > MAX_SOURCES
+    ) || source_refs.iter().collect::<HashSet<_>>().len() != source_refs.len()
         || request.items.len() != source_refs.len()
         || request
             .items
@@ -1093,12 +1100,24 @@ fn validate_prepare(request: &ReferenceRefreshPrepareRequest) -> Result<(), Stri
 pub fn validate_reference_refresh_apply_request(
     request: &ReferenceRefreshApplyRequest,
 ) -> Result<(), &'static str> {
-    let bytes = serde_json::to_vec(request).map_err(|_| "reference_refresh_payload_invalid")?;
-    let value = serde_json::to_value(request).map_err(|_| "reference_refresh_payload_invalid")?;
-    if bytes.len() > MAX_BYTES || count_nodes(&value) > MAX_JSON_NODES {
+    let capacity = measure_reference_refresh_apply_request(request)?;
+    if capacity.bytes > REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES
+        || capacity.json_nodes > REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES
+    {
         return Err("reference_refresh_payload_too_large");
     }
     Ok(())
+}
+
+pub fn measure_reference_refresh_apply_request(
+    request: &ReferenceRefreshApplyRequest,
+) -> Result<ReferenceRefreshApplyCapacity, &'static str> {
+    let bytes = serde_json::to_vec(request).map_err(|_| "reference_refresh_payload_invalid")?;
+    let value = serde_json::to_value(request).map_err(|_| "reference_refresh_payload_invalid")?;
+    Ok(ReferenceRefreshApplyCapacity {
+        bytes: bytes.len(),
+        json_nodes: count_nodes(&value),
+    })
 }
 
 fn scoped_source_refs(request: &ReferenceRefreshPrepareRequest) -> Vec<String> {
@@ -1401,7 +1420,8 @@ mod tests {
             .clone()
             .expect("prepared reference refresh");
         let mut oversized_payloads = payloads(&prepared);
-        oversized_payloads[0].content = json!({ "blob": "x".repeat(MAX_BYTES) });
+        oversized_payloads[0].content =
+            json!({ "blob": "x".repeat(REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES) });
 
         assert_eq!(
             application
@@ -1423,5 +1443,29 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn materialized_batch_accepts_more_than_the_preparation_limit() {
+        let request = ReferenceRefreshApplyRequest {
+            preparation_id: "refresh:capacity".into(),
+            payloads: vec![ReferenceRefreshPayload {
+                locator: "reference:a".into(),
+                expected_hash: "sha256:a".into(),
+                status: "available".into(),
+                payload_hash: "sha256:a".into(),
+                content: json!({
+                    "references":[{
+                        "title":"x".repeat(MAX_PREPARATION_BYTES + 1),
+                    }],
+                }),
+                diagnostics: Vec::new(),
+            }],
+        };
+        let capacity =
+            measure_reference_refresh_apply_request(&request).expect("measured apply request");
+        assert!(capacity.bytes > MAX_PREPARATION_BYTES);
+        assert!(capacity.bytes < REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES);
+        assert_eq!(validate_reference_refresh_apply_request(&request), Ok(()));
     }
 }

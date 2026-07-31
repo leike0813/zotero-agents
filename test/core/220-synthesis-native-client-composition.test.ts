@@ -11,6 +11,11 @@ import {
 import { inspectSynthesisProductionCapabilities } from "../../scripts/check-synthesis-production-capabilities";
 import { readSynthesisProductionSurfaceCorpora } from "../../scripts/synthesisProductionSurfaceCorpora";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+  synthesisProductionOperationDeadlineMs,
+  synthesisProductionTransportDeadlineMs,
+} from "../../src/modules/synthesisProductionRpcPolicy";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -50,7 +55,9 @@ describe("Synthesis native client composition", function () {
       },
     }));
     const topic = corpora.find((surface) => surface.id === "topic-workbench")!;
-    const citation = corpora.find((surface) => surface.id === "citation-graph")!;
+    const citation = corpora.find(
+      (surface) => surface.id === "citation-graph",
+    )!;
     const moved = topic.corpus.operations[0]!;
     const citationOperation = citation.corpus.operations[0]!;
     topic.corpus.operations[0] = {
@@ -93,9 +100,19 @@ describe("Synthesis native client composition", function () {
 
   it("reproduces every inventory gate without an active OpenSpec change directory", function () {
     this.timeout(30_000);
-    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "synthesis-r9a-no-change-"));
+    const fixture = fs.mkdtempSync(
+      path.join(os.tmpdir(), "synthesis-r9a-no-change-"),
+    );
     try {
-      for (const name of ["node_modules", "packages", "src", "native", "scripts", "test", "package.json"]) {
+      for (const name of [
+        "node_modules",
+        "packages",
+        "src",
+        "native",
+        "scripts",
+        "test",
+        "package.json",
+      ]) {
         fs.symlinkSync(path.join(ROOT, name), path.join(fixture, name));
       }
       for (const script of [
@@ -123,6 +140,7 @@ describe("Synthesis native client composition", function () {
     const calls: Array<{
       capability: SynthesisSidecarProductionClientCapability;
       payload: unknown;
+      deadlineMs?: number;
     }> = [];
     const composition = createNativeSynthesisClientComposition({
       getReadyConnection: () => ({
@@ -140,6 +158,7 @@ describe("Synthesis native client composition", function () {
             capability:
               args.capability as SynthesisSidecarProductionClientCapability,
             payload: args.payload,
+            deadlineMs: args.deadlineMs,
           });
           return args.rebuildResult({ topics: [] });
         },
@@ -151,8 +170,27 @@ describe("Synthesis native client composition", function () {
       {
         capability: "client.listTopics",
         payload: { args: [{}] },
+        deadlineMs: 12_000,
       },
     ]);
+  });
+
+  it("derives production transport deadlines from the shared operation manifest", function () {
+    assert.equal(
+      synthesisProductionOperationDeadlineMs("client.listTopics"),
+      10_000,
+    );
+    for (const capability of [
+      "client.startReferenceSidecarRefresh",
+      "client.refreshReferenceSidecarNow",
+      "client.retryReferenceSidecarRefresh",
+    ] as const) {
+      assert.equal(synthesisProductionOperationDeadlineMs(capability), 60_000);
+      assert.equal(
+        synthesisProductionTransportDeadlineMs(capability),
+        60_000 + SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+      );
+    }
   });
 
   it("fails closed after invalidation without resolving another owner", async function () {

@@ -3,7 +3,8 @@ use serde_json::Value;
 use std::time::{Duration, Instant};
 
 use crate::runtime_capabilities::ServeState;
-use crate::runtime_deadline::with_request_deadline;
+use crate::runtime_deadline::with_request_context;
+use crate::runtime_diagnostics::debug_events_enabled;
 use crate::runtime_production_compat::dispatch_legacy_client;
 
 #[derive(Debug, Deserialize)]
@@ -14,6 +15,7 @@ struct ClientArguments {
 
 pub(crate) fn dispatch_production_client(
     state: &ServeState,
+    request_id: &str,
     capability: &str,
     payload: Value,
 ) -> Result<Value, String> {
@@ -31,9 +33,11 @@ pub(crate) fn dispatch_production_client(
     let envelope: ClientArguments =
         serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
     let started_at = Instant::now();
-    let result = with_request_deadline(Duration::from_millis(metadata.deadline_ms), || {
-        dispatch_legacy_client(&state.applications, capability, &envelope.args)
-    })?;
+    let result = with_request_context(
+        Duration::from_millis(metadata.deadline_ms),
+        debug_events_enabled().then_some(request_id),
+        || dispatch_legacy_client(&state.applications, capability, &envelope.args),
+    )?;
     if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms) {
         return Err("operation_timeout".into());
     }

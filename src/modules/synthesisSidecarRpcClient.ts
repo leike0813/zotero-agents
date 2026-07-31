@@ -188,6 +188,9 @@ export function createSynthesisSidecarRpcClient(options?: {
       }
       const requestId = nextRequestId(requestIdPrefix);
       const startedAt = now();
+      const correlation = diagnosticRecorders.debug
+        ? { correlationId: requestId }
+        : {};
       const requestSource = JSON.stringify({
         protocol: SYNTHESIS_SIDECAR_PROTOCOL,
         requestId,
@@ -208,6 +211,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           status: "failed",
           capability: args.capability,
           requestId,
+          ...correlation,
           code: "request_body_too_large",
           requestBytes: textEncoder.encode(requestSource).byteLength,
         });
@@ -219,6 +223,7 @@ export function createSynthesisSidecarRpcClient(options?: {
         status: "started",
         capability: args.capability,
         requestId,
+        ...correlation,
         serviceInstanceId: args.connection.serviceInstanceId,
         requestBytes: textEncoder.encode(requestSource).byteLength,
       });
@@ -287,6 +292,7 @@ export function createSynthesisSidecarRpcClient(options?: {
             status: "succeeded",
             capability: args.capability,
             requestId,
+            ...correlation,
             serviceInstanceId: args.connection.serviceInstanceId,
             httpStatus: response.status,
             requestBytes: textEncoder.encode(requestSource).byteLength,
@@ -305,6 +311,7 @@ export function createSynthesisSidecarRpcClient(options?: {
             status: "failed",
             capability: args.capability,
             requestId,
+            ...correlation,
             serviceInstanceId: args.connection.serviceInstanceId,
             code:
               typeof error.details.reason === "string"
@@ -321,6 +328,7 @@ export function createSynthesisSidecarRpcClient(options?: {
             status: "failed",
             capability: args.capability,
             requestId,
+            ...correlation,
             code: transportErrors.canceled,
             durationMs: Math.max(0, now() - startedAt),
           });
@@ -333,6 +341,7 @@ export function createSynthesisSidecarRpcClient(options?: {
             status: "failed",
             capability: args.capability,
             requestId,
+            ...correlation,
             code: transportErrors.timeout,
             durationMs: Math.max(0, now() - startedAt),
           });
@@ -344,6 +353,7 @@ export function createSynthesisSidecarRpcClient(options?: {
           status: "failed",
           capability: args.capability,
           requestId,
+          ...correlation,
           code: transportErrors.unavailable,
           durationMs: Math.max(0, now() - startedAt),
         });

@@ -60,7 +60,7 @@ use maintained snapshots and never query row counts.
 
 Private Citation Graph mutations are globally single-flight before they reach the worker pool, so a competitor returns busy instead of consuming either queued slot. Full build input also applies the 8 MiB/250,000-node monolithic admission and 50,000-node result cap directly; it never switches to packed transfer. Worker compute stays outside SQLite, full replacement is one short CAS transaction, and metrics/layout promotion performs a second active-graph check. Bounded reads remain available during compute.
 
-Private Reference Refresh also admits one preparation or apply at a time while bounded reads remain available. Both descriptor preparation and materialized payloads enforce 8 MiB/250,000-node admission; a source scope contains at most 100 unique refs. Only changed references payloads and their same-source citation analysis are materialized, digest payloads are never read, parsing stays outside SQLite, and apply performs one short CAS transaction. Oversized full-library paging and streaming are explicitly deferred rather than switching transport implicitly.
+Private Reference Refresh admits one preparation or apply at a time while bounded reads remain available. Descriptor preparation retains the 8 MiB/250,000-node admission, while each materialized source batch is independently capped at two 8 MiB artifact responses plus 64 KiB of envelope capacity and the corresponding two-artifact JSON-node bound. A batch contains at most 100 unique refs. Only changed references payloads and their same-source citation analysis are materialized; digest payloads are never read. Parsing stays outside SQLite and each batch performs one short CAS transaction. Stable estimated batching, measured binary splitting, durable partial success, retry convergence, and a final payload-free deletion sweep cover large aggregate materialization without database staging. Descriptor preparation that itself exceeds its bound remains an explicit failure.
 
 The WS5 Topic canonical shadow is also main-process owned, but it is not a hot
 path or production apply route. Authenticated inspect reads one requested Topic
@@ -152,8 +152,12 @@ structural nodes, one active task, two waiting tasks, a five-second hard
 deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
 and system requests retain the 1 MiB cap. Reverse-Host responses also retain
 that general limit except for `library.artifacts.read`, whose explicit policy
-allows 8 MiB and ten seconds. Reference refresh then enforces 8 MiB/250,000-node
-admission on the complete apply aggregate before projection. The byte envelope
+allows 8 MiB and ten seconds. Reference Refresh preparation retains the
+8 MiB/250,000-node admission. Materialized source batches instead allow two
+maximum artifact responses plus 64 KiB of envelope capacity and 501,024 JSON
+nodes, and split a measured multi-source overflow before projection. Its three
+production entry points use the manifest-owned sixty-second operation deadline;
+the plugin transport adds two seconds of grace. The byte envelope
 remains independent from the graph engines' 5,000-node/20,000-edge bounds, so
 an engine-valid but wire-oversized DTO fails closed. Graph build's larger
 25,000-source /
