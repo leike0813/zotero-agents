@@ -224,9 +224,27 @@ When `citation-graph:library` is stale, Workbench SHALL be able to trigger a man
 
 - **GIVEN** graph cache basis is stale
 - **AND** diagnostics do not record an incremental refresh scope
-- **WHEN** Workbench renders graph controls
-- **THEN** the manual incremental refresh action SHALL be unavailable
-- **AND** full graph cache rebuild SHALL remain available as the fallback.
+- **WHEN** `refreshCitationGraphCacheIncrementalNow` runs
+- **THEN** it SHALL perform an explicit full graph cache rebuild
+- **AND** the operation receipt SHALL record full rebuild intent.
+
+### Requirement: Failed graph rebuild retry SHALL use durable intent
+
+Citation Graph full and source-slice attempts SHALL store distinct failed
+operation intents. `retryCitationGraphCacheRebuild` SHALL restore the most
+recent failed intent after repository reopen while reading current Host
+revision and durable sidecar facts.
+
+#### Scenario: Failed source-slice refresh is retried
+- **WHEN** the latest failed graph rebuild was incremental
+- **AND** the sidecar repository has been reopened
+- **THEN** retry SHALL collect the current recorded source closure and run a new source-slice job
+- **AND** it SHALL NOT replay the failed worker input.
+
+#### Scenario: Retried collection or compute fails
+- **WHEN** fresh Host collection, worker execution, or graph compare-and-swap fails
+- **THEN** the previous readable graph remains the last-good cache
+- **AND** the new retry operation reaches a terminal failed receipt.
 
 ### Requirement: Related-items sync follows explicit sidecar update paths
 

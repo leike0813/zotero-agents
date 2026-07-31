@@ -147,9 +147,15 @@ export function createScopedSynthesisReverseHostHandlers(
   const handlers = createSynthesisReverseHostHandlers(ports);
   const snapshots = new Map<
     string,
-    { kind: "items" | "artifacts"; sourceCursor: string; expiresAt: number }
+    {
+      kind: "items" | "artifacts";
+      sourceCursor: string;
+      revision: string;
+      expiresAt: number;
+    }
   >();
   let snapshotCounter = 0;
+  let revisionCounter = 0;
   const injectLibraryScope = <T extends SynthesisJsonObject>(
     payload: T,
   ): T & { libraryId: number } => {
@@ -167,7 +173,11 @@ export function createScopedSynthesisReverseHostHandlers(
       if (snapshot.expiresAt <= now) snapshots.delete(token);
     }
   };
-  const nextSnapshot = (kind: "items" | "artifacts", sourceCursor: string) => {
+  const nextSnapshot = (
+    kind: "items" | "artifacts",
+    sourceCursor: string,
+    revision: string,
+  ) => {
     expireSnapshots();
     const token = `host-snapshot-${++snapshotCounter}-${Math.random()
       .toString(36)
@@ -175,6 +185,7 @@ export function createScopedSynthesisReverseHostHandlers(
     snapshots.set(token, {
       kind,
       sourceCursor,
+      revision,
       expiresAt: Date.now() + HOST_SNAPSHOT_TTL_MS,
     });
     return token;
@@ -185,7 +196,12 @@ export function createScopedSynthesisReverseHostHandlers(
   ) => {
     expireSnapshots();
     const token = typeof payload.cursor === "string" ? payload.cursor : "";
-    if (!token) return "";
+    if (!token) {
+      return {
+        sourceCursor: "",
+        revision: `host-revision-${++revisionCounter}`,
+      };
+    }
     const snapshot = snapshots.get(token);
     if (!snapshot || snapshot.kind !== kind) {
       throw new SynthesisClientError(
@@ -194,17 +210,20 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     snapshots.delete(token);
-    return snapshot.sourceCursor;
+    return {
+      sourceCursor: snapshot.sourceCursor,
+      revision: snapshot.revision,
+    };
   };
   const page = async <T extends { nextCursor: string; hasMore: boolean }>(
     kind: "items" | "artifacts",
     payload: SynthesisJsonObject,
     read: (scoped: SynthesisJsonObject) => Promise<T>,
   ) => {
-    const sourceCursor = resolveSnapshot(kind, payload);
+    const snapshot = resolveSnapshot(kind, payload);
     const result = await read({
       ...injectLibraryScope(payload),
-      cursor: sourceCursor,
+      cursor: snapshot.sourceCursor,
     });
     const resultBytes = new TextEncoder().encode(
       JSON.stringify(result),
@@ -216,12 +235,13 @@ export function createScopedSynthesisReverseHostHandlers(
       );
     }
     const nextCursor = result.hasMore
-      ? nextSnapshot(kind, result.nextCursor)
+      ? nextSnapshot(kind, result.nextCursor, snapshot.revision)
       : "";
     return {
       ...result,
       cursor: typeof payload.cursor === "string" ? payload.cursor : "",
       nextCursor,
+      snapshotRevision: snapshot.revision,
     };
   };
   return {

@@ -1,10 +1,13 @@
 mod runtime_artifact_library_debug;
 mod runtime_capabilities;
+mod runtime_citation_graph_commands;
+mod runtime_citation_graph_read_surface;
 mod runtime_cli;
 mod runtime_concept_topic_graph_surface;
 mod runtime_deadline;
 mod runtime_diagnostics;
 mod runtime_file_system;
+mod runtime_host_collection;
 mod runtime_http;
 mod runtime_lifecycle;
 mod runtime_production_client;

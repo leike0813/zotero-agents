@@ -26,10 +26,11 @@ use synthesis_repository::{
 use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
 
-const HOST_PAGE_LIMIT: usize = 100;
 const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 3;
-const MAX_HOST_PAGES: usize = 1_000;
-const MAX_HOST_ROWS: usize = 100_000;
+use crate::runtime_host_collection::{
+    HOST_PAGE_LIMIT, HostItemCollectionPort, MAX_HOST_PAGES, MAX_HOST_ROWS, ReferenceHostItem,
+    collect_host_items, collect_host_items_bounded, validate_page_metadata,
+};
 const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
 const REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES: usize =
@@ -48,43 +49,6 @@ enum RefreshBatchAttempt {
         code: String,
         capacity: Option<ReferenceRefreshApplyCapacity>,
     },
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReferenceHostItem {
-    pub paper_ref: String,
-    pub library_id: i64,
-    pub item_key: String,
-    #[serde(default)]
-    pub item_type: String,
-    pub title: String,
-    #[serde(default)]
-    pub year: String,
-    #[serde(default)]
-    pub date: String,
-    #[serde(default)]
-    pub creators: Vec<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub collections: Vec<String>,
-    #[serde(default)]
-    pub doi: String,
-    #[serde(default)]
-    pub arxiv: String,
-    #[serde(default)]
-    pub isbn: String,
-    #[serde(default)]
-    pub url: String,
-    #[serde(default)]
-    pub citekey: String,
-    #[serde(default)]
-    pub date_added: String,
-    #[serde(default)]
-    pub updated_at: String,
-    #[serde(default)]
-    pub metadata_hash: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -106,17 +70,6 @@ pub(crate) struct ReferenceHostArtifact {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReferenceHostItemsPage {
-    pub items: Vec<ReferenceHostItem>,
-    pub cursor: String,
-    pub next_cursor: String,
-    pub has_more: bool,
-    pub returned: usize,
-    pub limit: usize,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ReferenceHostArtifactsPage {
     pub artifacts: Vec<ReferenceHostArtifact>,
     pub cursor: String,
@@ -124,6 +77,7 @@ pub(crate) struct ReferenceHostArtifactsPage {
     pub has_more: bool,
     pub returned: usize,
     pub limit: usize,
+    pub snapshot_revision: String,
 }
 
 #[derive(Clone, Debug)]
@@ -156,9 +110,7 @@ pub(crate) struct ReferenceHostArtifactRead {
     pub diagnostics: Vec<String>,
 }
 
-pub(crate) trait ReferenceHostPort: Send + Sync {
-    fn list_items_page(&self, cursor: &str, limit: usize)
-    -> Result<ReferenceHostItemsPage, String>;
+pub(crate) trait ReferenceHostPort: HostItemCollectionPort {
     fn scan_artifacts_page(
         &self,
         cursor: &str,
@@ -1849,93 +1801,16 @@ impl ReferenceCanonicalApplication {
         &self,
         max_rows: usize,
     ) -> Result<Vec<ReferenceHostItem>, String> {
-        let mut cursor = String::new();
-        let mut seen = HashSet::new();
-        let mut items = Vec::new();
-        for _ in 0..MAX_HOST_PAGES {
-            let page = self.host.list_items_page(&cursor, HOST_PAGE_LIMIT)?;
-            validate_item_page(
-                &cursor,
-                &page.cursor,
-                page.returned,
-                page.items.len(),
-                page.limit,
-                page.has_more,
-                &page.next_cursor,
-            )?;
-            if !seen.insert(page.cursor.clone()) {
-                return Err("reverse_host_page_cycle".into());
-            }
-            let remaining = max_rows.saturating_sub(items.len());
-            items.extend(page.items.into_iter().take(remaining));
-            if items.len() >= max_rows || !page.has_more {
-                items.sort_by(|left, right| {
-                    left.paper_ref
-                        .cmp(&right.paper_ref)
-                        .then_with(|| left.item_key.cmp(&right.item_key))
-                });
-                if items
-                    .iter()
-                    .map(|item| item.paper_ref.as_str())
-                    .collect::<HashSet<_>>()
-                    .len()
-                    != items.len()
-                {
-                    return Err("reverse_host_result_invalid".into());
-                }
-                return Ok(items);
-            }
-            cursor = page.next_cursor;
-        }
-        Err("reverse_host_page_limit_exceeded".into())
+        collect_host_items_bounded(self.host.as_ref(), max_rows)
     }
 
     fn collect_host_items(&self) -> Result<Vec<ReferenceHostItem>, String> {
-        let mut cursor = String::new();
-        let mut seen = HashSet::new();
-        let mut items = Vec::new();
-        for _ in 0..MAX_HOST_PAGES {
-            let page = self.host.list_items_page(&cursor, HOST_PAGE_LIMIT)?;
-            validate_item_page(
-                &cursor,
-                &page.cursor,
-                page.returned,
-                page.items.len(),
-                page.limit,
-                page.has_more,
-                &page.next_cursor,
-            )?;
-            if !seen.insert(page.cursor.clone()) {
-                return Err("reverse_host_page_cycle".into());
-            }
-            items.extend(page.items);
-            if items.len() > MAX_HOST_ROWS {
-                return Err("reverse_host_input_too_large".into());
-            }
-            if !page.has_more {
-                items.sort_by(|left, right| {
-                    left.paper_ref
-                        .cmp(&right.paper_ref)
-                        .then_with(|| left.item_key.cmp(&right.item_key))
-                });
-                if items
-                    .iter()
-                    .map(|item| item.paper_ref.as_str())
-                    .collect::<HashSet<_>>()
-                    .len()
-                    != items.len()
-                {
-                    return Err("reverse_host_result_invalid".into());
-                }
-                return Ok(items);
-            }
-            cursor = page.next_cursor;
-        }
-        Err("reverse_host_page_limit_exceeded".into())
+        collect_host_items(self.host.as_ref())
     }
 
     fn collect_host_artifacts(&self) -> Result<Vec<ReferenceHostArtifact>, String> {
         let mut cursor = String::new();
+        let mut revision: Option<String> = None;
         let mut seen = HashSet::new();
         let mut artifacts = Vec::new();
         for _ in 0..MAX_HOST_PAGES {
@@ -1949,6 +1824,14 @@ impl ReferenceCanonicalApplication {
                 page.has_more,
                 &page.next_cursor,
             )?;
+            if page.snapshot_revision.is_empty()
+                || revision
+                    .as_ref()
+                    .is_some_and(|expected| expected != &page.snapshot_revision)
+            {
+                return Err("reverse_host_snapshot_changed".into());
+            }
+            revision.get_or_insert_with(|| page.snapshot_revision.clone());
             if !seen.insert(page.cursor.clone()) {
                 return Err("reverse_host_page_cycle".into());
             }
@@ -2416,49 +2299,6 @@ fn refresh_payload(
     })
 }
 
-fn validate_page_metadata(
-    requested_cursor: &str,
-    returned_cursor: &str,
-    returned: usize,
-    limit: usize,
-    has_more: bool,
-    next_cursor: &str,
-) -> Result<(), String> {
-    if returned_cursor != requested_cursor
-        || limit == 0
-        || limit > HOST_PAGE_LIMIT
-        || returned > limit
-        || (has_more && (next_cursor.is_empty() || next_cursor == requested_cursor))
-        || (!has_more && !next_cursor.is_empty())
-    {
-        return Err("reverse_host_result_invalid".into());
-    }
-    Ok(())
-}
-
-fn validate_item_page(
-    requested_cursor: &str,
-    returned_cursor: &str,
-    returned: usize,
-    actual: usize,
-    limit: usize,
-    has_more: bool,
-    next_cursor: &str,
-) -> Result<(), String> {
-    validate_page_metadata(
-        requested_cursor,
-        returned_cursor,
-        returned,
-        limit,
-        has_more,
-        next_cursor,
-    )?;
-    if returned != actual {
-        return Err("reverse_host_result_invalid".into());
-    }
-    Ok(())
-}
-
 fn validate_artifact_page(
     requested_cursor: &str,
     returned_cursor: &str,
@@ -2865,6 +2705,9 @@ fn now_string() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_host_collection::{
+        HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+    };
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -2924,7 +2767,7 @@ mod tests {
         }
     }
 
-    impl ReferenceHostPort for FakeHost {
+    impl HostItemCollectionPort for FakeHost {
         fn list_items_page(
             &self,
             cursor: &str,
@@ -2945,6 +2788,7 @@ mod tests {
                         } else {
                             String::new()
                         },
+                        snapshot_revision: "revision:1".into(),
                         has_more,
                         returned: 1,
                         limit,
@@ -2954,6 +2798,7 @@ mod tests {
                     items: vec![Self::item("1:BBBB2222", "BBBB2222", "Paper B")],
                     cursor: cursor.into(),
                     next_cursor: String::new(),
+                    snapshot_revision: "revision:1".into(),
                     has_more: false,
                     returned: 1,
                     limit,
@@ -2962,6 +2807,34 @@ mod tests {
             }
         }
 
+        fn get_items_by_ref(
+            &self,
+            paper_refs: &[String],
+        ) -> Result<ReferenceHostItemsByRef, String> {
+            let items = paper_refs
+                .iter()
+                .filter_map(|paper_ref| match paper_ref.as_str() {
+                    "1:AAAA1111" => Some(Self::item("1:AAAA1111", "AAAA1111", "Paper A")),
+                    "1:BBBB2222" => Some(Self::item("1:BBBB2222", "BBBB2222", "Paper B")),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let returned = items
+                .iter()
+                .map(|item| item.paper_ref.clone())
+                .collect::<HashSet<_>>();
+            Ok(ReferenceHostItemsByRef {
+                items,
+                missing_paper_refs: paper_refs
+                    .iter()
+                    .filter(|paper_ref| !returned.contains(*paper_ref))
+                    .cloned()
+                    .collect(),
+            })
+        }
+    }
+
+    impl ReferenceHostPort for FakeHost {
         fn scan_artifacts_page(
             &self,
             cursor: &str,
@@ -3016,6 +2889,7 @@ mod tests {
                 has_more: false,
                 returned: 2,
                 limit,
+                snapshot_revision: "revision-1".into(),
             })
         }
 

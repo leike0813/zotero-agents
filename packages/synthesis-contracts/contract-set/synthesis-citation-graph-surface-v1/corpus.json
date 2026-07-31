@@ -8,9 +8,9 @@
     "deadlineMs": 10000
   },
   "operations": [
-    { "id": "client.queryCitationGraph", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "invalid_args", "oversized", "expired"] },
-    { "id": "client.queryCitationGraphCluster", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "invalid_args", "oversized", "expired"] },
-    { "id": "client.getCitationGraphSlice", "access": "read", "cases": ["empty", "deterministic_order", "bounded_slice", "coherent_basis", "invalid_args", "oversized", "expired"] },
+    { "id": "client.queryCitationGraph", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "filtered_window", "cursor_basis", "response_budget", "endpoint_closure", "stale_page", "invalid_args", "oversized", "expired"] },
+    { "id": "client.queryCitationGraphCluster", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "filtered_window", "cursor_basis", "response_budget", "endpoint_closure", "stale_page", "invalid_args", "oversized", "expired"] },
+    { "id": "client.getCitationGraphSlice", "access": "read", "cases": ["empty", "deterministic_order", "bounded_slice", "coherent_basis", "filtered_window", "cursor_basis", "response_budget", "endpoint_closure", "stale_page", "invalid_args", "oversized", "expired"] },
     { "id": "client.getCitationGraphLayout", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "invalid_args", "oversized", "expired"] },
     { "id": "client.getCitationGraphMetrics", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "invalid_args", "oversized", "expired"] },
     { "id": "client.rankLibraryPapers", "access": "read", "cases": ["empty", "deterministic_order", "pagination", "coherent_basis", "invalid_args", "oversized", "expired"] },

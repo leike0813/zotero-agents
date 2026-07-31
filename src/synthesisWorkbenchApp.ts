@@ -70,7 +70,10 @@ type SynthesisWorkbenchBridge = {
 
 type SynthesisI18nPayload = Partial<SynthesisWorkbenchI18nEnvelope>;
 
-type GraphNodeKind = "library_paper" | "external_reference";
+type GraphNodeKind =
+  | "library_paper"
+  | "external_reference"
+  | "unresolved_reference";
 
 type GraphNode = {
   id: string;
@@ -347,6 +350,20 @@ type Snapshot = {
     visibleNodes: GraphNode[];
     visibleEdges: GraphEdge[];
     diagnostics: Record<string, unknown>;
+    window?: {
+      nextCursor?: string;
+      hasMore: boolean;
+      totalNodes: number;
+      totalEdges: number;
+      totalHoverNodes: number;
+      totalHoverEdges: number;
+      loadedNodes: number;
+      loadedEdges: number;
+      querySignature: string;
+      status: "loading" | "complete" | "paused" | "failed";
+      roleOptions: string[];
+      error?: { code: string; reason?: string };
+    };
   };
   reader?: {
     topicId: string;
@@ -598,6 +615,8 @@ const state: {
   graphSurfaceActive: boolean;
   graphModelSignature?: string;
   graphLayoutSignature?: string;
+  graphQuerySignature?: string;
+  graphBasisHash?: string;
   graph?: Graph;
   hoveredNode?: string;
   hoverLabelNode?: string;
@@ -693,6 +712,7 @@ const state: {
 const colors: Record<GraphNodeKind, string> = {
   library_paper: "#1967b3",
   external_reference: "#7a861f",
+  unresolved_reference: "#9a6a21",
 };
 
 let conceptBubbleCleanup: (() => void) | undefined;
@@ -2158,7 +2178,11 @@ function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
     );
     card.appendChild(copy);
     card.appendChild(
-      makeButton("Open diagnostics", "openSynthesisSidecarDiagnostics", {}),
+      makeButton(
+        t("synthesis-diagnostics"),
+        "openSynthesisSidecarDiagnostics",
+        {},
+      ),
     );
     main.appendChild(card);
   }
@@ -13271,6 +13295,9 @@ function renderConceptReviewDecisionSummary(
 }
 
 function roleOptions(snapshot: Snapshot) {
+  if (snapshot.graph.window?.roleOptions.length) {
+    return [...snapshot.graph.window.roleOptions];
+  }
   return Array.from(
     new Set(
       snapshot.graph.edges
@@ -13512,13 +13539,14 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     controls.appendChild(
       el(
         "p",
-        "muted",
+        "muted graph-shown-count",
         t("synthesis-graph-shown-count", {
           nodes: snapshot.graph.visibleNodes.length,
           edges: snapshot.graph.visibleEdges.length,
         }),
       ),
     );
+    controls.appendChild(renderGraphWindowProgress(snapshot));
     const libraryCount = Number(
       snapshot.graph.diagnostics.library_node_count || 0,
     );
@@ -13688,6 +13716,64 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   syncSigmaGraph(canvas, snapshot);
 }
 
+function renderGraphWindowProgress(snapshot: Snapshot) {
+  const container = el("div", "graph-window-progress");
+  const windowState = snapshot.graph.window;
+  if (!windowState) return container;
+  container.dataset.status = windowState.status;
+  container.appendChild(
+    el(
+      "p",
+      "muted graph-window-progress-label",
+      t("synthesis-graph-loading-progress", {
+        nodes: windowState.loadedNodes,
+        totalNodes: windowState.totalNodes + windowState.totalHoverNodes,
+        edges: windowState.loadedEdges,
+        totalEdges: windowState.totalEdges + windowState.totalHoverEdges,
+      }),
+    ),
+  );
+  if (windowState.status === "paused") {
+    container.appendChild(
+      makeLocalButton(t("synthesis-action-continue-graph-loading"), () =>
+        sendAction("continueGraphWindow"),
+      ),
+    );
+  } else if (windowState.status === "failed") {
+    container.appendChild(
+      el(
+        "p",
+        "muted",
+        windowState.error?.reason || t("synthesis-graph-loading-failed"),
+      ),
+    );
+    container.appendChild(
+      makeLocalButton(t("synthesis-action-retry-graph-loading"), () =>
+        sendAction("retryGraphWindow"),
+      ),
+    );
+  }
+  return container;
+}
+
+function updateGraphWindowManagedRegions(snapshot: Snapshot) {
+  const currentProgress = document.querySelector(
+    ".graph-window-progress",
+  ) as HTMLElement | null;
+  if (currentProgress) {
+    currentProgress.replaceWith(renderGraphWindowProgress(snapshot));
+  }
+  const shown = document.querySelector(
+    ".graph-shown-count",
+  ) as HTMLElement | null;
+  if (shown) {
+    shown.textContent = t("synthesis-graph-shown-count", {
+      nodes: snapshot.graph.visibleNodes.length,
+      edges: snapshot.graph.visibleEdges.length,
+    });
+  }
+}
+
 function renderGraphZoomOverlay() {
   const overlay = el("div", "graph-zoom-overlay");
   const slider = document.createElement("input");
@@ -13843,7 +13929,13 @@ function renderStandaloneGraphControls(snapshot: Snapshot) {
   );
 
   const kindControls: HTMLElement[] = [];
-  (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
+  (
+    [
+      "library_paper",
+      "external_reference",
+      "unresolved_reference",
+    ] as GraphNodeKind[]
+  ).forEach(
     (kind) => {
       const label = el("label", "checkbox-label");
       const input = document.createElement("input");
@@ -13996,7 +14088,13 @@ function renderGraphControls(snapshot: Snapshot) {
   );
 
   const kindControls: HTMLElement[] = [];
-  (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
+  (
+    [
+      "library_paper",
+      "external_reference",
+      "unresolved_reference",
+    ] as GraphNodeKind[]
+  ).forEach(
     (kind) => {
       const label = el("label", "checkbox-label");
       const input = document.createElement("input");
@@ -14353,15 +14451,95 @@ function syncSelectedGraphHover(snapshot: Snapshot, graph: Graph) {
   }
 }
 
+function sigmaNodeAttributes(
+  node: GraphNode,
+  importance: CitationGraphNodeImportance | undefined,
+) {
+  const currentPaperNode = isCurrentPaperGraphNode(node);
+  return {
+    title: node.label,
+    label: "",
+    x: typeof node.x === "number" ? node.x : 0,
+    y: typeof node.y === "number" ? node.y : 0,
+    size: citationGraphNodeSize(node, importance, currentPaperNode),
+    color:
+      importance?.halo || currentPaperNode
+        ? graphNodeImportanceColor(node)
+        : graphNodeColor(node),
+    zIndex: graphNodeZIndex(node, importance),
+    highlighted: importance?.halo || currentPaperNode || false,
+    importanceHalo: importance?.halo || currentPaperNode || false,
+    importanceInteractive: false,
+    currentPaperNode,
+    incomingDegree: importance?.incomingDegree || 0,
+    kind: node.kind,
+    visibility: node.visibility || "default",
+    display_tier: node.display_tier || "library",
+    searchable: graphNodeSearchText(node),
+  };
+}
+
+function sigmaEdgeAttributes(edge: GraphEdge) {
+  return {
+    type: "arrow",
+    hidden: true,
+    color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
+    size: CITATION_GRAPH_EDGE_SIZE,
+    label: edge.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "",
+    zIndex: 0,
+    visibility: edge.visibility || "default",
+  };
+}
+
+function mergeSigmaGraphPage(snapshot: Snapshot) {
+  const graph = state.graph;
+  if (!graph) return;
+  clearDynamicHoverGraph(graph);
+  const importanceByNodeId = buildCitationGraphNodeImportance(
+    snapshot.graph.visibleNodes,
+    snapshot.graph.visibleEdges,
+  );
+  for (const node of snapshot.graph.visibleNodes) {
+    const attributes = sigmaNodeAttributes(
+      node,
+      importanceByNodeId.get(node.id),
+    );
+    if (graph.hasNode(node.id)) graph.mergeNodeAttributes(node.id, attributes);
+    else graph.addNode(node.id, attributes);
+  }
+  for (const edge of snapshot.graph.visibleEdges) {
+    if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
+    const attributes = sigmaEdgeAttributes(edge);
+    if (graph.hasEdge(edge.id)) graph.mergeEdgeAttributes(edge.id, attributes);
+    else graph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target, attributes);
+  }
+  syncSelectedGraphHover(snapshot, graph);
+}
+
 function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const modelSignature = sigmaGraphModelSignature(snapshot);
   const layoutSignature = sigmaGraphLayoutSignature(snapshot);
+  const querySignature = snapshot.graph.window?.querySignature || "";
   if (
     state.sigma &&
     state.graph &&
     state.graphModelSignature === modelSignature
   ) {
     syncSelectedGraphHover(snapshot, state.graph);
+    state.sigma.refresh();
+    scheduleSigmaResize();
+    return;
+  }
+  if (
+    state.sigma &&
+    state.graph &&
+    querySignature &&
+    state.graphQuerySignature === querySignature &&
+    state.graphBasisHash === snapshot.graph.graph_hash
+  ) {
+    mergeSigmaGraphPage(snapshot);
+    state.graphModelSignature = modelSignature;
+    state.graphLayoutSignature = layoutSignature;
     state.sigma.refresh();
     scheduleSigmaResize();
     return;
@@ -14382,44 +14560,16 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   );
   for (const node of snapshot.graph.visibleNodes) {
     const importance = importanceByNodeId.get(node.id);
-    const currentPaperNode = isCurrentPaperGraphNode(node);
-    graph.addNode(node.id, {
-      title: node.label,
-      label: "",
-      x: typeof node.x === "number" ? node.x : 0,
-      y: typeof node.y === "number" ? node.y : 0,
-      size: citationGraphNodeSize(
-        node,
-        importance,
-        isCurrentPaperGraphNode(node),
-      ),
-      color:
-        importance?.halo || currentPaperNode
-          ? graphNodeImportanceColor(node)
-          : graphNodeColor(node),
-      zIndex: graphNodeZIndex(node, importance),
-      highlighted: importance?.halo || currentPaperNode || false,
-      importanceHalo: importance?.halo || currentPaperNode || false,
-      importanceInteractive: false,
-      currentPaperNode,
-      incomingDegree: importance?.incomingDegree || 0,
-      kind: node.kind,
-      visibility: node.visibility || "default",
-      display_tier: node.display_tier || "library",
-      searchable: graphNodeSearchText(node),
-    });
+    graph.addNode(node.id, sigmaNodeAttributes(node, importance));
   }
   for (const edge of snapshot.graph.visibleEdges) {
     if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
-      graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
-        type: "arrow",
-        hidden: true,
-        color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
-        size: CITATION_GRAPH_EDGE_SIZE,
-        label: edge.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "",
-        zIndex: 0,
-        visibility: edge.visibility || "default",
-      });
+      graph.mergeDirectedEdgeWithKey(
+        edge.id,
+        edge.source,
+        edge.target,
+        sigmaEdgeAttributes(edge),
+      );
     }
   }
 
@@ -14432,6 +14582,8 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     state.sigma.setGraph(graph);
     state.graphModelSignature = modelSignature;
     state.graphLayoutSignature = layoutSignature;
+    state.graphQuerySignature = querySignature;
+    state.graphBasisHash = snapshot.graph.graph_hash;
     if (layoutChanged) {
       (state.sigma.getCamera() as any).setState?.({
         x: 0.5,
@@ -14556,6 +14708,8 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   state.sigma = renderer;
   state.graphModelSignature = modelSignature;
   state.graphLayoutSignature = layoutSignature;
+  state.graphQuerySignature = querySignature;
+  state.graphBasisHash = snapshot.graph.graph_hash;
   const camera = renderer.getCamera() as any;
   camera?.on?.("updated", () => clampGraphCameraZoom(renderer));
   clampGraphCameraZoom(renderer);
@@ -14698,6 +14852,26 @@ function renderSelectedDetail(snapshot: Snapshot) {
       fields.push(["id", selected.id]);
     }
     wrap.appendChild(renderDetailList(fields));
+    if (!state.standaloneExport && node) {
+      const expand = el("div", "graph-neighborhood-actions");
+      (
+        [
+          ["incoming", "synthesis-action-expand-incoming"],
+          ["outgoing", "synthesis-action-expand-outgoing"],
+          ["both", "synthesis-action-expand-both"],
+        ] as const
+      ).forEach(([direction, label]) => {
+        expand.appendChild(
+          makeLocalButton(t(label), () =>
+            sendAction("expandGraphNeighborhood", {
+              nodeId: node.id,
+              direction,
+            }),
+          ),
+        );
+      });
+      wrap.appendChild(expand);
+    }
     if (node?.kind === "library_paper") {
       if (!state.standaloneExport) {
         wrap.appendChild(
@@ -15784,6 +15958,31 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (chromeChanged) {
       state.lastChromeSignature = nextChromeSignature;
       renderWorkbenchChrome();
+    }
+    return;
+  }
+  if (data.type === "synthesis:graph-page") {
+    const payload =
+      data.payload && typeof data.payload === "object"
+        ? (data.payload as Record<string, unknown>)
+        : {};
+    const requestId = surfacePayloadRequestId(payload);
+    if (isStaleSurfacePayload("graph", requestId)) return;
+    const nextSnapshot = stripI18nFromSnapshotPayload(
+      payload.snapshot || null,
+    ) as Snapshot | null;
+    if (!nextSnapshot || nextSnapshot.selectedTab !== "graph") return;
+    acceptSurfacePayload("graph", requestId);
+    state.snapshot = nextSnapshot;
+    clearResolvedLocalPending(state.snapshot);
+    updateGraphWindowManagedRegions(nextSnapshot);
+    if (
+      state.sigmaStage &&
+      nextSnapshot.graph.visibleNodes.some(
+        (node) => typeof node.x === "number" && typeof node.y === "number",
+      )
+    ) {
+      syncSigmaGraph(state.sigmaStage, nextSnapshot);
     }
     return;
   }

@@ -92,13 +92,23 @@ fn error_response(code: &str) -> Value {
     let public_code = match code {
         "reverse_host_response_too_large" => "response_body_too_large",
         "reference_refresh_payload_too_large" => "request_body_too_large",
+        "response_too_large" => "response_body_too_large",
+        "request_too_large" => "request_body_too_large",
+        "production_projection_invalid" => "response_invalid",
+        code if code.starts_with("repository_") && code != "repository_schema_incompatible" => {
+            "service_unavailable"
+        }
         code if code.starts_with("reverse_host_") => "service_unavailable",
         _ => code,
     };
-    let details = if public_code == code {
-        json!({})
+    let safe_reason = code.chars().take(160).collect::<String>();
+    let details = if safe_reason
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "_:-.".contains(character))
+    {
+        json!({"reason":safe_reason})
     } else {
-        json!({"reason":code})
+        json!({})
     };
     json!({
         "ok":false,
@@ -246,6 +256,7 @@ pub(crate) fn handle_connection(
             .correlation_id(&call.request_id)
             .request_bytes(body.len())
     });
+    let mut handler_failure = None;
     let outcome = match call.capability.as_str() {
         capability if capability.starts_with("client.") => {
             match dispatch_production_client(&state, &call.request_id, capability, call.payload) {
@@ -255,11 +266,14 @@ pub(crate) fn handle_connection(
                     call_response(&call.request_id, &state.service_instance_id, data),
                     MAX_READ_RESPONSE_BYTES,
                 ),
-                Err(code) => response(
-                    &mut stream,
-                    production_client_error_status(&code),
-                    error_response(&code),
-                ),
+                Err(code) => {
+                    handler_failure = Some(code.clone());
+                    response(
+                        &mut stream,
+                        production_client_error_status(&code),
+                        error_response(&code),
+                    )
+                }
             }
         }
         capability @ ("compute.citation_graph_layout"
@@ -475,9 +489,25 @@ pub(crate) fn handle_connection(
         }
         _ => response(&mut stream, 404, error_response("capability_not_found")),
     };
+    if let Some(code) = &handler_failure {
+        let event = NativeDiagnosticEvent::new("rpc", "handler-failed", "failed")
+            .capability(&call.capability)
+            .request_id(&call.request_id)
+            .code(code)
+            .duration_ms(
+                current_time_ms()
+                    .unwrap_or(request_started_at)
+                    .saturating_sub(request_started_at),
+            );
+        emit(if debug_events_enabled() {
+            event.correlation_id(&call.request_id)
+        } else {
+            event
+        });
+    }
     match &outcome {
         Ok(()) => emit_debug(|| {
-            NativeDiagnosticEvent::new("rpc", "request-completed", "succeeded")
+            NativeDiagnosticEvent::new("rpc", "response-written", "succeeded")
                 .capability(&call.capability)
                 .request_id(&call.request_id)
                 .correlation_id(&call.request_id)

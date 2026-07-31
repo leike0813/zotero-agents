@@ -26,7 +26,7 @@ export const CITATION_GRAPH_OUTGOING_EDGE_COLOR = "#7c3aed";
 
 export type CitationGraphVisualNode = {
   id: string;
-  kind: "library_paper" | "external_reference";
+  kind: "library_paper" | "external_reference" | "unresolved_reference";
   display_tier?: "library" | "shared_external" | "single_external";
   metrics?: {
     internal_in_degree?: number;

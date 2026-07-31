@@ -26,6 +26,9 @@ import {
   type SynthesisCanonicalRevisionMergeRequestsRequest,
   type SynthesisCanonicalRevisionReviewRequest,
   type SynthesisCitationGraphLayoutRequest,
+  type SynthesisCitationGraphLayoutReadResult,
+  type SynthesisCitationGraphMetricsResult,
+  type SynthesisCitationGraphSliceResult,
   type SynthesisDatabaseResetRequest,
   type SynthesisDatabaseResetResult,
   type SynthesisLiteratureDigestApplyRequest,
@@ -66,6 +69,7 @@ import {
   type SynthesisWorkflowTopicOptionsRequest,
   type SynthesisWorkflowTopicOptionsResult,
   type SynthesisGraphCommandResult,
+  type SynthesisGraphQueryResult,
   type SynthesisJsonObject,
   type SynthesisEffectiveCanonicalReferenceMergeRequest,
   type SynthesisWorkbenchPaperDigestResult,
@@ -1228,42 +1232,42 @@ export function createSynthesisClientFromPort(
           legacy.queryCitationGraphCluster,
           "graph.queryCluster",
           request,
-        );
+        ) as Promise<SynthesisGraphQueryResult>;
       },
       async getOverview(request = {}) {
         return runLegacyJsonPort(
           legacy.queryCitationGraph,
           "graph.getOverview",
           request,
-        );
+        ) as Promise<SynthesisGraphQueryResult>;
       },
       async getSlice(request = {}) {
         return runLegacyJsonPort(
           legacy.getCitationGraphSlice,
           "graph.getSlice",
           request,
-        );
+        ) as Promise<SynthesisCitationGraphSliceResult>;
       },
       async getPersistedLayout(request = {}) {
         return runLegacyJsonPort(
           legacy.getCitationGraphLayout,
           "graph.getPersistedLayout",
           request,
-        );
+        ) as Promise<SynthesisCitationGraphLayoutReadResult>;
       },
       async getMetrics(request = {}) {
         return runLegacyJsonPort(
           legacy.getCitationGraphMetrics,
           "graph.getMetrics",
           request,
-        );
+        ) as Promise<SynthesisCitationGraphMetricsResult>;
       },
       async rankLibraryPapers(request = {}) {
         return runLegacyJsonPort(
           legacy.rankLibraryPapers,
           "graph.rankLibraryPapers",
           request,
-        );
+        ) as Promise<SynthesisCitationGraphMetricsResult>;
       },
       async refreshMetricsNow(request = {}) {
         return runLegacyJsonPort(

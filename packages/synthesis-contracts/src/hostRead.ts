@@ -34,6 +34,7 @@ export type SynthesisHostPageRequest = {
 export type SynthesisHostPageResult = {
   cursor: string;
   nextCursor: string;
+  snapshotRevision?: string;
   hasMore: boolean;
   returned: number;
   limit: number;

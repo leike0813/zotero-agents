@@ -260,7 +260,26 @@ impl CitationGraphApplication {
     }
 
     pub fn rebuild_full(&self, request: CitationRebuildRequest) -> CitationMutationResult {
-        let input_hash = match validate_rebuild(&request) {
+        self.rebuild(request, None)
+    }
+
+    pub fn rebuild_source_slice(
+        &self,
+        request: CitationRebuildRequest,
+        source_ids: &[String],
+    ) -> CitationMutationResult {
+        if source_ids.is_empty() || request.expected_graph_hash.is_none() {
+            return self.result(CitationMutationStatus::InvalidRequest, Vec::new());
+        }
+        self.rebuild(request, Some(source_ids))
+    }
+
+    fn rebuild(
+        &self,
+        request: CitationRebuildRequest,
+        source_ids: Option<&[String]>,
+    ) -> CitationMutationResult {
+        let input_hash = match validate_rebuild(&request, source_ids) {
             Ok(hash) => hash,
             Err(_) => return self.result(CitationMutationStatus::InvalidRequest, Vec::new()),
         };
@@ -286,7 +305,15 @@ impl CitationGraphApplication {
         };
         let operation_id = (self.operation_id)();
         let now = (self.now)();
-        let receipt = running_operation(&operation_id, "citation_graph_cache_rebuild", &now);
+        let receipt = running_operation(
+            &operation_id,
+            if source_ids.is_some() {
+                "citation_graph_cache_incremental_refresh"
+            } else {
+                "citation_graph_cache_rebuild"
+            },
+            &now,
+        );
         let mut warnings = Vec::new();
         if self.repository.upsert_operation(&receipt).is_err() {
             warnings.push("citation_graph_operation_receipt_failed".into());
@@ -309,21 +336,45 @@ impl CitationGraphApplication {
         replacement.state.input_hash = input_hash;
         replacement.state.metrics_hash = None;
         replacement.state.updated_at = now.clone();
-        let promoted = match self
-            .repository
-            .replace(request.expected_graph_hash.as_deref(), &replacement)
-        {
-            Ok(value) => value,
-            Err(_) => {
-                self.finish_operation(&operation_id, "failed", "projection_failed", &mut warnings);
-                return self.result(CitationMutationStatus::RepairRequired, warnings);
-            }
+        let promoted_hash = match source_ids {
+            Some(source_ids) => match self.repository.replace_source_slice(
+                request.expected_graph_hash.as_deref().unwrap_or_default(),
+                source_ids,
+                &replacement,
+            ) {
+                Ok(value) => value,
+                Err(_) => {
+                    self.finish_operation(
+                        &operation_id,
+                        "failed",
+                        "projection_failed",
+                        &mut warnings,
+                    );
+                    return self.result(CitationMutationStatus::RepairRequired, warnings);
+                }
+            },
+            None => match self
+                .repository
+                .replace(request.expected_graph_hash.as_deref(), &replacement)
+            {
+                Ok(true) => Some(graph_hash.clone()),
+                Ok(false) => None,
+                Err(_) => {
+                    self.finish_operation(
+                        &operation_id,
+                        "failed",
+                        "projection_failed",
+                        &mut warnings,
+                    );
+                    return self.result(CitationMutationStatus::RepairRequired, warnings);
+                }
+            },
         };
-        if !promoted {
+        let Some(promoted_hash) = promoted_hash else {
             self.finish_operation(&operation_id, "failed", "basis_mismatch", &mut warnings);
             return self.result(CitationMutationStatus::BasisMismatch, warnings);
-        }
-        if let Err(error) = self.refresh_metrics_inner(&graph_hash, &cancel)
+        };
+        if let Err(error) = self.refresh_metrics_inner(&promoted_hash, &cancel)
             && error != "basis_mismatch"
         {
             warnings.push("citation_graph_metrics_refresh_failed".into());
@@ -608,7 +659,10 @@ impl CitationGraphApplication {
     }
 }
 
-fn validate_rebuild(request: &CitationRebuildRequest) -> Result<String, String> {
+fn validate_rebuild(
+    request: &CitationRebuildRequest,
+    source_ids: Option<&[String]>,
+) -> Result<String, String> {
     let bytes = serde_json::to_vec(&request.input).map_err(|_| "invalid_request")?;
     if bytes.len() > MAX_INPUT_BYTES || count_nodes(&request.input) > MAX_INPUT_NODES {
         return Err("invalid_request".into());
@@ -617,14 +671,33 @@ fn validate_rebuild(request: &CitationRebuildRequest) -> Result<String, String> 
         .input
         .as_object()
         .ok_or_else(|| "invalid_request".to_owned())?;
-    if object
+    let scope = object
         .get("scope")
         .and_then(Value::as_object)
-        .and_then(|scope| scope.get("kind"))
-        .and_then(Value::as_str)
-        != Some("full")
-    {
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    let kind = scope.get("kind").and_then(Value::as_str);
+    if source_ids.is_none() && kind != Some("full") {
         return Err("invalid_request".into());
+    }
+    if let Some(source_ids) = source_ids {
+        let requested = scope
+            .get("sourceIds")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "invalid_request".to_owned())?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .ok_or_else(|| "invalid_request".to_owned())
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        if kind != Some("source_slice")
+            || requested != source_ids.iter().cloned().collect::<BTreeSet<_>>()
+        {
+            return Err("invalid_request".into());
+        }
     }
     canonical_json_hash(&request.input).map_err(|_| "invalid_request".into())
 }
@@ -774,6 +847,44 @@ mod tests {
         }
     }
 
+    struct ToggleCompute {
+        fail_build: Arc<AtomicBool>,
+    }
+
+    impl CitationGraphComputePort for ToggleCompute {
+        fn build(
+            &self,
+            input: &Value,
+            canceled: &Arc<AtomicBool>,
+        ) -> Result<CitationBuildOutput, String> {
+            if self.fail_build.load(Ordering::Relaxed) {
+                Err("worker_crashed".into())
+            } else {
+                FixtureCompute.build(input, canceled)
+            }
+        }
+
+        fn metrics(
+            &self,
+            graph_hash: &str,
+            nodes: &[CitationNodeRecord],
+            edges: &[CitationEdgeRecord],
+            canceled: &Arc<AtomicBool>,
+        ) -> Result<CitationMetricsOutput, String> {
+            FixtureCompute.metrics(graph_hash, nodes, edges, canceled)
+        }
+
+        fn layout(
+            &self,
+            request: &CitationLayoutRequest,
+            nodes: &[CitationNodeRecord],
+            edges: &[CitationEdgeRecord],
+            canceled: &Arc<AtomicBool>,
+        ) -> Result<CitationLayoutRecord, String> {
+            FixtureCompute.layout(request, nodes, edges, canceled)
+        }
+    }
+
     fn root() -> PathBuf {
         std::env::temp_dir().join(format!(
             "synthesis-citation-application-{}-{}",
@@ -862,6 +973,55 @@ mod tests {
             application.refresh_metrics("sha256:graph").status,
             CitationMutationStatus::Stopping
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn worker_failure_and_cas_supersession_preserve_last_good_graph() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        let port = Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository))));
+        let fail_build = Arc::new(AtomicBool::new(false));
+        let application = CitationGraphApplication::with_factories(
+            port,
+            Arc::new(ToggleCompute {
+                fail_build: fail_build.clone(),
+            }),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+            Arc::new(|| "citation:failure".into()),
+        );
+        let created = application.rebuild_full(CitationRebuildRequest {
+            expected_graph_hash: None,
+            force: true,
+            input: serde_json::json!({"scope":{"kind":"full"},"revision":1}),
+        });
+        assert_eq!(created.status, CitationMutationStatus::Promoted);
+        let last_good = created.graph_hash.clone();
+
+        let superseded = application.rebuild_full(CitationRebuildRequest {
+            expected_graph_hash: Some("sha256:stale".into()),
+            force: true,
+            input: serde_json::json!({"scope":{"kind":"full"},"revision":2}),
+        });
+        assert_eq!(superseded.status, CitationMutationStatus::BasisMismatch);
+        assert_eq!(superseded.graph_hash, last_good);
+
+        fail_build.store(true, Ordering::Relaxed);
+        let failed = application.rebuild_full(CitationRebuildRequest {
+            expected_graph_hash: last_good.clone(),
+            force: true,
+            input: serde_json::json!({"scope":{"kind":"full"},"revision":3}),
+        });
+        assert_eq!(failed.status, CitationMutationStatus::WorkerFailed);
+        assert_eq!(failed.graph_hash, last_good);
+        assert_eq!(application.inspect().expect("inspect").node_count, 2);
         let _ = std::fs::remove_dir_all(root);
     }
 }

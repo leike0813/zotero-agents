@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import { SYNTHESIS_REVERSE_HOST_CAPABILITIES } from "../../packages/synthesis-contracts/src";
-import { createSynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostHandlers";
+import {
+  createScopedSynthesisReverseHostHandlers,
+  createSynthesisReverseHostHandlers,
+} from "../../src/modules/synthesisReverseHostHandlers";
 
 describe("Synthesis reverse Host handlers", function () {
   it("maps every declared operation to one typed Host port method", async function () {
@@ -108,5 +111,94 @@ describe("Synthesis reverse Host handlers", function () {
     }
     assert.exists(failure);
     assert.isFalse(called);
+  });
+
+  it("injects library authority and keeps one revision across a paged snapshot", async function () {
+    const pageRequests: Array<{
+      libraryId: number;
+      cursor?: string;
+      limit?: number;
+    }> = [];
+    const byRefRequests: Array<{
+      libraryId: number;
+      paperRefs: string[];
+    }> = [];
+    const handlers = createScopedSynthesisReverseHostHandlers({
+      libraryId: 7,
+      hostReadPort: {
+        library: {
+          async listItemsPage(request) {
+            pageRequests.push(request);
+            return {
+              items: [],
+              cursor: request.cursor || "",
+              nextCursor: request.cursor ? "" : "source-next",
+              hasMore: !request.cursor,
+              returned: 0,
+              limit: request.limit || 100,
+            };
+          },
+          async getItemsByRef(request) {
+            byRefRequests.push(request);
+            return {
+              items: [],
+              missingPaperRefs: [...request.paperRefs],
+            };
+          },
+        },
+        artifacts: {
+          scanPage: async () => ({}) as never,
+          read: async () => ({}) as never,
+        },
+      },
+      exportDeliveryPort: {} as never,
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+    });
+
+    const first = (await handlers["library.items.list_page"](
+      { limit: 100 },
+      {} as never,
+    )) as {
+      nextCursor: string;
+      snapshotRevision: string;
+    };
+    const second = (await handlers["library.items.list_page"](
+      { cursor: first.nextCursor, limit: 100 },
+      {} as never,
+    )) as {
+      nextCursor: string;
+      snapshotRevision: string;
+    };
+    await handlers["library.items.get_by_ref"](
+      { paperRefs: ["7:AAAA1111"] },
+      {} as never,
+    );
+
+    assert.isNotEmpty(first.nextCursor);
+    assert.equal(second.nextCursor, "");
+    assert.isNotEmpty(first.snapshotRevision);
+    assert.equal(second.snapshotRevision, first.snapshotRevision);
+    assert.deepEqual(pageRequests, [
+      { libraryId: 7, cursor: "", limit: 100 },
+      { libraryId: 7, cursor: "source-next", limit: 100 },
+    ]);
+    assert.deepEqual(byRefRequests, [
+      { libraryId: 7, paperRefs: ["7:AAAA1111"] },
+    ]);
+
+    let failure: unknown;
+    try {
+      await handlers["library.items.get_by_ref"](
+        { libraryId: 8, paperRefs: [] },
+        {} as never,
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.exists(failure);
   });
 });

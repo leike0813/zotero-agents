@@ -64,3 +64,17 @@
 - [ ] 8.7 Verify focused TypeScript/Rust tests, release elision, packaging gates, production build, and repeat the clean-profile real-machine check
   - Focused tests, release elision, production/direct build, XPI inventory, empty-profile real-machine startup, all public Workbench surfaces, Task Manager diagnostics, and admitted cold restart pass locally.
   - Seven-platform runtime freshness remains pending the separately governed prebuild for source fingerprint `5fb7e92c4729b5267288b423fa27e8d1bf07a65dac1725957d52f0f55e5274a0`.
+
+## 9. Repair Citation Graph Native Command Boundary
+
+- [x] 9.1 Add failing composition and Rust boundary tests for all six public Citation Graph mutation DTOs, including strict empty arguments for full rebuild, incremental refresh, and retry
+- [x] 9.2 Move Host collection and internal worker-request construction behind the Rust command adapter, with shared snapshot, cursor, duplicate, bound, and deterministic-order validation
+- [x] 9.3 Add atomic source-slice promotion, durable full/incremental retry intent, no-delta full fallback, and last-good preservation across Host, worker, and compare-and-swap failures
+- [x] 9.4 Extend reverse-Host and native-surface evidence, update current Citation Graph specifications, and run the focused TypeScript/Rust and surface-parity gates
+
+## 10. Repair Citation Graph Native Read and UI Projection
+
+- [x] 10.1 Add failing real-sidecar evidence for refresh, rebuild, Workbench graph rendering, public read DTOs, layout coordinates, and reopen persistence
+- [x] 10.2 Add one coherent native Citation Graph projection for Workbench and all six public read capabilities, including semantic main/hover slices and topic scopes
+- [x] 10.3 Normalize worker layout results before persistence, reject stale raw layouts, preserve last-good graph visibility, and bound worker/UI title input
+- [x] 10.4 Update current specifications and run the focused TypeScript, Rust, surface-parity, production-capability, and OpenSpec gates

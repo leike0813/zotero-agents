@@ -49,6 +49,12 @@ pub trait CitationGraphRepositoryPort: Send + Sync {
         expected_graph_hash: Option<&str>,
         replacement: &CitationGraphReplacement,
     ) -> Result<bool, String>;
+    fn replace_source_slice(
+        &self,
+        expected_graph_hash: &str,
+        source_ids: &[String],
+        replacement: &CitationGraphReplacement,
+    ) -> Result<Option<String>, String>;
     fn promote_metrics(
         &self,
         expected_graph_hash: &str,
@@ -655,6 +661,18 @@ impl CitationGraphRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .replace_citation_graph_application_state(expected_graph_hash, replacement)
+    }
+
+    fn replace_source_slice(
+        &self,
+        expected_graph_hash: &str,
+        source_ids: &[String],
+        replacement: &CitationGraphReplacement,
+    ) -> Result<Option<String>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .replace_citation_graph_source_slice(expected_graph_hash, source_ids, replacement)
     }
 
     fn promote_metrics(

@@ -17,6 +17,13 @@ const root = path.resolve(import.meta.dirname, "..");
 
 const boundaryCases = ["invalid_args", "oversized", "expired"];
 const coherentReadCases = ["empty", "deterministic_order", "coherent_basis"];
+const windowReadCases = [
+  "filtered_window",
+  "cursor_basis",
+  "response_budget",
+  "endpoint_closure",
+  "stale_page",
+];
 const durableMutationCases = [
   "valid",
   "worker_canceled",
@@ -56,6 +63,17 @@ export function inspectSynthesisCitationGraphSurfaceParity() {
           coherentReadCases.some((name) => !operation.cases.includes(name)),
       )
       .map((operation) => `missing coherent read case: ${operation.id}`),
+    ...corpus.operations
+      .filter(
+        (operation) =>
+          [
+            "client.queryCitationGraph",
+            "client.queryCitationGraphCluster",
+            "client.getCitationGraphSlice",
+          ].includes(operation.id) &&
+          windowReadCases.some((name) => !operation.cases.includes(name)),
+      )
+      .map((operation) => `missing graph window case: ${operation.id}`),
     ...corpus.operations
       .filter(
         (operation) =>

@@ -7,6 +7,8 @@
 use crate::{Repository, row_integer, row_text, validate_identity_part};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -358,6 +360,64 @@ pub struct CitationGraphReplacement {
     pub light_metrics: Vec<CitationLightMetricsRecord>,
     pub complex_metrics: Vec<CitationComplexMetricsRecord>,
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CitationGraphWindowFilter {
+    pub node_kinds: Vec<String>,
+    pub roles: Vec<String>,
+    pub include_low_signal: bool,
+    pub search: String,
+    pub topic_node_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CitationGraphWindowQuery {
+    pub node_offset: usize,
+    pub node_limit: usize,
+    pub edge_offset: usize,
+    pub edge_limit: usize,
+    pub hover_node_offset: usize,
+    pub hover_node_limit: usize,
+    pub hover_edge_offset: usize,
+    pub hover_edge_limit: usize,
+    pub filter: CitationGraphWindowFilter,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CitationGraphWindowNodeRecord {
+    pub record: CitationNodeRecord,
+    pub external_degree: i64,
+    pub visibility: String,
+    pub light_metrics: Option<CitationLightMetricsRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CitationGraphWindowEdgeRecord {
+    pub record: CitationEdgeRecord,
+    pub visibility: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CitationGraphWindowRows {
+    pub nodes: Vec<CitationGraphWindowNodeRecord>,
+    pub edges: Vec<CitationGraphWindowEdgeRecord>,
+    pub hover_nodes: Vec<CitationGraphWindowNodeRecord>,
+    pub hover_edges: Vec<CitationGraphWindowEdgeRecord>,
+    pub endpoint_nodes: Vec<CitationGraphWindowNodeRecord>,
+    pub total_nodes: usize,
+    pub total_edges: usize,
+    pub total_hover_nodes: usize,
+    pub total_hover_edges: usize,
+    pub role_options: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CitationGraphNeighborhoodRows {
+    pub nodes: Vec<CitationGraphWindowNodeRecord>,
+    pub edges: Vec<CitationGraphWindowEdgeRecord>,
+    pub truncated: bool,
+}
+
 impl Repository {
     pub fn get_citation_graph_application_state(
         &self,
@@ -427,6 +487,278 @@ impl Repository {
         )?
         .into_iter()
         .map(citation_edge_record)
+        .collect()
+    }
+
+    pub fn read_citation_graph_window(
+        &self,
+        request: &CitationGraphWindowQuery,
+    ) -> Result<CitationGraphWindowRows, String> {
+        let (cte, values) = citation_graph_window_cte(&request.filter)?;
+        let counts = self
+            .query(
+                &format!(
+                    "{cte}
+                     SELECT
+                       SUM(CASE WHEN visibility='default' THEN 1 ELSE 0 END) AS total_nodes,
+                       SUM(CASE WHEN visibility='hover_only' THEN 1 ELSE 0 END) AS total_hover_nodes
+                     FROM filtered_nodes"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| json!({}));
+        let edge_counts = self
+            .query(
+                &format!(
+                    "{cte}
+                     SELECT
+                       SUM(CASE WHEN visibility='default' THEN 1 ELSE 0 END) AS total_edges,
+                       SUM(CASE WHEN visibility='hover_only' THEN 1 ELSE 0 END) AS total_hover_edges
+                     FROM filtered_edges"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| json!({}));
+        let nodes = self.read_citation_graph_node_page(
+            &cte,
+            &values,
+            "default",
+            request.node_offset,
+            request.node_limit,
+        )?;
+        let hover_nodes = self.read_citation_graph_node_page(
+            &cte,
+            &values,
+            "hover_only",
+            request.hover_node_offset,
+            request.hover_node_limit,
+        )?;
+        let edges = self.read_citation_graph_edge_page(
+            &cte,
+            &values,
+            "default",
+            request.edge_offset,
+            request.edge_limit,
+        )?;
+        let hover_edges = self.read_citation_graph_edge_page(
+            &cte,
+            &values,
+            "hover_only",
+            request.hover_edge_offset,
+            request.hover_edge_limit,
+        )?;
+        let endpoint_ids = edges
+            .iter()
+            .chain(hover_edges.iter())
+            .flat_map(|edge| {
+                [
+                    edge.record.source_literature_item_id.clone(),
+                    edge.record.target_literature_item_id.clone(),
+                ]
+            })
+            .collect::<BTreeSet<_>>();
+        let returned_ids = nodes
+            .iter()
+            .chain(hover_nodes.iter())
+            .map(|node| node.record.literature_item_id.clone())
+            .collect::<BTreeSet<_>>();
+        let missing_ids = endpoint_ids
+            .difference(&returned_ids)
+            .cloned()
+            .collect::<Vec<_>>();
+        let endpoint_nodes =
+            self.read_citation_graph_endpoint_nodes(&cte, &values, &missing_ids)?;
+        let role_options = self
+            .query(
+                &format!(
+                    "{cte}
+                     SELECT DISTINCT CASE
+                       WHEN role.type='object' THEN json_extract(role.value,'$.role')
+                       ELSE CAST(role.value AS TEXT)
+                     END AS role
+                     FROM filtered_edges edge_row,json_each(edge_row.roles_json) role
+                     WHERE role IS NOT NULL AND role<>''
+                     ORDER BY role ASC LIMIT 256"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .filter_map(|row| row["role"].as_str().map(str::to_owned))
+            .collect();
+        Ok(CitationGraphWindowRows {
+            nodes,
+            edges,
+            hover_nodes,
+            hover_edges,
+            endpoint_nodes,
+            total_nodes: nullable_count(&counts, "total_nodes")?,
+            total_edges: nullable_count(&edge_counts, "total_edges")?,
+            total_hover_nodes: nullable_count(&counts, "total_hover_nodes")?,
+            total_hover_edges: nullable_count(&edge_counts, "total_hover_edges")?,
+            role_options,
+        })
+    }
+
+    pub fn read_citation_graph_neighborhood(
+        &self,
+        start_node_id: &str,
+        direction: &str,
+        max_nodes: usize,
+        max_edges: usize,
+        filter: &CitationGraphWindowFilter,
+    ) -> Result<CitationGraphNeighborhoodRows, String> {
+        validate_identity_part(start_node_id)?;
+        let direction_clause = match direction {
+            "incoming" => "target_literature_item_id=?",
+            "outgoing" => "source_literature_item_id=?",
+            "both" => "(source_literature_item_id=? OR target_literature_item_id=?)",
+            _ => return Err("invalid_request".into()),
+        };
+        let (cte, mut values) = citation_graph_window_cte(filter)?;
+        values.push(json!(start_node_id));
+        if direction == "both" {
+            values.push(json!(start_node_id));
+        }
+        values.push(json!(max_edges.saturating_add(1) as i64));
+        let candidates = self
+            .query(
+                &format!(
+                    "{cte}
+                     SELECT * FROM filtered_edges WHERE {direction_clause}
+                     ORDER BY edge_id ASC LIMIT ?"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .map(citation_graph_window_edge_record)
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut node_ids = BTreeSet::from([start_node_id.to_owned()]);
+        let mut edges = Vec::new();
+        for edge in &candidates {
+            let needed = [
+                edge.record.source_literature_item_id.clone(),
+                edge.record.target_literature_item_id.clone(),
+            ];
+            let additional = needed.iter().filter(|id| !node_ids.contains(*id)).count();
+            if node_ids.len() + additional > max_nodes.max(1) || edges.len() >= max_edges {
+                continue;
+            }
+            node_ids.extend(needed);
+            edges.push(edge.clone());
+        }
+        let nodes = self.read_citation_graph_endpoint_nodes(
+            &cte,
+            &values[..values.len() - if direction == "both" { 3 } else { 2 }],
+            &node_ids.into_iter().collect::<Vec<_>>(),
+        )?;
+        Ok(CitationGraphNeighborhoodRows {
+            nodes,
+            truncated: candidates.len() > edges.len(),
+            edges,
+        })
+    }
+
+    fn read_citation_graph_node_page(
+        &self,
+        cte: &str,
+        values: &[Value],
+        visibility: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<CitationGraphWindowNodeRecord>, String> {
+        let mut bindings = values.to_vec();
+        bindings.extend([json!(visibility), json!(limit as i64), json!(offset as i64)]);
+        self.query(
+            &format!(
+                "{cte}
+                 SELECT n.*,
+                   light.outgoing_count AS metric_outgoing_count,
+                   light.incoming_count AS metric_incoming_count,
+                   light.matched_outgoing_count AS metric_matched_outgoing_count,
+                   light.unresolved_outgoing_count AS metric_unresolved_outgoing_count,
+                   light.ambiguous_outgoing_count AS metric_ambiguous_outgoing_count,
+                   light.local_degree AS metric_local_degree,
+                   light.source_structure_version AS metric_source_structure_version,
+                   light.updated_at AS metric_updated_at
+                 FROM filtered_nodes n
+                 LEFT JOIN synt_citation_metrics_light light
+                   ON light.literature_item_id=n.literature_item_id
+                 LEFT JOIN synt_citation_metrics_complex complex
+                   ON complex.literature_item_id=n.literature_item_id
+                 WHERE n.visibility=?
+                 ORDER BY COALESCE(complex.foundation_score,0) DESC,
+                          COALESCE(light.local_degree,0) DESC,
+                          n.literature_item_id ASC
+                 LIMIT ? OFFSET ?"
+            ),
+            &bindings,
+        )?
+        .into_iter()
+        .map(citation_graph_window_node_record)
+        .collect()
+    }
+
+    fn read_citation_graph_edge_page(
+        &self,
+        cte: &str,
+        values: &[Value],
+        visibility: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<CitationGraphWindowEdgeRecord>, String> {
+        let mut bindings = values.to_vec();
+        bindings.extend([json!(visibility), json!(limit as i64), json!(offset as i64)]);
+        self.query(
+            &format!(
+                "{cte}
+                 SELECT * FROM filtered_edges
+                 WHERE visibility=? ORDER BY edge_id ASC LIMIT ? OFFSET ?"
+            ),
+            &bindings,
+        )?
+        .into_iter()
+        .map(citation_graph_window_edge_record)
+        .collect()
+    }
+
+    fn read_citation_graph_endpoint_nodes(
+        &self,
+        cte: &str,
+        values: &[Value],
+        ids: &[String],
+    ) -> Result<Vec<CitationGraphWindowNodeRecord>, String> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut bindings = values.to_vec();
+        bindings.extend(ids.iter().map(|id| json!(id)));
+        self.query(
+            &format!(
+                "{cte}
+                 SELECT n.*,
+                   light.outgoing_count AS metric_outgoing_count,
+                   light.incoming_count AS metric_incoming_count,
+                   light.matched_outgoing_count AS metric_matched_outgoing_count,
+                   light.unresolved_outgoing_count AS metric_unresolved_outgoing_count,
+                   light.ambiguous_outgoing_count AS metric_ambiguous_outgoing_count,
+                   light.local_degree AS metric_local_degree,
+                   light.source_structure_version AS metric_source_structure_version,
+                   light.updated_at AS metric_updated_at
+                 FROM filtered_nodes n
+                 LEFT JOIN synt_citation_metrics_light light
+                   ON light.literature_item_id=n.literature_item_id
+                 WHERE n.literature_item_id IN ({})
+                 ORDER BY n.literature_item_id ASC",
+                sql_placeholders(ids.len())
+            ),
+            &bindings,
+        )?
+        .into_iter()
+        .map(citation_graph_window_node_record)
         .collect()
     }
 
@@ -789,6 +1121,169 @@ impl Repository {
                 ],
             )?;
             Ok(true)
+        })
+    }
+
+    /// Atomically replaces only outgoing rows owned by the selected source
+    /// papers. Unrelated source rows survive, while derived global metrics and
+    /// layouts are invalidated and rebuilt from the merged graph.
+    pub fn replace_citation_graph_source_slice(
+        &mut self,
+        expected_graph_hash: &str,
+        source_ids: &[String],
+        replacement: &CitationGraphReplacement,
+    ) -> Result<Option<String>, String> {
+        if source_ids.is_empty() {
+            return Err("citation_graph_source_slice_invalid".into());
+        }
+        let source_ids = source_ids.iter().cloned().collect::<BTreeSet<_>>();
+        if source_ids.len() > 25_000 || source_ids.iter().any(|value| value.is_empty()) {
+            return Err("citation_graph_source_slice_invalid".into());
+        }
+        let source_ids = source_ids.into_iter().collect::<Vec<_>>();
+        self.transaction(|repository| {
+            if repository
+                .get_citation_graph_application_state()?
+                .as_ref()
+                .map(|row| row.graph_hash.as_str())
+                != Some(expected_graph_hash)
+            {
+                return Ok(None);
+            }
+            delete_in(
+                repository,
+                "synt_citation_incoming_group",
+                "source_literature_item_id",
+                &source_ids,
+            )?;
+            delete_in(
+                repository,
+                "synt_citation_source_ownership",
+                "source_literature_item_id",
+                &source_ids,
+            )?;
+            delete_in(
+                repository,
+                "synt_citation_edge",
+                "source_literature_item_id",
+                &source_ids,
+            )?;
+            delete_in(
+                repository,
+                "synt_citation_node",
+                "literature_item_id",
+                &source_ids,
+            )?;
+            replacement
+                .nodes
+                .iter()
+                .try_for_each(|row| upsert_citation_node(repository, row))?;
+            replacement
+                .edges
+                .iter()
+                .try_for_each(|row| upsert_citation_edge(repository, row))?;
+            replacement
+                .ownership
+                .iter()
+                .try_for_each(|row| upsert_citation_ownership(repository, row))?;
+            replacement
+                .incoming_groups
+                .iter()
+                .try_for_each(|row| upsert_citation_incoming(repository, row))?;
+
+            let edges = repository.list_citation_edges()?;
+            let referenced_nodes = edges
+                .iter()
+                .flat_map(|edge| {
+                    [
+                        edge.source_literature_item_id.as_str(),
+                        edge.target_literature_item_id.as_str(),
+                    ]
+                })
+                .collect::<BTreeSet<_>>();
+            for node in repository.list_citation_nodes()? {
+                if !node.has_zotero_binding
+                    && !referenced_nodes.contains(node.literature_item_id.as_str())
+                {
+                    repository.execute(
+                        "DELETE FROM synt_citation_node WHERE literature_item_id=?1",
+                        &[json!(node.literature_item_id)],
+                    )?;
+                }
+            }
+
+            repository.execute("DELETE FROM synt_citation_metrics_light", &[])?;
+            repository.execute("DELETE FROM synt_citation_metrics_complex", &[])?;
+            repository.execute("DELETE FROM synt_citation_layout_state", &[])?;
+            let nodes = repository.list_citation_nodes()?;
+            let edges = repository.list_citation_edges()?;
+            let version = replacement
+                .state
+                .updated_at
+                .parse::<i64>()
+                .unwrap_or_default();
+            let mut counts = BTreeMap::<String, (i64, i64, i64, i64)>::new();
+            for node in &nodes {
+                counts.entry(node.literature_item_id.clone()).or_default();
+            }
+            for edge in &edges {
+                let outgoing = counts
+                    .entry(edge.source_literature_item_id.clone())
+                    .or_default();
+                outgoing.0 += 1;
+                if edge.edge_status == "accepted" {
+                    outgoing.2 += 1;
+                } else {
+                    outgoing.3 += 1;
+                }
+                counts
+                    .entry(edge.target_literature_item_id.clone())
+                    .or_default()
+                    .1 += 1;
+            }
+            for (node_id, (outgoing, incoming, matched, unresolved)) in counts {
+                upsert_citation_light_metrics(
+                    repository,
+                    &CitationLightMetricsRecord {
+                        literature_item_id: node_id,
+                        outgoing_count: outgoing,
+                        incoming_count: incoming,
+                        matched_outgoing_count: matched,
+                        unresolved_outgoing_count: unresolved,
+                        ambiguous_outgoing_count: 0,
+                        local_degree: outgoing + incoming,
+                        source_structure_version: version,
+                        updated_at: replacement.state.updated_at.clone(),
+                    },
+                )?;
+            }
+            let ownership = repository.list_citation_source_ownership()?;
+            let incoming = repository.list_citation_incoming_groups()?;
+            let light = repository.list_citation_light_metrics()?;
+            let canonical = serde_json::to_vec(&json!({
+                "nodes":nodes,
+                "edges":edges,
+                "ownership":ownership,
+                "incomingGroups":incoming,
+                "lightMetrics":light,
+            }))
+            .map_err(|_| "repository_citation_graph_invalid")?;
+            let graph_hash = format!("sha256:{:x}", Sha256::digest(canonical));
+            repository.execute(
+                "UPDATE synt_citation_graph_application_state
+                 SET graph_hash=?1,input_hash=?2,metrics_hash='',node_count=?3,
+                     edge_count=?4,updated_at=?5
+                 WHERE singleton_id='active' AND graph_hash=?6",
+                &[
+                    json!(graph_hash),
+                    json!(replacement.state.input_hash),
+                    json!(nodes.len()),
+                    json!(edges.len()),
+                    json!(replacement.state.updated_at),
+                    json!(expected_graph_hash),
+                ],
+            )?;
+            Ok(Some(graph_hash))
         })
     }
 
@@ -1330,6 +1825,198 @@ fn row_number(row: &Value, key: &str) -> Result<f64, String> {
         .as_f64()
         .filter(|value| value.is_finite())
         .ok_or_else(|| "repository_typed_row_invalid".into())
+}
+
+fn sql_placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn nullable_count(row: &Value, key: &str) -> Result<usize, String> {
+    match &row[key] {
+        Value::Null => Ok(0),
+        value => value
+            .as_i64()
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| "repository_typed_row_invalid".into()),
+    }
+}
+
+fn citation_graph_window_cte(
+    filter: &CitationGraphWindowFilter,
+) -> Result<(String, Vec<Value>), String> {
+    if filter.node_kinds.len() > 3
+        || filter.roles.len() > 64
+        || filter.search.chars().count() > 500
+        || filter
+            .topic_node_ids
+            .as_ref()
+            .is_some_and(|ids| ids.len() > 10_000)
+    {
+        return Err("invalid_request".into());
+    }
+    let mut conditions = vec!["visibility<>'excluded'".to_owned()];
+    let mut values = Vec::new();
+    if !filter.node_kinds.is_empty() {
+        let library = filter.node_kinds.iter().any(|kind| kind == "library_paper");
+        let external = filter
+            .node_kinds
+            .iter()
+            .any(|kind| matches!(kind.as_str(), "external_reference" | "unresolved_reference"));
+        conditions.push(match (library, external) {
+            (true, true) => "1=1".into(),
+            (true, false) => "has_zotero_binding=1".into(),
+            (false, true) => "has_zotero_binding=0".into(),
+            (false, false) => "1=0".into(),
+        });
+    }
+    if !filter.include_low_signal {
+        conditions.push("COALESCE(json_extract(summary_json,'$.low_signal'),0)=0".into());
+    }
+    let search = filter.search.trim().to_lowercase();
+    if !search.is_empty() {
+        let pattern = format!("%{search}%");
+        conditions.push(
+            "(lower(literature_item_id) LIKE ? OR lower(title) LIKE ? OR lower(authors_json) LIKE ?)"
+                .into(),
+        );
+        values.extend([json!(pattern), json!(pattern), json!(pattern)]);
+    }
+    if let Some(topic_ids) = &filter.topic_node_ids {
+        if topic_ids.is_empty() {
+            conditions.push("1=0".into());
+        } else {
+            let placeholders = sql_placeholders(topic_ids.len());
+            conditions.push(format!(
+                "(literature_item_id IN ({placeholders}) OR EXISTS(
+                   SELECT 1 FROM eligible_edges topic_edge
+                   WHERE (topic_edge.source_literature_item_id=literature_item_id
+                          AND topic_edge.target_literature_item_id IN ({placeholders}))
+                      OR (topic_edge.target_literature_item_id=literature_item_id
+                          AND topic_edge.source_literature_item_id IN ({placeholders}))))"
+            ));
+            for _ in 0..3 {
+                values.extend(topic_ids.iter().map(|id| json!(id)));
+            }
+        }
+    }
+    let role_patterns = filter
+        .roles
+        .iter()
+        .map(|role| json!(format!("%\"{role}\"%")))
+        .collect::<Vec<_>>();
+    let role_predicate = if filter.roles.is_empty() {
+        "1=1".to_owned()
+    } else {
+        let predicates = filter
+            .roles
+            .iter()
+            .map(|_| "roles_json LIKE ?")
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        format!("({predicates})")
+    };
+    let role_node_predicate = if filter.roles.is_empty() {
+        "1=1".to_owned()
+    } else {
+        let predicates = filter
+            .roles
+            .iter()
+            .map(|_| "role_edge.roles_json LIKE ?")
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        format!(
+            "EXISTS(SELECT 1 FROM eligible_edges role_edge
+             WHERE (role_edge.source_literature_item_id=literature_item_id
+                    OR role_edge.target_literature_item_id=literature_item_id)
+               AND ({predicates}))"
+        )
+    };
+    conditions.push(role_node_predicate);
+    values.extend(role_patterns.iter().cloned());
+    values.extend(role_patterns);
+    Ok((
+        format!(
+            "WITH active_nodes AS (
+               SELECT * FROM synt_citation_node WHERE node_status='active'
+             ), eligible_edges AS (
+               SELECT edge.*
+               FROM synt_citation_edge edge
+               JOIN active_nodes source_node
+                 ON source_node.literature_item_id=edge.source_literature_item_id
+               JOIN active_nodes target_node
+                 ON target_node.literature_item_id=edge.target_literature_item_id
+               WHERE source_node.has_zotero_binding=1
+                 AND edge.edge_status IN ('accepted','unbound')
+                 AND (target_node.has_zotero_binding=0 OR edge.edge_status='accepted')
+             ), external_degrees AS (
+               SELECT edge.target_literature_item_id,
+                      COUNT(DISTINCT edge.source_literature_item_id) AS external_degree
+               FROM eligible_edges edge
+               JOIN active_nodes target_node
+                 ON target_node.literature_item_id=edge.target_literature_item_id
+               WHERE target_node.has_zotero_binding=0
+               GROUP BY edge.target_literature_item_id
+             ), classified_nodes AS (
+               SELECT node.*,
+                      COALESCE(degree.external_degree,0) AS external_degree,
+                      CASE
+                        WHEN node.has_zotero_binding=1 OR degree.external_degree>1 THEN 'default'
+                        WHEN degree.external_degree=1 THEN 'hover_only'
+                        ELSE 'excluded'
+                      END AS visibility
+               FROM active_nodes node
+               LEFT JOIN external_degrees degree
+                 ON degree.target_literature_item_id=node.literature_item_id
+             ), filtered_nodes AS (
+               SELECT * FROM classified_nodes WHERE {}
+             ), filtered_edges AS (
+               SELECT edge.*,
+                      CASE WHEN source.visibility='hover_only' OR target.visibility='hover_only'
+                           THEN 'hover_only' ELSE 'default' END AS visibility
+               FROM eligible_edges edge
+               JOIN filtered_nodes source
+                 ON source.literature_item_id=edge.source_literature_item_id
+               JOIN filtered_nodes target
+                 ON target.literature_item_id=edge.target_literature_item_id
+               WHERE {role_predicate}
+             )",
+            conditions.join(" AND ")
+        ),
+        values,
+    ))
+}
+
+fn citation_graph_window_node_record(row: Value) -> Result<CitationGraphWindowNodeRecord, String> {
+    let light_metrics = if row["metric_local_degree"].is_null() {
+        None
+    } else {
+        Some(CitationLightMetricsRecord {
+            literature_item_id: row_text(&row, "literature_item_id")?,
+            outgoing_count: row_integer(&row, "metric_outgoing_count")?,
+            incoming_count: row_integer(&row, "metric_incoming_count")?,
+            matched_outgoing_count: row_integer(&row, "metric_matched_outgoing_count")?,
+            unresolved_outgoing_count: row_integer(&row, "metric_unresolved_outgoing_count")?,
+            ambiguous_outgoing_count: row_integer(&row, "metric_ambiguous_outgoing_count")?,
+            local_degree: row_integer(&row, "metric_local_degree")?,
+            source_structure_version: row_integer(&row, "metric_source_structure_version")?,
+            updated_at: row_text(&row, "metric_updated_at")?,
+        })
+    };
+    Ok(CitationGraphWindowNodeRecord {
+        external_degree: row_integer(&row, "external_degree")?,
+        visibility: row_text(&row, "visibility")?,
+        record: citation_node_record(row)?,
+        light_metrics,
+    })
+}
+
+fn citation_graph_window_edge_record(row: Value) -> Result<CitationGraphWindowEdgeRecord, String> {
+    Ok(CitationGraphWindowEdgeRecord {
+        visibility: row_text(&row, "visibility")?,
+        record: citation_edge_record(row)?,
+    })
 }
 
 fn citation_node_record(row: Value) -> Result<CitationNodeRecord, String> {
@@ -2302,6 +2989,172 @@ mod tests {
             json!("stale")
         );
         drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn citation_graph_window_pages_large_graph_without_dangling_edges() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-window".into(),
+                data_root_id: "data-window".into(),
+            },
+        )
+        .expect("open repository");
+        repository
+            .execute(
+                "WITH RECURSIVE ids(value) AS (
+                   SELECT 1 UNION ALL SELECT value+1 FROM ids WHERE value<7500
+                 )
+                 INSERT INTO synt_citation_node(
+                   literature_item_id,node_status,has_zotero_binding,title,authors_json,summary_json
+                 )
+                 SELECT printf('1:N%05d',value),'active',1,printf('Paper %05d',value),'[]','{}'
+                 FROM ids",
+                &[],
+            )
+            .expect("insert nodes");
+        repository
+            .execute(
+                "WITH RECURSIVE ids(value) AS (
+                   SELECT 1 UNION ALL SELECT value+1 FROM ids WHERE value<12000
+                 )
+                 INSERT INTO synt_citation_edge(
+                   edge_id,source_literature_item_id,target_literature_item_id,
+                   reference_instance_id,edge_status,roles_json,weight
+                 )
+                 SELECT printf('E%05d',value),
+                        printf('1:N%05d',((value-1)%7500)+1),
+                        printf('1:N%05d',(value%7500)+1),
+                        printf('R%05d',value),'accepted','[\"background\"]',1
+                 FROM ids",
+                &[],
+            )
+            .expect("insert edges");
+        repository
+            .execute(
+                "INSERT INTO synt_citation_graph_application_state(
+                   singleton_id,graph_hash,input_hash,node_count,edge_count
+                 ) VALUES('active','graph:large','input:large',7500,12000)",
+                &[],
+            )
+            .expect("insert state");
+
+        let mut request = CitationGraphWindowQuery {
+            node_offset: 0,
+            node_limit: 200,
+            edge_offset: 0,
+            edge_limit: 400,
+            hover_node_offset: 0,
+            hover_node_limit: 100,
+            hover_edge_offset: 0,
+            hover_edge_limit: 200,
+            filter: CitationGraphWindowFilter {
+                node_kinds: vec!["library_paper".into()],
+                roles: vec!["background".into()],
+                include_low_signal: false,
+                ..CitationGraphWindowFilter::default()
+            },
+        };
+        let first = repository
+            .read_citation_graph_window(&request)
+            .expect("first page");
+        let repeated = repository
+            .read_citation_graph_window(&request)
+            .expect("repeated page");
+        assert_eq!(first, repeated);
+        assert_eq!((first.total_nodes, first.total_edges), (7500, 12000));
+        assert_eq!((first.nodes.len(), first.edges.len()), (200, 400));
+        assert_eq!(first.role_options, ["background"]);
+        let returned = first
+            .nodes
+            .iter()
+            .chain(first.endpoint_nodes.iter())
+            .map(|node| node.record.literature_item_id.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(first.edges.iter().all(|edge| {
+            returned.contains(edge.record.source_literature_item_id.as_str())
+                && returned.contains(edge.record.target_literature_item_id.as_str())
+        }));
+        let outgoing = repository
+            .read_citation_graph_neighborhood("1:N00001", "outgoing", 10, 10, &request.filter)
+            .expect("outgoing neighborhood");
+        let incoming = repository
+            .read_citation_graph_neighborhood("1:N00001", "incoming", 10, 10, &request.filter)
+            .expect("incoming neighborhood");
+        assert!(
+            outgoing
+                .edges
+                .iter()
+                .all(|edge| { edge.record.source_literature_item_id == "1:N00001" })
+        );
+        assert!(
+            incoming
+                .edges
+                .iter()
+                .all(|edge| { edge.record.target_literature_item_id == "1:N00001" })
+        );
+
+        let mut node_ids = BTreeSet::new();
+        let mut edge_ids = BTreeSet::new();
+        loop {
+            let page = repository
+                .read_citation_graph_window(&request)
+                .expect("next page");
+            node_ids.extend(
+                page.nodes
+                    .iter()
+                    .map(|node| node.record.literature_item_id.clone()),
+            );
+            edge_ids.extend(page.edges.iter().map(|edge| edge.record.edge_id.clone()));
+            request.node_offset += page.nodes.len();
+            request.edge_offset += page.edges.len();
+            if request.node_offset >= page.total_nodes && request.edge_offset >= page.total_edges {
+                break;
+            }
+        }
+        assert_eq!(node_ids.len(), 7500);
+        assert_eq!(edge_ids.len(), 12000);
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn repository_reopens_with_additive_tables_and_rejects_conflicting_schema() {
+        let root = root();
+        let identity = RepositoryIdentity {
+            profile_id: "profile-schema".into(),
+            data_root_id: "data-schema".into(),
+        };
+        let repository = Repository::open(&root, identity.clone()).expect("open repository");
+        repository
+            .execute("DROP TABLE synt_citation_layout_state", &[])
+            .expect("drop additive table");
+        drop(repository);
+        let repository = Repository::open(&root, identity.clone()).expect("restore additive table");
+        assert!(
+            repository.schema_inventory().expect("inventory")["tables"]
+                .as_array()
+                .is_some_and(|tables| tables
+                    .iter()
+                    .any(|table| { table["name"].as_str() == Some("synt_citation_layout_state") }))
+        );
+        repository
+            .execute("DROP TABLE synt_citation_node", &[])
+            .expect("drop node table");
+        repository
+            .execute(
+                "CREATE TABLE synt_citation_node(literature_item_id TEXT PRIMARY KEY)",
+                &[],
+            )
+            .expect("create conflicting table");
+        drop(repository);
+        assert_eq!(
+            Repository::open(&root, identity).expect_err("conflicting schema must fail"),
+            "repository_schema_incompatible"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

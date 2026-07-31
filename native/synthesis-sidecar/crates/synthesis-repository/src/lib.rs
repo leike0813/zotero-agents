@@ -3,7 +3,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, ToSql, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -611,7 +611,8 @@ impl Repository {
         let initialized = (|| -> Result<(), String> {
             connection
                 .execute_batch(SCHEMA_SQL)
-                .map_err(map_sqlite_error)?;
+                .map_err(|_| "repository_schema_incompatible".to_owned())?;
+            verify_required_application_schema(&connection)?;
             for (key, value) in SCHEMA_IDENTITIES {
                 let current: Option<String> = connection
                     .query_row(
@@ -1256,6 +1257,87 @@ impl Repository {
             .close()
             .map_err(|(_, error)| map_sqlite_error(error))
     }
+}
+
+fn verify_required_application_schema(connection: &Connection) -> Result<(), String> {
+    const REQUIRED: &[(&str, &[&str])] = &[
+        (
+            "synt_citation_graph_application_state",
+            &[
+                "singleton_id",
+                "graph_hash",
+                "input_hash",
+                "node_count",
+                "edge_count",
+            ],
+        ),
+        (
+            "synt_citation_node",
+            &[
+                "literature_item_id",
+                "node_status",
+                "has_zotero_binding",
+                "title",
+                "authors_json",
+                "summary_json",
+            ],
+        ),
+        (
+            "synt_citation_edge",
+            &[
+                "edge_id",
+                "source_literature_item_id",
+                "target_literature_item_id",
+                "edge_status",
+                "roles_json",
+                "weight",
+            ],
+        ),
+        (
+            "synt_citation_metrics_light",
+            &[
+                "literature_item_id",
+                "incoming_count",
+                "outgoing_count",
+                "local_degree",
+            ],
+        ),
+        (
+            "synt_citation_metrics_complex",
+            &[
+                "literature_item_id",
+                "foundation_score",
+                "source_graph_hash",
+            ],
+        ),
+        (
+            "synt_citation_layout_state",
+            &[
+                "layout_key",
+                "view_key",
+                "preset",
+                "graph_hash",
+                "layout_json",
+            ],
+        ),
+    ];
+    for (table, required_columns) in REQUIRED {
+        let mut statement = connection
+            .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid ASC")
+            .map_err(|_| "repository_schema_incompatible".to_owned())?;
+        let actual = statement
+            .query_map([table], |row| row.get::<_, String>(0))
+            .map_err(|_| "repository_schema_incompatible".to_owned())?
+            .collect::<Result<BTreeSet<_>, _>>()
+            .map_err(|_| "repository_schema_incompatible".to_owned())?;
+        if required_columns
+            .iter()
+            .any(|column| !actual.contains(*column))
+        {
+            return Err("repository_schema_incompatible".into());
+        }
+    }
+    Ok(())
 }
 
 fn row_text(row: &Value, key: &str) -> Result<String, String> {

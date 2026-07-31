@@ -488,7 +488,7 @@ export type SynthesisUiConceptReviewItem = {
 export type SynthesisUiGraphNode = {
   id: string;
   label: string;
-  kind: "library_paper" | "external_reference";
+  kind: "library_paper" | "external_reference" | "unresolved_reference";
   year?: string;
   authors?: string[];
   tags?: string[];
@@ -519,6 +519,21 @@ export type SynthesisUiGraphTopicScope = {
   title: string;
   paperRefs: string[];
   nodeIds: string[];
+};
+
+export type SynthesisUiGraphWindow = {
+  nextCursor?: string;
+  hasMore: boolean;
+  totalNodes: number;
+  totalEdges: number;
+  totalHoverNodes: number;
+  totalHoverEdges: number;
+  loadedNodes: number;
+  loadedEdges: number;
+  querySignature: string;
+  status: "loading" | "complete" | "paused" | "failed";
+  roleOptions: string[];
+  error?: { code: string; reason?: string };
 };
 
 export type SynthesisUiPreferencesStatus = {
@@ -889,6 +904,7 @@ export type SynthesisUiSnapshotInput = {
     edges?: SynthesisUiGraphEdge[];
     hoverOnlyNodes?: SynthesisUiGraphNode[];
     hoverOnlyEdges?: SynthesisUiGraphEdge[];
+    page?: Record<string, unknown>;
   };
 };
 
@@ -1004,6 +1020,7 @@ export type SynthesisUiSnapshot = {
     hoverOnlyNodes: SynthesisUiGraphNode[];
     hoverOnlyEdges: SynthesisUiGraphEdge[];
     diagnostics: Record<string, unknown>;
+    window: SynthesisUiGraphWindow;
     visibleNodes: SynthesisUiGraphNode[];
     visibleEdges: SynthesisUiGraphEdge[];
   };
@@ -3132,9 +3149,9 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
   return [...(nodes || [])]
     .map((node) => {
       const rawKind = cleanString((node as Record<string, unknown>).kind);
-      const kind =
-        rawKind === "external_reference"
-          ? ("external_reference" as const)
+      const kind: SynthesisUiGraphNode["kind"] =
+        rawKind === "external_reference" || rawKind === "unresolved_reference"
+          ? rawKind
           : ("library_paper" as const);
       const metrics = normalizeGraphNodeMetrics(node.metrics);
       return {
@@ -3172,6 +3189,41 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
         left.label.localeCompare(right.label) ||
         left.id.localeCompare(right.id),
     );
+}
+
+function normalizeGraphWindow(
+  page: Record<string, unknown> | undefined,
+  loadedNodes: number,
+  loadedEdges: number,
+): SynthesisUiGraphWindow {
+  const status = cleanString(page?.windowStatus);
+  const hasMore = Boolean(page?.hasMore);
+  return {
+    nextCursor: cleanString(page?.nextCursor) || undefined,
+    hasMore,
+    totalNodes: Math.max(0, Math.floor(cleanNumber(page?.totalNodes, loadedNodes))),
+    totalEdges: Math.max(0, Math.floor(cleanNumber(page?.totalEdges, loadedEdges))),
+    totalHoverNodes: Math.max(
+      0,
+      Math.floor(cleanNumber(page?.totalHoverNodes, 0)),
+    ),
+    totalHoverEdges: Math.max(
+      0,
+      Math.floor(cleanNumber(page?.totalHoverEdges, 0)),
+    ),
+    loadedNodes,
+    loadedEdges,
+    querySignature: cleanString(page?.querySignature),
+    status:
+      status === "paused" || status === "failed" || status === "complete"
+        ? status
+        : hasMore
+          ? "loading"
+          : "complete",
+    roleOptions: normalizeStringList(
+      Array.isArray(page?.roleOptions) ? page.roleOptions : [],
+    ),
+  };
 }
 
 function normalizeGraphNodeMetrics(
@@ -3316,7 +3368,11 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       topicId: "all",
       layoutAlgorithm: "force",
       neighborhoodDepth: 1,
-      nodeKinds: ["library_paper", "external_reference"],
+      nodeKinds: [
+        "library_paper",
+        "external_reference",
+        "unresolved_reference",
+      ],
       showLowSignalReferences: false,
     },
     reader: {
@@ -4209,6 +4265,11 @@ export function buildSynthesisUiSnapshot(
         input.graph?.diagnostics && typeof input.graph.diagnostics === "object"
           ? { ...input.graph.diagnostics }
           : {},
+      window: normalizeGraphWindow(
+        input.graph?.page,
+        normalizedGraphNodes.length,
+        normalizedGraphEdges.length,
+      ),
       visibleNodes: filteredGraph.visibleNodes,
       visibleEdges: filteredGraph.visibleEdges,
     },
@@ -4618,6 +4679,7 @@ export function applySynthesisUiAction(
       const allowed: SynthesisUiGraphNode["kind"][] = [
         "library_paper",
         "external_reference",
+        "unresolved_reference",
       ];
       const normalized = Array.from(
         new Set(

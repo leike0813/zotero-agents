@@ -688,10 +688,26 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       {
         libraryId: 1,
         graph: {
-          graph_hash: args?.expanded ? "sha256:expanded" : "sha256:initial",
+          graph_hash: "sha256:stable-window",
           layoutStatus: "ready",
           nodes,
           edges,
+          page: {
+            nextCursor: args?.expanded ? "" : "cursor-1",
+            hasMore: !args?.expanded,
+            totalNodes: 3,
+            totalEdges: 2,
+            totalHoverNodes: 0,
+            totalHoverEdges: 0,
+            returnedNodes: nodes.length,
+            returnedEdges: edges.length,
+            returnedHoverNodes: 0,
+            returnedHoverEdges: 0,
+            querySignature: "sha256:stable-query",
+            layoutStatus: "ready",
+            windowStatus: args?.expanded ? "complete" : "loading",
+            roleOptions: ["background", "method"],
+          },
           diagnostics: {
             cache_status: "ready",
             library_node_count: args?.expanded ? 2 : 1,
@@ -711,6 +727,16 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     await page.waitForTimeout(100);
   }
 
+  async function sendGraphPage(snapshot: unknown) {
+    await page.evaluate((payload) => {
+      window.postMessage(
+        { type: "synthesis:graph-page", payload: { snapshot: payload } },
+        "*",
+      );
+    }, snapshot);
+    await page.waitForTimeout(100);
+  }
+
   async function graphIdentity() {
     return page.evaluate(() => {
       const lifecycleWindow = window as Window & {
@@ -719,6 +745,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
           stage: Element;
           canvases: HTMLCanvasElement[];
           contexts: WebGLRenderingContext[];
+          controls: Element | null;
+          selection: Element | null;
         };
       };
       const surface = document.querySelector(
@@ -733,6 +761,9 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         .filter((context): context is WebGLRenderingContext =>
           Boolean(context),
         );
+      const controls = surface?.querySelector(".graph-control-drawer") || null;
+      const selection =
+        surface?.querySelector(".graph-selection-drawer") || null;
       const previous = lifecycleWindow.__graphLifecycleIdentity;
       if (!previous && surface && stage) {
         lifecycleWindow.__graphLifecycleIdentity = {
@@ -740,6 +771,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
           stage,
           canvases,
           contexts,
+          controls,
+          selection,
         };
       }
       return {
@@ -760,6 +793,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
             previous.contexts.every(
               (context, index) => context === contexts[index],
             )),
+        sameControls: !previous || previous.controls === controls,
+        sameSelection: !previous || previous.selection === selection,
         contextLost: contexts.some((context) => context.isContextLost()),
       };
     });
@@ -777,6 +812,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       "--bundle",
       "--format=iife",
       "--target=es2020",
+      "--define:__debug_mode__=false",
       `--outfile=${bundlePath}`,
     ]);
     const stylesheetUrl = pathToFileURL(
@@ -803,12 +839,29 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
   });
 
   it("preserves canvas and WebGL context identity across routine updates", async function () {
-    await sendSnapshot(lifecycleSnapshot());
+    await sendSnapshot(
+      lifecycleSnapshot({ selectedNodeId: "zotero:item:A" }),
+    );
+    assert.deepEqual(pageErrors, [], "initial graph render errors");
     await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
     const initial = await graphIdentity();
     assert.isTrue(initial.surfacePresent);
     assert.isAtLeast(initial.canvasCount, 1);
     assert.isAtLeast(initial.contextCount, 1);
+
+    await sendGraphPage(
+      lifecycleSnapshot({
+        selectedNodeId: "zotero:item:A",
+        expanded: true,
+      }),
+    );
+    const afterPage = await graphIdentity();
+    assert.isTrue(afterPage.sameSurface);
+    assert.isTrue(afterPage.sameStage);
+    assert.isTrue(afterPage.sameCanvases);
+    assert.isTrue(afterPage.sameContexts);
+    assert.isTrue(afterPage.sameControls);
+    assert.isTrue(afterPage.sameSelection);
 
     await page.locator(".sidebar-collapse-toggle").click();
     await sendSnapshot(lifecycleSnapshot({ selectedNodeId: "zotero:item:A" }));

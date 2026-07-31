@@ -1,4 +1,7 @@
 use crate::runtime_file_system::sync_directory;
+use crate::runtime_host_collection::{
+    HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+};
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
@@ -30,16 +33,17 @@ use synthesis_application::{
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_repository::Repository;
 use synthesis_repository::{
-    CitationComplexMetricsRecord, CitationGraphApplicationStateRecord, CitationGraphReplacement,
-    CitationLayoutRecord, OperationRecord, TagEffectRecord, TagProtocolRecord,
-    TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyReplacement,
-    TopicGraphReplacement,
+    CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphApplicationStateRecord,
+    CitationGraphReplacement, CitationIncomingGroupRecord, CitationLayoutRecord,
+    CitationLightMetricsRecord, CitationNodeRecord, CitationSourceOwnershipRecord, OperationRecord,
+    TagEffectRecord, TagProtocolRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
+    TagVocabularyReplacement, TopicGraphReplacement,
 };
 use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
 use crate::runtime_reference_canonical::{
     ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
-    ReferenceHostItemsPage, ReferenceHostPort,
+    ReferenceHostPort,
 };
 use crate::runtime_reverse_host::call_reverse_host;
 use crate::runtime_worker_pool::NativeComputePool;
@@ -56,6 +60,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) topic_graph: TopicGraphApplication,
     pub(crate) debug: DebugMaintenanceApplication,
     pub(crate) webdav: WebDavSyncApplication,
+    pub(crate) host_items: Arc<dyn HostItemCollectionPort>,
     config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
 }
@@ -398,7 +403,7 @@ pub(crate) fn build_production_applications(
         "synthesis-sidecar".into(),
     );
     let webdav = WebDavSyncApplication::new(
-        host,
+        host.clone(),
         Arc::new(FileWebDavStateStore {
             path: webdav_state_path,
         }),
@@ -418,6 +423,7 @@ pub(crate) fn build_production_applications(
         topic_graph,
         debug,
         webdav,
+        host_items: host,
         config,
         service_instance_id,
     }
@@ -434,6 +440,52 @@ struct NativeCitationGraphComputePort {
     compute: Arc<NativeComputePool>,
 }
 
+fn citation_node_kind(record: &CitationNodeRecord) -> &'static str {
+    serde_json::from_str::<Value>(&record.summary_json)
+        .ok()
+        .and_then(|summary| summary["kind"].as_str().map(str::to_owned))
+        .filter(|kind| {
+            matches!(
+                kind.as_str(),
+                "library_paper" | "external_reference" | "unresolved_reference"
+            )
+        })
+        .map(|kind| match kind.as_str() {
+            "external_reference" => "external_reference",
+            "unresolved_reference" => "unresolved_reference",
+            _ => "library_paper",
+        })
+        .unwrap_or(if record.has_zotero_binding {
+            "library_paper"
+        } else {
+            "external_reference"
+        })
+}
+
+fn citation_paper_parts(node_id: &str) -> (Option<u64>, Option<String>) {
+    node_id
+        .split_once(':')
+        .and_then(|(library_id, item_key)| {
+            Some((
+                library_id.parse::<u64>().ok()?,
+                (!item_key.is_empty()).then(|| item_key.to_owned())?,
+            ))
+        })
+        .map(|(library_id, item_key)| (Some(library_id), Some(item_key)))
+        .unwrap_or((None, None))
+}
+
+fn citation_initial_coordinate(node_id: &str, axis: &str) -> Result<f64, String> {
+    let hash = canonical_json_hash(&serde_json::json!({"nodeId":node_id,"axis":axis}))?;
+    let value = u32::from_str_radix(hash.get(7..15).unwrap_or_default(), 16)
+        .map_err(|_| "worker_result_invalid".to_owned())?;
+    Ok((f64::from(value) / f64::from(u32::MAX) - 0.5) * 100.0)
+}
+
+fn bounded_citation_title(value: &str) -> String {
+    value.chars().take(500).collect()
+}
+
 impl CitationGraphComputePort for NativeCitationGraphComputePort {
     fn build(
         &self,
@@ -445,42 +497,167 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             input.clone(),
         )?;
         let graph_hash = canonical_json_hash(&result)?;
-        let nodes = serde_json::from_value(
-            result
-                .get("nodes")
-                .cloned()
-                .ok_or_else(|| "worker_result_invalid".to_owned())?,
-        )
-        .map_err(|_| "worker_result_invalid".to_owned())?;
-        let edges = serde_json::from_value(
-            result
-                .get("resolvedEdges")
-                .cloned()
-                .ok_or_else(|| "worker_result_invalid".to_owned())?,
-        )
-        .map_err(|_| "worker_result_invalid".to_owned())?;
-        let ownership = serde_json::from_value(
-            result
-                .get("sourceOwnership")
-                .cloned()
-                .ok_or_else(|| "worker_result_invalid".to_owned())?,
-        )
-        .map_err(|_| "worker_result_invalid".to_owned())?;
-        let incoming_groups = serde_json::from_value(
-            result
-                .get("incomingGroups")
-                .cloned()
-                .ok_or_else(|| "worker_result_invalid".to_owned())?,
-        )
-        .map_err(|_| "worker_result_invalid".to_owned())?;
-        let light_metrics = serde_json::from_value(
-            result
-                .get("lightMetrics")
-                .cloned()
-                .ok_or_else(|| "worker_result_invalid".to_owned())?,
-        )
-        .map_err(|_| "worker_result_invalid".to_owned())?;
         let updated_at = now_iso_like();
+        let metadata = input["references"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row["edgeId"].as_str()?.to_owned(),
+                    (
+                        row["targetId"].as_str().unwrap_or_default().to_owned(),
+                        serde_json::to_string(&row["roles"]).ok()?,
+                    ),
+                ))
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let nodes = result["nodes"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .map(|row| {
+                let kind = row["kind"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?;
+                Ok(CitationNodeRecord {
+                    literature_item_id: row["nodeId"]
+                        .as_str()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?
+                        .to_owned(),
+                    node_status: "active".into(),
+                    has_zotero_binding: kind == "library_paper",
+                    title: row["title"].as_str().unwrap_or_default().to_owned(),
+                    year: row["year"].as_str().unwrap_or_default().to_owned(),
+                    authors_json: serde_json::to_string(
+                        row["authors"].as_array().unwrap_or(&Vec::new()),
+                    )
+                    .map_err(|_| "worker_result_invalid".to_owned())?,
+                    summary_json: serde_json::to_string(&serde_json::json!({
+                        "kind":kind,
+                        "aliases":row["aliases"],
+                        "cache_owner":"citation_graph_application",
+                    }))
+                    .map_err(|_| "worker_result_invalid".to_owned())?,
+                    updated_at: updated_at.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let edges = result["resolvedEdges"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .map(|row| {
+                let edge_id = row["edgeId"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?;
+                let edge_metadata = metadata.get(edge_id);
+                Ok(CitationEdgeRecord {
+                    edge_id: edge_id.to_owned(),
+                    source_literature_item_id: row["sourceId"]
+                        .as_str()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?
+                        .to_owned(),
+                    target_literature_item_id: row["targetId"]
+                        .as_str()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?
+                        .to_owned(),
+                    reference_instance_id: row["referenceId"]
+                        .as_str()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?
+                        .to_owned(),
+                    resolution_id: edge_metadata
+                        .map(|metadata| metadata.0.clone())
+                        .unwrap_or_default(),
+                    edge_status: row["status"]
+                        .as_str()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?
+                        .to_owned(),
+                    roles_json: edge_metadata
+                        .map(|metadata| metadata.1.clone())
+                        .unwrap_or_else(|| "[]".into()),
+                    weight: row["weight"]
+                        .as_f64()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?,
+                    created_at: updated_at.clone(),
+                    updated_at: updated_at.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let project_ownership = |row: &Value| -> Result<CitationSourceOwnershipRecord, String> {
+            Ok(CitationSourceOwnershipRecord {
+                source_literature_item_id: row["sourceId"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?
+                    .to_owned(),
+                edge_id: row["edgeId"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?
+                    .to_owned(),
+                reference_instance_id: row["referenceId"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?
+                    .to_owned(),
+                target_literature_item_id: row["targetId"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?
+                    .to_owned(),
+                edge_status: row["status"]
+                    .as_str()
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?
+                    .to_owned(),
+                updated_at: updated_at.clone(),
+            })
+        };
+        let ownership = result["sourceOwnership"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .map(project_ownership)
+            .collect::<Result<Vec<_>, _>>()?;
+        let incoming_groups = result["incomingGroups"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .map(|row| {
+                let ownership = project_ownership(row)?;
+                Ok(CitationIncomingGroupRecord {
+                    target_literature_item_id: ownership.target_literature_item_id,
+                    source_literature_item_id: ownership.source_literature_item_id,
+                    edge_id: ownership.edge_id,
+                    reference_instance_id: ownership.reference_instance_id,
+                    edge_status: ownership.edge_status,
+                    updated_at: ownership.updated_at,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let source_structure_version = updated_at.parse::<i64>().unwrap_or_default();
+        let light_metrics = result["lightMetrics"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .map(|row| {
+                let integer = |field: &str| {
+                    row[field]
+                        .as_i64()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())
+                };
+                Ok(CitationLightMetricsRecord {
+                    literature_item_id: row["nodeId"]
+                        .as_str()
+                        .ok_or_else(|| "worker_result_invalid".to_owned())?
+                        .to_owned(),
+                    outgoing_count: integer("outgoingCount")?,
+                    incoming_count: integer("incomingCount")?,
+                    matched_outgoing_count: integer("matchedOutgoingCount")?,
+                    unresolved_outgoing_count: integer("unresolvedOutgoingCount")?,
+                    ambiguous_outgoing_count: integer("ambiguousOutgoingCount")?,
+                    local_degree: integer("localDegree")?,
+                    source_structure_version,
+                    updated_at: updated_at.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let replacement = CitationGraphReplacement {
             state: CitationGraphApplicationStateRecord {
                 graph_hash: graph_hash.clone(),
@@ -514,8 +691,23 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
     ) -> Result<CitationMetricsOutput, String> {
         let request = serde_json::json!({
             "graphHash":graph_hash,
-            "nodes":nodes,
-            "edges":edges,
+            "nodes":nodes.iter().map(|node| {
+                let (library_id,item_key) = citation_paper_parts(&node.literature_item_id);
+                serde_json::json!({
+                    "nodeId":node.literature_item_id,
+                    "kind":citation_node_kind(node),
+                    "libraryId":library_id,
+                    "itemKey":item_key,
+                    "title":bounded_citation_title(&node.title),
+                    "year":node.year,
+                })
+            }).collect::<Vec<_>>(),
+            "edges":edges.iter().map(|edge| serde_json::json!({
+                "edgeId":edge.edge_id,
+                "source":edge.source_literature_item_id,
+                "target":edge.target_literature_item_id,
+                "mentionCount":1,
+            })).collect::<Vec<_>>(),
         });
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::CitationGraphMetrics,
@@ -529,13 +721,49 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             .ok_or_else(|| "worker_result_invalid".to_owned())?
             .iter()
             .map(|row| {
-                let mut record: CitationComplexMetricsRecord = serde_json::from_value(row.clone())
-                    .map_err(|_| "worker_result_invalid".to_owned())?;
-                record.source_graph_hash = graph_hash.to_owned();
-                record.metrics_hash = metrics_hash.clone();
-                record.status = "ready".into();
-                record.updated_at = updated_at.clone();
-                Ok(record)
+                let integer = |field: &str| {
+                    row[field]
+                        .as_f64()
+                        .filter(|value| value.is_finite())
+                        .map(|value| value.round() as i64)
+                        .ok_or_else(|| "worker_result_invalid".to_owned())
+                };
+                let number = |field: &str| {
+                    row[field]
+                        .as_f64()
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| "worker_result_invalid".to_owned())
+                };
+                Ok(CitationComplexMetricsRecord {
+                    literature_item_id: row["nodeId"].as_str().unwrap_or_default().to_owned(),
+                    node_id: row["nodeId"].as_str().unwrap_or_default().to_owned(),
+                    paper_ref: row["paperRef"].as_str().unwrap_or_default().to_owned(),
+                    item_key: row["itemKey"].as_str().unwrap_or_default().to_owned(),
+                    title: row["title"].as_str().unwrap_or_default().to_owned(),
+                    year: row["year"].as_str().unwrap_or_default().to_owned(),
+                    internal_in_degree: integer("internalInDegree")?,
+                    internal_out_degree: integer("internalOutDegree")?,
+                    external_reference_count: integer("externalReferenceCount")?,
+                    unresolved_reference_count: integer("unresolvedReferenceCount")?,
+                    internal_pagerank: number("internalPagerank")?,
+                    component_id: row["componentId"].as_str().unwrap_or_default().to_owned(),
+                    component_size: integer("componentSize")?,
+                    is_isolated: row["isIsolated"].as_bool().unwrap_or(false),
+                    age_norm: number("ageNorm")?,
+                    recency_norm: number("recencyNorm")?,
+                    in_degree_norm: number("inDegreeNorm")?,
+                    out_degree_norm: number("outDegreeNorm")?,
+                    pagerank_norm: number("pagerankNorm")?,
+                    foundation_score: number("foundationScore")?,
+                    frontier_score: number("frontierScore")?,
+                    synthesis_role_hints_json: serde_json::to_string(&row["synthesisRoleHints"])
+                        .map_err(|_| "worker_result_invalid".to_owned())?,
+                    source_structure_version: updated_at.parse().unwrap_or_default(),
+                    source_graph_hash: graph_hash.to_owned(),
+                    metrics_hash: metrics_hash.clone(),
+                    status: "ready".into(),
+                    updated_at: updated_at.clone(),
+                })
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(CitationMetricsOutput {
@@ -554,13 +782,59 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
         let worker_request = serde_json::json!({
             "graphHash":request.expected_graph_hash,
             "algorithm":request.preset,
-            "nodes":nodes,
-            "edges":edges,
+            "nodes":nodes.iter().map(|node| Ok(serde_json::json!({
+                "nodeId":node.literature_item_id,
+                "kind":citation_node_kind(node),
+                "title":bounded_citation_title(&node.title),
+                "year":node.year,
+                "initialX":citation_initial_coordinate(&node.literature_item_id,"x")?,
+                "initialY":citation_initial_coordinate(&node.literature_item_id,"y")?,
+            }))).collect::<Result<Vec<Value>,String>>()?,
+            "edges":edges.iter().map(|edge| serde_json::json!({
+                "edgeId":edge.edge_id,
+                "source":edge.source_literature_item_id,
+                "target":edge.target_literature_item_id,
+            })).collect::<Vec<_>>(),
         });
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::CitationGraphLayout,
             worker_request,
         )?;
+        let layout_nodes = result["nodes"]
+            .as_array()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?
+            .iter()
+            .map(|node| {
+                let node_id = node["nodeId"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?;
+                let x = node["x"]
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?;
+                let y = node["y"]
+                    .as_f64()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| "worker_result_invalid".to_owned())?;
+                Ok((node_id.to_owned(), serde_json::json!({"x":x,"y":y})))
+            })
+            .collect::<Result<serde_json::Map<String, Value>, String>>()?;
+        let layout_base = serde_json::json!({
+            "graph_hash":result["graphHash"],
+            "layout_engine":result["layoutEngine"],
+            "layout_version":result["layoutVersion"],
+            "algorithm":result["algorithm"],
+            "preset":result["algorithm"],
+            "params":result["params"],
+            "nodes":layout_nodes,
+        });
+        let layout_hash = canonical_json_hash(&layout_base)?;
+        let mut layout = layout_base
+            .as_object()
+            .cloned()
+            .ok_or_else(|| "worker_result_invalid".to_owned())?;
+        layout.insert("layout_hash".into(), Value::String(layout_hash));
         let now = now_iso_like();
         Ok(CitationLayoutRecord {
             layout_key: request.layout_key.clone(),
@@ -568,7 +842,7 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             preset: request.preset.clone(),
             graph_hash: request.expected_graph_hash.clone(),
             status: "ready".into(),
-            layout_json: synthesis_protocol::canonical_json(&result)
+            layout_json: synthesis_protocol::canonical_json(&Value::Object(layout))
                 .map_err(|_| "worker_result_invalid".to_owned())?,
             diagnostics_json: "[]".into(),
             created_at: now.clone(),
@@ -764,7 +1038,7 @@ impl ReverseHostApplicationPort {
     }
 }
 
-impl ReferenceHostPort for ReverseHostApplicationPort {
+impl HostItemCollectionPort for ReverseHostApplicationPort {
     fn list_items_page(
         &self,
         cursor: &str,
@@ -777,6 +1051,16 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
         .map_err(|_| "reverse_host_result_invalid".into())
     }
 
+    fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<ReferenceHostItemsByRef, String> {
+        serde_json::from_value(self.call(
+            "library.items.get_by_ref",
+            serde_json::json!({"paperRefs":paper_refs}),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".into())
+    }
+}
+
+impl ReferenceHostPort for ReverseHostApplicationPort {
     fn scan_artifacts_page(
         &self,
         cursor: &str,

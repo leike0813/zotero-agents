@@ -5,14 +5,45 @@ Defines the Synthesis Workbench client consumer contract for graph command opera
 
 ## Requirements
 
+### Requirement: Workbench graph reads SHALL receive a renderable native projection
+
+`getSynthesisWorkbenchSurfaceInput` for `graph` SHALL return an explicit graph
+object containing the active graph hash, public UI nodes and edges, hover-only
+rows, layout status, diagnostics, and topic scopes. Missing fields SHALL NOT be
+used to represent a rebuilt graph.
+
+#### Scenario: Rebuild succeeds before layout exists
+- **WHEN** Workbench refreshes the graph surface after a successful rebuild
+- **THEN** nodes and edges render immediately with layout status `missing` or `stale`
+- **AND** the existing bounded auto-layout path may request one recomputation
+
+#### Scenario: Layout recomputation succeeds
+- **WHEN** Workbench refreshes the same graph and the normalized layout is ready
+- **THEN** every displayed node receives finite coordinates
+- **AND** the ready layout does not trigger another automatic recomputation
+
 ### Requirement: Citation Graph commands use a bounded client capability
 
-The Synthesis client SHALL expose a `graph` capability with commands for Citation Graph layout recomputation, full cache rebuild, incremental cache refresh, and failed rebuild retry. The Workbench SHALL resolve the default client lazily and SHALL NOT call the corresponding legacy service methods directly.
+The Synthesis client SHALL expose a `graph` capability with commands for
+scoped update, metrics refresh, layout recomputation, full cache rebuild,
+incremental cache refresh, and failed rebuild retry. The Workbench SHALL
+resolve the default client lazily and SHALL NOT construct native worker
+requests.
 
 #### Scenario: Workbench invokes a cache command
 - **WHEN** the user confirms a full rebuild, requests an incremental refresh, or retries a failed rebuild
 - **THEN** the Workbench SHALL invoke the corresponding no-argument `client.graph` method
 - **AND** the command result SHALL cross the client boundary as an opaque JSON-safe object
+
+#### Scenario: Native client serializes cache commands
+- **WHEN** full rebuild, incremental refresh, or retry crosses the native transport
+- **THEN** the request envelope SHALL contain exactly `{args: []}`
+- **AND** no rebuild scope, graph basis, Host data, or worker payload SHALL be serialized by TypeScript
+
+#### Scenario: Native client serializes update and metrics commands
+- **WHEN** a caller omits the optional update or metrics request
+- **THEN** the native client SHALL send one empty public request object
+- **AND** an explicit supported public request SHALL be forwarded without internal fields
 
 #### Scenario: Workbench recomputes layout
 - **WHEN** the Workbench manually or automatically recomputes Citation Graph layout
@@ -38,17 +69,17 @@ The layout request SHALL contain an algorithm from `force`, `radial`, or `compon
 
 ### Requirement: In-process Graph commands normalize ports, results, and errors
 
-The in-process adapter SHALL depend on four narrow legacy Graph command ports, normalize every successful result through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error, and normalize an ordinary legacy exception to `internal`.
+The in-process adapter SHALL depend on narrow Graph command ports, normalize every successful result through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error, and normalize an ordinary command exception to `internal`.
 
-#### Scenario: Legacy command succeeds with a non-JSON-safe value
+#### Scenario: Command succeeds with a non-JSON-safe value
 - **WHEN** a configured Graph command port returns a result containing values handled by the shared JSON normalization rules
 - **THEN** the client SHALL return the normalized opaque JSON-safe object
 
-#### Scenario: Legacy command port is absent
+#### Scenario: Command port is absent
 - **WHEN** a caller invokes a Graph command whose legacy port was not composed
 - **THEN** the adapter SHALL reject with `unavailable`
 
-#### Scenario: Legacy command throws an ordinary exception
+#### Scenario: Command throws an ordinary exception
 - **WHEN** a configured Graph command port throws a non-client exception
 - **THEN** the adapter SHALL reject with `internal`
 
@@ -91,3 +122,46 @@ This migration SHALL retain 125 public Synthesis service methods, exactly four d
 - **WHEN** the migration is reviewed
 - **THEN** Graph queries and metrics refresh SHALL remain on their current paths
 - **AND** Graph algorithms, repositories, operation persistence, and public service methods SHALL remain unchanged
+
+### Requirement: Workbench SHALL load Citation Graph pages incrementally
+The Workbench SHALL render the first bounded Graph page and then request continuation pages serially while the Graph tab and current generation remain active. It SHALL merge nodes and edges by stable ID without rebuilding the graph canvas or managed control and selection regions.
+
+#### Scenario: Background loading completes within the soft limit
+- **WHEN** the active graph contains 7,432 nodes and 11,377 edges under the current query
+- **THEN** the Workbench automatically loads the complete graph and reports complete progress
+
+#### Scenario: A page arrives
+- **WHEN** a valid continuation page is merged
+- **THEN** existing Sigma canvas, camera, selection, focus, control drawer, and selection drawer identities are preserved
+
+### Requirement: Workbench Graph windows SHALL reject stale work
+The Workbench SHALL bind page and slice merges to generation, graph hash, and query signature. Leaving the Graph tab, changing filters, invalidating the graph, changing layout, or cleaning up the runtime SHALL stop subsequent requests and cause in-flight stale results to be discarded.
+
+#### Scenario: Filters change during a read
+- **WHEN** an earlier filter generation returns after a new filtered window starts
+- **THEN** the old page is discarded and does not modify the visible graph or cursor
+
+### Requirement: Workbench Graph windows SHALL pause and resume at soft limits
+The interactive Graph window SHALL pause by default after accumulating 10,000 nodes or 20,000 edges and SHALL let the user continue by increasing the respective allowance by the same amount. A failed page SHALL expose retry without discarding already merged valid pages.
+
+#### Scenario: Soft edge limit is reached
+- **WHEN** the merged window reaches 20,000 edges and more pages remain
+- **THEN** automatic loading pauses with progress and a continue action
+
+#### Scenario: User continues loading
+- **WHEN** the user continues a paused window
+- **THEN** the allowance increases by 10,000 nodes and 20,000 edges and serial loading resumes from the existing cursor
+
+### Requirement: Neighborhood expansion SHALL not advance sequential loading
+Incoming, outgoing, and bidirectional one-hop patches SHALL use the same ID-based merge path as pages while leaving the main continuation cursor and sequential progress unchanged.
+
+#### Scenario: The same neighborhood is expanded twice
+- **WHEN** an identical valid slice patch is merged repeatedly
+- **THEN** no duplicate node or edge is created and the next page cursor is unchanged
+
+### Requirement: Topic graph exports SHALL be complete or explicitly fail
+Topic HTML and graph export SHALL aggregate every required topic page and layout page under one stable basis. If an export safety limit is reached before completion, the operation SHALL return a typed failure and SHALL NOT emit a silently incomplete graph.
+
+#### Scenario: Export exceeds its safety limit
+- **WHEN** more graph data remains after the export safety ceiling is reached
+- **THEN** the export fails with a stable typed error and produces no partial result

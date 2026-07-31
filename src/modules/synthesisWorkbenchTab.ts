@@ -1,7 +1,9 @@
 import { config } from "../../package.json";
-import type {
-  SynthesisReferenceMatchProposalDecision,
-  SynthesisSyncConflictResolutionAction,
+import {
+  SynthesisClientError,
+  type SynthesisCitationGraphPageMetadata,
+  type SynthesisReferenceMatchProposalDecision,
+  type SynthesisSyncConflictResolutionAction,
 } from "../../packages/synthesis-contracts/src/index";
 import { getString, getStringOrFallback } from "../utils/locale";
 import {
@@ -51,11 +53,22 @@ import {
   type SynthesisUiAction,
   type SynthesisUiActionOperation,
   type SynthesisUiLayoutAlgorithm,
+  type SynthesisUiGraphEdge,
+  type SynthesisUiGraphNode,
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
   type SynthesisUiTab,
   type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
+import {
+  continueSynthesisCitationGraphWindow,
+  createSynthesisCitationGraphWindow,
+  failSynthesisCitationGraphWindow,
+  mergeSynthesisCitationGraphPage,
+  mergeSynthesisCitationGraphSlice,
+  retrySynthesisCitationGraphWindow,
+  type SynthesisCitationGraphWindow,
+} from "../shared/synthesisCitationGraphWindow";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import { yieldToEventLoop } from "../utils/runtimeCompatibility";
 import {
@@ -71,6 +84,7 @@ type SynthesisBridgeMessageType =
   | "synthesis:chrome"
   | "synthesis:surface"
   | "synthesis:surface-error"
+  | "synthesis:graph-page"
   | "synthesis:topic-detail"
   | "synthesis:digest";
 
@@ -148,6 +162,13 @@ type SynthesisWorkbenchRuntime = {
   lastCompletedCommand?: SynthesisUiActionOperation;
   lastFailedCommand?: SynthesisUiActionOperation;
   actionWarnings: SynthesisUiActionOperation[];
+  graphGeneration: number;
+  graphWindow?: SynthesisCitationGraphWindow<
+    SynthesisUiGraphNode,
+    SynthesisUiGraphEdge
+  >;
+  graphPageLoop?: Promise<void>;
+  cleanedUp?: boolean;
 };
 
 type SurfaceRefreshRequestMeta = {
@@ -604,6 +625,10 @@ function handleSynthesisWorkbenchSidecarChanged(
   const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
     args.graphMayHaveChanged === false ? ["index"] : ["index", "graph"];
   for (const runtime of synthesisWorkbenchRuntimes) {
+    if (invalidatedSurfaces.includes("graph")) {
+      runtime.graphGeneration += 1;
+      runtime.graphWindow = undefined;
+    }
     invalidatedSurfaces.forEach((surface) =>
       markSurfaceDirty(runtime, surface),
     );
@@ -1125,6 +1150,289 @@ async function sendChrome(
   );
 }
 
+function graphPageNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
+}
+
+function mergeGraphPageInput(
+  runtime: SynthesisWorkbenchRuntime,
+  input: SynthesisUiSnapshotInput,
+  generation: number,
+  kind: "page" | "slice" = "page",
+) {
+  const graph = input.graph;
+  const page = graph?.page;
+  if (!graph || !page || generation !== runtime.graphGeneration) {
+    return false;
+  }
+  const graphHash = String(graph.graph_hash || "").trim();
+  const querySignature = String(page.querySignature || "").trim();
+  if (!graphHash || !querySignature || !runtime.graphWindow) {
+    return false;
+  }
+  const hoverNodeIds = new Set(
+    (graph.hoverOnlyNodes || []).map((node) => node.id),
+  );
+  const hoverEdgeIds = new Set(
+    (graph.hoverOnlyEdges || []).map((edge) => edge.id),
+  );
+  const patch = {
+    generation,
+    graphHash,
+    querySignature,
+    nodes: (graph.nodes || []).filter(
+      (node) => node.visibility !== "hover_only" && !hoverNodeIds.has(node.id),
+    ),
+    edges: (graph.edges || []).filter(
+      (edge) => edge.visibility !== "hover_only" && !hoverEdgeIds.has(edge.id),
+    ),
+    hoverOnlyNodes: graph.hoverOnlyNodes || [],
+    hoverOnlyEdges: graph.hoverOnlyEdges || [],
+    nextCursor: String(page.nextCursor || "").trim() || undefined,
+    hasMore: Boolean(page.hasMore),
+    totalNodes: graphPageNumber(page.totalNodes),
+    totalEdges: graphPageNumber(page.totalEdges),
+    totalHoverNodes: graphPageNumber(page.totalHoverNodes),
+    totalHoverEdges: graphPageNumber(page.totalHoverEdges),
+  };
+  const merged =
+    kind === "slice"
+      ? mergeSynthesisCitationGraphSlice(runtime.graphWindow, patch)
+      : mergeSynthesisCitationGraphPage(runtime.graphWindow, patch);
+  if (!merged.accepted) {
+    return false;
+  }
+  runtime.graphWindow = merged.window;
+  graph.nodes = [
+    ...merged.window.nodes,
+    ...merged.window.hoverOnlyNodes,
+  ];
+  graph.edges = [
+    ...merged.window.edges,
+    ...merged.window.hoverOnlyEdges,
+  ];
+  graph.hoverOnlyNodes = [...merged.window.hoverOnlyNodes];
+  graph.hoverOnlyEdges = [...merged.window.hoverOnlyEdges];
+  graph.page = {
+    ...page,
+    nextCursor: merged.window.nextCursor || "",
+    hasMore: merged.window.hasMore,
+    totalNodes: merged.window.totalNodes,
+    totalEdges: merged.window.totalEdges,
+    totalHoverNodes: merged.window.totalHoverNodes,
+    totalHoverEdges: merged.window.totalHoverEdges,
+    returnedNodes: merged.addedNodes,
+    returnedEdges: merged.addedEdges,
+    querySignature: merged.window.querySignature || "",
+    windowStatus: merged.window.status,
+  };
+  return true;
+}
+
+function graphWindowError(error: unknown) {
+  const details =
+    error && typeof error === "object" && "details" in error
+      ? (error as { details?: Record<string, unknown> }).details
+      : undefined;
+  return {
+    code: String(details?.sidecarCode || "surface_refresh_failed"),
+    reason: String(
+      details?.sidecarReason ||
+        (error instanceof Error ? error.message : error || ""),
+    ).slice(0, 160),
+  };
+}
+
+function publishGraphPage(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+) {
+  if (!runtime.frameWindow || !runtime.snapshotInput) return;
+  postWorkbenchMessage(runtime, "synthesis:graph-page", {
+    surface: "graph",
+    request,
+    requestId: request.requestId,
+    generation: runtime.graphGeneration,
+    snapshot: snapshotForRuntime(runtime),
+  });
+}
+
+async function loadGraphContinuationPages(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+  generation: number,
+) {
+  if (runtime.graphPageLoop) return runtime.graphPageLoop;
+  const loop = (async () => {
+    while (
+      !runtime.cleanedUp &&
+      generation === runtime.graphGeneration &&
+      isLatestSurfaceRefreshRequest(runtime, request) &&
+      isActiveSurface(runtime, "graph") &&
+      runtime.graphWindow?.status === "loading" &&
+      runtime.graphWindow.hasMore
+    ) {
+      const cursor = runtime.graphWindow.nextCursor;
+      const graphHash = runtime.graphWindow.graphHash;
+      if (!cursor || !graphHash) break;
+      try {
+        const client = await getDefaultSynthesisClient();
+        const input = toSynthesisUiSnapshotInput(
+          await client.workbench.readSurface({
+            surface: "graph",
+            state: toSynthesisWorkbenchReadState(runtime.state, {
+              graphWindowCursor: cursor,
+              expectedGraphHash: graphHash,
+            }),
+          }),
+        );
+        if (
+          !isLatestSurfaceRefreshRequest(runtime, request) ||
+          !isActiveSurface(runtime, "graph") ||
+          generation !== runtime.graphGeneration ||
+          !mergeGraphPageInput(runtime, input, generation)
+        ) {
+          break;
+        }
+        mergeRuntimeSnapshotInput(runtime, input);
+        publishGraphPage(runtime, request);
+        await yieldToEventLoop();
+      } catch (error) {
+        if (generation !== runtime.graphGeneration || !runtime.graphWindow) {
+          break;
+        }
+        const failure = graphWindowError(error);
+        runtime.graphWindow = failSynthesisCitationGraphWindow(
+          runtime.graphWindow,
+          failure.code,
+          failure.reason,
+        );
+        if (runtime.snapshotInput?.graph?.page) {
+          runtime.snapshotInput.graph.page = {
+            ...runtime.snapshotInput.graph.page,
+            windowStatus: "failed",
+            error: failure,
+          };
+        }
+        publishGraphPage(runtime, request);
+        break;
+      }
+    }
+  })();
+  runtime.graphPageLoop = loop;
+  try {
+    await loop;
+  } finally {
+    if (runtime.graphPageLoop === loop) runtime.graphPageLoop = undefined;
+  }
+}
+
+function currentGraphSurfaceRequest(
+  runtime: SynthesisWorkbenchRuntime,
+): SurfaceRefreshRequestMeta | undefined {
+  const requestId = runtime.latestSurfaceRequestBySurface.graph;
+  if (!requestId) return undefined;
+  return {
+    requestId,
+    surface: "graph",
+    selectedTabAtRequest: "graph",
+    refreshFromService: true,
+    startedAt: new Date().toISOString(),
+  };
+}
+
+async function expandGraphNeighborhood(
+  runtime: SynthesisWorkbenchRuntime,
+  payload: Record<string, unknown>,
+) {
+  const window = runtime.graphWindow;
+  const request = currentGraphSurfaceRequest(runtime);
+  const nodeId = String(payload.nodeId || "").trim();
+  const direction = String(payload.direction || "both");
+  if (
+    !window?.graphHash ||
+    !window.querySignature ||
+    !request ||
+    !nodeId ||
+    !["incoming", "outgoing", "both"].includes(direction)
+  ) {
+    return;
+  }
+  const generation = runtime.graphGeneration;
+  const client = await getDefaultSynthesisClient();
+  const result = await client.graph.getSlice({
+    startNodeId: nodeId,
+    depth: 1,
+    direction: direction as "incoming" | "outgoing" | "both",
+    maxNodes: 100,
+    maxEdges: 200,
+    expectedGraphHash: window.graphHash,
+    querySignature: window.querySignature,
+    layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+    filters: {
+      topicId:
+        runtime.state.graph.topicId === "all"
+          ? undefined
+          : runtime.state.graph.topicId,
+      nodeKinds: runtime.state.graph.nodeKinds,
+      roles:
+        runtime.state.graph.role === "all"
+          ? []
+          : [runtime.state.graph.role],
+      includeLowSignal: runtime.state.graph.showLowSignalReferences,
+      search: runtime.state.graph.search,
+    },
+  });
+  if (
+    generation !== runtime.graphGeneration ||
+    !isLatestSurfaceRefreshRequest(runtime, request) ||
+    !isActiveSurface(runtime, "graph")
+  ) {
+    return;
+  }
+  const input: SynthesisUiSnapshotInput = {
+    libraryId: runtime.snapshotInput?.libraryId || 0,
+    graph: {
+      graph_hash: result.graph_hash,
+      nodes: result.nodes.map((node) => ({
+        id: node.node_id,
+        label: node.title || node.node_id,
+        kind: node.kind,
+        year: node.year,
+        authors: node.authors,
+        low_signal: node.low_signal,
+        external_degree: node.external_degree,
+        visibility: node.visibility,
+        display_tier: node.display_tier,
+      })),
+      edges: result.edges.map((edge) => ({
+        id: edge.edge_id,
+        source: edge.source,
+        target: edge.target,
+        primary_role: edge.primary_role,
+        mention_count: edge.mention_count,
+        visibility: edge.visibility,
+      })),
+      page: {
+        querySignature: result.querySignature || window.querySignature,
+        nextCursor: window.nextCursor || "",
+        hasMore: window.hasMore,
+        totalNodes: window.totalNodes,
+        totalEdges: window.totalEdges,
+        totalHoverNodes: window.totalHoverNodes,
+        totalHoverEdges: window.totalHoverEdges,
+        windowStatus: window.status,
+        roleOptions: runtime.snapshotInput?.graph?.page?.roleOptions || [],
+      },
+    },
+  };
+  if (mergeGraphPageInput(runtime, input, generation, "slice")) {
+    mergeRuntimeSnapshotInput(runtime, input);
+    publishGraphPage(runtime, request);
+  }
+}
+
 async function sendSurface(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
@@ -1139,6 +1447,18 @@ async function sendSurface(
     surface,
     refreshFromService,
   );
+  const graphGeneration =
+    surface === "graph" && refreshFromService
+      ? ++runtime.graphGeneration
+      : runtime.graphGeneration;
+  if (surface === "graph" && refreshFromService) {
+    // Detach the superseded loop immediately. Its generation guard will make
+    // any in-flight result inert while the replacement query starts loading.
+    runtime.graphPageLoop = undefined;
+    runtime.graphWindow = createSynthesisCitationGraphWindow({
+      generation: graphGeneration,
+    });
+  }
   try {
     if (refreshFromService && !runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
@@ -1149,6 +1469,12 @@ async function sendSurface(
         }),
       );
       if (!isLatestSurfaceRefreshRequest(runtime, request)) {
+        return;
+      }
+      if (
+        surface === "graph" &&
+        !mergeGraphPageInput(runtime, input, graphGeneration)
+      ) {
         return;
       }
       mergeRuntimeSnapshotInput(runtime, input);
@@ -1166,6 +1492,13 @@ async function sendSurface(
       requestId: request.requestId,
       snapshot: snapshotForRuntime(runtime),
     });
+    if (
+      surface === "graph" &&
+      refreshFromService &&
+      runtime.graphWindow?.status === "loading"
+    ) {
+      void loadGraphContinuationPages(runtime, request, graphGeneration);
+    }
   } catch (error) {
     if (
       !isLatestSurfaceRefreshRequest(runtime, request) ||
@@ -1645,6 +1978,121 @@ function pruneGraphToTopicSubgraph(
   };
 }
 
+const SYNTHESIS_GRAPH_EXPORT_NODE_LIMIT = 50_000;
+const SYNTHESIS_GRAPH_EXPORT_EDGE_LIMIT = 100_000;
+
+async function readCompleteGraphSurfaceForExport(
+  client: Awaited<ReturnType<typeof getDefaultSynthesisClient>>,
+  state: SynthesisUiState,
+): Promise<SynthesisUiSnapshotInput> {
+  const generation = 1;
+  let window = createSynthesisCitationGraphWindow<
+    SynthesisUiGraphNode,
+    SynthesisUiGraphEdge
+  >({
+    generation,
+    nodeSoftLimit: SYNTHESIS_GRAPH_EXPORT_NODE_LIMIT,
+    edgeSoftLimit: SYNTHESIS_GRAPH_EXPORT_EDGE_LIMIT,
+  });
+  let cursor: string | undefined;
+  let expectedGraphHash: string | undefined;
+  let accumulated: SynthesisUiSnapshotInput | undefined;
+
+  do {
+    const pageInput = toSynthesisUiSnapshotInput(
+      await client.workbench.readSurface({
+        surface: "graph",
+        state: toSynthesisWorkbenchReadState(state, {
+          graphWindowCursor: cursor,
+          expectedGraphHash,
+        }),
+      }),
+    );
+    const graph = pageInput.graph;
+    const page = graph?.page as
+      | (SynthesisCitationGraphPageMetadata & Record<string, unknown>)
+      | undefined;
+    const graphHash = String(graph?.graph_hash || "").trim();
+    const querySignature = String(page?.querySignature || "").trim();
+    if (!graph || !page || !graphHash || !querySignature) {
+      throw new SynthesisClientError(
+        "internal",
+        "Citation graph export received an incomplete page",
+        { reason: "graph_export_page_invalid" },
+      );
+    }
+    const hoverNodeIds = new Set(
+      (graph.hoverOnlyNodes || []).map((node) => node.id),
+    );
+    const hoverEdgeIds = new Set(
+      (graph.hoverOnlyEdges || []).map((edge) => edge.id),
+    );
+    const merged = mergeSynthesisCitationGraphPage(window, {
+      generation,
+      graphHash,
+      querySignature,
+      nodes: (graph.nodes || []).filter(
+        (node) =>
+          node.visibility !== "hover_only" && !hoverNodeIds.has(node.id),
+      ),
+      edges: (graph.edges || []).filter(
+        (edge) =>
+          edge.visibility !== "hover_only" && !hoverEdgeIds.has(edge.id),
+      ),
+      hoverOnlyNodes: graph.hoverOnlyNodes || [],
+      hoverOnlyEdges: graph.hoverOnlyEdges || [],
+      nextCursor: String(page.nextCursor || "").trim() || undefined,
+      hasMore: page.hasMore,
+      totalNodes: graphPageNumber(page.totalNodes),
+      totalEdges: graphPageNumber(page.totalEdges),
+      totalHoverNodes: graphPageNumber(page.totalHoverNodes),
+      totalHoverEdges: graphPageNumber(page.totalHoverEdges),
+    });
+    if (!merged.accepted) {
+      throw new SynthesisClientError(
+        "conflict",
+        "Citation graph changed while the export was being assembled",
+        { reason: merged.reason || "basis_mismatch" },
+      );
+    }
+    window = merged.window;
+    if (window.status === "paused") {
+      throw new SynthesisClientError(
+        "conflict",
+        "Citation graph export exceeded its safety limit",
+        { reason: "graph_export_limit_exceeded" },
+      );
+    }
+    accumulated = {
+      ...pageInput,
+      graph: {
+        ...graph,
+        nodes: [...window.nodes, ...window.hoverOnlyNodes],
+        edges: [...window.edges, ...window.hoverOnlyEdges],
+        hoverOnlyNodes: [...window.hoverOnlyNodes],
+        hoverOnlyEdges: [...window.hoverOnlyEdges],
+        page: {
+          ...page,
+          nextCursor: window.nextCursor || "",
+          hasMore: window.hasMore,
+          windowStatus: window.status,
+        },
+      },
+    };
+    cursor = window.nextCursor;
+    expectedGraphHash = window.graphHash;
+  } while (window.hasMore && cursor);
+
+  if (!accumulated || window.hasMore) {
+    throw new SynthesisClientError(
+      "internal",
+      "Citation graph export could not reach a complete page window",
+      { reason: "graph_export_incomplete" },
+    );
+  }
+  return accumulated;
+}
+
 async function buildTopicDetailHtmlExport(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
@@ -1679,12 +2127,7 @@ async function buildTopicDetailHtmlExport(
     Promise.all(
       graphLayoutStates.map(async (entry) => ({
         ...entry,
-        input: toSynthesisUiSnapshotInput(
-          await client.workbench.readSurface({
-            surface: "graph",
-            state: toSynthesisWorkbenchReadState(entry.state),
-          }),
-        ),
+        input: await readCompleteGraphSurfaceForExport(client, entry.state),
       })),
     ),
     resolveTopicExportDigests(detail, topicId),
@@ -2034,11 +2477,49 @@ function handleAction(
   if (!runtime) {
     return;
   }
+  if (
+    envelope.action === "continueGraphWindow" ||
+    envelope.action === "retryGraphWindow"
+  ) {
+    const current = runtime.graphWindow;
+    const requestId = runtime.latestSurfaceRequestBySurface.graph;
+    if (!current || !requestId || !isActiveSurface(runtime, "graph")) return;
+    runtime.graphWindow =
+      envelope.action === "continueGraphWindow"
+        ? continueSynthesisCitationGraphWindow(current)
+        : retrySynthesisCitationGraphWindow(current);
+    if (runtime.snapshotInput?.graph?.page) {
+      runtime.snapshotInput.graph.page = {
+        ...runtime.snapshotInput.graph.page,
+        windowStatus: runtime.graphWindow.status,
+      };
+    }
+    const request: SurfaceRefreshRequestMeta = {
+      requestId,
+      surface: "graph",
+      selectedTabAtRequest: "graph",
+      refreshFromService: true,
+      startedAt: new Date().toISOString(),
+    };
+    publishGraphPage(runtime, request);
+    void loadGraphContinuationPages(
+      runtime,
+      request,
+      runtime.graphGeneration,
+    );
+    return;
+  }
   if (envelope.action === "openSynthesisSidecarDiagnostics") {
     void openTaskManagerDialog({
       initialTabKey: "synthesis-sidecar",
       chromeWindow: runtime.window,
     });
+    return;
+  }
+  if (envelope.action === "expandGraphNeighborhood") {
+    void expandGraphNeighborhood(runtime, envelope.payload || {}).catch(
+      (error) => reportWorkbenchError(error, runtime.window),
+    );
     return;
   }
   const previousState = runtime.state;
@@ -2053,6 +2534,18 @@ function handleAction(
     return;
   }
   runtime.state = result.state;
+  const graphQueryChanged =
+    runtime.state.selectedTab === "graph" &&
+    ((envelope.action === "setFilters" &&
+      Boolean(envelope.payload?.graph)) ||
+      (envelope.action === "setGraphView" &&
+        ["role", "topicId", "nodeKinds", "showLowSignalReferences"].some(
+          (field) => field in (envelope.payload || {}),
+        )));
+  if (graphQueryChanged) {
+    void sendSurface(runtime, "graph", { refreshFromService: true });
+    return;
+  }
   if (envelope.action === "ready") {
     void sendChrome(runtime, { refreshFromService: true });
     scheduleActiveSurfaceRefresh(runtime);
@@ -3243,21 +3736,12 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.state.selectedTab !== "graph") {
     return;
   }
-  const client = await getDefaultSynthesisClient();
-  const input = toSynthesisUiSnapshotInput(
-    await client.workbench.readSurface({
-      surface: "graph",
-      state: toSynthesisWorkbenchReadState(runtime.state),
-    }),
-  );
-  mergeRuntimeSnapshotInput(runtime, input);
-  const status = input.graph?.layoutStatus || "missing";
-  if (status === "ready" || !input.graph?.graph_hash) {
-    await sendSurface(runtime, "graph", {
-      refreshFromService: false,
-    });
+  await sendSurface(runtime, "graph", { refreshFromService: true });
+  const status = runtime.snapshotInput?.graph?.layoutStatus || "missing";
+  if (status === "ready" || !runtime.snapshotInput?.graph?.graph_hash) {
     return;
   }
+  const client = await getDefaultSynthesisClient();
   await client.graph.recomputeCitationGraphLayout({
     algorithm: runtime.state.graph.layoutAlgorithm,
   });
@@ -3267,6 +3751,10 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
 }
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
+  runtime.cleanedUp = true;
+  runtime.graphGeneration += 1;
+  runtime.graphWindow = undefined;
+  runtime.graphPageLoop = undefined;
   if (runtime.handshakeTimer) {
     clearInterval(runtime.handshakeTimer);
     runtime.handshakeTimer = undefined;
@@ -3414,6 +3902,7 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
+    graphGeneration: 0,
   };
   registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
@@ -3490,6 +3979,7 @@ export async function openSynthesisWorkbenchTab(
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
+    graphGeneration: 0,
   };
   synthesisWorkbenchTab = runtime;
   registerSynthesisWorkbenchRuntime(runtime);

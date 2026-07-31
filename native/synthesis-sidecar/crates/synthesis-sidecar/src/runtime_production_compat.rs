@@ -1,13 +1,9 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use synthesis_application::citation_graph::{
-    CitationLayoutRequest, CitationMetricsPageRequest, CitationRebuildRequest, CitationSliceRequest,
-};
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 use synthesis_application::topic_graph::{TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest};
 use synthesis_application::{
-    CitationGraphRepositoryPort, TopicDetailRequest, TopicDetailResult, TopicListRequest,
-    TopicListResult, TopicRecord,
+    TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
 };
 use synthesis_repository::{TagStagedSuggestionRecord, TagVocabularyReplacement};
 
@@ -503,6 +499,9 @@ fn workbench_surface_from_compat(
     if surface == "index" {
         return apps.reference_canonical.workbench_index(state);
     }
+    if surface == "graph" {
+        return crate::runtime_citation_graph_read_surface::workbench_graph_surface(apps, state);
+    }
     // The native surface currently owns the coherent operational projection.
     // Surface-specific data remains with the corresponding typed application.
     apps.workbench.read_json()
@@ -613,14 +612,6 @@ fn workbench_chrome_from_compat(apps: &ProductionApplications) -> Result<Value, 
             "backgroundJobs":chrome.maintenance.background_jobs,
         },
     }))
-}
-
-fn expected_hash_request(args: &[Value], names: &[&str]) -> Result<String, String> {
-    match args {
-        [Value::String(value)] if !value.is_empty() => Ok(value.clone()),
-        [request] => Ok(string_field(request, names)?.to_owned()),
-        _ => Err("invalid_request".into()),
-    }
 }
 
 #[allow(dead_code)]
@@ -848,30 +839,25 @@ register_production_client_handlers!(
         runtime_artifact_library_debug::dispatch(apps, "client.getSchemas", args)
     }),
     ("client.getCitationGraphLayout", |apps, args| {
-        let request = one::<Value>(args)?;
-        let key = request
-            .get("layoutKey")
-            .or_else(|| request.get("layout_key"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        wire(CitationGraphRepositoryPort::get_layout(
-            apps.repository.as_ref(),
-            key,
-        )?)
+        crate::runtime_citation_graph_read_surface::dispatch(
+            apps,
+            "client.getCitationGraphLayout",
+            args,
+        )
     }),
     ("client.queryCitationGraph", |apps, args| {
-        let _: Value = optional_one(args)?;
-        Ok(json!({
-            "nodes":CitationGraphRepositoryPort::list_nodes(apps.repository.as_ref())?,
-            "edges":CitationGraphRepositoryPort::list_edges(apps.repository.as_ref())?,
-        }))
+        crate::runtime_citation_graph_read_surface::dispatch(
+            apps,
+            "client.queryCitationGraph",
+            args,
+        )
     }),
     ("client.queryCitationGraphCluster", |apps, args| {
-        let _: Value = optional_one(args)?;
-        Ok(json!({
-            "nodes":CitationGraphRepositoryPort::list_nodes(apps.repository.as_ref())?,
-            "edges":CitationGraphRepositoryPort::list_edges(apps.repository.as_ref())?,
-        }))
+        crate::runtime_citation_graph_read_surface::dispatch(
+            apps,
+            "client.queryCitationGraphCluster",
+            args,
+        )
     }),
     ("client.getReferenceSidecarIndex", |apps, args| {
         apps.reference_canonical
@@ -971,58 +957,65 @@ register_production_client_handlers!(
         apps.update_topic_discovery_hint(string_field(&request, &["hintId"])?, "open")
     }),
     ("client.getCitationGraphSlice", |apps, args| {
-        wire(
-            apps.citations
-                .read_slice(one::<CitationSliceRequest>(args)?)?,
+        crate::runtime_citation_graph_read_surface::dispatch(
+            apps,
+            "client.getCitationGraphSlice",
+            args,
         )
     }),
     ("client.getCitationGraphMetrics", |apps, args| {
-        wire(
-            apps.citations
-                .read_metrics(one::<CitationMetricsPageRequest>(args)?)?,
+        crate::runtime_citation_graph_read_surface::dispatch(
+            apps,
+            "client.getCitationGraphMetrics",
+            args,
         )
     }),
     ("client.rankLibraryPapers", |apps, args| {
-        let _: Value = optional_one(args)?;
-        wire(CitationGraphRepositoryPort::list_complex_metrics(
-            apps.repository.as_ref(),
-        )?)
+        crate::runtime_citation_graph_read_surface::dispatch(apps, "client.rankLibraryPapers", args)
     }),
     ("client.refreshCitationGraphMetricsNow", |apps, args| {
-        let hash = expected_hash_request(args, &["expectedGraphHash", "graphHash"])?;
-        wire(apps.citations.refresh_metrics(&hash))
+        crate::runtime_citation_graph_commands::dispatch(
+            apps,
+            "client.refreshCitationGraphMetricsNow",
+            args,
+        )
     }),
     ("client.startCitationGraphUpdate", |apps, args| {
-        wire(
-            apps.citations
-                .rebuild_full(one::<CitationRebuildRequest>(args)?),
+        crate::runtime_citation_graph_commands::dispatch(
+            apps,
+            "client.startCitationGraphUpdate",
+            args,
         )
     }),
     ("client.recomputeCitationGraphLayout", |apps, args| {
-        wire(
-            apps.citations
-                .recompute_layout(one::<CitationLayoutRequest>(args)?),
+        crate::runtime_citation_graph_commands::dispatch(
+            apps,
+            "client.recomputeCitationGraphLayout",
+            args,
         )
     }),
     ("client.rebuildCitationGraphCacheNow", |apps, args| {
-        wire(
-            apps.citations
-                .rebuild_full(one::<CitationRebuildRequest>(args)?),
+        crate::runtime_citation_graph_commands::dispatch(
+            apps,
+            "client.rebuildCitationGraphCacheNow",
+            args,
         )
     }),
     (
         "client.refreshCitationGraphCacheIncrementalNow",
         |apps, args| {
-            wire(
-                apps.citations
-                    .rebuild_full(one::<CitationRebuildRequest>(args)?),
+            crate::runtime_citation_graph_commands::dispatch(
+                apps,
+                "client.refreshCitationGraphCacheIncrementalNow",
+                args,
             )
         }
     ),
     ("client.retryCitationGraphCacheRebuild", |apps, args| {
-        wire(
-            apps.citations
-                .rebuild_full(one::<CitationRebuildRequest>(args)?),
+        crate::runtime_citation_graph_commands::dispatch(
+            apps,
+            "client.retryCitationGraphCacheRebuild",
+            args,
         )
     }),
     ("client.rankExternalReferences", |apps, args| {
@@ -1489,6 +1482,78 @@ mod tests {
                     "patch":{"title":"Title"},
                     "unexpected":true,
                 })],
+            ),
+            Err("invalid_request".into()),
+        );
+        drop(apps);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn citation_graph_public_commands_validate_only_the_public_boundary() {
+        let root = test_root();
+        let apps = test_applications(&root);
+
+        for capability in [
+            "client.rebuildCitationGraphCacheNow",
+            "client.refreshCitationGraphCacheIncrementalNow",
+            "client.retryCitationGraphCacheRebuild",
+        ] {
+            assert_ne!(
+                dispatch_legacy_client(&apps, capability, &[]),
+                Err("invalid_request".into()),
+                "{capability} must accept the public no-argument boundary",
+            );
+            assert_eq!(
+                dispatch_legacy_client(&apps, capability, &[json!({})]),
+                Err("invalid_request".into()),
+                "{capability} must reject public arguments",
+            );
+        }
+
+        assert_ne!(
+            dispatch_legacy_client(
+                &apps,
+                "client.startCitationGraphUpdate",
+                &[json!({
+                    "scope":"papers",
+                    "paperRefs":["1:AAAA1111"],
+                    "expectedReferenceBasisHash":"sha256:reference",
+                    "idempotencyKey":"graph-update-a",
+                })],
+            ),
+            Err("invalid_request".into()),
+        );
+        assert_ne!(
+            dispatch_legacy_client(
+                &apps,
+                "client.refreshCitationGraphMetricsNow",
+                &[json!({"graphHash":"sha256:graph"})],
+            ),
+            Err("invalid_request".into()),
+        );
+        assert_ne!(
+            dispatch_legacy_client(
+                &apps,
+                "client.recomputeCitationGraphLayout",
+                &[json!({"algorithm":"radial","force":true})],
+            ),
+            Err("invalid_request".into()),
+        );
+        assert_eq!(
+            dispatch_legacy_client(
+                &apps,
+                "client.startCitationGraphUpdate",
+                &[json!({"scope":"library","libraryId":1})],
+            ),
+            Err("invalid_request".into()),
+            "native payloads must not select Host library authority",
+        );
+        assert_eq!(
+            dispatch_legacy_client(
+                &apps,
+                "client.recomputeCitationGraphLayout",
+                &[json!({"algorithm":"radial","force":true,"input":{}})],
             ),
             Err("invalid_request".into()),
         );

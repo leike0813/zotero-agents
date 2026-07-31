@@ -78,6 +78,30 @@ Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsE
 
 Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the authenticated Node worker remains an internal canary rather than a production route. The sibling `compute.citation_graph_build_transfer` capability stages canonical pages and can explicitly execute sealed input through a packed, one-page-at-a-time worker attempt with atomic paged output. It does not alter production state. See [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md).
 
+Workbench Citation Graph reads are repository-backed windows. The first Graph
+surface response contains at most 200 ranked primary nodes, 400 primary edges,
+100 hover-only nodes, and 200 hover-only edges; the sidecar deterministically
+shrinks a page when its serialized graph payload would exceed 768 KiB. Each
+edge page is endpoint-closed. SQLite remains the source of graph structure,
+counts, filters, and stable ordering; layout/topic helper data is read against
+the selected graph basis and is only an optimization, never a correctness
+source. A versioned opaque cursor binds the graph hash and normalized query
+signature to the four repository offsets. A changed graph, filter, topic, or
+layout basis fails with `basis_mismatch` instead of mixing pages.
+
+While Graph is selected, the Host reads one page at a time and the iframe
+merges ID-keyed patches into the existing Graphology/Sigma instance. Page-only
+updates preserve the camera, canvas, selection, controls, and drawers. Leaving
+Graph, changing a server filter, invalidating the graph, changing layout, or
+cleaning up the runtime advances the Host generation; any older in-flight page
+is discarded. Interactive loading pauses after 10,000 nodes or 20,000 edges,
+and each explicit continuation grants the same additional allowance. A failed
+page keeps the accumulated window available for retry. One-hop incoming,
+outgoing, and bidirectional expansion uses the same graph/query basis and merge
+path without advancing the sequential cursor. Topic HTML export independently
+drains every page for every exported layout and fails with a typed safety-limit
+error rather than emitting a partial graph.
+
 The explicit sidecar benchmark can execute synthetic graph builds while
 separating request rebuild/serialization, direct compute, strict result
 rebuild, structured-clone worker round trip, authenticated HTTP admission,

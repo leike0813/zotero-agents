@@ -64,6 +64,11 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-reject": "Reject",
   "synthesis-action-approve": "Approve",
   "synthesis-action-retry": "Retry",
+  "synthesis-action-continue-graph-loading": "Continue loading graph",
+  "synthesis-action-retry-graph-loading": "Retry graph loading",
+  "synthesis-action-expand-incoming": "Expand incoming neighbors",
+  "synthesis-action-expand-outgoing": "Expand outgoing neighbors",
+  "synthesis-action-expand-both": "Expand all neighbors",
   "synthesis-action-validate": "Validate",
   "synthesis-action-import": "Import",
   "synthesis-action-apply": "Apply",
@@ -601,6 +606,9 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-graph-selection": "Graph selection",
   "synthesis-graph-zoom": "Graph zoom",
   "synthesis-graph-shown-count": "%nodes% shown nodes, %edges% shown edges",
+  "synthesis-graph-loading-progress":
+    "Loaded %nodes% of %totalNodes% nodes and %edges% of %totalEdges% edges",
+  "synthesis-graph-loading-failed": "Graph loading stopped before completion.",
   "synthesis-graph-node-counts":
     "%library% library, %shared% shared external, %hoverOnly% hover-only external hidden",
   "synthesis-graph-no-data": "No citation graph data",

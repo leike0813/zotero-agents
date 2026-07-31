@@ -11,6 +11,7 @@ import {
 import { inspectSynthesisProductionCapabilities } from "../../scripts/check-synthesis-production-capabilities";
 import { readSynthesisProductionSurfaceCorpora } from "../../scripts/synthesisProductionSurfaceCorpora";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import { SynthesisSidecarRpcError } from "../../src/modules/synthesisSidecarRpcClient";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
   synthesisProductionOperationDeadlineMs,
@@ -175,6 +176,97 @@ describe("Synthesis native client composition", function () {
     ]);
   });
 
+  it("sends only the six public Citation Graph command DTOs", async function () {
+    const calls: Array<{
+      capability: SynthesisSidecarProductionClientCapability;
+      payload: unknown;
+    }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({
+            capability:
+              args.capability as SynthesisSidecarProductionClientCapability,
+            payload: args.payload,
+          });
+          return args.rebuildResult({ status: "accepted" });
+        },
+      },
+    });
+
+    await composition.client.graph.startUpdate({
+      scope: "papers",
+      paperRefs: ["7:AAAA1111"],
+      expectedReferenceBasisHash: "sha256:reference",
+      idempotencyKey: "graph-update-a",
+    });
+    await composition.client.graph.refreshMetricsNow({
+      graphHash: "sha256:graph",
+    });
+    await composition.client.graph.recomputeCitationGraphLayout({
+      algorithm: "radial",
+      force: true,
+    });
+    await composition.client.graph.rebuildCitationGraphCacheNow();
+    await composition.client.graph.refreshCitationGraphCacheIncrementalNow();
+    await composition.client.graph.retryCitationGraphCacheRebuild();
+    await composition.client.graph.startUpdate();
+    await composition.client.graph.refreshMetricsNow();
+
+    assert.deepEqual(calls, [
+      {
+        capability: "client.startCitationGraphUpdate",
+        payload: {
+          args: [
+            {
+              scope: "papers",
+              paperRefs: ["7:AAAA1111"],
+              expectedReferenceBasisHash: "sha256:reference",
+              idempotencyKey: "graph-update-a",
+            },
+          ],
+        },
+      },
+      {
+        capability: "client.refreshCitationGraphMetricsNow",
+        payload: { args: [{ graphHash: "sha256:graph" }] },
+      },
+      {
+        capability: "client.recomputeCitationGraphLayout",
+        payload: { args: [{ algorithm: "radial", force: true }] },
+      },
+      {
+        capability: "client.rebuildCitationGraphCacheNow",
+        payload: { args: [] },
+      },
+      {
+        capability: "client.refreshCitationGraphCacheIncrementalNow",
+        payload: { args: [] },
+      },
+      {
+        capability: "client.retryCitationGraphCacheRebuild",
+        payload: { args: [] },
+      },
+      {
+        capability: "client.startCitationGraphUpdate",
+        payload: { args: [{}] },
+      },
+      {
+        capability: "client.refreshCitationGraphMetricsNow",
+        payload: { args: [{}] },
+      },
+    ]);
+  });
+
   it("derives production transport deadlines from the shared operation manifest", function () {
     assert.equal(
       synthesisProductionOperationDeadlineMs("client.listTopics"),
@@ -217,5 +309,38 @@ describe("Synthesis native client composition", function () {
     assert.equal((failure as SynthesisClientError).code, "unavailable");
     assert.equal(connectionReads, 0);
     await composition.dispose();
+  });
+
+  it("preserves stable sidecar Graph codes and bounded safe reasons", async function () {
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call() {
+          throw new SynthesisSidecarRpcError("basis_mismatch", {
+            reason: "citation_graph_basis_changed",
+          });
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await composition.client.graph.getOverview({});
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "conflict");
+    assert.deepEqual((failure as SynthesisClientError).details, {
+      sidecarCode: "basis_mismatch",
+      sidecarReason: "citation_graph_basis_changed",
+    });
   });
 });

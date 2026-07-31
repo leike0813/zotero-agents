@@ -56,6 +56,9 @@ pub(crate) fn production_client_error_status(code: &str) -> u16 {
         400
     } else if code == "mutation_not_admitted"
         || code == "production_activation_replayed"
+        || code == "basis_mismatch"
+        || code == "schema_mismatch"
+        || code == "repository_schema_incompatible"
         || code.ends_with("_conflict")
         || code.ends_with("_basis_mismatch")
     {
@@ -83,6 +86,15 @@ mod tests {
         assert_eq!(production_client_error_status("mutation_not_admitted"), 409);
         assert_eq!(production_client_error_status("topic_not_found"), 404);
         assert_eq!(production_client_error_status("basis_conflict"), 409);
+        assert_eq!(production_client_error_status("basis_mismatch"), 409);
+        assert_eq!(
+            production_client_error_status("repository_schema_incompatible"),
+            409
+        );
+        assert_eq!(
+            production_client_error_status("response_body_too_large"),
+            413
+        );
         assert_eq!(production_client_error_status("worker_busy"), 429);
         assert_eq!(production_client_error_status("request_too_large"), 413);
         assert_eq!(production_client_error_status("worker_timeout"), 408);

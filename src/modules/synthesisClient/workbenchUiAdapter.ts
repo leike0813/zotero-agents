@@ -11,8 +11,28 @@ import type {
 
 export function toSynthesisWorkbenchReadState(
   state: SynthesisUiState,
+  options?: {
+    graphWindowCursor?: string;
+    expectedGraphHash?: string;
+  },
 ): SynthesisWorkbenchReadState {
-  return toSynthesisJsonObject(state, "$.workbench.state");
+  return toSynthesisJsonObject(
+    options
+      ? {
+          ...state,
+          graph: {
+            ...state.graph,
+            ...(options.graphWindowCursor
+              ? { windowCursor: options.graphWindowCursor }
+              : {}),
+            ...(options.expectedGraphHash
+              ? { expectedGraphHash: options.expectedGraphHash }
+              : {}),
+          },
+        }
+      : state,
+    "$.workbench.state",
+  );
 }
 
 export function toSynthesisUiSnapshotInput(

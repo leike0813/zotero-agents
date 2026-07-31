@@ -324,6 +324,36 @@ impl NativeComputePool {
         operation: WorkerOperation,
         request: Value,
     ) -> Result<Value, String> {
+        #[cfg(test)]
+        if self.executable == std::env::current_exe().unwrap_or_default()
+            && matches!(
+                operation,
+                WorkerOperation::CitationGraphBuild
+                    | WorkerOperation::CitationGraphLayout
+                    | WorkerOperation::CitationGraphMetrics
+            )
+        {
+            let canceled = AtomicBool::new(false);
+            let result = match operation {
+                WorkerOperation::CitationGraphBuild => {
+                    synthesis_citation_graph_build::compute(request.clone(), &canceled)
+                }
+                WorkerOperation::CitationGraphLayout => {
+                    synthesis_citation_layout::compute_value(request.clone(), &canceled)
+                }
+                WorkerOperation::CitationGraphMetrics => serde_json::from_value(request.clone())
+                    .map_err(|_| "invalid_request")
+                    .and_then(|request| {
+                        synthesis_metrics::compute(request, &canceled).and_then(|result| {
+                            serde_json::to_value(result).map_err(|_| "invalid_request")
+                        })
+                    }),
+                _ => unreachable!(),
+            }
+            .map_err(str::to_owned)?;
+            validate_direct_result(operation, &request, &result)?;
+            return Ok(result);
+        }
         let accepted_request = request.clone();
         let task_id = self.task_id();
         let deadline = Instant::now() + bounded_timeout(DIRECT_DEADLINE)?;

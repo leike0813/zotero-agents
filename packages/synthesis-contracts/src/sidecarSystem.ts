@@ -380,6 +380,8 @@ export const SYNTHESIS_SIDECAR_ERROR_CODES = [
   "protocol_mismatch",
   "profile_mismatch",
   "schema_mismatch",
+  "basis_mismatch",
+  "repository_schema_incompatible",
   "runtime_mismatch",
   "capability_not_found",
   "service_not_ready",

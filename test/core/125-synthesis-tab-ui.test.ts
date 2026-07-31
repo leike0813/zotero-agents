@@ -9,6 +9,14 @@ import {
 } from "../../src/modules/synthesis/uiModel";
 import { isSynthesisLibraryReadModelInvalidationEvent } from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
+import {
+  continueSynthesisCitationGraphWindow,
+  createSynthesisCitationGraphWindow,
+  failSynthesisCitationGraphWindow,
+  mergeSynthesisCitationGraphPage,
+  mergeSynthesisCitationGraphSlice,
+  retrySynthesisCitationGraphWindow,
+} from "../../src/shared/synthesisCitationGraphWindow";
 
 describe("Synthesis tab UI model", function () {
   async function readPngSize(filePath: string) {
@@ -83,6 +91,170 @@ describe("Synthesis tab UI model", function () {
     }
     assert.fail(`Could not extract if (${condition})`);
   }
+
+  it("merges Citation Graph pages by id and rejects stale generations", function () {
+    const initial = createSynthesisCitationGraphWindow({ generation: 3 });
+    const first = mergeSynthesisCitationGraphPage(initial, {
+      generation: 3,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [
+        { id: "a" },
+        { id: "b" },
+      ],
+      edges: [{ id: "a-b", source: "a", target: "b" }],
+      nextCursor: "cursor-1",
+      hasMore: true,
+      totalNodes: 3,
+      totalEdges: 2,
+    });
+    assert.isTrue(first.accepted);
+    const second = mergeSynthesisCitationGraphPage(first.window, {
+      generation: 3,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [
+        { id: "b" },
+        { id: "c" },
+      ],
+      edges: [
+        { id: "a-b", source: "a", target: "b" },
+        { id: "b-c", source: "b", target: "c" },
+      ],
+      nextCursor: undefined,
+      hasMore: false,
+      totalNodes: 3,
+      totalEdges: 2,
+    });
+    assert.deepEqual(
+      second.window.nodes.map((node) => node.id),
+      ["a", "b", "c"],
+    );
+    assert.deepEqual(
+      second.window.edges.map((edge) => edge.id),
+      ["a-b", "b-c"],
+    );
+    assert.equal(second.window.status, "complete");
+
+    const stale = mergeSynthesisCitationGraphPage(second.window, {
+      generation: 2,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "stale" }],
+      edges: [],
+      hasMore: false,
+      totalNodes: 1,
+      totalEdges: 0,
+    });
+    assert.isFalse(stale.accepted);
+    assert.equal(stale.reason, "stale_generation");
+    assert.deepEqual(stale.window, second.window);
+  });
+
+  it("pauses, resumes, retries, and merges slices without advancing the page cursor", function () {
+    const initial = createSynthesisCitationGraphWindow({
+      generation: 1,
+      nodeSoftLimit: 2,
+      edgeSoftLimit: 2,
+    });
+    const page = mergeSynthesisCitationGraphPage(initial, {
+      generation: 1,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [
+        { id: "a" },
+        { id: "b" },
+      ],
+      edges: [{ id: "a-b", source: "a", target: "b" }],
+      nextCursor: "cursor-1",
+      hasMore: true,
+      totalNodes: 3,
+      totalEdges: 2,
+    });
+    assert.equal(page.window.status, "paused");
+    const resumed = continueSynthesisCitationGraphWindow(page.window);
+    assert.equal(resumed.status, "loading");
+    assert.equal(resumed.nodeSoftLimit, 10_002);
+    assert.equal(resumed.edgeSoftLimit, 20_002);
+
+    const sliced = mergeSynthesisCitationGraphSlice(resumed, {
+      generation: 1,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [
+        { id: "b" },
+        { id: "c" },
+      ],
+      edges: [{ id: "b-c", source: "b", target: "c" }],
+    });
+    assert.isTrue(sliced.accepted);
+    assert.equal(sliced.window.nextCursor, "cursor-1");
+    const repeated = mergeSynthesisCitationGraphSlice(sliced.window, {
+      generation: 1,
+      graphHash: "graph-a",
+      querySignature: "query-a",
+      nodes: [{ id: "c" }],
+      edges: [{ id: "b-c", source: "b", target: "c" }],
+    });
+    assert.lengthOf(repeated.window.nodes, 3);
+    assert.lengthOf(repeated.window.edges, 2);
+
+    const failed = failSynthesisCitationGraphWindow(
+      repeated.window,
+      "response_body_too_large",
+      "page budget exhausted",
+    );
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.nextCursor, "cursor-1");
+    const retried = retrySynthesisCitationGraphWindow(failed);
+    assert.equal(retried.status, "loading");
+    assert.equal(retried.nextCursor, "cursor-1");
+  });
+
+  it("loads the current 7,432-node graph completely within the default soft window", function () {
+    const totalNodes = 7_432;
+    const totalEdges = 11_377;
+    let window = createSynthesisCitationGraphWindow({ generation: 9 });
+    let nodeOffset = 0;
+    let edgeOffset = 0;
+    while (nodeOffset < totalNodes || edgeOffset < totalEdges) {
+      const nextNodeOffset = Math.min(totalNodes, nodeOffset + 200);
+      const nextEdgeOffset = Math.min(totalEdges, edgeOffset + 400);
+      const hasMore =
+        nextNodeOffset < totalNodes || nextEdgeOffset < totalEdges;
+      const merged = mergeSynthesisCitationGraphPage(window, {
+        generation: 9,
+        graphHash: "graph-current-size",
+        querySignature: "query-all",
+        nodes: Array.from(
+          { length: nextNodeOffset - nodeOffset },
+          (_, index) => ({ id: `node-${nodeOffset + index}` }),
+        ),
+        edges: Array.from(
+          { length: nextEdgeOffset - edgeOffset },
+          (_, index) => ({
+            id: `edge-${edgeOffset + index}`,
+            source: "node-0",
+            target: "node-1",
+          }),
+        ),
+        nextCursor: hasMore
+          ? `cursor-${nextNodeOffset}-${nextEdgeOffset}`
+          : undefined,
+        hasMore,
+        totalNodes,
+        totalEdges,
+      });
+      assert.isTrue(merged.accepted);
+      assert.notEqual(merged.window.status, "paused");
+      window = merged.window;
+      nodeOffset = nextNodeOffset;
+      edgeOffset = nextEdgeOffset;
+    }
+    assert.equal(window.status, "complete");
+    assert.lengthOf(window.nodes, totalNodes);
+    assert.lengthOf(window.edges, totalEdges);
+  });
 
   it("normalizes a DTO-only snapshot with stable defaults", function () {
     const snapshot = normalizeSynthesisUiSnapshot({
@@ -488,6 +660,7 @@ describe("Synthesis tab UI model", function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
     const block = extractFunctionBlock(source, "syncSigmaGraph");
+    const edgeAttributes = extractFunctionBlock(source, "sigmaEdgeAttributes");
 
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
@@ -503,9 +676,9 @@ describe("Synthesis tab UI model", function () {
       source,
       "graphNodeMatchesSearchText(data.searchable, query)",
     );
-    assert.include(block, 'type: "arrow"');
-    assert.include(block, "hidden: true");
-    assert.include(block, "size: CITATION_GRAPH_EDGE_SIZE");
+    assert.include(edgeAttributes, 'type: "arrow"');
+    assert.include(edgeAttributes, "hidden: true");
+    assert.include(edgeAttributes, "size: CITATION_GRAPH_EDGE_SIZE");
     assert.include(block, "hidden: !visible");
     assert.include(block, "target === activeNode");
     assert.include(block, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
@@ -1881,13 +2054,19 @@ describe("Synthesis tab UI model", function () {
     }
     assert.notInclude(cacheCommandRegion, "onProgress");
     assert.notInclude(cacheCommandRegion, "notifyWorkbenchCommandProgress");
-    assert.match(automaticLayoutBlock, /client\.workbench\s*\.readSurface/);
+    assert.include(
+      automaticLayoutBlock,
+      'sendSurface(runtime, "graph", { refreshFromService: true })',
+    );
     assert.match(
       automaticLayoutBlock,
       /client\.graph\s*\.recomputeCitationGraphLayout/,
     );
     assert.include(automaticLayoutBlock, 'status === "ready"');
-    assert.include(automaticLayoutBlock, "!input.graph?.graph_hash");
+    assert.include(
+      automaticLayoutBlock,
+      "!runtime.snapshotInput?.graph?.graph_hash",
+    );
     assert.notInclude(automaticLayoutBlock, "force: true");
     assert.notInclude(automaticLayoutBlock, "getDefaultSynthesisService");
     assert.notMatch(
@@ -4444,6 +4623,26 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "sigmaGraphModelSignature");
     assert.include(source, "sigmaGraphLayoutSignature");
     assert.include(source, "state.sigma.setGraph(graph)");
+    assert.include(source, 'data.type === "synthesis:graph-page"');
+    assert.include(source, "updateGraphWindowManagedRegions(nextSnapshot)");
+    assert.include(source, "mergeSigmaGraphPage(snapshot)");
+    const graphPageHandlerStart = source.indexOf(
+      'if (data.type === "synthesis:graph-page")',
+    );
+    const graphPageHandlerEnd = source.indexOf(
+      'if (data.type === "synthesis:surface-error")',
+      graphPageHandlerStart,
+    );
+    assert.isAtLeast(graphPageHandlerStart, 0);
+    assert.isAbove(graphPageHandlerEnd, graphPageHandlerStart);
+    assert.notInclude(
+      source.slice(graphPageHandlerStart, graphPageHandlerEnd),
+      "renderSurface(",
+    );
+    assert.include(workbenchTab, "loadGraphContinuationPages");
+    assert.include(workbenchTab, "generation !== runtime.graphGeneration");
+    assert.include(workbenchTab, "readCompleteGraphSurfaceForExport");
+    assert.include(workbenchTab, "graph_export_limit_exceeded");
     assert.notInclude(source, "disposeGraphRenderer");
     assert.notInclude(source, ".kill()");
     assert.include(source, 'label: ""');

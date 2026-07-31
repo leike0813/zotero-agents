@@ -49,6 +49,39 @@ The repository SHALL validate the expected active basis and replace application 
 - **WHEN** the active graph hash changes after build computation but before promotion
 - **THEN** the stale result is discarded as `basis_mismatch` and does not overwrite the winner
 
+### Requirement: Source-slice promotion SHALL preserve unrelated graph rows
+
+The repository SHALL compare-and-swap a source-slice result against the active
+graph hash and atomically replace only the affected source outgoing edges,
+ownership, incoming indexes, related nodes, and derived light metrics. It SHALL
+derive the promoted graph hash from the complete merged projection.
+
+#### Scenario: One source slice is promoted
+- **GIVEN** the active graph contains source A and source B
+- **WHEN** a basis-valid source-slice result for source A is promoted
+- **THEN** source A rows are replaced and source B rows remain present
+- **AND** complex metrics and layout become pending for the new complete graph hash
+
+#### Scenario: Source-slice basis is superseded
+- **WHEN** the active graph hash changes before the source-slice transaction begins
+- **THEN** promotion returns `basis_mismatch`
+- **AND** neither the winner nor any unrelated graph row is modified
+
+### Requirement: Citation Graph reads SHALL capture a coherent durable basis
+
+The native read adapter SHALL capture graph application state, graph rows,
+light and complex metrics, layout state, cache basis, and topic scope metadata
+under one repository ownership boundary before projecting any public response.
+
+#### Scenario: A graph commit races with a read
+- **WHEN** a read begins before or after an atomic graph promotion
+- **THEN** its graph hash, rows, metrics, and layout are all derived from one side of the commit
+- **AND** it never combines the old hash with newly promoted rows
+
+#### Scenario: Cache refresh fails after a graph was previously readable
+- **WHEN** cache basis or a new operation is stale or failed
+- **THEN** diagnostics report that state while the last-good graph remains readable
+
 ### Requirement: Complex metrics follow graph commit semantics
 
 After graph promotion, the application SHALL compute complex metrics through the worker and SHALL promote them only if the graph hash remains active. A metrics or terminal operation receipt failure after graph commit SHALL keep the graph committed and return success with a stable warning.

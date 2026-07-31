@@ -7,6 +7,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
+import { buildSynthesisUiSnapshot } from "../../src/modules/synthesis/uiModel";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const EXECUTABLE = path.join(
@@ -206,6 +207,7 @@ describe("Synthesis Rust production client route", function () {
             hasMore: false,
             returned: 3,
             limit,
+            snapshotRevision: "fixture-revision-1",
           };
         } else if (call.capability === "library.artifacts.scan_page") {
           result = {
@@ -288,6 +290,7 @@ describe("Synthesis Rust production client route", function () {
             hasMore: false,
             returned: 3,
             limit,
+            snapshotRevision: "fixture-revision-1",
           };
         } else if (call.capability === "library.artifacts.read") {
           const smallReference = String(call.payload.expectedHash).includes(
@@ -303,7 +306,7 @@ describe("Synthesis Rust production client route", function () {
                   {
                     title: smallReference
                       ? "Small expanded reference"
-                      : `目录治理 ${String(call.payload.expectedHash).includes("hostref2") ? "乙" : "甲"} ${"文献".repeat(700_000)}`,
+                      : `共享引用 ${"文献".repeat(400_000)}`,
                     year: "2024",
                     authors: ["研究者"],
                   },
@@ -470,8 +473,171 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(index.body.data.rows[0].paper_ref, "1:HOSTREF1");
       assert.equal(index.body.data.rows[1].paper_ref, "1:HOSTREF2");
       assert.equal(index.body.data.rows[2].paper_ref, "1:HOSTREF3");
+
+      const rebuildGraph = await call(
+        port,
+        "client.rebuildCitationGraphCacheNow",
+        { args: [] },
+      );
+      assert.equal(rebuildGraph.status, 200, JSON.stringify(rebuildGraph.body));
+
+      const graphSurface = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: ["graph", { graph: { layoutAlgorithm: "force" } }],
+        },
+      );
+      assert.equal(graphSurface.status, 200, JSON.stringify(graphSurface.body));
+      assert.isNotEmpty(
+        graphSurface.body.data.graph.graph_hash,
+        JSON.stringify({
+          rebuildGraph: rebuildGraph.body,
+          graphSurface: graphSurface.body,
+        }),
+      );
+      assert.isAbove(graphSurface.body.data.graph.nodes.length, 0);
+      assert.isAbove(graphSurface.body.data.graph.edges.length, 0);
+      assert.notProperty(
+        graphSurface.body.data.graph.nodes[0],
+        "literatureItemId",
+      );
+      assert.notProperty(
+        graphSurface.body.data.graph.edges[0],
+        "sourceLiteratureItemId",
+      );
+      const uiSnapshot = buildSynthesisUiSnapshot(graphSurface.body.data);
+      assert.isAbove(uiSnapshot.graph.visibleNodes.length, 0);
+      assert.isAbove(uiSnapshot.graph.visibleEdges.length, 0);
+
+      const recomputeLayout = await call(
+        port,
+        "client.recomputeCitationGraphLayout",
+        { args: [{ algorithm: "force", force: true }] },
+      );
+      assert.equal(
+        recomputeLayout.status,
+        200,
+        JSON.stringify(recomputeLayout.body),
+      );
+      const laidOutGraph = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["graph", { graph: { layoutAlgorithm: "force" } }] },
+      );
+      assert.equal(
+        laidOutGraph.body.data.graph.layoutStatus,
+        "ready",
+        JSON.stringify({
+          recomputeLayout: recomputeLayout.body,
+          laidOutGraph: laidOutGraph.body,
+        }),
+      );
+      assert.isTrue(
+        laidOutGraph.body.data.graph.nodes.every(
+          (node: Record<string, unknown>) =>
+            Number.isFinite(node.x) && Number.isFinite(node.y),
+        ),
+      );
+
+      const overview = await call(port, "client.queryCitationGraph", {
+        args: [{}],
+      });
+      assert.equal(overview.status, 200, JSON.stringify(overview.body));
+      assert.equal(
+        overview.body.data.graph_hash,
+        graphSurface.body.data.graph.graph_hash,
+      );
+      assert.notProperty(overview.body.data.nodes[0], "literatureItemId");
+
+      const persistedLayout = await call(
+        port,
+        "client.getCitationGraphLayout",
+        { args: [{ scope: "full", algorithm: "force" }] },
+      );
+      assert.equal(
+        persistedLayout.status,
+        200,
+        JSON.stringify(persistedLayout.body),
+      );
+      assert.equal(persistedLayout.body.data.status, "ready");
+      assert.notProperty(persistedLayout.body.data, "layoutJson");
+
+      const cluster = await call(port, "client.queryCitationGraphCluster", {
+        args: [{}],
+      });
+      assert.equal(cluster.status, 200, JSON.stringify(cluster.body));
+      assert.equal(cluster.body.data.graph_hash, overview.body.data.graph_hash);
+
+      const slice = await call(port, "client.getCitationGraphSlice", {
+        args: [
+          {
+            startNodeId: overview.body.data.nodes[0].node_id,
+            direction: "both",
+            depth: 1,
+            maxNodes: 25,
+            maxEdges: 50,
+          },
+        ],
+      });
+      assert.equal(slice.status, 200, JSON.stringify(slice.body));
+      assert.equal(slice.body.data.ok, true);
+      assert.notProperty(slice.body.data.nodes[0], "literatureItemId");
+
+      const refreshMetrics = await call(
+        port,
+        "client.refreshCitationGraphMetricsNow",
+        { args: [{}] },
+      );
+      assert.equal(
+        refreshMetrics.status,
+        200,
+        JSON.stringify(refreshMetrics.body),
+      );
+      const metrics = await call(port, "client.getCitationGraphMetrics", {
+        args: [{ limit: 10, sortBy: "foundation" }],
+      });
+      const ranking = await call(port, "client.rankLibraryPapers", {
+        args: [{ limit: 10, sortBy: "frontier" }],
+      });
+      assert.equal(
+        metrics.body.data.status,
+        "ready",
+        JSON.stringify(metrics.body),
+      );
+      assert.equal(
+        ranking.body.data.status,
+        "ready",
+        JSON.stringify(ranking.body),
+      );
+      assert.notProperty(metrics.body.data.items[0], "literatureItemId");
       assert.include(sidecar.stderr(), '"stage":"call-completed"');
-      assert.notInclude(sidecar.stderr(), "目录治理");
+      assert.notInclude(sidecar.stderr(), "共享引用");
+
+      await stop(sidecar.child);
+      const restarted = start(configPath);
+      try {
+        const restartedListening = await restarted.listening;
+        const reopenedGraph = await call(
+          restartedListening.port,
+          "client.getSynthesisWorkbenchSurfaceInput",
+          { args: ["graph", { graph: { layoutAlgorithm: "force" } }] },
+        );
+        assert.equal(
+          reopenedGraph.status,
+          200,
+          JSON.stringify(reopenedGraph.body),
+        );
+        assert.equal(
+          reopenedGraph.body.data.graph.graph_hash,
+          overview.body.data.graph_hash,
+        );
+        assert.equal(reopenedGraph.body.data.graph.layoutStatus, "ready");
+      } finally {
+        if (restarted.child.exitCode === null) {
+          await stop(restarted.child);
+        }
+      }
     } finally {
       if (sidecar.child.exitCode === null) {
         await stop(sidecar.child);
@@ -509,6 +675,7 @@ describe("Synthesis Rust production client route", function () {
                   hasMore: false,
                   returned: 0,
                   limit,
+                  snapshotRevision: "fixture-revision-empty",
                 }
               : call.capability === "library.artifacts.scan_page"
                 ? {
@@ -518,6 +685,7 @@ describe("Synthesis Rust production client route", function () {
                     hasMore: false,
                     returned: 0,
                     limit,
+                    snapshotRevision: "fixture-revision-empty",
                   }
                 : {};
         const body = JSON.stringify({ ok: true, result });

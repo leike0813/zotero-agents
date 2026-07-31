@@ -60,10 +60,22 @@ function normalizeRpcError(error: unknown) {
     return error;
   }
   if (error instanceof SynthesisSidecarRpcError) {
+    const reason =
+      typeof error.details.reason === "string" &&
+      error.details.reason.length <= 160 &&
+      !/[\u0000-\u001f\u007f]/.test(error.details.reason)
+        ? error.details.reason
+        : error.code;
     return new SynthesisClientError(
-      error.code === "invalid_request" ? "invalid_request" : "unavailable",
+      error.code === "invalid_request"
+        ? "invalid_request"
+        : error.code === "basis_mismatch" ||
+            error.code === "schema_mismatch" ||
+            error.code === "repository_schema_incompatible"
+          ? "conflict"
+          : "unavailable",
       "The native Synthesis request failed",
-      { sidecarCode: error.code },
+      { sidecarCode: error.code, sidecarReason: reason },
     );
   }
   return unavailable(
