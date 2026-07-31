@@ -1839,9 +1839,46 @@ function renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options) {
   const title = el(
     "div",
     "assistant-workspace-drawer-task-title skillrunner-workspace-task-title",
-    safeText(item.title || item.taskName || item.inputUnitLabel) ||
-      safeText(labels.waitingRequestId) ||
-      "Waiting for requestId",
+    "",
+  );
+  const submission =
+    item.submission && typeof item.submission === "object"
+      ? item.submission
+      : null;
+  if (submission && safeText(submission.symbol) && item.terminal !== true) {
+    const symbol = safeText(submission.symbol);
+    const submissionLabel = safeText(labels.submission) || "Submission";
+    const providerLabel = safeText(labels.provider) || "Provider";
+    const modelLabel = safeText(labels.model) || "Model";
+    const defaultValue = safeText(labels.defaultValue) || "Default";
+    const displayValue = (value) => {
+      const normalized = safeText(value);
+      return !normalized || normalized === "default"
+        ? defaultValue
+        : normalized;
+    };
+    const tooltip = [
+      submissionLabel + ": " + symbol,
+      providerLabel + ": " + displayValue(submission.provider),
+      modelLabel + ": " + displayValue(submission.model),
+    ].join("; ");
+    const badge = el(
+      "span",
+      "assistant-workspace-drawer-task-submission",
+      symbol,
+    );
+    badge.title = tooltip;
+    badge.setAttribute("aria-label", tooltip);
+    title.appendChild(badge);
+  }
+  title.appendChild(
+    el(
+      "span",
+      "assistant-workspace-drawer-task-title-text",
+      safeText(item.title || item.taskName || item.inputUnitLabel) ||
+        safeText(labels.waitingRequestId) ||
+        "Waiting for requestId",
+    ),
   );
   const workflow = el(
     "div",
@@ -1927,6 +1964,10 @@ function workspaceTaskSignature(task) {
     safeText(item.applyNextRetryAt || item.apply_next_retry_at),
     item.selectable === true ? "selectable" : "static",
     item.terminal === true ? "terminal" : "active",
+    safeText(item.submission && item.submission.symbol),
+    safeText(item.submission && item.submission.provider),
+    safeText(item.submission && item.submission.model),
+    item.resumptionPending === true ? "resumption-pending" : "",
     (Array.isArray(item.itemActions) ? item.itemActions : [])
       .map(function (action) {
         return [

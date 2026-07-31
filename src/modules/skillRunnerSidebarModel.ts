@@ -1,3 +1,5 @@
+import type { WorkflowSubmissionDisplayIdentity } from "../jobQueue/workflowSubmissionQueueContracts";
+
 export type SkillRunnerSidebarContext = {
   primaryParentItemId?: number;
   relatedParentItemIds: number[];
@@ -40,6 +42,8 @@ export type SkillRunnerSidebarTaskItem = {
   inputUnitIdentity?: string;
   targetParentID?: number;
   relationState?: SkillRunnerSidebarRelationState;
+  submission?: WorkflowSubmissionDisplayIdentity | null;
+  resumptionPending?: boolean;
 };
 
 export type SkillRunnerSidebarGroup<
@@ -217,6 +221,7 @@ export function buildSkillRunnerSidebarSections<
     taskName: string;
     createdAt: string;
     canCancel: boolean;
+    submission?: WorkflowSubmissionDisplayIdentity;
   }>;
 }) {
   const selectedTaskKey = String(args.selectedTaskKey || "").trim();
@@ -316,6 +321,8 @@ export function buildSkillRunnerSidebarSections<
       title: entry.taskName || entry.workflowLabel || entry.workflowId,
       selectable: false,
       terminal: false,
+      submission: entry.submission,
+      resumptionPending: false,
     } as TTask);
   }
 

@@ -51,12 +51,18 @@ import {
 import {
   archiveSkillRunnerRunRecordByRunKey,
   getSkillRunnerRunRecord,
+  getSkillRunnerRunRecordByRequest,
   getSkillRunnerRunProjection,
   listSkillRunnerRunProjections,
   subscribeSkillRunnerRunStore,
   updateSkillRunnerRunMessageCounts,
   type SkillRunnerRunApplyState,
 } from "./skillRunnerRunStore";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type {
+  WorkflowSubmissionDisplayIdentity,
+  WorkflowSubmissionSlotResumeReason,
+} from "../jobQueue/workflowSubmissionQueueContracts";
 import {
   isSkillRunnerBackendAvailable,
   subscribeSkillRunnerBackendHealth,
@@ -115,6 +121,32 @@ import { readRuntimeBytes } from "./runtimePersistence";
 import { inspectRuntimeFileSource } from "./runtimeFileTransfer";
 
 export type RunDialogMessageRole = "assistant" | "user" | "system";
+
+async function runSkillRunnerReplyWithAdmission<T>(args: {
+  backendId: string;
+  requestId: string;
+  reason: WorkflowSubmissionSlotResumeReason;
+  callback: () => Promise<T>;
+}) {
+  const run = getSkillRunnerRunRecordByRequest({
+    backendId: args.backendId,
+    requestId: args.requestId,
+  });
+  const slot = run?.submissionUnitId
+    ? workflowSubmissionQueue.getSlotCoordinator(run.submissionUnitId)
+    : null;
+  if (!slot) {
+    return args.callback();
+  }
+  let result!: T;
+  const admitted = await slot.runWithPrioritySlot(args.reason, async () => {
+    result = await args.callback();
+  });
+  if (!admitted) {
+    throw new Error("SkillRunner reply admission was canceled before send.");
+  }
+  return result;
+}
 export type RunDialogMessageKind =
   | "assistant_process"
   | "assistant_message"
@@ -413,6 +445,10 @@ export type RunWorkspaceTaskItem = {
   inputUnitIdentity?: string;
   targetParentID?: number;
   relationState?: SkillRunnerSidebarRelationState;
+  submissionId?: string;
+  submissionUnitId?: string;
+  submission?: WorkflowSubmissionDisplayIdentity | null;
+  resumptionPending?: boolean;
 };
 
 export type RunWorkspaceGroup = {
@@ -2263,6 +2299,31 @@ async function buildRunWorkspaceModel(args: {
           String((row as { submitError?: unknown }).submitError || "").trim() ||
           undefined,
         terminal: isTerminal(normalizedStatus),
+        submissionId:
+          String(
+            (row as { submissionId?: unknown }).submissionId || "",
+          ).trim() || undefined,
+        submissionUnitId:
+          String(
+            (row as { submissionUnitId?: unknown }).submissionUnitId || "",
+          ).trim() || undefined,
+        submission: (() => {
+          const submissionId = String(
+            (row as { submissionId?: unknown }).submissionId || "",
+          ).trim();
+          return !isTerminal(normalizedStatus) && submissionId
+            ? workflowSubmissionQueue.getSubmissionDisplayIdentity(submissionId)
+            : null;
+        })(),
+        resumptionPending: (() => {
+          const submissionUnitId = String(
+            (row as { submissionUnitId?: unknown }).submissionUnitId || "",
+          ).trim();
+          return submissionUnitId
+            ? workflowSubmissionQueue.getSlotSnapshot(submissionUnitId)
+                ?.state === "resumption-pending"
+            : false;
+        })(),
         attention: pendingPermission ? "warning" : undefined,
         inputUnitIdentity:
           String(
@@ -4198,6 +4259,15 @@ async function handleRunDialogActionForEntry(
       pushSnapshot("snapshot");
       return;
     }
+    const cancelRecord = getSkillRunnerRunRecordByRequest({
+      backendId: entry.backend.id,
+      requestId: entry.requestId,
+    });
+    if (cancelRecord?.submissionUnitId) {
+      workflowSubmissionQueue
+        .getSlotCoordinator(cancelRecord.submissionUnitId)
+        ?.cancelPendingResumption();
+    }
     try {
       const client = buildSkillRunnerManagementClient({
         backend: entry.backend,
@@ -4329,17 +4399,23 @@ async function handleRunDialogActionForEntry(
         alertWindow: entry.alertWindow || undefined,
         localize,
       });
-      await client.submitInteractionFiles({
+      await runSkillRunnerReplyWithAdmission({
+        backendId: entry.backend.id,
         requestId: entry.requestId,
-        interactionId,
-        idempotencyKey: `${interactionId}-${Date.now().toString(36)}`,
-        metadata: {
-          bindings: picked.selections.map((selection, fileIndex) => ({
-            slot: selection.slot,
-            fileIndex,
-          })),
-        },
-        files,
+        reason: "user-reply",
+        callback: () =>
+          client.submitInteractionFiles({
+            requestId: entry.requestId,
+            interactionId,
+            idempotencyKey: `${interactionId}-${Date.now().toString(36)}`,
+            metadata: {
+              bindings: picked.selections.map((selection, fileIndex) => ({
+                slot: selection.slot,
+                fileIndex,
+              })),
+            },
+            files,
+          }),
       });
       if (entry.refreshDisplay) await entry.refreshDisplay();
       else pushSnapshot("snapshot");
@@ -4403,24 +4479,31 @@ async function handleRunDialogActionForEntry(
           alertWindow: entry.alertWindow || undefined,
           localize,
         });
-        const response = await client.submitReply({
+        const response = await runSkillRunnerReplyWithAdmission({
+          backendId: entry.backend.id,
           requestId: entry.requestId,
-          payload: {
-            mode: "auth",
-            ...(authSessionId ? { auth_session_id: authSessionId } : {}),
-            ...(selection ? { selection } : {}),
-            ...(submission
-              ? { submission }
-              : replyText
-                ? {
-                    submission: {
-                      kind:
-                        normalizeAuthInputKind(replyKind) || "auth_code_or_url",
-                      value: replyText,
-                    },
-                  }
-                : {}),
-          },
+          reason: "auth-reply",
+          callback: () =>
+            client.submitReply({
+              requestId: entry.requestId,
+              payload: {
+                mode: "auth",
+                ...(authSessionId ? { auth_session_id: authSessionId } : {}),
+                ...(selection ? { selection } : {}),
+                ...(submission
+                  ? { submission }
+                  : replyText
+                    ? {
+                        submission: {
+                          kind:
+                            normalizeAuthInputKind(replyKind) ||
+                            "auth_code_or_url",
+                          value: replyText,
+                        },
+                      }
+                    : {}),
+              },
+            }),
         });
         const semantic = resolveSkillRunnerManagementResponseSemantic({
           response,
@@ -4554,13 +4637,19 @@ async function handleRunDialogActionForEntry(
         alertWindow: entry.alertWindow || undefined,
         localize,
       });
-      const response = await client.submitReply({
+      const response = await runSkillRunnerReplyWithAdmission({
+        backendId: entry.backend.id,
         requestId: entry.requestId,
-        payload: {
-          mode: "interaction",
-          interaction_id: interactionId,
-          response: resolvedResponse.response,
-        },
+        reason: "user-reply",
+        callback: () =>
+          client.submitReply({
+            requestId: entry.requestId,
+            payload: {
+              mode: "interaction",
+              interaction_id: interactionId,
+              response: resolvedResponse.response,
+            },
+          }),
       });
       const semantic = resolveSkillRunnerManagementResponseSemantic({
         response,

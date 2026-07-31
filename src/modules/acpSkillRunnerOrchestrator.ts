@@ -20,6 +20,7 @@ import type {
   ProviderOrchestrationContext,
   ProviderProgressEvent,
 } from "../providers/types";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
 import {
@@ -1841,6 +1842,13 @@ async function applyRecoveredAcpSkillResult(args: {
     state: "pending",
   });
   try {
+    const slot = args.record.submissionUnitId
+      ? workflowSubmissionQueue.getSlotCoordinator(args.record.submissionUnitId)
+      : null;
+    slot?.cancelPendingResumption();
+    if (slot && !(await slot.ensureSlot("host-apply"))) {
+      throw new Error("ACP recovered apply admission was canceled.");
+    }
     const applyResult = await executeApplyResult({
       workflow,
       parent: applyParent,
@@ -2078,6 +2086,8 @@ async function continueRecoveredSequenceStep(args: {
       backend,
       providerOptions:
         sequenceState.providerOptions || args.record.providerOptions,
+      submissionId: args.record.submissionId,
+      submissionUnitId: args.record.submissionUnitId,
       appendRuntimeLog,
       executeWithProvider: (input) =>
         executeAcpSkillRunnerJob({
@@ -3747,6 +3757,8 @@ export async function executeAcpSkillRunnerJob(args: {
     workflowLabel,
     runId,
     jobId,
+    submissionId: args.orchestrationContext?.submissionId,
+    submissionUnitId: args.orchestrationContext?.submissionUnitId,
     sequenceStepId: args.orchestrationContext?.sequenceStepId,
     sequenceFinalStepId: args.orchestrationContext?.finalStepId,
     taskName,
@@ -3760,6 +3772,7 @@ export async function executeAcpSkillRunnerJob(args: {
     auditTrail,
     acpModeId: submittedRuntimeSelection.modeId,
     acpModelId: submittedRuntimeSelection.modelId,
+    acpModelProvider: normalizeString(args.providerOptions?.acpModelProvider),
     acpReasoningEffort: submittedRuntimeSelection.reasoningEffort,
     acpRawModelId: submittedRuntimeSelection.rawModelId,
     event: {

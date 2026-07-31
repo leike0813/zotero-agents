@@ -239,3 +239,12 @@ collapsible, with Running expanded and the other two collapsed by default.
 Their subtle blue, amber, and neutral treatments use shared light/dark theme
 tokens. Provider running/completed groups and their selection semantics remain
 owned by the SkillRunner run store.
+
+Queued and active SkillRunner rows carry the frozen Host submission display
+identity when they belong to a live submission. The shared drawer renderer
+places its non-numeric symbol before the title and exposes the same localized
+symbol/provider/model meaning through hover text and `aria-label`; completed
+rows omit it. A yielded run waiting to regain its submission slot is shown as
+resumption-pending. These fields participate only in the keyed task-row
+signature, so lineage or admission changes do not rebuild the Runner pane,
+drawer groups, transcript, or other managed regions.

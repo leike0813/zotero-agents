@@ -9,8 +9,13 @@ import type {
   WorkflowQueueEntryId,
   WorkflowQueueIdentityQuery,
   WorkflowQueueRemovalReason,
+  WorkflowSubmissionDisplayIdentity,
   WorkflowSubmissionHandle,
   WorkflowSubmissionId,
+  WorkflowSubmissionSlotCoordinator,
+  WorkflowSubmissionSlotResumeReason,
+  WorkflowSubmissionSlotSnapshot,
+  WorkflowSubmissionSlotYieldReason,
   WorkflowSubmissionQueueChangeEvent,
   WorkflowSubmissionQueueConfig,
   WorkflowSubmissionQueueListener,
@@ -27,7 +32,14 @@ export type WorkflowSubmissionQueueDeps = Readonly<{
   appendRuntimeLog?: (input: QueueLogInput) => unknown;
 }>;
 
-type PendingState = "pending" | "admitted" | "canceled" | "shutdown";
+type PendingState =
+  | "pending"
+  | "admitted"
+  | "yielded"
+  | "resumption-pending"
+  | "settled"
+  | "canceled"
+  | "shutdown";
 
 type InternalQueuedUnit = {
   readonly queueId: WorkflowQueueEntryId;
@@ -45,6 +57,12 @@ type InternalQueuedUnit = {
   readonly ordinal: number;
   readonly execute: () => Promise<WorkflowExecutionUnitOutcome>;
   state: PendingState;
+  slotHeld: boolean;
+  yieldReason?: WorkflowSubmissionSlotYieldReason;
+  resumeReason?: WorkflowSubmissionSlotResumeReason;
+  resumeOrdinal?: number;
+  resumePromise?: Promise<boolean>;
+  resolveResume?: (admitted: boolean) => void;
 };
 
 type SubmissionController = {
@@ -54,6 +72,7 @@ type SubmissionController = {
     workflowId: string;
     workflowLabel: string;
   }>;
+  readonly display: WorkflowSubmissionDisplayIdentity;
   readonly items: InternalQueuedUnit[];
   readonly limit: number;
   readonly total: number;
@@ -155,7 +174,20 @@ export class WorkflowSubmissionQueue {
   private submissionSequence = 0;
   private queueSequence = 0;
   private ordinalSequence = 0;
+  private resumeOrdinalSequence = 0;
+  private displaySequence = 0;
   private shuttingDown = false;
+
+  private static readonly SUBMISSION_SYMBOLS = [
+    "🌙",
+    "☀️",
+    "⭐",
+    "☄️",
+    "🪐",
+    "🌍",
+    "🌊",
+    "🔥",
+  ] as const;
 
   constructor(deps: WorkflowSubmissionQueueDeps = {}) {
     this.now = deps.now ?? (() => new Date().toISOString());
@@ -199,6 +231,7 @@ export class WorkflowSubmissionQueue {
         workflowId: config.workflow.workflowId,
         workflowLabel: config.workflow.workflowLabel,
       }),
+      display: this.createDisplayIdentity(config.presentation),
       items: [],
       limit,
       total,
@@ -262,9 +295,11 @@ export class WorkflowSubmissionQueue {
               submissionId,
               submissionUnitId: queueId,
               inputUnitIdentity: queuedUnit.display.inputUnitIdentity,
+              slot: this.createSlotCoordinator(controller, item),
             }),
           ),
         state: "pending",
+        slotHeld: false,
       };
       controller.items.push(item);
       this.addPendingIndexes(item);
@@ -308,7 +343,10 @@ export class WorkflowSubmissionQueue {
     );
     const admittedItems = controller.items.filter(
       (item) =>
-        item.state === "admitted" && this.activeByQueueId.has(item.queueId),
+        (item.state === "admitted" ||
+          item.state === "yielded" ||
+          item.state === "resumption-pending") &&
+        this.activeByQueueId.has(item.queueId),
     );
     const units = [...pendingItems, ...admittedItems]
       .sort((left, right) => left.ordinal - right.ordinal)
@@ -319,6 +357,7 @@ export class WorkflowSubmissionQueue {
       workflowLabel: controller.workflow.workflowLabel,
       backendType: controller.backend.backendType,
       backendId: controller.backend.backendId,
+      submission: controller.display,
       total: controller.total,
       initiallySkipped: controller.initiallySkipped,
       pending: pendingItems.length,
@@ -326,6 +365,36 @@ export class WorkflowSubmissionQueue {
       settled: controller.settled,
       units: Object.freeze(units),
     });
+  }
+
+  getSubmissionDisplayIdentity(
+    submissionId: WorkflowSubmissionId | string,
+  ): WorkflowSubmissionDisplayIdentity | null {
+    return (
+      this.submissions.get(submissionId as WorkflowSubmissionId)?.display ??
+      null
+    );
+  }
+
+  getSlotSnapshot(
+    submissionUnitId: WorkflowQueueEntryId | string,
+  ): WorkflowSubmissionSlotSnapshot | null {
+    const item = this.activeByQueueId.get(
+      submissionUnitId as WorkflowQueueEntryId,
+    );
+    return item ? this.toSlotSnapshot(item) : null;
+  }
+
+  getSlotCoordinator(
+    submissionUnitId: WorkflowQueueEntryId | string,
+  ): WorkflowSubmissionSlotCoordinator | null {
+    const item = this.activeByQueueId.get(
+      submissionUnitId as WorkflowQueueEntryId,
+    );
+    const controller = item ? this.submissions.get(item.submissionId) : null;
+    return item && controller
+      ? this.createSlotCoordinator(controller, item)
+      : null;
   }
 
   hasActiveOrQueuedWorkflowInput(query: WorkflowQueueIdentityQuery) {
@@ -390,6 +459,9 @@ export class WorkflowSubmissionQueue {
         });
       }
     }
+    for (const item of [...this.activeByQueueId.values()]) {
+      this.cancelPendingResumption(item);
+    }
     this.emit(Object.freeze({ type: "reset" }));
     this.pendingByQueueId.clear();
     this.activeByQueueId.clear();
@@ -404,6 +476,8 @@ export class WorkflowSubmissionQueue {
     this.submissionSequence = 0;
     this.queueSequence = 0;
     this.ordinalSequence = 0;
+    this.resumeOrdinalSequence = 0;
+    this.displaySequence = 0;
     this.shuttingDown = false;
   }
 
@@ -421,6 +495,140 @@ export class WorkflowSubmissionQueue {
     }
     const sequence = (++this.queueSequence).toString(36);
     return `workflow-queue-${Date.now().toString(36)}-${sequence}` as WorkflowQueueEntryId;
+  }
+
+  private createDisplayIdentity(
+    presentation: WorkflowSubmissionQueueConfig<unknown>["presentation"],
+  ): WorkflowSubmissionDisplayIdentity {
+    const alphabet = WorkflowSubmissionQueue.SUBMISSION_SYMBOLS;
+    let ordinal = ++this.displaySequence;
+    let symbol = "";
+    while (ordinal > 0) {
+      const index = (ordinal - 1) % alphabet.length;
+      symbol = `${alphabet[index]}${symbol}`;
+      ordinal = Math.floor((ordinal - 1) / alphabet.length);
+    }
+    const normalize = (value: unknown) =>
+      String(value || "").trim() || "default";
+    return Object.freeze({
+      symbol,
+      provider: normalize(presentation?.provider),
+      model: normalize(presentation?.model),
+    });
+  }
+
+  private createSlotCoordinator(
+    controller: SubmissionController,
+    item: InternalQueuedUnit,
+  ): WorkflowSubmissionSlotCoordinator {
+    return Object.freeze({
+      yield: (reason) => this.yieldSlot(controller, item, reason),
+      ensureSlot: (reason) => this.ensureSlot(controller, item, reason),
+      runWithPrioritySlot: async (reason, callback) => {
+        const admitted = await this.ensureSlot(controller, item, reason);
+        if (!admitted) {
+          return false;
+        }
+        await callback();
+        return true;
+      },
+      cancelPendingResumption: () => this.cancelPendingResumption(item),
+      snapshot: () =>
+        this.activeByQueueId.has(item.queueId)
+          ? this.toSlotSnapshot(item)
+          : null,
+    });
+  }
+
+  private yieldSlot(
+    controller: SubmissionController,
+    item: InternalQueuedUnit,
+    reason: WorkflowSubmissionSlotYieldReason,
+  ) {
+    if (controller.completed || item.state !== "admitted" || !item.slotHeld) {
+      return false;
+    }
+    item.slotHeld = false;
+    item.state = "yielded";
+    item.yieldReason = reason;
+    controller.active = Math.max(0, controller.active - 1);
+    this.emitSlotChanged(item);
+    this.log("yield", {
+      submissionId: item.submissionId,
+      queueId: item.queueId,
+      unitId: item.unitId,
+      reasonCode: reason,
+    });
+    this.scheduleDrain(controller);
+    return true;
+  }
+
+  private ensureSlot(
+    controller: SubmissionController,
+    item: InternalQueuedUnit,
+    reason: WorkflowSubmissionSlotResumeReason,
+  ): Promise<boolean> {
+    if (this.shuttingDown || controller.completed || item.state === "settled") {
+      return Promise.resolve(false);
+    }
+    if (item.slotHeld && item.state === "admitted") {
+      return Promise.resolve(true);
+    }
+    if (item.state === "resumption-pending" && item.resumePromise) {
+      return item.resumePromise;
+    }
+    if (item.state !== "yielded") {
+      return Promise.resolve(false);
+    }
+    item.state = "resumption-pending";
+    item.resumeReason = reason;
+    item.resumeOrdinal = ++this.resumeOrdinalSequence;
+    item.resumePromise = new Promise<boolean>((resolve) => {
+      item.resolveResume = resolve;
+    });
+    this.emitSlotChanged(item);
+    this.log("resume-queued", {
+      submissionId: item.submissionId,
+      queueId: item.queueId,
+      unitId: item.unitId,
+      reasonCode: reason,
+    });
+    this.scheduleDrain(controller);
+    return item.resumePromise;
+  }
+
+  private cancelPendingResumption(item: InternalQueuedUnit) {
+    if (item.state !== "resumption-pending") {
+      return false;
+    }
+    item.state = "yielded";
+    item.resumeOrdinal = undefined;
+    item.resumeReason = undefined;
+    const resolveResume = item.resolveResume;
+    item.resolveResume = undefined;
+    item.resumePromise = undefined;
+    this.emitSlotChanged(item);
+    resolveResume?.(false);
+    return true;
+  }
+
+  private toSlotSnapshot(
+    item: InternalQueuedUnit,
+  ): WorkflowSubmissionSlotSnapshot {
+    const state = item.slotHeld
+      ? "held"
+      : item.state === "resumption-pending"
+        ? "resumption-pending"
+        : item.state === "settled"
+          ? "settled"
+          : "yielded";
+    return Object.freeze({
+      submissionId: item.submissionId,
+      submissionUnitId: item.queueId,
+      state,
+      ...(item.yieldReason ? { yieldReason: item.yieldReason } : {}),
+      ...(item.resumeReason ? { resumeReason: item.resumeReason } : {}),
+    });
   }
 
   private addPendingIndexes(item: InternalQueuedUnit) {
@@ -515,13 +723,39 @@ export class WorkflowSubmissionQueue {
       return;
     }
     while (controller.active < controller.limit) {
-      const item = controller.items.find(
-        (candidate) => candidate.state === "pending",
-      );
+      const item =
+        controller.items
+          .filter((candidate) => candidate.state === "resumption-pending")
+          .sort(
+            (left, right) =>
+              (left.resumeOrdinal ?? 0) - (right.resumeOrdinal ?? 0),
+          )[0] ??
+        controller.items.find((candidate) => candidate.state === "pending");
       if (!item) {
         break;
       }
+      if (item.state === "resumption-pending") {
+        item.state = "admitted";
+        item.slotHeld = true;
+        item.yieldReason = undefined;
+        item.resumeOrdinal = undefined;
+        controller.active += 1;
+        const resolveResume = item.resolveResume;
+        item.resolveResume = undefined;
+        item.resumePromise = undefined;
+        this.emitSlotChanged(item);
+        this.log("resume-admit", {
+          submissionId: item.submissionId,
+          queueId: item.queueId,
+          unitId: item.unitId,
+          reasonCode: item.resumeReason,
+        });
+        item.resumeReason = undefined;
+        resolveResume?.(true);
+        continue;
+      }
       item.state = "admitted";
+      item.slotHeld = true;
       this.removePendingIndexes(item, { preserveIdentity: true });
       this.activeByQueueId.set(item.queueId, item);
       this.emitRemoved(item, "admitted");
@@ -561,9 +795,17 @@ export class WorkflowSubmissionQueue {
     item: InternalQueuedUnit,
     outcome: WorkflowExecutionUnitOutcome,
   ) {
+    if (item.state === "settled") {
+      return;
+    }
+    this.cancelPendingResumption(item);
+    item.state = "settled";
     this.activeByQueueId.delete(item.queueId);
     this.removeIdentityIndexes(item);
-    controller.active -= 1;
+    if (item.slotHeld) {
+      item.slotHeld = false;
+      controller.active = Math.max(0, controller.active - 1);
+    }
     controller.settled += 1;
     controller.outcomes.push(outcome);
     this.log("settle", {
@@ -611,13 +853,21 @@ export class WorkflowSubmissionQueue {
       backendId: item.backend.backendId,
       createdAt: item.createdAt,
       canCancel: true,
+      submission:
+        this.submissions.get(item.submissionId)?.display ??
+        Object.freeze({ symbol: "", provider: "default", model: "default" }),
     });
   }
 
   private toActiveSubmissionUnitSnapshot(
     item: InternalQueuedUnit,
   ): ActiveWorkflowSubmissionUnitSnapshot {
-    const state = item.state === "admitted" ? "admitted" : "pending";
+    const state =
+      item.state === "admitted" ||
+      item.state === "yielded" ||
+      item.state === "resumption-pending"
+        ? item.state
+        : "pending";
     return Object.freeze({
       queueId: item.queueId,
       submissionId: item.submissionId,
@@ -641,6 +891,17 @@ export class WorkflowSubmissionQueue {
         queueId: item.queueId,
         backend: item.backend,
         reason,
+      }),
+    );
+  }
+
+  private emitSlotChanged(item: InternalQueuedUnit) {
+    this.emit(
+      Object.freeze({
+        type: "slot-changed",
+        queueId: item.queueId,
+        backend: item.backend,
+        state: this.toSlotSnapshot(item).state,
       }),
     );
   }

@@ -30,6 +30,54 @@ export type WorkflowQueueWorkflowIdentity = Readonly<{
   workflowLabel: string;
 }>;
 
+export type WorkflowSubmissionDisplayIdentity = Readonly<{
+  symbol: string;
+  provider: string;
+  model: string;
+}>;
+
+export type WorkflowSubmissionPresentationInput = Readonly<{
+  provider?: string;
+  model?: string;
+}>;
+
+export type WorkflowSubmissionSlotYieldReason =
+  | "waiting-user"
+  | "waiting-auth"
+  | "recoverable-failure";
+
+export type WorkflowSubmissionSlotResumeReason =
+  | "user-reply"
+  | "auth-reply"
+  | "retry"
+  | "remote-resume"
+  | "host-apply";
+
+export type WorkflowSubmissionSlotState =
+  | "held"
+  | "yielded"
+  | "resumption-pending"
+  | "settled";
+
+export type WorkflowSubmissionSlotSnapshot = Readonly<{
+  submissionId: WorkflowSubmissionId;
+  submissionUnitId: WorkflowQueueEntryId;
+  state: WorkflowSubmissionSlotState;
+  yieldReason?: WorkflowSubmissionSlotYieldReason;
+  resumeReason?: WorkflowSubmissionSlotResumeReason;
+}>;
+
+export type WorkflowSubmissionSlotCoordinator = Readonly<{
+  yield: (reason: WorkflowSubmissionSlotYieldReason) => boolean;
+  ensureSlot: (reason: WorkflowSubmissionSlotResumeReason) => Promise<boolean>;
+  runWithPrioritySlot: <T>(
+    reason: WorkflowSubmissionSlotResumeReason,
+    callback: () => Promise<T> | T,
+  ) => Promise<boolean>;
+  cancelPendingResumption: () => boolean;
+  snapshot: () => WorkflowSubmissionSlotSnapshot | null;
+}>;
+
 export type WorkflowExecutionUnitOutcome =
   | Readonly<{ status: "succeeded" }>
   | Readonly<{ status: "failed"; reasonCode: string }>
@@ -56,6 +104,7 @@ export type QueuedWorkflowUnitSnapshot = Readonly<{
   backendId: string;
   createdAt: string;
   canCancel: true;
+  submission: WorkflowSubmissionDisplayIdentity;
 }>;
 
 export type ActiveWorkflowSubmissionUnitSnapshot = Readonly<{
@@ -66,7 +115,7 @@ export type ActiveWorkflowSubmissionUnitSnapshot = Readonly<{
   taskName: string;
   memberCount: number;
   createdAt: string;
-  state: "pending" | "admitted";
+  state: "pending" | "admitted" | "yielded" | "resumption-pending";
   canCancel: boolean;
 }>;
 
@@ -76,6 +125,7 @@ export type ActiveWorkflowSubmissionSnapshot = Readonly<{
   workflowLabel: string;
   backendType: WorkflowQueueBackendType;
   backendId: string;
+  submission: WorkflowSubmissionDisplayIdentity;
   total: number;
   initiallySkipped: number;
   pending: number;
@@ -101,6 +151,13 @@ export type WorkflowSubmissionQueueChangeEvent =
   | Readonly<{
       type: "reset";
       reason?: undefined;
+    }>
+  | Readonly<{
+      type: "slot-changed";
+      queueId: WorkflowQueueEntryId;
+      backend: WorkflowQueueBackendScope;
+      state: WorkflowSubmissionSlotState;
+      reason?: undefined;
     }>;
 
 export type WorkflowQueueCancelResult =
@@ -122,6 +179,7 @@ export type WorkflowSubmissionQueueExecutionContext = Readonly<{
   submissionId: WorkflowSubmissionId;
   submissionUnitId: WorkflowQueueEntryId;
   inputUnitIdentity?: string;
+  slot: WorkflowSubmissionSlotCoordinator;
 }>;
 
 export type WorkflowSubmissionQueueConfig<TUnit> = Readonly<{
@@ -129,6 +187,7 @@ export type WorkflowSubmissionQueueConfig<TUnit> = Readonly<{
   workflow: WorkflowQueueWorkflowIdentity;
   units: ReadonlyArray<WorkflowSubmissionQueueUnit<TUnit>>;
   maxConcurrency?: number;
+  presentation?: WorkflowSubmissionPresentationInput;
   initialOutcomes?: ReadonlyArray<WorkflowExecutionUnitOutcome>;
   executeUnit: (
     unit: TUnit,

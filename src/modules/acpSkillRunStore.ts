@@ -17,6 +17,7 @@ import {
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import { appendRuntimeLog } from "./runtimeLogManager";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
   canPublishAssistantWorkspaceLiveUpdates,
@@ -294,6 +295,8 @@ export type AcpSkillRunRecord = {
   workflowLabel?: string;
   jobId?: string;
   runId?: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
   sequenceFinalStepId?: string;
@@ -310,6 +313,7 @@ export type AcpSkillRunRecord = {
   resultJsonPath?: string;
   acpModeId?: string;
   acpModelId?: string;
+  acpModelProvider?: string;
   acpReasoningEffort?: string;
   acpRawModelId?: string;
   agentFamily?: string;
@@ -398,6 +402,8 @@ export type AcpSkillRunSummary = Pick<
   | "workflowLabel"
   | "jobId"
   | "runId"
+  | "submissionId"
+  | "submissionUnitId"
   | "sequenceStepId"
   | "sequenceStepIndex"
   | "sequenceFinalStepId"
@@ -409,6 +415,7 @@ export type AcpSkillRunSummary = Pick<
   | "workspaceDir"
   | "acpModeId"
   | "acpModelId"
+  | "acpModelProvider"
   | "acpReasoningEffort"
   | "agentFamily"
   | "conversationState"
@@ -477,6 +484,8 @@ export type AcpSkillRunWorkspaceReadModel = Readonly<{
   backendLabel?: string;
   workflowId?: string;
   workflowLabel?: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
   taskName?: string;
@@ -487,6 +496,7 @@ export type AcpSkillRunWorkspaceReadModel = Readonly<{
   sessionId?: string;
   acpModeId?: string;
   acpModelId?: string;
+  acpModelProvider?: string;
   acpRawModelId?: string;
   acpReasoningEffort?: string;
   activePrompt: boolean;
@@ -2326,6 +2336,8 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     workflowLabel: normalizeString(raw.workflowLabel) || undefined,
     jobId: normalizeString(raw.jobId) || undefined,
     runId: normalizeString(raw.runId) || undefined,
+    submissionId: normalizeString(raw.submissionId) || undefined,
+    submissionUnitId: normalizeString(raw.submissionUnitId) || undefined,
     sequenceStepId: normalizeString(raw.sequenceStepId) || undefined,
     sequenceStepIndex: normalizeOptionalNonNegativeInteger(
       raw.sequenceStepIndex,
@@ -2351,6 +2363,7 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     resultJsonPath: normalizeString(raw.resultJsonPath) || undefined,
     acpModeId: normalizeString(raw.acpModeId) || undefined,
     acpModelId: normalizeString(raw.acpModelId) || undefined,
+    acpModelProvider: normalizeString(raw.acpModelProvider) || undefined,
     acpReasoningEffort: normalizeString(raw.acpReasoningEffort) || undefined,
     acpRawModelId: normalizeString(raw.acpRawModelId) || undefined,
     agentFamily: normalizeString(raw.agentFamily) || undefined,
@@ -3363,6 +3376,8 @@ export function upsertAcpSkillRun(update: {
   workflowLabel?: string;
   jobId?: string;
   runId?: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
   sequenceFinalStepId?: string;
@@ -3379,6 +3394,7 @@ export function upsertAcpSkillRun(update: {
   resultJsonPath?: string;
   acpModeId?: string;
   acpModelId?: string;
+  acpModelProvider?: string;
   acpReasoningEffort?: string | null;
   acpRawModelId?: string;
   agentFamily?: string;
@@ -3493,6 +3509,8 @@ export function upsertAcpSkillRun(update: {
   assignString("workflowLabel", update.workflowLabel);
   assignString("jobId", update.jobId);
   assignString("runId", update.runId);
+  assignString("submissionId", update.submissionId);
+  assignString("submissionUnitId", update.submissionUnitId);
   assignString("sequenceStepId", update.sequenceStepId);
   if (Object.prototype.hasOwnProperty.call(update, "sequenceStepIndex")) {
     const sequenceStepIndex = normalizeOptionalNonNegativeInteger(
@@ -3526,6 +3544,7 @@ export function upsertAcpSkillRun(update: {
   for (const [key, value] of [
     ["acpModeId", update.acpModeId],
     ["acpModelId", update.acpModelId],
+    ["acpModelProvider", update.acpModelProvider],
     ["acpRawModelId", update.acpRawModelId],
   ] as const) {
     if (!Object.prototype.hasOwnProperty.call(update, key)) {
@@ -5019,6 +5038,7 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
   if (!requestId) {
     throw new Error("requestId is required");
   }
+  getAcpSkillRunSlotCoordinator(requestId)?.cancelPendingResumption();
   cancelAcpSkillRunPermissionQueue(
     requestId,
     "run_cancelled_with_pending_permission",
@@ -5187,6 +5207,21 @@ export async function replyAcpSkillRun(args: {
       level: "info",
     },
   });
+  const slot = getAcpSkillRunSlotCoordinator(requestId);
+  if (slot && !(await slot.ensureSlot("user-reply"))) {
+    const detail = "ACP skill reply admission was canceled before send.";
+    upsertAcpSkillRun({
+      requestId,
+      replyState: "rejected",
+      replyError: detail,
+      event: {
+        stage: "reply-rejected",
+        message: detail,
+        level: "error",
+      },
+    });
+    throw new Error(detail);
+  }
   let controller = controllers.get(requestId);
   if (!controller?.reply && !controller?.replyRequest && recoveryHandler) {
     try {
@@ -5270,6 +5305,13 @@ export async function replyAcpSkillRun(args: {
     });
     throw error;
   }
+}
+
+function getAcpSkillRunSlotCoordinator(requestId: string) {
+  const submissionUnitId = getAcpSkillRunRecord(requestId)?.submissionUnitId;
+  return submissionUnitId
+    ? workflowSubmissionQueue.getSlotCoordinator(submissionUnitId)
+    : null;
 }
 
 export function isAcpSkillRunPromptActive(
@@ -5586,6 +5628,10 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
     },
   });
   try {
+    const slot = getAcpSkillRunSlotCoordinator(requestId);
+    if (slot && !(await slot.ensureSlot("retry"))) {
+      throw new Error("ACP skill recovery admission was canceled.");
+    }
     await recoveryHandler({ requestId, reason: "connect" });
     const recovered = getAcpSkillRunRecord(requestId);
     if (
@@ -6196,6 +6242,8 @@ export function getAcpSkillRunWorkspaceReadModel(
     backendLabel: run.backendLabel,
     workflowId: run.workflowId,
     workflowLabel: run.workflowLabel,
+    submissionId: run.submissionId,
+    submissionUnitId: run.submissionUnitId,
     sequenceStepId: run.sequenceStepId,
     sequenceStepIndex: run.sequenceStepIndex,
     taskName: run.taskName,
@@ -6206,6 +6254,7 @@ export function getAcpSkillRunWorkspaceReadModel(
     sessionId: run.sessionId,
     acpModeId: run.acpModeId,
     acpModelId: run.acpModelId,
+    acpModelProvider: run.acpModelProvider,
     acpRawModelId: run.acpRawModelId,
     acpReasoningEffort: run.acpReasoningEffort,
     activePrompt: run.activePrompt === true,
@@ -6339,6 +6388,8 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     workflowLabel: run.workflowLabel,
     jobId: run.jobId,
     runId: run.runId,
+    submissionId: run.submissionId,
+    submissionUnitId: run.submissionUnitId,
     sequenceStepId: run.sequenceStepId,
     sequenceStepIndex: run.sequenceStepIndex,
     sequenceFinalStepId: run.sequenceFinalStepId,
@@ -6351,6 +6402,7 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     workspaceDir: run.workspaceDir,
     acpModeId: run.acpModeId,
     acpModelId: run.acpModelId,
+    acpModelProvider: run.acpModelProvider,
     acpReasoningEffort: run.acpReasoningEffort,
     agentFamily: run.agentFamily,
     conversationState: run.conversationState,

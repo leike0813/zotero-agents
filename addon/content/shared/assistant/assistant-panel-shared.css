@@ -1917,6 +1917,14 @@ summary,
   font-weight: 700;
   font-size: 12px;
   line-height: 1.3;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.assistant-workspace-drawer-task-submission {
+  flex: none;
+  font-weight: 400;
 }
 
 .assistant-workspace-drawer-task-title:first-child {

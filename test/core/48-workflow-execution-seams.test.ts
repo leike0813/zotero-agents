@@ -23,7 +23,10 @@ import {
 } from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
-import { submitPreparedWorkflowUnits } from "../../src/modules/workflowExecution/submissionSeam";
+import {
+  executePreparedWorkflowUnit,
+  submitPreparedWorkflowUnits,
+} from "../../src/modules/workflowExecution/submissionSeam";
 import { WorkflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
@@ -167,6 +170,93 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  it("reacquires a yielded submission slot before Host apply", async function () {
+    const admission = deferred<boolean>();
+    const calls: string[] = [];
+    const execution = executePreparedWorkflowUnit(
+      {
+        prepared: {} as any,
+        unit: {} as any,
+        messageFormatter: (() => "") as any,
+        submissionContext: {
+          submissionId: "submission-a" as never,
+          submissionUnitId: "unit-a" as never,
+          slot: {
+            yield: () => false,
+            ensureSlot: async (reason) => {
+              calls.push(`ensure:${reason}`);
+              return admission.promise;
+            },
+            runWithPrioritySlot: async () => false,
+            cancelPendingResumption: () => {
+              calls.push("cancel-pending-resumption");
+              return true;
+            },
+            snapshot: () => null,
+          },
+        },
+      },
+      {
+        buildPreparedUnit: async () => ({
+          status: "ready",
+          built: {} as any,
+        }),
+        runPreparedUnit: () => ({ terminalPromise: Promise.resolve() }) as any,
+        applyPreparedUnit: async () => {
+          calls.push("apply");
+          return { failed: 0, pending: 0 } as any;
+        },
+      },
+    );
+
+    await flushMicrotasks();
+    assert.deepEqual(calls, ["cancel-pending-resumption", "ensure:host-apply"]);
+    admission.resolve(true);
+    assert.deepInclude(await execution, {
+      outcome: { status: "succeeded" },
+    });
+    assert.deepEqual(calls, [
+      "cancel-pending-resumption",
+      "ensure:host-apply",
+      "apply",
+    ]);
+  });
+
+  it("skips Host apply when resumption admission is canceled", async function () {
+    let applyCalls = 0;
+    const execution = await executePreparedWorkflowUnit(
+      {
+        prepared: {} as any,
+        unit: {} as any,
+        messageFormatter: (() => "") as any,
+        submissionContext: {
+          submissionId: "submission-a" as never,
+          submissionUnitId: "unit-a" as never,
+          slot: {
+            yield: () => false,
+            ensureSlot: async () => false,
+            runWithPrioritySlot: async () => false,
+            cancelPendingResumption: () => false,
+            snapshot: () => null,
+          },
+        },
+      },
+      {
+        buildPreparedUnit: async () => ({
+          status: "ready",
+          built: {} as any,
+        }),
+        runPreparedUnit: () => ({ terminalPromise: Promise.resolve() }) as any,
+        applyPreparedUnit: async () => {
+          applyCalls += 1;
+          return {} as any;
+        },
+      },
+    );
+    assert.equal(execution.outcome.status, "skipped");
+    assert.equal(applyCalls, 0);
+  });
+
   it("submits the approved Input Planning v2 units unchanged and holds a queue slot through terminal apply", async function () {
     const scheduled: Array<() => void> = [];
     const queue = new WorkflowSubmissionQueue({

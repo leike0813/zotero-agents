@@ -4470,7 +4470,7 @@ export async function openTaskManagerDialog(args?: {
       const eventBackend =
         event.type === "added"
           ? event.entry
-          : event.type === "removed"
+          : event.type === "removed" || event.type === "slot-changed"
             ? event.backend
             : null;
       if (

@@ -1,4 +1,5 @@
 import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
+import type { WorkflowSubmissionDisplayIdentity } from "../jobQueue/workflowSubmissionQueueContracts";
 import type {
   AssistantWorkspaceTranscriptDelta,
   AssistantWorkspaceTranscriptPage,
@@ -461,6 +462,8 @@ export type AssistantWorkspaceQueuedNavigationEntry = {
   groupLabel: string | null;
   updatedAt: string | null;
   canCancel: boolean;
+  submission: WorkflowSubmissionDisplayIdentity | null;
+  resumptionPending: boolean;
 };
 
 export type AssistantWorkspaceOwnerNavigation = {
@@ -484,6 +487,8 @@ export type AssistantWorkspaceOwnerNavigation = {
     attention: string | null;
     updatedAt: string | null;
     messageCount: number;
+    submission: WorkflowSubmissionDisplayIdentity | null;
+    resumptionPending: boolean;
   }>;
   queuedEntries: AssistantWorkspaceQueuedNavigationEntry[];
   canCreateOwner: boolean;
@@ -1349,6 +1354,8 @@ function assertPublicationPayloadInvariant(
           "attention",
           "updatedAt",
           "messageCount",
+          "submission",
+          "resumptionPending",
         ],
         "assistant-workspace-owner-navigation-entry",
       );

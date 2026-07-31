@@ -205,6 +205,12 @@ export function buildAssistantPanelLabels() {
       running: l("assistant-panel-drawer-running", "Running"),
       queued: l("workflow-queue-section-title", "Queued"),
       completed: l("assistant-panel-drawer-completed", "Completed"),
+      submission: l("assistant-panel-drawer-submission", "Submission"),
+      provider: l("assistant-panel-drawer-provider", "Provider"),
+      resumptionPending: l(
+        "assistant-panel-drawer-resumption-pending",
+        "Queued to resume",
+      ),
       emptyTasks: l("assistant-panel-drawer-empty-tasks", "No runs."),
       emptyContexts: l("assistant-panel-drawer-empty-contexts", "No entries."),
     },

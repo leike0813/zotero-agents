@@ -242,5 +242,21 @@ For ACP Skills and SkillRunner, admission occurs before unit-local provider
 preflight and request construction. The admitted unit owns provider fan-out,
 sequence execution, aggregate/short-circuit apply, and remains active through
 waiting states until provider terminal state and required Host apply settle.
+Unit activity and slot ownership are separate: `waiting_user`, `waiting_auth`,
+and `failed_retriable` yield the held slot without settling the unit. Reply,
+authorization, retry, autonomous local continuation, and Host apply reacquire
+the original submission's slot before local or backend work continues.
+
+Resumption admission is a per-submission priority lane. It preserves resumption
+request order and runs ahead of untouched initial units after the currently
+held work releases a slot; it never competes with another submission. Cancel
+does not wait for admission. Shutdown, cancellation, or terminal observation
+while yielded cancels any unsent continuation, and slot release and settlement
+remain idempotent.
+
+Submission creation also freezes the safe provider/model display labels used by
+task projections. ACP reads only `acpModelProvider` and `acpModelId`;
+SkillRunner reads only `provider_id`/`engine` and `model`. Missing labels use an
+explicit default and arbitrary provider options never cross this seam.
 Generic HTTP remains full-parallel outside the Host queue; pass-through remains
 serialized outside it.

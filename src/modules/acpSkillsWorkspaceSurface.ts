@@ -499,6 +499,8 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
         groupLabel,
         updatedAt: entry.createdAt || null,
         canCancel: entry.canCancel,
+        submission: entry.submission,
+        resumptionPending: false,
       };
     });
   const selectedSummary = summaries.find(
@@ -508,29 +510,46 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
     selectedOwner,
     selectedGroupId: String(selectedSummary?.backendId || "").trim() || null,
     groups: [...groups.values()],
-    entries: summaries.map((summary) => ({
-      owner: createAcpSkillsWorkspaceOwner(summary.requestId),
-      groupId: String(summary.backendId || "").trim() || "default",
-      label:
-        String(
-          summary.taskName ||
-            summary.workflowLabel ||
-            summary.skillId ||
-            summary.requestId,
-        ).trim() || summary.requestId,
-      subtitle: acpSkillRunSecondaryLabel(summary),
-      description: String(summary.error || "").trim() || null,
-      groupLabel:
-        String(summary.backendLabel || summary.backendId || "").trim() || null,
-      status: String(summary.status || "queued"),
-      backendStatus: String(summary.backendStatus || "").trim() || null,
-      applyState: String(summary.applyResultState || "").trim() || null,
-      attention:
-        String(summary.error || "").trim() ||
-        (summary.pendingPermission ? "permission-required" : null),
-      updatedAt: String(summary.updatedAt || "").trim() || null,
-      messageCount: Math.max(0, Number(summary.transcriptItemCount) || 0),
-    })),
+    entries: summaries.map((summary) => {
+      const terminal = ["succeeded", "failed", "canceled"].includes(
+        String(summary.status || ""),
+      );
+      const submission =
+        !terminal && summary.submissionId
+          ? workflowSubmissionQueue.getSubmissionDisplayIdentity(
+              summary.submissionId,
+            )
+          : null;
+      const slot = summary.submissionUnitId
+        ? workflowSubmissionQueue.getSlotSnapshot(summary.submissionUnitId)
+        : null;
+      return {
+        owner: createAcpSkillsWorkspaceOwner(summary.requestId),
+        groupId: String(summary.backendId || "").trim() || "default",
+        label:
+          String(
+            summary.taskName ||
+              summary.workflowLabel ||
+              summary.skillId ||
+              summary.requestId,
+          ).trim() || summary.requestId,
+        subtitle: acpSkillRunSecondaryLabel(summary),
+        description: String(summary.error || "").trim() || null,
+        groupLabel:
+          String(summary.backendLabel || summary.backendId || "").trim() ||
+          null,
+        status: String(summary.status || "queued"),
+        backendStatus: String(summary.backendStatus || "").trim() || null,
+        applyState: String(summary.applyResultState || "").trim() || null,
+        attention:
+          String(summary.error || "").trim() ||
+          (summary.pendingPermission ? "permission-required" : null),
+        updatedAt: String(summary.updatedAt || "").trim() || null,
+        messageCount: Math.max(0, Number(summary.transcriptItemCount) || 0),
+        submission,
+        resumptionPending: slot?.state === "resumption-pending",
+      };
+    }),
     queuedEntries,
     canCreateOwner: false,
   };

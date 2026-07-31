@@ -652,6 +652,15 @@ function assistantDrawerLabels(source) {
     statusOverall: labelFrom(source, "status.overall", "Overall"),
     statusBackend: labelFrom(source, "status.backend", "Backend"),
     statusApply: labelFrom(source, "status.apply", "Apply"),
+    submission: labelFrom(source, "drawer.submission", "Submission"),
+    provider: labelFrom(source, "drawer.provider", "Provider"),
+    model: labelFrom(source, "fields.model", "Model"),
+    defaultValue: labelFrom(source, "options.default", "Default"),
+    resumptionPending: labelFrom(
+      source,
+      "drawer.resumptionPending",
+      "Queued to resume",
+    ),
     emptyTasks: labelFrom(source, "drawer.emptyTasks", "No runs."),
   });
 }
@@ -1264,7 +1273,18 @@ function decorateSkillRunnerWorkspaceTask(task, source) {
   const needsAttention = Boolean(task.attention);
   const applyState = normalizeApplyState(task);
   const applyLabel = applyStateLabel(source || task, applyState, task);
-  const statusFields = taskStatusFields(task, source || task);
+  const baseStatusFields = taskStatusFields(task, source || task);
+  const statusFields = task.resumptionPending
+    ? Object.assign({}, baseStatusFields, {
+        mainStatus: "resumption-pending",
+        mainStatusLabel: labelFrom(
+          source || task,
+          "drawer.resumptionPending",
+          "Queued to resume",
+        ),
+        mainStatusTone: "warning",
+      })
+    : baseStatusFields;
   return Object.assign({}, task, statusFields, {
     workflowLabel: buildSkillRunSecondaryLabel(task, source),
     attention: needsAttention ? "warning" : "",
@@ -2180,12 +2200,35 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
       : null;
   const key = safeText(owner && owner.ownerKey);
   const statusFields = taskStatusFields(entry, labelSource);
-  const status = statusFields.mainStatus;
+  const projectedStatusFields =
+    entry && entry.resumptionPending === true
+      ? Object.assign({}, statusFields, {
+          mainStatus: "resumption-pending",
+          mainStatusLabel: labelFrom(
+            labelSource,
+            "drawer.resumptionPending",
+            "Queued to resume",
+          ),
+          mainStatusTone: "warning",
+        })
+      : statusFields;
+  const status = projectedStatusFields.mainStatus;
   const terminal = isTerminalStatus(status);
   const archiveEligible =
     owner && owner.source === "acp-chat"
       ? status === "idle" || status === "disconnected"
       : terminal;
+  const submission =
+    !terminal &&
+    entry &&
+    entry.submission &&
+    typeof entry.submission === "object"
+      ? {
+          symbol: safeText(entry.submission.symbol),
+          provider: safeText(entry.submission.provider) || "default",
+          model: safeText(entry.submission.model) || "default",
+        }
+      : null;
   return {
     key,
     action:
@@ -2199,8 +2242,8 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
         entry && (entry.subtitle || entry.groupLabel || entry.groupId),
       ) || "-",
     status,
-    stateLabel: statusFields.mainStatusLabel,
-    ...statusFields,
+    stateLabel: projectedStatusFields.mainStatusLabel,
+    ...projectedStatusFields,
     showBackendStatusBadge: true,
     showApplyStatusBadge: !owner || owner.source !== "acp-chat",
     updatedAt: safeText(entry && entry.updatedAt),
@@ -2208,6 +2251,8 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
     selectable: Boolean(key),
     terminal,
+    submission,
+    resumptionPending: entry && entry.resumptionPending === true,
     active: Boolean(selectedOwner && key === safeText(selectedOwner.ownerKey)),
     attention: safeText(entry && (entry.attention || entry.description))
       ? "warning"
@@ -2254,6 +2299,15 @@ function exactWorkspaceQueuedTask(entry, labelSource) {
     backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
     selectable: false,
     terminal: false,
+    submission:
+      entry && entry.submission && typeof entry.submission === "object"
+        ? {
+            symbol: safeText(entry.submission.symbol),
+            provider: safeText(entry.submission.provider) || "default",
+            model: safeText(entry.submission.model) || "default",
+          }
+        : null,
+    resumptionPending: entry && entry.resumptionPending === true,
     active: false,
     attention: "",
     attentionLabel: "",

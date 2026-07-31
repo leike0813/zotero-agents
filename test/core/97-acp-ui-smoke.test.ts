@@ -953,6 +953,34 @@ describe("Assistant Workspace ACP UI v1", function () {
     }
   });
 
+  it("uses the shared submission decoration for SkillRunner rows", async function () {
+    const envelope = (await captureSkillRunnerWorkspaceEnvelope({
+      tasks: [
+        {
+          taskName: "Waiting Task",
+          requestId: "req-lineage",
+          status: "waiting_user",
+        },
+      ],
+    })) as any;
+    const sourceTask = envelope.drawer.sections
+      .flatMap((section: any) => section.groups)
+      .flatMap((group: any) => group.activeTasks)[0];
+    sourceTask.submission = {
+      symbol: "🪐",
+      provider: "openai",
+      model: "gpt-5",
+    };
+    sourceTask.resumptionPending = true;
+    const panel = AssistantPanelModel.projectSkillRunnerPanelSnapshot(envelope);
+    const task = panel.drawers.skillrunnerSections
+      .flatMap((section: any) => section.groups)
+      .flatMap((group: any) => group.activeTasks)[0];
+    assert.deepEqual(task.submission, sourceTask.submission);
+    assert.equal(task.mainStatus, "resumption-pending");
+    assert.notInclude(task.workflowLabel, "🪐");
+  });
+
   it("renders persisted SkillRunner Apply states and replaces only the changed task card", async function () {
     this.timeout(10_000);
     setPref("assistantExecutionDisplayMode", "live");
@@ -1260,6 +1288,145 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(task.applyStatus, "pending");
     assert.equal(panel.actions.toolbar[3].value, "boundary");
     assert.equal(panel.actions.toolbar[3].align, "end");
+  });
+
+  it("renders accessible submission symbols before unfinished task titles only", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-skills") as any;
+    state.navigation.entries[0].submission = {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    };
+    state.navigation.entries[0].resumptionPending = true;
+    state.navigation.entries.push({
+      owner: owner("acp-skills", "request-complete"),
+      groupId: "backend-a",
+      label: "Completed Task",
+      subtitle: "2️⃣ Skill Alpha/Workflow Alpha",
+      description: null,
+      groupLabel: "Backend A",
+      status: "succeeded",
+      backendStatus: "succeeded",
+      applyState: "succeeded",
+      attention: null,
+      updatedAt: "2026-07-17T01:00:00.000Z",
+      messageCount: 1,
+      submission: {
+        symbol: "🌙",
+        provider: "openai",
+        model: "gpt-5",
+      },
+      resumptionPending: false,
+    });
+    state.navigation.queuedEntries.push({
+      queueId: "queue-a",
+      groupId: "backend-a",
+      label: "Queued Task",
+      subtitle: "3️⃣ Skill Alpha/Workflow Alpha",
+      groupLabel: "Backend A",
+      updatedAt: "2026-07-17T02:00:00.000Z",
+      canCancel: true,
+      submission: {
+        symbol: "☀️",
+        provider: "default",
+        model: "default",
+      },
+      resumptionPending: false,
+    });
+    const ui = {
+      runningCollapsed: false,
+      queuedCollapsed: false,
+      completedCollapsed: false,
+    };
+    const panel = model.projectAssistantWorkspacePanel(state, ui, {});
+    const runningTask = panel.drawers.sections[0].groups[0].activeTasks[0];
+    const completedTask = panel.drawers.sections[2].groups[0].finishedTasks[0];
+    assert.deepEqual(runningTask.submission, {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    });
+    assert.equal(runningTask.mainStatus, "resumption-pending");
+    assert.equal(runningTask.workflowLabel, "Skill Alpha");
+    assert.isNull(completedTask.submission);
+
+    renderer.renderAssistantPanelSnapshot(panel, {
+      managed: true,
+      root,
+      regions,
+      onAction() {},
+    });
+    const badges = regions.drawer.querySelectorAll(
+      ".assistant-workspace-drawer-task-submission",
+    );
+    assert.deepEqual(
+      badges.map((badge) => badge.textContent),
+      ["🌙", "☀️"],
+    );
+    badges.forEach((badge) => {
+      assert.equal(badge.getAttribute("aria-label"), badge.title);
+      assert.include(badge.title, badge.textContent);
+      assert.match(badge.title, /Provider|Model/);
+    });
+    assert.include(badges[1].title, "Default");
+    assert.notInclude(
+      completedTask.workflowLabel,
+      completedTask.submission?.symbol || "🌙",
+    );
+  });
+
+  it("updates only one task row when submission tooltip metadata changes", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-skills") as any;
+    state.navigation.entries[0].submission = {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    };
+    state.navigation.entries[0].resumptionPending = false;
+    const render = () =>
+      renderer.renderAssistantPanelSnapshot(
+        model.projectAssistantWorkspacePanel(state, {}, {}),
+        { managed: true, root, regions, onAction() {} },
+      );
+    render();
+    const drawerMount = regions.drawer.firstChild;
+    const section = regions.drawer.querySelector(
+      ".assistant-workspace-drawer-section",
+    );
+    const group = regions.drawer.querySelector(
+      ".assistant-workspace-drawer-group",
+    );
+    const taskRow = regions.drawer.querySelector("[data-assistant-task-key]");
+    const stableRegions = Object.fromEntries(
+      Object.entries(regions).filter(([key]) => key !== "drawer"),
+    );
+    const stableSubtrees = captureRegionSubtrees(stableRegions);
+
+    state.navigation.entries[0].submission.model = "gpt-5.1";
+    render();
+
+    assert.strictEqual(regions.drawer.firstChild, drawerMount);
+    assert.strictEqual(
+      regions.drawer.querySelector(".assistant-workspace-drawer-section"),
+      section,
+    );
+    assert.strictEqual(
+      regions.drawer.querySelector(".assistant-workspace-drawer-group"),
+      group,
+    );
+    assert.notStrictEqual(
+      regions.drawer.querySelector("[data-assistant-task-key]"),
+      taskRow,
+    );
+    assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
   });
 
   it("projects source-aware ACP drawers without empty backend groups", async function () {

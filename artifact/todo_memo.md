@@ -81,7 +81,7 @@
 - [x] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
 - [x] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
 
-- [p] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
+- [x] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
 
 - [x] 升级 host bridge cli 界面，将 synthesis 作为一等子命令
 - [x] 调试完毕后，彻底统一 host bridge cli 相关注入点（根据workflow声明，统一单点注入，不直接写SKILL；裸命令尽量实现，run-local shim做兜底），避免现在写得到处都是
@@ -140,6 +140,7 @@
 - [x] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
 - [x] 之前修复的错误推理强度问题，没完全修好，表现为M3按none提交会报错“low不存在”，但按其他强度提交依然会报错
 - [x] **literature-search-ingest需要升级**。现在存在以下问题：1. 跳过PDF探测的偷懒行为极其高发，需要升级为硬stage技能；2.文献元数据搜索极其偷懒； 3. 文献元数据录入不规范，DOI放到“其他”字段中，中文论文的录入不稳定，有时按英文标题录入、有时按英文作者录入、有时又录入双语标题；
+- [ ] 进一步完善任务队列，取消任务正常释放槽位，可重试失败释放槽位，timeout释放槽位，不同任务队列加标识
 - [ ] ACP Skills状态机还是有点问题，已完成任务无法继续对话，和最初设计意图不一致。需要进行一次整体升级，合理设计自由对话和任务执行的关系。
 - [ ] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
 - [ ] **初次启动时的使用指导demo**
