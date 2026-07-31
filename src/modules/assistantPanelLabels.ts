@@ -125,6 +125,28 @@ export function buildAssistantPanelLabels() {
       conversation: l("assistant-panel-field-conversation", "Conversation"),
       applyResult: l("assistant-panel-field-apply-result", "Apply result"),
       control: l("assistant-panel-field-control", "Interaction"),
+      title: l("assistant-panel-field-title", "Title"),
+      pendingInteraction: l(
+        "assistant-panel-field-pending-interaction",
+        "Interaction",
+      ),
+      pendingKind: l("assistant-panel-field-pending-kind", "Kind"),
+      pendingPrompt: l("assistant-panel-field-pending-prompt", "Prompt"),
+      pendingOptions: l("assistant-panel-field-pending-options", "Options"),
+      pendingRequiredFields: l(
+        "assistant-panel-field-pending-required-fields",
+        "Required fields",
+      ),
+      authSession: l("assistant-panel-field-auth-session", "Auth session"),
+      authProvider: l("assistant-panel-field-auth-provider", "Auth provider"),
+      authPhase: l("assistant-panel-field-auth-phase", "Auth phase"),
+      authEngine: l("assistant-panel-field-auth-engine", "Auth engine"),
+      authMethods: l("assistant-panel-field-auth-methods", "Auth methods"),
+      authChallenge: l(
+        "assistant-panel-field-auth-challenge",
+        "Auth challenge",
+      ),
+      authError: l("assistant-panel-field-auth-error", "Auth error"),
       deferredApply: l(
         "assistant-panel-field-deferred-apply",
         "Deferred apply",
@@ -281,6 +303,24 @@ export function buildAssistantPanelLabels() {
       placeholderAcpChat: l(
         "assistant-panel-reply-placeholder-acp-chat",
         "Ask the active ACP backend about the current library or item...",
+      ),
+      authPasteApiKey: l(
+        "task-dashboard-run-auth-paste-api-key",
+        "Paste API key",
+      ),
+      authPasteCode: l(
+        "task-dashboard-run-auth-paste-code",
+        "Paste authorization code",
+      ),
+      authSubmitApiKey: l(
+        "task-dashboard-run-auth-submit-api-key",
+        "Submit API Key",
+      ),
+      authSubmitCode: l("task-dashboard-run-auth-submit-code", "Submit Code"),
+      authAwaiting: l("task-dashboard-run-auth-awaiting", "Awaiting"),
+      authInProgress: l(
+        "task-dashboard-run-auth-in-progress",
+        "Awaiting auth state update...",
       ),
       shortcut: l(
         "assistant-panel-reply-shortcut",

@@ -1822,6 +1822,49 @@ describe("Assistant Workspace chrome components", function () {
       });
     });
 
+    it("keeps backend-unreachable groups visible as disabled with their reason", function () {
+      const mount = environment.document.createElement("div");
+      const unreachableSection = {
+        id: "running",
+        title: "Running",
+        collapsible: true,
+        collapsed: false,
+        groups: [
+          {
+            backendId: "ghost",
+            backendDisplayName: "Ghost Backend",
+            disabled: true,
+            disabledReason:
+              "Backend Ghost Backend is temporarily unreachable. Please try again later.",
+            collapsed: true,
+            activeTasks: [],
+            finishedTasks: [],
+          },
+        ],
+      };
+      renderContextDrawer(
+        mount,
+        drawerSelection({ sections: [unreachableSection] }),
+      );
+      const group = mount.querySelector('[data-assistant-group-key="ghost"]')!;
+      assert.isOk(group, "empty disabled group still renders");
+      assert.include(group.className, "is-disabled");
+      assert.equal(
+        group.querySelector(".assistant-workspace-drawer-group-disabled-tag")!
+          .textContent,
+        "Unavailable",
+      );
+      assert.equal(
+        group.querySelector(".assistant-workspace-drawer-group-disabled-hint")!
+          .textContent,
+        "Backend Ghost Backend is temporarily unreachable. Please try again later.",
+      );
+      assert.isNull(
+        mount.querySelector(".assistant-workspace-drawer-empty"),
+        "a disabled group counts as drawer content",
+      );
+    });
+
     it("renders the queued section collapsed by default with a cancel action", function () {
       const mount = environment.document.createElement("div");
       const emitted: Array<{ action: string; payload: unknown }> = [];

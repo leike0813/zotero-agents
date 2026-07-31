@@ -687,11 +687,32 @@ describe("Assistant Workspace ACP UI v1", function () {
         )?.textContent,
         "No task",
       );
+      const emptyIndicator = childWindow.regions.banner.querySelector(
+        '[data-assistant-indicator-id="skillrunner-control"]',
+      );
+      assert.isOk(emptyIndicator, "empty chrome shows the control badge");
+      assert.equal(emptyIndicator?.getAttribute("title"), "Unavailable");
+      assert.isNull(
+        childWindow.regions.banner.querySelector(
+          '[data-assistant-indicator-id="acp-connection"]',
+        ),
+        "SkillRunner banner has no Connection LED",
+      );
       const replySubmit = childWindow.regions.reply.querySelector(
         ".assistant-panel-reply-submit",
       ) as HTMLButtonElement | null;
       assert.isOk(replySubmit);
       assert.isTrue(replySubmit!.disabled);
+      assert.isNull(
+        childWindow.regions.reply.querySelector(".assistant-panel-usage-gauge"),
+        "SkillRunner composer has no usage gauge",
+      );
+      assert.isNull(
+        childWindow.regions.reply.querySelector(
+          ".assistant-panel-reply-controls",
+        ),
+        "SkillRunner composer has no runtime option dropdowns",
+      );
     } finally {
       await harness.reset();
     }
@@ -724,6 +745,24 @@ describe("Assistant Workspace ACP UI v1", function () {
           .querySelector("[data-assistant-banner-status]")
           ?.getAttribute("data-assistant-banner-status"),
         "queued",
+      );
+      const preparingIndicator = childWindow.regions.banner.querySelector(
+        '[data-assistant-indicator-id="skillrunner-control"]',
+      );
+      assert.isOk(
+        preparingIndicator,
+        "local pre-request run shows the control badge",
+      );
+      assert.equal(preparingIndicator?.getAttribute("title"), "Preparing");
+      assert.isNull(
+        childWindow.regions.banner.querySelector(
+          '[data-assistant-indicator-id="acp-connection"]',
+        ),
+        "SkillRunner banner has no Connection LED",
+      );
+      assert.isNull(
+        childWindow.regions.reply.querySelector(".assistant-panel-usage-gauge"),
+        "SkillRunner composer has no usage gauge",
       );
     } finally {
       await harness.reset();

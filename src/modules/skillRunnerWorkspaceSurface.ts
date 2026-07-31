@@ -3,13 +3,14 @@ import {
   getSkillRunnerWorkspaceSelectedOwner,
   listSkillRunnerWorkspaceTaskGroups,
   readSkillRunnerTranscriptRegion,
+  readSkillRunnerWorkspaceOwnerDetails,
   type SkillRunnerWorkspaceChange,
   type SkillRunnerWorkspaceChangeKind,
   type SkillRunnerWorkspaceReadModel,
 } from "./skillRunnerRunDialog";
 import { getSkillRunnerRunRecord } from "./skillRunnerRunStore";
 import type {
-  AssistantWorkspaceDetailsFieldId,
+  AssistantWorkspaceOwnerBadges,
   AssistantWorkspaceOwnerNavigation,
   AssistantWorkspacePublicationKind,
 } from "./assistantWorkspacePublication";
@@ -157,12 +158,136 @@ function skillRunnerWorkspaceInteraction(
   return model.pendingInteraction;
 }
 
-function skillRunnerDetailsItem(
-  fieldId: AssistantWorkspaceDetailsFieldId,
-  value: unknown,
-  format: "text" | "path" | "code" | "json" = "text",
-) {
-  return { fieldId, value: String(value || "").trim(), format };
+function skillRunnerStatusToken(value: unknown): string {
+  return String(value == null ? "" : value)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+}
+
+/**
+ * Eight-state read-only interaction badge, mirroring the legacy
+ * buildSkillRunnerControlIndicator branch order exactly: permission approval
+ * > auth > needs-input > preparing (no request id) > submitting/preparing
+ * (non-interactive submit phase) > read-only (terminal) > streaming.
+ * The sidebar localizes the state token into the badge value.
+ */
+function skillRunnerControlBadge(
+  model: SkillRunnerWorkspaceModel,
+): NonNullable<AssistantWorkspaceOwnerBadges["control"]> {
+  const status = skillRunnerStatusToken(model.status);
+  const submitPhase = skillRunnerStatusToken(model.submitPhase);
+  if (model.pendingPermission) {
+    return {
+      state: "approval",
+      tone: "warning",
+      title:
+        String(
+          model.pendingPermission.summary ||
+            model.pendingPermission.toolTitle ||
+            "",
+        ).trim() || null,
+    };
+  }
+  if (model.pendingAuth?.phase || status === "waiting-auth") {
+    return { state: "auth", tone: "warning", title: null };
+  }
+  if (model.canReply || status === "waiting-user") {
+    return { state: "input", tone: "warning", title: null };
+  }
+  if (!model.requestAssigned || !model.requestId) {
+    return { state: "preparing", tone: "accent", title: null };
+  }
+  if (!model.backendInteractive) {
+    const uploading =
+      submitPhase === "uploading" ||
+      status === "uploading" ||
+      status === "request-creating";
+    return {
+      state: uploading ? "submitting" : "preparing",
+      tone: "accent",
+      title: null,
+    };
+  }
+  if (model.terminal) {
+    return { state: "read-only", tone: "muted", title: null };
+  }
+  return { state: "streaming", tone: "success", title: null };
+}
+
+/**
+ * Auto-reply observer badge (legacy buildSkillRunnerAutoReplyIndicator): only
+ * present when auto reply is enabled for the run; the countdown seconds and
+ * progress ride along when the observer shows a timer.
+ */
+function skillRunnerAutoReplyBadge(
+  model: SkillRunnerWorkspaceModel,
+): NonNullable<AssistantWorkspaceOwnerBadges["autoReply"]> | null {
+  if (model.autoReplyEnabled !== true) {
+    return null;
+  }
+  const active = model.autoReplyObserverActive === true;
+  const remaining =
+    active &&
+    model.autoReplyObserverShowTimer === true &&
+    Number.isFinite(model.autoReplyObserverRemainingSeconds)
+      ? Math.max(0, Math.ceil(Number(model.autoReplyObserverRemainingSeconds)))
+      : null;
+  let progressPercent: number | null = null;
+  if (active && model.autoReplyObserverShowTimer === true) {
+    const startedAt = Date.parse(model.autoReplyObserverStartedAt || "");
+    const deadlineAt = Date.parse(model.autoReplyObserverDeadlineAt || "");
+    if (
+      Number.isFinite(startedAt) &&
+      Number.isFinite(deadlineAt) &&
+      deadlineAt > startedAt
+    ) {
+      const remainingRatio =
+        (deadlineAt - Date.now()) / (deadlineAt - startedAt);
+      progressPercent = Math.max(0, Math.min(100, remainingRatio * 100));
+    }
+  }
+  return { active, remainingSeconds: remaining, progressPercent };
+}
+
+/**
+ * Composer status projection, legacy reply semantics: a busy backend run
+ * (running/prompting) turns the primary button into Cancel (busy), waiting
+ * runs enable the input only when a reply is actually accepted — waiting_auth
+ * requires the challenge to accept chat input (legacy
+ * skillRunnerAuthInputVisible gate) with no auth action in flight. Note the
+ * legacy canReply conjunct is mechanically false for waiting_auth (the store
+ * projection only grants canReply to waiting_user runs), so the auth branch
+ * follows the visible-challenge gate the legacy placeholder/submit labels
+ * actually keyed on.
+ */
+function skillRunnerComposerStatus(
+  model: SkillRunnerWorkspaceModel,
+): "enabled" | "disabled" | "busy" {
+  const status = skillRunnerStatusToken(model.status);
+  if (
+    model.backendInteractive &&
+    (status === "running" || status === "prompting")
+  ) {
+    return "busy";
+  }
+  if (model.terminal || !model.waiting) {
+    return "disabled";
+  }
+  if (model.authRequired) {
+    const auth = model.pendingAuth;
+    const inputKind = skillRunnerStatusToken(auth?.inputKind);
+    const acceptsChatInput =
+      auth?.acceptsChatInput === true &&
+      !!inputKind &&
+      inputKind !== "import-files" &&
+      inputKind !== "custom-provider" &&
+      skillRunnerStatusToken(auth?.phase) !== "method-selection";
+    return acceptsChatInput && auth?.actionPending !== true
+      ? "enabled"
+      : "disabled";
+  }
+  return model.canReply ? "enabled" : "disabled";
 }
 
 export async function readSkillRunnerWorkspaceRegions(args: {
@@ -182,25 +307,12 @@ export async function readSkillRunnerWorkspaceRegions(args: {
   if (requested.has("composer")) {
     regions.composer = {
       reply: {
-        // Auth chat input is governed by the pending auth payload
-        // (acceptsChatInput, projected into the interaction DTO), not by the
-        // task-level canReply flag, which only covers backend run replies.
-        status:
-          !model.terminal &&
-          model.waiting &&
-          (model.canReply || (model.authRequired && !!model.pendingInteraction))
-            ? "enabled"
-            : "disabled",
+        status: skillRunnerComposerStatus(model),
       },
-      runtimeOptions: {
-        mode: { selectedOptionId: null, options: [], enabled: false },
-        model: { selectedOptionId: null, options: [], enabled: false },
-        reasoningEffort: {
-          selectedOptionId: null,
-          options: [],
-          enabled: false,
-        },
-      },
+      // SkillRunner has no mode/model/reasoning selectors; null keeps the
+      // child from rendering disabled placeholder dropdowns (legacy composer
+      // had no runtime option groups at all).
+      runtimeOptions: null,
     };
   }
   if (requested.has("permission")) {
@@ -234,33 +346,10 @@ export async function readSkillRunnerWorkspaceRegions(args: {
     };
   }
   if (requested.has("owner-details")) {
-    const runnerItems = [
-      skillRunnerDetailsItem("backend", model.backendDisplayName),
-      skillRunnerDetailsItem("skill", model.title),
-      skillRunnerDetailsItem("model", model.model),
-      skillRunnerDetailsItem("session", model.requestId),
-    ].filter((entry) => entry.value);
-    const validationItems = [
-      skillRunnerDetailsItem("validation-status", model.status),
-      skillRunnerDetailsItem("apply-result", model.applyState),
-      skillRunnerDetailsItem("applied-at", model.applyUpdatedAt),
-      skillRunnerDetailsItem("run-error", model.error || model.submitError),
-    ].filter((entry) => entry.value);
-    regions["owner-details"] = {
-      status: "ready",
-      title: model.title,
-      subtitle: model.requestId || null,
-      sections: [
-        { sectionId: "runner" as const, collapsed: false, items: runnerItems },
-        {
-          sectionId: "validation" as const,
-          collapsed: false,
-          items: validationItems,
-        },
-      ].filter((entry) => entry.items.length > 0),
-      actions: ["copy-id", "copy-diagnostics"],
-      error: null,
-    };
+    const details = readSkillRunnerWorkspaceOwnerDetails();
+    if (details) {
+      regions["owner-details"] = details;
+    }
   }
   if (requested.has("owner-control")) {
     regions["owner-control"] = {
@@ -287,6 +376,10 @@ export async function readSkillRunnerWorkspaceRegions(args: {
       permissionPolicy: {
         autoApprove: false,
         canSetAutoApprove: false,
+      },
+      badges: {
+        control: skillRunnerControlBadge(model),
+        autoReply: skillRunnerAutoReplyBadge(model),
       },
     };
   }
@@ -319,7 +412,12 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
     : null;
   const navigationGroups = new Map<
     string,
-    { groupId: string; label: string; status: string }
+    {
+      groupId: string;
+      label: string;
+      status: string;
+      disabledReason: string | null;
+    }
   >();
   const entries: AssistantWorkspaceOwnerNavigation["entries"] = [];
   let selectedGroupId: string | null = null;
@@ -331,6 +429,11 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
         groupId,
         label: String(group.backendDisplayName || "").trim() || groupId,
         status: group.disabled ? "unavailable" : "idle",
+        // Unreachable backends keep their drawer group (disabled, with the
+        // localized reason) even though their task rows are withheld.
+        disabledReason: group.disabled
+          ? String(group.disabledReason || "").trim() || null
+          : null,
       });
     }
     if (group.disabled) continue;
@@ -379,6 +482,7 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
           groupId,
           label: groupId,
           status: "queued",
+          disabledReason: null,
         });
       }
       return {

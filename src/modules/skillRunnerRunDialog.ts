@@ -102,7 +102,10 @@ import {
   createFailedTranscriptRegion,
   createReadyTranscriptRegion,
   projectAssistantWorkspacePermissionRequest,
+  type AssistantWorkspaceDetailsFieldId,
+  type AssistantWorkspaceDetailsSectionId,
   type AssistantWorkspaceOwner,
+  type AssistantWorkspaceOwnerDetails,
 } from "./assistantWorkspacePublication";
 import { resolveSkillRunnerBackendCapabilities } from "./skillRunnerHandshake";
 import { resolveSkillRunnerInteractionFileCapability } from "./skillRunnerHandshakeProtocol";
@@ -4890,15 +4893,24 @@ export type SkillRunnerWorkspaceReadModel = Readonly<{
   pendingAuth: AssistantPendingInteractionAuth | null;
   canReply: boolean;
   canCancel: boolean;
+  /** True once the backend assigned a request id (legacy requestAssigned). */
+  requestAssigned: boolean;
+  /** True when the backend run accepts live interaction (legacy name). */
+  backendInteractive: boolean;
   submitPhase: string | null;
   submitError: string | null;
   applyState: string | null;
   applyAttempt: number | null;
   applyMaxAttempt: number | null;
+  applyNextRetryAt: string | null;
   applyError: string | null;
   applyUpdatedAt: string | null;
   autoReplyEnabled: boolean;
   autoReplyObserverActive: boolean;
+  autoReplyObserverShowTimer: boolean;
+  autoReplyObserverRemainingSeconds: number | null;
+  autoReplyObserverStartedAt: string | null;
+  autoReplyObserverDeadlineAt: string | null;
   messageCounts: AssistantMessageCountsSnapshot | null;
   transcriptRevision: number;
 }>;
@@ -5010,6 +5022,10 @@ function skillRunnerWorkspaceRunSignature(
     task?.applyState || "",
     task?.submitPhase || "",
     task?.submitError || "",
+    // The auto-reply banner badge flips with the observer; without this the
+    // owner-control publication clock would not advance on observer
+    // start/stop (countdown values ride the next republish, as in legacy).
+    task?.autoReplyObserverActive === true,
   ]);
 }
 
@@ -5306,6 +5322,11 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
       typeof task?.canCancelBackendRun === "boolean"
         ? task.canCancelBackendRun
         : backendInteractive && !terminal,
+    requestAssigned:
+      typeof task?.requestAssigned === "boolean"
+        ? task.requestAssigned
+        : !!requestId,
+    backendInteractive,
     submitPhase: String(task?.submitPhase || "").trim() || null,
     submitError:
       String(task?.submitError || "").trim() ||
@@ -5315,6 +5336,10 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
       String(record?.apply.state || task?.applyState || "").trim() || null,
     applyAttempt: record?.apply.attempt ?? task?.applyAttempt ?? null,
     applyMaxAttempt: record?.apply.maxAttempt ?? task?.applyMaxAttempt ?? null,
+    applyNextRetryAt:
+      String(
+        record?.apply.nextRetryAt || task?.applyNextRetryAt || "",
+      ).trim() || null,
     applyError:
       String(record?.apply.error || task?.applyError || "").trim() || null,
     applyUpdatedAt:
@@ -5324,8 +5349,261 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
       autoReplyObserverState?.enabled || task?.autoReplyEnabled === true,
     autoReplyObserverActive:
       autoReplyObserverState?.active || task?.autoReplyObserverActive === true,
+    autoReplyObserverShowTimer:
+      autoReplyObserverState?.showTimer === true ||
+      task?.autoReplyObserverShowTimer === true,
+    autoReplyObserverRemainingSeconds:
+      autoReplyObserverState?.remainingSeconds ??
+      task?.autoReplyObserverRemainingSeconds ??
+      null,
+    autoReplyObserverStartedAt:
+      String(
+        autoReplyObserverState?.startedAt ||
+          task?.autoReplyObserverStartedAt ||
+          "",
+      ).trim() || null,
+    autoReplyObserverDeadlineAt:
+      String(
+        autoReplyObserverState?.deadlineAt ||
+          task?.autoReplyObserverDeadlineAt ||
+          "",
+      ).trim() || null,
     messageCounts: entry.messageCounts || null,
     transcriptRevision: runWorkspaceState.transcriptRevision,
+  };
+}
+
+function skillRunnerOwnerDetailsItem(
+  fieldId: AssistantWorkspaceDetailsFieldId,
+  value: unknown,
+  format: "text" | "path" | "code" | "json" = "text",
+) {
+  return {
+    fieldId,
+    value: String(value == null ? "" : value).trim(),
+    format,
+  };
+}
+
+/** Localized deferred-apply state label (legacy applyStateLabel parity). */
+function skillRunnerOwnerDetailsApplyLabel(
+  state: string,
+  nextRetryAt: string,
+): string {
+  const token = state
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+  if (!token || token === "idle") return "";
+  if (token === "pending") {
+    return localize("assistant-panel-status-apply-pending", "Pending apply");
+  }
+  if (token === "running") {
+    return localize("assistant-panel-status-apply-running", "Applying");
+  }
+  if (token === "succeeded") {
+    return localize("assistant-panel-status-apply-succeeded", "Applied");
+  }
+  if (token === "failed") {
+    return nextRetryAt
+      ? localize(
+          "assistant-panel-status-apply-retry-scheduled",
+          "Retry scheduled",
+        )
+      : localize("assistant-panel-status-apply-failed", "Apply failed");
+  }
+  if (token === "skipped") {
+    return localize("assistant-panel-status-apply-skipped", "Skipped");
+  }
+  if (token === "not-required") {
+    return localize(
+      "assistant-panel-status-apply-not-required",
+      "Not required",
+    );
+  }
+  return token;
+}
+
+/**
+ * Full owner-details projection for the selected run, restoring the legacy
+ * buildSkillRunnerDetails field set (Run / Deferred apply / Pending /
+ * Conversation Summary / Revision Summary). Items with empty values are
+ * dropped by the sidebar projection, so every legacy field is listed here
+ * unconditionally.
+ */
+export function readSkillRunnerWorkspaceOwnerDetails(): AssistantWorkspaceOwnerDetails | null {
+  const entry = runWorkspaceState.currentEntry;
+  if (!entry) {
+    return null;
+  }
+  const session = entry.session;
+  const record = getSkillRunnerRunRecord(entry.key);
+  const task = getCurrentRunWorkspaceTask();
+  const requestId = String(entry.requestId || session.requestId || "").trim();
+  const title =
+    String(task?.title || "").trim() ||
+    String(record?.taskName || "").trim() ||
+    resolveRunWorkspaceTitle();
+  const normalizedStatus = normalizeStatus(
+    String(session.status || "").trim() || "running",
+    "running",
+  );
+  const applyState = String(
+    record?.apply.state || task?.applyState || "",
+  ).trim();
+  const applyNextRetryAt = String(
+    record?.apply.nextRetryAt || task?.applyNextRetryAt || "",
+  ).trim();
+  const pending = session.pendingInteraction;
+  const pendingAuth = session.pendingAuth;
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const lastMessage =
+    messages.length > 0 ? messages[messages.length - 1] : null;
+  const revisions = messages.filter(
+    (message) => message && message.kind === "assistant_revision",
+  );
+  const latestRevision =
+    revisions.length > 0 ? revisions[revisions.length - 1] : null;
+  const latestRevisionText = latestRevision
+    ? (
+        entryVisibleText(latestRevision) ||
+        JSON.stringify(latestRevision.raw ?? latestRevision)
+      ).slice(0, 500)
+    : "";
+  const sections: AssistantWorkspaceOwnerDetails["sections"] = [
+    {
+      sectionId: "run" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem("title", title),
+        skillRunnerOwnerDetailsItem("request-id", requestId),
+        skillRunnerOwnerDetailsItem(
+          "task-key",
+          String(runWorkspaceState.selectedTaskKey || "").trim(),
+        ),
+        skillRunnerOwnerDetailsItem("status", session.status),
+        skillRunnerOwnerDetailsItem(
+          "terminal",
+          String(isTerminal(normalizedStatus)),
+        ),
+        skillRunnerOwnerDetailsItem(
+          "waiting",
+          String(isWaiting(normalizedStatus)),
+        ),
+        skillRunnerOwnerDetailsItem(
+          "backend",
+          resolveBackendDisplayName(
+            entry.backend.id,
+            entry.backend.displayName,
+          ),
+        ),
+        skillRunnerOwnerDetailsItem("engine", session.engine),
+        skillRunnerOwnerDetailsItem("model", session.model),
+        skillRunnerOwnerDetailsItem("updated", session.updatedAt),
+        skillRunnerOwnerDetailsItem(
+          "loading",
+          String(session.loading === true),
+        ),
+        skillRunnerOwnerDetailsItem("error", session.error),
+      ],
+    },
+    {
+      sectionId: "deferred-apply" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem(
+          "status",
+          skillRunnerOwnerDetailsApplyLabel(applyState, applyNextRetryAt) ||
+            applyState,
+        ),
+        skillRunnerOwnerDetailsItem(
+          "apply-attempt",
+          record?.apply.attempt ?? task?.applyAttempt ?? "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "apply-max-attempt",
+          record?.apply.maxAttempt ?? task?.applyMaxAttempt ?? "",
+        ),
+        skillRunnerOwnerDetailsItem("apply-next-retry", applyNextRetryAt),
+        skillRunnerOwnerDetailsItem(
+          "updated",
+          record?.apply.updatedAt || task?.applyUpdatedAt || "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "error",
+          record?.apply.error || task?.applyError || "",
+        ),
+      ],
+    },
+    {
+      sectionId: "pending" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem(
+          "pending-interaction",
+          pending?.interactionId ?? "",
+        ),
+        skillRunnerOwnerDetailsItem("pending-kind", pending?.kind),
+        skillRunnerOwnerDetailsItem("pending-prompt", pending?.prompt),
+        skillRunnerOwnerDetailsItem(
+          "pending-options",
+          Array.isArray(pending?.options) ? String(pending.options.length) : "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "pending-required-fields",
+          Array.isArray(pending?.requiredFields)
+            ? pending.requiredFields.join(", ")
+            : "",
+        ),
+        skillRunnerOwnerDetailsItem("auth-session", pendingAuth?.authSessionId),
+        skillRunnerOwnerDetailsItem("auth-provider", pendingAuth?.providerId),
+        skillRunnerOwnerDetailsItem("auth-phase", pendingAuth?.phase),
+        skillRunnerOwnerDetailsItem("auth-engine", pendingAuth?.engine),
+        skillRunnerOwnerDetailsItem(
+          "auth-methods",
+          Array.isArray(pendingAuth?.availableMethods)
+            ? pendingAuth.availableMethods.join(", ")
+            : "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "auth-challenge",
+          pendingAuth?.challengeKind,
+        ),
+        skillRunnerOwnerDetailsItem(
+          "auth-error",
+          session.authControlError || pendingAuth?.lastError || "",
+        ),
+      ],
+    },
+    {
+      sectionId: "conversation-summary" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem("messages", String(messages.length)),
+        skillRunnerOwnerDetailsItem("latest-timestamp", lastMessage?.ts),
+        skillRunnerOwnerDetailsItem("latest-kind", lastMessage?.kind),
+      ],
+    },
+    {
+      sectionId: "revision-summary" as AssistantWorkspaceDetailsSectionId,
+      collapsed: true,
+      items: [
+        skillRunnerOwnerDetailsItem("count", String(revisions.length)),
+        skillRunnerOwnerDetailsItem(
+          "latest",
+          latestRevisionText,
+          latestRevisionText ? "code" : "text",
+        ),
+      ],
+    },
+  ];
+  return {
+    status: "ready",
+    title,
+    subtitle: requestId || null,
+    sections,
+    actions: ["copy-id", "copy-diagnostics"],
+    error: null,
   };
 }
 
@@ -5344,9 +5622,11 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
  * - an assistant_final replaces same-chain intermediate messages (via
  *   buildRunDialogDisplayMessages) and duplicate finals of the same chain and
  *   attempt are dropped;
- * - assistant_revision entries pair by message id into the matching final's
- *   revision metadata {count, status, repairRound}; unpaired revisions are
- *   dropped (legacy behavior);
+ * - assistant_revision entries pair by message id: the paired final carries
+ *   the revision badge metadata {count, status, repairRound}, and the
+ *   rejected draft itself renders as its own assistant message row (legacy
+ *   runDialog.js revision branch); unpaired revisions are dropped (legacy
+ *   behavior);
  * - a pending permission request appends a synthetic permission item.
  */
 export function projectSkillRunnerConversationEntriesToTranscriptItems(
@@ -5355,25 +5635,55 @@ export function projectSkillRunnerConversationEntriesToTranscriptItems(
 ): AssistantWorkspaceTranscriptItem[] {
   const displayEntries = buildRunDialogDisplayMessages([...entries]);
   const revisionsByMessageId = new Map<string, SkillRunnerConversationEntry>();
+  const finalMessageIds = new Set<string>();
   for (const entry of displayEntries) {
-    if (entry.role !== "assistant" || entry.kind !== "assistant_revision") {
+    if (entry.role !== "assistant") {
       continue;
     }
-    const messageId = entryMessageId(entry);
-    if (messageId && !revisionsByMessageId.has(messageId)) {
-      revisionsByMessageId.set(messageId, entry);
+    if (entry.kind === "assistant_revision") {
+      const messageId = entryMessageId(entry);
+      if (messageId && !revisionsByMessageId.has(messageId)) {
+        revisionsByMessageId.set(messageId, entry);
+      }
+      continue;
+    }
+    if (isAssistantFinalEntry(entry)) {
+      const messageId = entryMessageId(entry);
+      if (messageId) {
+        finalMessageIds.add(messageId);
+      }
     }
   }
   const items: AssistantWorkspaceTranscriptItem[] = [];
   const seenFinalChains = new Set<string>();
   displayEntries.forEach((entry, index) => {
-    if (entry.kind === "assistant_revision") {
-      return;
-    }
     const itemId = `skillrunner-${
       entry.seq > 0 ? `seq-${entry.seq}` : `local-${index}`
     }`;
     const createdAt = String(entry.ts || "");
+    if (entry.kind === "assistant_revision") {
+      // Rejected drafts render as their own row (legacy revision branch);
+      // revisions without a matching final stay dropped.
+      const messageId = entryMessageId(entry);
+      if (!messageId || !finalMessageIds.has(messageId)) {
+        return;
+      }
+      items.push({
+        itemId,
+        itemKind: "message",
+        createdAt,
+        updatedAt: null,
+        role: "assistant",
+        text: entryVisibleText(entry) || "Rejected final reply",
+        status: "complete",
+        revision: {
+          count: 1,
+          status: "replaced",
+          repairRound: entryAttempt(entry),
+        },
+      });
+      return;
+    }
     if (isAssistantProcessEntry(entry)) {
       const correlation = entryCorrelation(entry);
       const processType = normalizeDisplayText(
@@ -5535,6 +5845,29 @@ export function readSkillRunnerTranscriptRegion(args: {
     ? Math.max(0, total - limit)
     : Math.max(0, Math.floor(Number(cursor)));
   const pageItems = items.slice(startCursor, startCursor + limit);
+  // Same-owner background history hydration (reattach catch-up) appends a
+  // trailing status row on the tail page, matching the legacy panel model;
+  // owner switches are covered by the owner-first loading snapshot instead.
+  if (
+    tail &&
+    (entry.session.historyLoading === true || entry.historyHydrating === true)
+  ) {
+    pageItems.push({
+      itemId: "skillrunner-history-loading",
+      itemKind: "status",
+      createdAt: "",
+      updatedAt: null,
+      level: "info",
+      label: localize(
+        "assistant-panel-transcript-history-loading",
+        "Loading conversation",
+      ),
+      text: localize(
+        "assistant-panel-transcript-history-loading-detail",
+        "Loading conversation history...",
+      ),
+    });
+  }
   const page = createAssistantWorkspaceTranscriptPage({
     owner,
     anchor: tail ? "tail" : "cursor",

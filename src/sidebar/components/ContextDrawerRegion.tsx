@@ -353,7 +353,11 @@ function sectionTasks(section: Record<string, unknown>): number {
   const groups = Array.isArray(section.groups)
     ? (section.groups as Array<Record<string, unknown>>)
     : [];
-  return groups.reduce((count, group) => count + groupTasks(group), 0);
+  return groups.reduce(
+    (count, group) =>
+      count + groupTasks(group) + (group.disabled === true ? 1 : 0),
+    0,
+  );
 }
 
 function groupTasks(group: Record<string, unknown>): number {
@@ -446,7 +450,9 @@ export const ContextDrawerRegion = memo(
                 : []
             ).filter(
               (group) =>
-                group && typeof group === "object" && groupTasks(group) > 0,
+                group &&
+                typeof group === "object" &&
+                (groupTasks(group) > 0 || group.disabled === true),
             );
             return (
               <section

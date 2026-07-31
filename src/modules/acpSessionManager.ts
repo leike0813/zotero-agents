@@ -917,6 +917,7 @@ export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNav
           ? foreground.snapshot.status || "idle"
           : "idle",
       ),
+      disabledReason: null,
     })),
     entries,
     queuedEntries: [],

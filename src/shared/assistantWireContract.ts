@@ -90,6 +90,7 @@ export const ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS: Record<
     "execution",
     "authentication",
     "permissionPolicy",
+    "badges",
   ],
   "message-counts": ["counts"],
   plan: ["items"],

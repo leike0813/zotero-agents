@@ -433,6 +433,27 @@ export type AssistantWorkspaceServiceStatus = {
   }>;
 };
 
+/**
+ * Read-only banner badges projected host-side (currently SkillRunner only;
+ * ACP sources publish `null`). `control` carries the eight-state interaction
+ * badge (approval/auth/input/preparing/submitting/read-only/streaming/
+ * unavailable); `autoReply` carries the auto-reply observer badge with the
+ * countdown seconds and progress. Value/label localization stays a sidebar
+ * concern: only the state token, tone, and raw title text cross the wire.
+ */
+export type AssistantWorkspaceOwnerBadges = {
+  control: {
+    state: string;
+    tone: string;
+    title: string | null;
+  } | null;
+  autoReply: {
+    active: boolean;
+    remainingSeconds: number | null;
+    progressPercent: number | null;
+  } | null;
+};
+
 export type AssistantWorkspaceOwnerControl = {
   status: string;
   busy: boolean;
@@ -471,6 +492,7 @@ export type AssistantWorkspaceOwnerControl = {
     autoApprove: boolean;
     canSetAutoApprove: boolean;
   };
+  badges: AssistantWorkspaceOwnerBadges | null;
 };
 
 export type AssistantWorkspaceMessageCounts = {
@@ -494,6 +516,12 @@ export type AssistantWorkspaceOwnerNavigation = {
     groupId: string;
     label: string;
     status: string;
+    /**
+     * Localized reason shown inside a disabled (backend-unreachable) drawer
+     * group; null for reachable groups. Resolved host-side because it
+     * interpolates the backend display name.
+     */
+    disabledReason: string | null;
   }>;
   entries: Array<{
     owner: AssistantWorkspaceOwner;
@@ -629,11 +657,16 @@ export type AssistantWorkspaceComposer = {
   reply: {
     status: "enabled" | "disabled" | "busy" | "cancelling";
   };
+  /**
+   * Mode/model/reasoning selectors. Null for sources whose composer has no
+   * runtime option groups (SkillRunner), so the child renders no disabled
+   * placeholder dropdowns.
+   */
   runtimeOptions: {
     mode: AssistantWorkspaceOptionGroup;
     model: AssistantWorkspaceOptionGroup;
     reasoningEffort: AssistantWorkspaceOptionGroup;
-  };
+  } | null;
 };
 
 export type AssistantWorkspaceOption = {
@@ -700,6 +733,11 @@ export const ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY = {
   "output-revisions": { labelPath: "details.outputRevisions" },
   "runtime-logs": { labelPath: "details.runtimeLogs" },
   "result-json": { labelPath: "details.resultJson" },
+  run: { labelPath: "details.run" },
+  "deferred-apply": { labelPath: "fields.deferredApply" },
+  pending: { labelPath: "details.pending" },
+  "conversation-summary": { labelPath: "details.conversationSummary" },
+  "revision-summary": { labelPath: "details.revisionSummary" },
 } as const;
 
 export type AssistantWorkspaceDetailsSectionId =
@@ -748,6 +786,36 @@ export const ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY = {
   "candidate-preview": { labelPath: "fields.candidatePreview" },
   logs: { labelPath: "fields.logs" },
   "result-json": { labelPath: "details.resultJson" },
+  title: { labelPath: "fields.title" },
+  "request-id": { labelPath: "fields.requestId" },
+  "task-key": { labelPath: "fields.taskKey" },
+  status: { labelPath: "fields.status" },
+  terminal: { labelPath: "fields.terminal" },
+  waiting: { labelPath: "fields.waiting" },
+  engine: { labelPath: "fields.engine" },
+  updated: { labelPath: "fields.updated" },
+  loading: { labelPath: "fields.loading" },
+  error: { labelPath: "fields.error" },
+  "apply-attempt": { labelPath: "fields.applyAttempt" },
+  "apply-max-attempt": { labelPath: "fields.applyMaxAttempt" },
+  "apply-next-retry": { labelPath: "fields.applyNextRetry" },
+  messages: { labelPath: "fields.messages" },
+  "latest-timestamp": { labelPath: "fields.latestTimestamp" },
+  "latest-kind": { labelPath: "fields.latestKind" },
+  count: { labelPath: "fields.count" },
+  latest: { labelPath: "fields.latest" },
+  "pending-interaction": { labelPath: "fields.pendingInteraction" },
+  "pending-kind": { labelPath: "fields.pendingKind" },
+  "pending-prompt": { labelPath: "fields.pendingPrompt" },
+  "pending-options": { labelPath: "fields.pendingOptions" },
+  "pending-required-fields": { labelPath: "fields.pendingRequiredFields" },
+  "auth-session": { labelPath: "fields.authSession" },
+  "auth-provider": { labelPath: "fields.authProvider" },
+  "auth-phase": { labelPath: "fields.authPhase" },
+  "auth-engine": { labelPath: "fields.authEngine" },
+  "auth-methods": { labelPath: "fields.authMethods" },
+  "auth-challenge": { labelPath: "fields.authChallenge" },
+  "auth-error": { labelPath: "fields.authError" },
 } as const;
 
 export type AssistantWorkspaceDetailsFieldId =
@@ -1408,13 +1476,34 @@ function assertPublicationPayloadInvariant(
       ["autoApprove", "canSetAutoApprove"],
       "assistant-workspace-owner-control-permission-policy",
     );
+    if (baseline.badges !== null) {
+      assertExactObjectKeys(
+        baseline.badges,
+        ["control", "autoReply"],
+        "assistant-workspace-owner-control-badges",
+      );
+      if (baseline.badges.control !== null) {
+        assertExactObjectKeys(
+          baseline.badges.control,
+          ["state", "tone", "title"],
+          "assistant-workspace-owner-control-badge-control",
+        );
+      }
+      if (baseline.badges.autoReply !== null) {
+        assertExactObjectKeys(
+          baseline.badges.autoReply,
+          ["active", "remainingSeconds", "progressPercent"],
+          "assistant-workspace-owner-control-badge-auto-reply",
+        );
+      }
+    }
   }
   if (kind === "owner-navigation") {
     const navigation = payload as AssistantWorkspaceOwnerNavigation;
     for (const group of navigation.groups) {
       assertExactObjectKeys(
         group,
-        ["groupId", "label", "status"],
+        ["groupId", "label", "status", "disabledReason"],
         "assistant-workspace-owner-navigation-group",
       );
     }
@@ -1504,27 +1593,29 @@ function assertPublicationPayloadInvariant(
     ) {
       throw new Error("assistant-workspace-composer-reply-status");
     }
-    assertExactObjectKeys(
-      composer.runtimeOptions,
-      ["mode", "model", "reasoningEffort"],
-      "assistant-workspace-composer-options",
-    );
-    for (const group of [
-      composer.runtimeOptions.mode,
-      composer.runtimeOptions.model,
-      composer.runtimeOptions.reasoningEffort,
-    ]) {
+    if (composer.runtimeOptions !== null) {
       assertExactObjectKeys(
-        group,
-        ["selectedOptionId", "options", "enabled"],
-        "assistant-workspace-option-group",
+        composer.runtimeOptions,
+        ["mode", "model", "reasoningEffort"],
+        "assistant-workspace-composer-options",
       );
-      for (const option of group.options) {
+      for (const group of [
+        composer.runtimeOptions.mode,
+        composer.runtimeOptions.model,
+        composer.runtimeOptions.reasoningEffort,
+      ]) {
         assertExactObjectKeys(
-          option,
-          ["optionId", "label", "description"],
-          "assistant-workspace-option",
+          group,
+          ["selectedOptionId", "options", "enabled"],
+          "assistant-workspace-option-group",
         );
+        for (const option of group.options) {
+          assertExactObjectKeys(
+            option,
+            ["optionId", "label", "description"],
+            "assistant-workspace-option",
+          );
+        }
       }
     }
   }

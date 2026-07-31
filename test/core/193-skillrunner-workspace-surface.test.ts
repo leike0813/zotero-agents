@@ -27,6 +27,8 @@ import {
   updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
+import { markSkillRunnerBackendHealthFailure } from "../../src/modules/skillRunnerBackendHealthRegistry";
+import { buildAssistantWorkspacePublicationLabels } from "../../src/modules/assistantWorkspacePublicationLabels";
 import { clearPref } from "../../src/utils/prefs";
 import {
   startSkillRunnerWorkspaceSnapshotHarness,
@@ -220,11 +222,14 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       },
     );
     const kinds = items.map((item) => item.itemKind);
-    // The same-chain intermediate (seq 4) is replaced by the final (seq 5).
+    // The same-chain intermediate (seq 4) is replaced by the final (seq 5);
+    // the rejected draft (seq 7) renders as its own row ahead of the
+    // repaired final (legacy revision branch).
     assert.deepEqual(kinds, [
       "tool-call",
       "thought",
       "tool-call",
+      "message",
       "message",
       "message",
       "message",
@@ -247,7 +252,18 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
     if (userMessage.itemKind === "message") {
       assert.equal(userMessage.role, "user");
     }
-    const repairedFinal = items[5];
+    const revisionRow = items[5];
+    assert.equal(revisionRow.itemKind, "message");
+    if (revisionRow.itemKind === "message") {
+      assert.equal(revisionRow.role, "assistant");
+      assert.equal(revisionRow.text, "rejected draft");
+      assert.deepEqual(revisionRow.revision, {
+        count: 1,
+        status: "replaced",
+        repairRound: 2,
+      });
+    }
+    const repairedFinal = items[6];
     assert.equal(repairedFinal.itemKind, "message");
     if (repairedFinal.itemKind === "message") {
       assert.equal(repairedFinal.text, "repaired answer");
@@ -257,11 +273,46 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         repairRound: 2,
       });
     }
-    const permission = items[6];
+    const permission = items[7];
     assert.equal(permission.itemKind, "permission");
     if (permission.itemKind === "permission") {
       assert.equal(permission.permissionRequestId, "perm-1");
       assert.equal(permission.status, "pending");
+    }
+    // Unpaired revisions (no matching final) stay dropped, as in legacy.
+    const unpaired = projectSkillRunnerConversationEntriesToTranscriptItems([
+      conversationEntry({
+        seq: 1,
+        role: "assistant",
+        kind: "assistant_revision",
+        text: "orphan draft",
+        messageId: "msg-orphan",
+        attempt: 1,
+      }),
+    ]);
+    assert.deepEqual(unpaired, []);
+    // A revision without draft text falls back to the legacy placeholder.
+    const textless = projectSkillRunnerConversationEntriesToTranscriptItems([
+      conversationEntry({
+        seq: 1,
+        role: "assistant",
+        kind: "assistant_revision",
+        text: "",
+        messageId: "msg-r",
+        attempt: 3,
+      }),
+      conversationEntry({
+        seq: 2,
+        role: "assistant",
+        kind: "assistant_final",
+        text: "kept answer",
+        messageId: "msg-r",
+        attempt: 3,
+      }),
+    ]);
+    assert.equal(textless[0]?.itemKind, "message");
+    if (textless[0]?.itemKind === "message") {
+      assert.equal(textless[0].text, "Rejected final reply");
     }
   });
 
@@ -999,5 +1050,772 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
     } finally {
       capture.stop();
     }
+  });
+
+  it("projects control/auto-reply badges and the legacy composer states", async function () {
+    const waiting = harness.seedTask({
+      requestId: "req-badge-waiting",
+      status: "waiting_user",
+      requestPayload: { runtime_options: { interactive_auto_reply: true } },
+    });
+    const capture = await attachReadModelHost(waiting.runKey);
+    try {
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return (
+          model?.runKey === waiting.runKey && model.status === "waiting_user"
+        );
+      }, "waiting read model");
+      let regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-control", "composer"],
+        context: undefined,
+      });
+      assert.deepEqual(regions["owner-control"]?.badges?.control, {
+        state: "input",
+        tone: "warning",
+        title: null,
+      });
+      // The seed requests interactive auto reply, so the badge is present
+      // with an inactive observer.
+      assert.deepEqual(regions["owner-control"]?.badges?.autoReply, {
+        active: false,
+        remainingSeconds: null,
+        progressPercent: null,
+      });
+      assert.equal(regions.composer?.reply.status, "enabled");
+      assert.isNull(
+        regions.composer?.runtimeOptions,
+        "SkillRunner projects no runtime option groups",
+      );
+
+      // Banner/reply chrome projection from the same payloads.
+      let panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: {
+            owner: selectedOwner(),
+            control: regions["owner-control"],
+            composer: regions.composer,
+          },
+        },
+        {},
+        {},
+      );
+      const controlIndicator = panel.context.indicators.find(
+        (entry: Record<string, unknown>) => entry.id === "skillrunner-control",
+      );
+      assert.ok(controlIndicator, "control badge replaces the Connection LED");
+      assert.equal(controlIndicator.value, "Needs input");
+      assert.equal(controlIndicator.tone, "warning");
+      assert.isFalse(
+        panel.context.indicators.some(
+          (entry: Record<string, unknown>) => entry.id === "acp-connection",
+        ),
+        "SkillRunner banner has no connection indicator",
+      );
+      const autoReplyIndicator = panel.context.indicators.find(
+        (entry: Record<string, unknown>) =>
+          entry.id === "skillrunner-auto-reply",
+      );
+      assert.ok(autoReplyIndicator);
+      assert.equal(autoReplyIndicator.value, "Inactive");
+      assert.equal(autoReplyIndicator.tone, "muted");
+      assert.deepEqual(panel.reply.controls, []);
+      assert.isFalse(panel.reply.showUsageGauge);
+      assert.equal(
+        panel.reply.placeholder,
+        "Reply to the pending SkillRunner interaction...",
+      );
+      assert.equal(panel.reply.action, "reply-run");
+
+      // Running run: badge flips to streaming and the composer primary
+      // button becomes Cancel (cancel-run, danger tone).
+      const running = harness.seedTask({
+        requestId: "req-badge-running",
+        status: "running",
+      });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: running.runKey },
+      });
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return model?.runKey === running.runKey && model.status === "running";
+      }, "running read model");
+      regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-control", "composer"],
+        context: undefined,
+      });
+      assert.deepEqual(regions["owner-control"]?.badges?.control, {
+        state: "streaming",
+        tone: "success",
+        title: null,
+      });
+      assert.equal(regions.composer?.reply.status, "busy");
+      panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: {
+            owner: selectedOwner(),
+            control: regions["owner-control"],
+            composer: regions.composer,
+          },
+        },
+        {},
+        {},
+      );
+      assert.equal(panel.reply.action, "cancel-run");
+      assert.equal(panel.reply.submitLabel, "Cancel");
+      assert.equal(panel.reply.tone, "danger");
+      assert.isTrue(panel.reply.enabled);
+      assert.isFalse(panel.reply.inputEnabled);
+
+      // Terminal run: read-only badge, disabled composer.
+      const done = harness.seedTask({
+        requestId: "req-badge-done",
+        status: "succeeded",
+      });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: done.runKey },
+      });
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return model?.runKey === done.runKey && model.terminal;
+      }, "terminal read model");
+      regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-control", "composer"],
+        context: undefined,
+      });
+      assert.deepEqual(regions["owner-control"]?.badges?.control, {
+        state: "read-only",
+        tone: "muted",
+        title: null,
+      });
+      assert.equal(regions.composer?.reply.status, "disabled");
+
+      // Waiting-auth run: auth badge; a challenge that does not accept chat
+      // input keeps the composer disabled (legacy authInputVisible gate).
+      const auth = harness.seedTask({
+        requestId: "req-badge-auth",
+        status: "waiting_auth",
+        pendingAuth: {
+          phase: "challenge_active",
+          challenge_kind: "api_key",
+          accepts_chat_input: true,
+          input_kind: "api_key",
+          available_methods: ["api_key"],
+        },
+      });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: auth.runKey },
+      });
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return (
+          model?.runKey === auth.runKey &&
+          model.authRequired &&
+          !!model.pendingAuth
+        );
+      }, "waiting-auth read model");
+      regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-control", "composer"],
+        context: undefined,
+      });
+      assert.deepEqual(regions["owner-control"]?.badges?.control, {
+        state: "auth",
+        tone: "warning",
+        title: null,
+      });
+      assert.equal(regions.composer?.reply.status, "enabled");
+
+      const authImport = harness.seedTask({
+        requestId: "req-badge-auth-import",
+        status: "waiting_auth",
+        pendingAuth: {
+          phase: "challenge_active",
+          challenge_kind: "import_files",
+          accepts_chat_input: true,
+          input_kind: "import_files",
+          available_methods: ["import_files"],
+        },
+      });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: authImport.runKey },
+      });
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return (
+          model?.runKey === authImport.runKey &&
+          model.authRequired &&
+          !!model.pendingAuth
+        );
+      }, "waiting-auth import read model");
+      regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["composer"],
+        context: undefined,
+      });
+      assert.equal(
+        regions.composer?.reply.status,
+        "disabled",
+        "import-files challenges take no chat input",
+      );
+
+      // Local pre-request run: preparing badge.
+      const local = harness.seedTask({ taskName: "Local Prepare" });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: local.runKey },
+      });
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return model?.runKey === local.runKey && !model.requestAssigned;
+      }, "local read model");
+      regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-control"],
+        context: undefined,
+      });
+      assert.deepEqual(regions["owner-control"]?.badges?.control, {
+        state: "preparing",
+        tone: "accent",
+        title: null,
+      });
+    } finally {
+      capture.stop();
+    }
+  });
+
+  it("maps all eight control badge states and the auto-reply countdown in the panel model", function () {
+    const owner = {
+      source: "skillrunner",
+      ownerKey: "req-1",
+      requestId: "req-1",
+      runKey: "run-1",
+    };
+    const project = (badges: unknown) =>
+      AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: {
+            owner,
+            control: {
+              status: "running",
+              busy: true,
+              hint: { kind: "hidden", message: null },
+              badges,
+            },
+          },
+        },
+        {},
+        {},
+      );
+    const expectations: Array<[string, string, string]> = [
+      ["approval", "Approval", "warning"],
+      ["auth", "Auth", "warning"],
+      ["input", "Needs input", "warning"],
+      ["preparing", "Preparing", "accent"],
+      ["submitting", "Submitting", "accent"],
+      ["read-only", "Read-only", "muted"],
+      ["streaming", "Streaming", "success"],
+      ["unavailable", "Unavailable", "muted"],
+    ];
+    for (const [state, value, tone] of expectations) {
+      const panel = project({
+        control: { state, tone, title: null },
+        autoReply: null,
+      });
+      const indicator = panel.context.indicators.find(
+        (entry: Record<string, unknown>) => entry.id === "skillrunner-control",
+      );
+      assert.ok(indicator, `control badge for ${state}`);
+      assert.equal(indicator.value, value, `badge value for ${state}`);
+      assert.equal(indicator.tone, tone, `badge tone for ${state}`);
+      assert.equal(indicator.title, value, `badge tooltip for ${state}`);
+    }
+    // Permission approval carries the request summary as the tooltip.
+    const approval = project({
+      control: { state: "approval", tone: "warning", title: "Allow writes?" },
+      autoReply: null,
+    });
+    const approvalIndicator = approval.context.indicators.find(
+      (entry: Record<string, unknown>) => entry.id === "skillrunner-control",
+    );
+    assert.equal(approvalIndicator.title, "Allow writes?");
+
+    const active = project({
+      control: { state: "streaming", tone: "success", title: null },
+      autoReply: { active: true, remainingSeconds: 42, progressPercent: 30 },
+    });
+    const activeIndicator = active.context.indicators.find(
+      (entry: Record<string, unknown>) => entry.id === "skillrunner-auto-reply",
+    );
+    assert.ok(activeIndicator);
+    assert.equal(activeIndicator.value, "Active");
+    assert.equal(activeIndicator.tone, "success");
+    assert.equal(activeIndicator.extraValue, "42s");
+    assert.equal(activeIndicator.progressPercent, 30);
+    assert.isTrue(activeIndicator.valueVisible);
+
+    // Empty workspace: the unavailable badge stands in for the empty chrome
+    // connection LED.
+    const emptyPanel = AssistantPanelModel.projectAssistantWorkspacePanel(
+      { source: "skillrunner", selection: { owner: null } },
+      {},
+      {},
+    );
+    const emptyIndicator = emptyPanel.context.indicators.find(
+      (entry: Record<string, unknown>) => entry.id === "skillrunner-control",
+    );
+    assert.ok(emptyIndicator, "empty chrome shows the control badge");
+    assert.equal(emptyIndicator.value, "Unavailable");
+    assert.isFalse(
+      emptyPanel.context.indicators.some(
+        (entry: Record<string, unknown>) => entry.id === "acp-connection",
+      ),
+    );
+  });
+
+  it("restores the legacy waiting-auth composer guidance in the panel model", function () {
+    const owner = {
+      source: "skillrunner",
+      ownerKey: "req-auth",
+      requestId: "req-auth",
+      runKey: "run-auth",
+    };
+    const project = (auth: Record<string, unknown>, status = "enabled") =>
+      AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: {
+            owner,
+            control: {
+              status: "waiting_auth",
+              busy: false,
+              hint: { kind: "auth", message: "Authentication required." },
+              interaction: {
+                inputKind: "open_text",
+                prompt: null,
+                hint: null,
+                options: [],
+                files: [],
+                fileReply: { supported: false },
+                auth,
+              },
+            },
+            composer: { reply: { status }, runtimeOptions: null },
+          },
+        },
+        {},
+        {},
+      );
+    const baseAuth = {
+      phase: "challenge_active",
+      challengeKind: "api_key",
+      hint: "",
+      inputKind: "api_key",
+      acceptsChatInput: true,
+      authUrl: "",
+      userCode: "",
+      lastError: "",
+      actionPending: false,
+      actionKind: "",
+      methods: [],
+      importFiles: [],
+      importRiskNoticeRequired: false,
+    };
+    let panel = project(baseAuth);
+    assert.equal(panel.reply.placeholder, "Paste API key");
+    assert.equal(panel.reply.submitLabel, "Submit API Key");
+
+    panel = project({ ...baseAuth, inputKind: "auth_code" });
+    assert.equal(panel.reply.placeholder, "Paste authorization code");
+    assert.equal(panel.reply.submitLabel, "Submit Code");
+
+    // The backend hint wins over the per-kind default.
+    panel = project({ ...baseAuth, hint: "Paste the token from the console" });
+    assert.equal(panel.reply.placeholder, "Paste the token from the console");
+
+    // Auth action in flight: awaiting labels and the sending state.
+    panel = project({ ...baseAuth, actionPending: true }, "disabled");
+    assert.equal(panel.reply.placeholder, "Awaiting auth state update...");
+    assert.equal(panel.reply.submitLabel, "Awaiting");
+    assert.isTrue(panel.reply.sending);
+  });
+
+  it("restores the legacy five-section owner details projection", async function () {
+    const seeded = harness.seedTask({
+      requestId: "req-details",
+      status: "waiting_user",
+      pending: {
+        interaction_id: 12,
+        kind: "choose_one",
+        prompt: "Pick a mode",
+        options: [{ label: "A", value: "a" }],
+      },
+      chatEvents: [
+        {
+          seq: 1,
+          role: "assistant",
+          kind: "assistant_revision",
+          text: "rejected draft body",
+          correlation: { message_id: "msg-d", attempt: 2 },
+        },
+        {
+          seq: 2,
+          role: "assistant",
+          kind: "assistant_final",
+          text: "repaired digest",
+          correlation: { message_id: "msg-d", attempt: 2 },
+        },
+      ],
+    });
+    const capture = await attachReadModelHost(seeded.runKey);
+    try {
+      await capture.runtime.flush();
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return (
+          model?.runKey === seeded.runKey &&
+          model.status === "waiting_user" &&
+          !!model.pendingInteraction
+        );
+      }, "details read model settled");
+      await waitForCondition(async () => {
+        const details = (
+          await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+            owner: selectedOwner()!,
+            kinds: ["owner-details"],
+            context: undefined,
+          })
+        )["owner-details"];
+        return (
+          details?.status === "ready" &&
+          details.sections.some(
+            (section) =>
+              section.sectionId === "revision-summary" &&
+              section.items.some((item) => item.fieldId === "count"),
+          )
+        );
+      }, "owner details with revision summary");
+      const regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-details"],
+        context: undefined,
+      });
+      const details = regions["owner-details"];
+      assert.ok(details);
+      assert.deepEqual(
+        details!.sections.map((section) => section.sectionId),
+        [
+          "run",
+          "deferred-apply",
+          "pending",
+          "conversation-summary",
+          "revision-summary",
+        ],
+      );
+      assert.deepEqual(details!.actions, ["copy-id", "copy-diagnostics"]);
+      const sectionItems = (sectionId: string) =>
+        new Map(
+          (
+            details!.sections.find((section) => section.sectionId === sectionId)
+              ?.items || []
+          ).map((item) => [item.fieldId, item.value] as const),
+        );
+      const runFields = sectionItems("run");
+      assert.equal(runFields.get("request-id"), "req-details");
+      assert.equal(runFields.get("task-key"), seeded.runKey);
+      assert.equal(runFields.get("status"), "waiting_user");
+      assert.equal(runFields.get("terminal"), "false");
+      assert.equal(runFields.get("waiting"), "true");
+      const pendingFields = sectionItems("pending");
+      assert.equal(pendingFields.get("pending-interaction"), "12");
+      assert.equal(pendingFields.get("pending-kind"), "choose_one");
+      assert.equal(pendingFields.get("pending-prompt"), "Pick a mode");
+      assert.equal(pendingFields.get("pending-options"), "1");
+      const conversationFields = sectionItems("conversation-summary");
+      assert.isAtLeast(
+        Number(conversationFields.get("messages") || 0),
+        2,
+        "conversation summary counts the session messages",
+      );
+      assert.equal(conversationFields.get("latest-kind"), "assistant_final");
+      const revisionFields = sectionItems("revision-summary");
+      assert.equal(revisionFields.get("count"), "1");
+      assert.equal(revisionFields.get("latest"), "rejected draft body");
+
+      // The sidebar projection maps the field ids onto the legacy labels.
+      const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: {
+            owner: selectedOwner(),
+            details,
+          },
+        },
+        {},
+        {},
+      );
+      const sectionTitles = panel.drawers.details.map(
+        (section: Record<string, unknown>) => section.title,
+      );
+      assert.deepEqual(sectionTitles, [
+        "Run",
+        "Deferred apply",
+        "Pending",
+        "Conversation Summary",
+        "Revision Summary",
+      ]);
+      const runSection = panel.drawers.details[0];
+      const runLabels = runSection.entries.map(
+        (entry: Record<string, unknown>) => entry.label,
+      );
+      assert.includeMembers(runLabels, [
+        "Title",
+        "Request ID",
+        "Task key",
+        "Status",
+        "Backend",
+      ]);
+    } finally {
+      capture.stop();
+    }
+  });
+
+  it("keeps unreachable backend groups in navigation and the drawer", async function () {
+    const seeded = harness.seedTask({
+      requestId: "req-unreachable",
+      status: "waiting_user",
+      taskName: "Unreachable Task",
+    });
+    const capture = await attachReadModelHost(seeded.runKey);
+    try {
+      await capture.runtime.flush();
+      markSkillRunnerBackendHealthFailure({
+        backendId: harness.backendId,
+        error: new Error("connection refused"),
+      });
+      markSkillRunnerBackendHealthFailure({
+        backendId: harness.backendId,
+        error: new Error("connection refused"),
+      });
+      await refreshSkillRunnerSidebarHostSnapshot({});
+      let navigation =
+        await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerNavigation();
+      await waitForCondition(async () => {
+        navigation = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerNavigation();
+        return navigation.groups.some(
+          (entry) =>
+            entry.groupId === harness.backendId &&
+            entry.status === "unavailable",
+        );
+      }, "unreachable backend group in navigation");
+      const group = navigation.groups.find(
+        (entry) => entry.groupId === harness.backendId,
+      );
+      assert.ok(group, "unreachable backend keeps its navigation group");
+      assert.equal(group?.status, "unavailable");
+      assert.match(
+        group?.disabledReason || "",
+        /temporarily unreachable/,
+        "group carries the localized unreachable reason",
+      );
+      assert.isEmpty(
+        navigation.entries,
+        "task rows are withheld while the backend is unreachable",
+      );
+
+      // The drawer projection re-attaches the group as disabled, with the
+      // reason text, inside the running section.
+      const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: { owner: null },
+          navigation,
+        },
+        {},
+        {},
+      );
+      const running = panel.drawers.sections.find(
+        (section: Record<string, unknown>) => section.id === "running",
+      );
+      const drawerGroup = running.groups.find(
+        (entry: Record<string, unknown>) =>
+          entry.groupKey === harness.backendId,
+      );
+      assert.ok(drawerGroup, "drawer keeps the unreachable group");
+      assert.isTrue(drawerGroup.disabled);
+      assert.match(drawerGroup.disabledReason, /temporarily unreachable/);
+      assert.isTrue(drawerGroup.collapsed);
+    } finally {
+      capture.stop();
+    }
+  });
+
+  it("localizes waiting attention tokens in drawer task tooltips", function () {
+    const owner = {
+      source: "skillrunner",
+      ownerKey: "req-att",
+      requestId: "req-att",
+      runKey: "run-att",
+    };
+    const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+      {
+        source: "skillrunner",
+        selection: { owner },
+        navigation: {
+          selectedOwner: owner,
+          selectedGroupId: "backend-1",
+          groups: [
+            {
+              groupId: "backend-1",
+              label: "Backend One",
+              status: "idle",
+              disabledReason: null,
+            },
+          ],
+          entries: [
+            {
+              owner,
+              groupId: "backend-1",
+              label: "Waiting Task",
+              subtitle: null,
+              description: null,
+              groupLabel: "Backend One",
+              status: "waiting_user",
+              backendStatus: "waiting_user",
+              applyState: null,
+              attention: "waiting_user",
+              updatedAt: null,
+              messageCount: 0,
+            },
+            {
+              owner: {
+                ...owner,
+                ownerKey: "req-auth-2",
+                requestId: "req-auth-2",
+              },
+              groupId: "backend-1",
+              label: "Auth Task",
+              subtitle: null,
+              description: null,
+              groupLabel: "Backend One",
+              status: "waiting_auth",
+              backendStatus: "waiting_auth",
+              applyState: null,
+              attention: "waiting_auth",
+              updatedAt: null,
+              messageCount: 0,
+            },
+          ],
+          queuedEntries: [],
+          canCreateOwner: false,
+          notice: null,
+        },
+      },
+      {},
+      {},
+    );
+    const tasks = panel.drawers.sections.flatMap(
+      (section: Record<string, unknown>) =>
+        (section.groups as Array<Record<string, unknown>>).flatMap((group) => [
+          ...(group.activeTasks as Array<Record<string, unknown>>),
+          ...(group.finishedTasks as Array<Record<string, unknown>>),
+        ]),
+    );
+    assert.lengthOf(tasks, 2);
+    for (const task of tasks) {
+      assert.equal(task.attention, "warning");
+      assert.equal(
+        task.attentionLabel,
+        "Needs user interaction",
+        "raw waiting tokens never leak into the tooltip",
+      );
+    }
+  });
+
+  it("appends the loading-conversation status row during same-owner history hydration", async function () {
+    let releaseHistory!: () => void;
+    const historyGate = new Promise<void>((resolve) => {
+      releaseHistory = resolve;
+    });
+    const seeded = harness.seedTask({
+      requestId: "req-hydrate",
+      status: "succeeded",
+      chatEvents: [
+        {
+          seq: 1,
+          role: "assistant",
+          kind: "assistant_final",
+          text: "hydrated digest",
+        },
+      ],
+    });
+    harness.setHistoryGate("req-hydrate", historyGate);
+    const capture = await attachReadModelHost(seeded.runKey);
+    try {
+      await waitForCondition(async () => {
+        const region = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+          owner: selectedOwner()!,
+          context: undefined,
+        });
+        return (region.page?.items || []).some(
+          (item) => item.itemKind === "status",
+        );
+      }, "loading-conversation status row on the tail page");
+      const loadingRegion =
+        await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+          owner: selectedOwner()!,
+          context: undefined,
+        });
+      const statusRow = (loadingRegion.page?.items || []).find(
+        (item) => item.itemKind === "status",
+      );
+      assert.ok(statusRow);
+      if (statusRow?.itemKind === "status") {
+        assert.equal(statusRow.label, "Loading conversation");
+        assert.equal(statusRow.text, "Loading conversation history...");
+      }
+      // The loading row is the trailing row of the tail page.
+      const items = loadingRegion.page?.items || [];
+      assert.equal(items[items.length - 1]?.itemKind, "status");
+
+      releaseHistory();
+      harness.setHistoryGate("req-hydrate", null);
+      await waitForCondition(async () => {
+        const region = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+          owner: selectedOwner()!,
+          context: undefined,
+        });
+        return (region.page?.items || []).some(
+          (item) =>
+            item.itemKind === "message" && item.text === "hydrated digest",
+        );
+      }, "hydrated history replacing the loading row");
+      const settled = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+        owner: selectedOwner()!,
+        context: undefined,
+      });
+      assert.isFalse(
+        (settled.page?.items || []).some((item) => item.itemKind === "status"),
+        "status row disappears once hydration completes",
+      );
+    } finally {
+      releaseHistory();
+      capture.stop();
+    }
+  });
+
+  it("uses the legacy empty-selection transcript copy for skillrunner", function () {
+    const labels = buildAssistantWorkspacePublicationLabels("skillrunner");
+    assert.equal(labels.emptySelection, "No SkillRunner tasks.");
   });
 });

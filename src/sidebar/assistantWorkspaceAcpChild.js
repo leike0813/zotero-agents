@@ -136,18 +136,23 @@ function validPublicationPayload(publication) {
   if (publication.publicationKind === "composer") {
     return (
       hasExactKeys(payload.reply, ["status"]) &&
-      hasExactKeys(payload.runtimeOptions, [
-        "mode",
-        "model",
-        "reasoningEffort",
-      ]) &&
-      [
-        payload.runtimeOptions.mode,
-        payload.runtimeOptions.model,
-        payload.runtimeOptions.reasoningEffort,
-      ].every(function (group) {
-        return hasExactKeys(group, ["selectedOptionId", "options", "enabled"]);
-      })
+      (payload.runtimeOptions === null ||
+        (hasExactKeys(payload.runtimeOptions, [
+          "mode",
+          "model",
+          "reasoningEffort",
+        ]) &&
+          [
+            payload.runtimeOptions.mode,
+            payload.runtimeOptions.model,
+            payload.runtimeOptions.reasoningEffort,
+          ].every(function (group) {
+            return hasExactKeys(group, [
+              "selectedOptionId",
+              "options",
+              "enabled",
+            ]);
+          })))
     );
   }
   if (publication.publicationKind === "owner-details") {

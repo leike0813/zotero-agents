@@ -504,6 +504,7 @@ export async function readAcpChatWorkspaceRegions(args: {
         autoApprove: snapshot.autoApproveAcpPermissions,
         canSetAutoApprove: true,
       },
+      badges: null,
     };
   }
   return regions;

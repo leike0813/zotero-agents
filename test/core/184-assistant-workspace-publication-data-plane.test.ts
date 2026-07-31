@@ -197,6 +197,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           groupId: "backend-sr",
           label: "SkillRunner Backend",
           status: "running",
+          disabledReason: null,
         },
       ],
       entries: [
@@ -239,6 +240,14 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           methodId: null,
         },
         permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
+        badges: {
+          control: { state: "streaming", tone: "success", title: null },
+          autoReply: {
+            active: true,
+            remainingSeconds: 30,
+            progressPercent: 50,
+          },
+        },
       },
       "message-counts": { counts: null },
       permission: { request: null },

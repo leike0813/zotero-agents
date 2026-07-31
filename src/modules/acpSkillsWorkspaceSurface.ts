@@ -448,6 +448,7 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
         autoApprove: false,
         canSetAutoApprove: false,
       },
+      badges: null,
     };
   }
   return regions;
@@ -461,7 +462,12 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
     : null;
   const groups = new Map<
     string,
-    { groupId: string; label: string; status: string }
+    {
+      groupId: string;
+      label: string;
+      status: string;
+      disabledReason: string | null;
+    }
   >();
   const backendById = new Map(
     listBackendInstancesSync().map((backend) => [backend.id, backend]),
@@ -473,6 +479,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
         groupId,
         label: String(summary.backendLabel || groupId).trim() || groupId,
         status: String(summary.backendStatus || "idle"),
+        disabledReason: null,
       });
     }
   }
@@ -489,6 +496,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
           groupId: entry.backendId,
           label: groupLabel,
           status: "queued",
+          disabledReason: null,
         });
       }
       return {

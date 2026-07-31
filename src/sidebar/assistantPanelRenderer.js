@@ -2367,7 +2367,10 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
       const finished = Array.isArray(group && group.finishedTasks)
         ? group.finishedTasks.length
         : 0;
-      return count + active + finished;
+      // Disabled (backend-unreachable) groups render without task rows.
+      return (
+        count + active + finished + (group && group.disabled === true ? 1 : 0)
+      );
     }, 0);
     if (sectionTaskCount === 0) return;
     availableTaskCount += sectionTaskCount;

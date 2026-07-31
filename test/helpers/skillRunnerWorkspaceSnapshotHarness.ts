@@ -62,6 +62,8 @@ export type SkillRunnerHarnessTaskSeed = {
     | "failed"
     | "canceled";
   executionMode?: "auto" | "interactive";
+  /** Request payload stored on the run record (e.g. auto-reply options). */
+  requestPayload?: Record<string, unknown>;
   /** Raw `pending` payload served by the mock `/interaction/pending`. */
   pending?: Record<string, unknown>;
   /** Raw `pending_auth` payload served by the mock `/interaction/pending`. */
@@ -140,6 +142,11 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
     requestId: string,
     pending: Record<string, unknown>,
   ) => void;
+  /**
+   * Gates the mock `/chat/history` response behind a promise so tests can
+   * observe the same-owner history-loading window deterministically.
+   */
+  setHistoryGate: (requestId: string, gate: Promise<void> | null) => void;
   getChatStreamState: (requestId: string) => {
     openCount: number;
     requestCount: number;
@@ -164,6 +171,8 @@ type MockRunChannel = {
   pendingAuthMethodSelection?: Record<string, unknown>;
   authSession?: Record<string, unknown>;
   chatEvents: Array<Record<string, unknown>>;
+  /** When set, the /chat/history response waits for this promise. */
+  historyGate: Promise<void> | null;
   chatStreams: Set<{
     response: ServerResponse;
     cursor: number;
@@ -306,6 +315,9 @@ async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
           jsonResponse(res, 404, { error: "job not found" });
           return;
         }
+        if (channel.historyGate) {
+          await channel.historyGate;
+        }
         jsonResponse(res, 200, {
           request_id: channel.requestId,
           count: channel.chatEvents.length,
@@ -436,6 +448,7 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         taskName: seed.taskName || `Harness Task ${ordinal}`,
         skillId: seed.skillId,
         executionMode: seed.executionMode || "interactive",
+        requestPayload: seed.requestPayload,
         createdAt: updatedAt,
         updatedAt,
       });
@@ -475,6 +488,7 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           pendingAuthMethodSelection: seed.pendingAuthMethodSelection,
           authSession: seed.authSession,
           chatEvents: Array.isArray(seed.chatEvents) ? seed.chatEvents : [],
+          historyGate: null,
           chatStreams: new Set(),
           chatStreamRequestCount: 0,
           chatStreamCursors: [],
@@ -524,10 +538,18 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         pendingAuthMethodSelection: channel.pendingAuthMethodSelection,
         authSession: channel.authSession,
         chatEvents: Array.isArray(channel.chatEvents) ? channel.chatEvents : [],
+        historyGate: null,
         chatStreams: new Set(),
         chatStreamRequestCount: 0,
         chatStreamCursors: [],
       });
+    },
+    setHistoryGate(requestId, gate) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.historyGate = gate;
     },
     setPendingInteraction(requestId, pending) {
       const channel = runs.get(String(requestId || "").trim());

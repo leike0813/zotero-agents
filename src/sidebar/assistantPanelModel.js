@@ -484,6 +484,14 @@ const workspaceDetailsSectionLabels = {
   "output-revisions": ["details.outputRevisions", "Output revisions"],
   "runtime-logs": ["details.runtimeLogs", "Runtime logs"],
   "result-json": ["details.resultJson", "Result JSON"],
+  run: ["details.run", "Run"],
+  "deferred-apply": ["fields.deferredApply", "Deferred apply"],
+  pending: ["details.pending", "Pending"],
+  "conversation-summary": [
+    "details.conversationSummary",
+    "Conversation Summary",
+  ],
+  "revision-summary": ["details.revisionSummary", "Revision Summary"],
 };
 
 const workspaceDetailsFieldLabels = {
@@ -529,6 +537,39 @@ const workspaceDetailsFieldLabels = {
   "candidate-preview": ["fields.candidatePreview", "Candidate preview"],
   logs: ["fields.logs", "Logs"],
   "result-json": ["details.resultJson", "Result JSON"],
+  title: ["fields.title", "Title"],
+  "request-id": ["fields.requestId", "Request ID"],
+  "task-key": ["fields.taskKey", "Task key"],
+  status: ["fields.status", "Status"],
+  terminal: ["fields.terminal", "Terminal"],
+  waiting: ["fields.waiting", "Waiting"],
+  engine: ["fields.engine", "Engine"],
+  updated: ["fields.updated", "Updated"],
+  loading: ["fields.loading", "Loading"],
+  error: ["fields.error", "Error"],
+  "apply-attempt": ["fields.applyAttempt", "Attempt"],
+  "apply-max-attempt": ["fields.applyMaxAttempt", "Max attempt"],
+  "apply-next-retry": ["fields.applyNextRetry", "Next retry"],
+  messages: ["fields.messages", "Messages"],
+  "latest-timestamp": ["fields.latestTimestamp", "Latest timestamp"],
+  "latest-kind": ["fields.latestKind", "Latest kind"],
+  count: ["fields.count", "Count"],
+  latest: ["fields.latest", "Latest"],
+  "pending-interaction": ["fields.pendingInteraction", "Interaction"],
+  "pending-kind": ["fields.pendingKind", "Kind"],
+  "pending-prompt": ["fields.pendingPrompt", "Prompt"],
+  "pending-options": ["fields.pendingOptions", "Options"],
+  "pending-required-fields": [
+    "fields.pendingRequiredFields",
+    "Required fields",
+  ],
+  "auth-session": ["fields.authSession", "Auth session"],
+  "auth-provider": ["fields.authProvider", "Auth provider"],
+  "auth-phase": ["fields.authPhase", "Auth phase"],
+  "auth-engine": ["fields.authEngine", "Auth engine"],
+  "auth-methods": ["fields.authMethods", "Auth methods"],
+  "auth-challenge": ["fields.authChallenge", "Auth challenge"],
+  "auth-error": ["fields.authError", "Auth error"],
 };
 
 function exactWorkspaceField(entry, labelSource) {
@@ -570,6 +611,82 @@ function exactWorkspaceIndicator(entry, labelSource) {
             ? "warning"
             : "muted",
     valueVisible: false,
+  };
+}
+
+const skillRunnerControlStateLabels = {
+  approval: ["status.controlApproval", "Approval"],
+  auth: ["status.controlAuth", "Auth"],
+  input: ["status.controlInput", "Needs input"],
+  preparing: ["status.controlPreparing", "Preparing"],
+  submitting: ["status.controlUploading", "Submitting"],
+  "read-only": ["status.controlReadOnly", "Read-only"],
+  streaming: ["status.controlLive", "Streaming"],
+  unavailable: ["status.controlUnavailable", "Unavailable"],
+};
+
+/**
+ * SkillRunner read-only interaction badge (legacy
+ * buildSkillRunnerControlIndicator): the host projects the eight-state token
+ * and tone; the sidebar owns labels. The state text rides the tooltip, as in
+ * the legacy badge (value hidden, valueVisible false).
+ */
+function skillRunnerControlBadgeIndicator(badge, labelSource) {
+  const source = badge && typeof badge === "object" ? badge : {};
+  const state = safeText(source.state) || "unavailable";
+  const definition =
+    skillRunnerControlStateLabels[state] ||
+    skillRunnerControlStateLabels.unavailable;
+  const value = labelFrom(labelSource, definition[0], definition[1]);
+  return {
+    id: "skillrunner-control",
+    label: labelFrom(labelSource, "fields.control", "Interaction"),
+    value,
+    tone: safeText(source.tone) || "muted",
+    title: safeText(source.title) || value,
+    valueVisible: false,
+    extraValue: "",
+    progressPercent: undefined,
+  };
+}
+
+/**
+ * SkillRunner auto-reply badge (legacy buildSkillRunnerAutoReplyIndicator):
+ * Active/Inactive with countdown seconds and a progress bar while the
+ * observer timer runs.
+ */
+function skillRunnerAutoReplyBadgeIndicator(badge, labelSource) {
+  const source = badge && typeof badge === "object" ? badge : {};
+  const active = source.active === true;
+  const remaining = Number(source.remainingSeconds);
+  const progressPercent = Number(source.progressPercent);
+  return {
+    id: "skillrunner-auto-reply",
+    label: labelFrom(labelSource, "fields.autoReply", "Auto reply"),
+    value: active
+      ? labelFrom(labelSource, "status.autoReplyActive", "Active")
+      : labelFrom(labelSource, "status.autoReplyInactive", "Inactive"),
+    tone: active ? "success" : "muted",
+    title: active
+      ? labelFrom(
+          labelSource,
+          "indicatorTitles.skillRunnerAutoReplyActive",
+          "Auto reply observer is active.",
+        )
+      : labelFrom(
+          labelSource,
+          "indicatorTitles.skillRunnerAutoReplyInactive",
+          "Auto reply is enabled; observer is inactive.",
+        ),
+    valueVisible: true,
+    extraValue:
+      active && Number.isFinite(remaining)
+        ? String(Math.max(0, Math.ceil(remaining))) + "s"
+        : "",
+    progressPercent:
+      active && Number.isFinite(progressPercent)
+        ? Math.max(0, Math.min(100, progressPercent))
+        : undefined,
   };
 }
 
@@ -655,6 +772,18 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     owner && owner.source === "acp-chat"
       ? status === "idle" || status === "disconnected"
       : terminal;
+  const attentionToken = safeText(entry && entry.attention);
+  const attentionLabel = attentionToken
+    ? // SkillRunner waiting tokens are state identifiers, not display text;
+      // map them back to the legacy localized tooltip.
+      attentionToken === "waiting_user" || attentionToken === "waiting_auth"
+      ? labelFrom(
+          labelSource,
+          "interaction.needsUserInteraction",
+          "Needs user interaction",
+        )
+      : attentionToken
+    : safeText(entry && entry.description);
   return {
     key,
     action:
@@ -680,10 +809,9 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     selectable: Boolean(key),
     terminal,
     active: Boolean(selectedOwner && key === safeText(selectedOwner.ownerKey)),
-    attention: safeText(entry && (entry.attention || entry.description))
-      ? "warning"
-      : "",
-    attentionLabel: safeText(entry && (entry.attention || entry.description)),
+    attention:
+      attentionToken || safeText(entry && entry.description) ? "warning" : "",
+    attentionLabel,
     itemActions:
       key && archiveEligible
         ? [
@@ -862,6 +990,32 @@ function exactWorkspaceDrawerSections(
     collapsed: !uiState || uiState.completedCollapsed !== false,
     groups: Array.from(completedGroups.values()),
   });
+  // Backend-unreachable groups carry no task entries (the adapter withholds
+  // them); re-attach them to the running section as disabled groups so the
+  // drawer still shows the group with its localized reason (legacy drawer
+  // parity).
+  const runningSection = sections[0];
+  (Array.isArray(navigation.groups) ? navigation.groups : []).forEach(
+    function (group) {
+      if (safeText(group && group.status) !== "unavailable") return;
+      const groupKey = safeText(group && group.groupId);
+      if (!groupKey) return;
+      const exists = runningSection.groups.some(function (bucket) {
+        return bucket.groupKey === groupKey;
+      });
+      if (exists) return;
+      runningSection.groups.push({
+        groupKey,
+        backendId: groupKey,
+        backendDisplayName: safeText(group && group.label) || groupKey,
+        disabled: true,
+        disabledReason: safeText(group && group.disabledReason),
+        collapsed: true,
+        activeTasks: [],
+        finishedTasks: [],
+      });
+    },
+  );
   return sections;
 }
 
@@ -1059,7 +1213,27 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
   const indicators = services.map(function (entry) {
     return exactWorkspaceIndicator(entry, labelSource);
   });
-  if (owner && control.connection) {
+  if (owner && source.source === "skillrunner") {
+    // SkillRunner has no connection LED; the banner carries the read-only
+    // interaction badge and (when enabled) the auto-reply badge instead.
+    const badges =
+      control.badges && typeof control.badges === "object"
+        ? control.badges
+        : null;
+    indicators.push(
+      skillRunnerControlBadgeIndicator(
+        badges && badges.control && typeof badges.control === "object"
+          ? badges.control
+          : { state: "unavailable", tone: "muted", title: null },
+        labelSource,
+      ),
+    );
+    if (badges && badges.autoReply && typeof badges.autoReply === "object") {
+      indicators.push(
+        skillRunnerAutoReplyBadgeIndicator(badges.autoReply, labelSource),
+      );
+    }
+  } else if (owner && control.connection) {
     indicators.unshift(
       exactWorkspaceIndicator(
         {
@@ -1068,6 +1242,13 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           available: control.connection.connected === true,
           message: control.hint && control.hint.message,
         },
+        labelSource,
+      ),
+    );
+  } else if (emptyChrome && source.source === "skillrunner") {
+    indicators.push(
+      skillRunnerControlBadgeIndicator(
+        { state: "unavailable", tone: "muted", title: null },
         labelSource,
       ),
     );
@@ -1566,70 +1747,125 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     plan,
     interaction,
     usage: presentation.usage || null,
-    reply: {
-      enabled: replyEnabled,
-      inputEnabled: replyEnabled && !replyBusy,
-      placeholder:
-        source.source === "acp-chat"
-          ? labelFrom(
-              labelSource,
-              "reply.placeholderAcpChat",
-              "Ask the active ACP backend…",
-            )
-          : labelFrom(
-              labelSource,
-              "reply.placeholderAcpSkill",
-              "Reply to the selected run…",
-            ),
-      hint: "",
-      submitLabel: replyCancelling
-        ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
-        : replyBusy
-          ? labelFrom(labelSource, "actions.cancel", "Cancel")
-          : labelFrom(labelSource, "actions.send", "Send"),
-      sending: replyBusy,
-      action: replyBusy
-        ? source.source === "acp-chat"
-          ? "cancel"
-          : "interrupt-run-turn"
-        : source.source === "acp-chat"
-          ? "send-prompt"
-          : "reply-run",
-      payload: {},
-      tone: replyBusy ? "danger" : "primary",
-      controls: [
-        exactWorkspaceOptionGroup(
-          runtimeOptions.mode,
-          "mode",
-          labelFrom(labelSource, "fields.mode", "Mode"),
-          "set-mode",
-          "modeId",
-        ),
-        exactWorkspaceOptionGroup(
-          runtimeOptions.model,
-          "model",
-          labelFrom(labelSource, "fields.model", "Model"),
-          "set-model",
-          "modelId",
-        ),
-        exactWorkspaceOptionGroup(
-          runtimeOptions.reasoningEffort,
-          "reasoning",
-          labelFrom(labelSource, "fields.reasoning", "Reasoning"),
-          "set-reasoning-effort",
-          "effortId",
-          owner && source.source === "acp-chat"
-            ? {
-                value: "default",
-                label: labelFrom(labelSource, "options.default", "Default"),
-                description: "",
-              }
-            : null,
-        ),
-      ],
-      showUsageGauge: true,
-      value: safeText(local.replyDraft),
-    },
+    reply: (function () {
+      const isSkillRunner = source.source === "skillrunner";
+      // SkillRunner waiting_auth: the auth suite rides the projected
+      // interaction; the composer guidance (placeholder/submit label)
+      // follows the legacy skillRunnerAuth* branch.
+      const auth =
+        isSkillRunner && interaction && interaction.kind === "auth"
+          ? interaction.auth
+          : null;
+      const authInputKind = auth ? safeText(auth.inputKind) : "";
+      const authInputVisible =
+        Boolean(auth) &&
+        auth.acceptsChatInput === true &&
+        Boolean(authInputKind) &&
+        ["import_files", "custom_provider"].indexOf(authInputKind) < 0 &&
+        safeText(auth.phase) !== "method_selection";
+      const authInputEnabled =
+        authInputVisible && replyEnabled && auth.actionPending !== true;
+      const authPlaceholder = authInputEnabled
+        ? safeText(auth.hint) ||
+          (authInputKind === "api_key"
+            ? labelFrom(labelSource, "reply.authPasteApiKey", "Paste API key")
+            : labelFrom(
+                labelSource,
+                "reply.authPasteCode",
+                "Paste authorization code",
+              ))
+        : labelFrom(
+            labelSource,
+            "reply.authInProgress",
+            "Awaiting auth state update...",
+          );
+      const authSubmitLabel = authInputEnabled
+        ? authInputKind === "api_key"
+          ? labelFrom(labelSource, "reply.authSubmitApiKey", "Submit API Key")
+          : labelFrom(labelSource, "reply.authSubmitCode", "Submit Code")
+        : labelFrom(labelSource, "reply.authAwaiting", "Awaiting");
+      return {
+        enabled: replyEnabled,
+        inputEnabled: replyEnabled && !replyBusy,
+        placeholder: auth
+          ? authPlaceholder
+          : source.source === "acp-chat"
+            ? labelFrom(
+                labelSource,
+                "reply.placeholderAcpChat",
+                "Ask the active ACP backend…",
+              )
+            : isSkillRunner
+              ? labelFrom(
+                  labelSource,
+                  "reply.placeholderSkillRunner",
+                  "Reply to the pending SkillRunner interaction...",
+                )
+              : labelFrom(
+                  labelSource,
+                  "reply.placeholderAcpSkill",
+                  "Reply to the selected run…",
+                ),
+        hint: "",
+        submitLabel: replyCancelling
+          ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
+          : replyBusy
+            ? labelFrom(labelSource, "actions.cancel", "Cancel")
+            : auth
+              ? authSubmitLabel
+              : labelFrom(labelSource, "actions.send", "Send"),
+        sending: replyBusy || (auth && auth.actionPending === true),
+        action: replyBusy
+          ? source.source === "acp-chat"
+            ? "cancel"
+            : isSkillRunner
+              ? "cancel-run"
+              : "interrupt-run-turn"
+          : source.source === "acp-chat"
+            ? "send-prompt"
+            : "reply-run",
+        payload: {},
+        tone: replyBusy ? "danger" : "primary",
+        controls: isSkillRunner
+          ? []
+          : [
+              exactWorkspaceOptionGroup(
+                runtimeOptions.mode,
+                "mode",
+                labelFrom(labelSource, "fields.mode", "Mode"),
+                "set-mode",
+                "modeId",
+              ),
+              exactWorkspaceOptionGroup(
+                runtimeOptions.model,
+                "model",
+                labelFrom(labelSource, "fields.model", "Model"),
+                "set-model",
+                "modelId",
+              ),
+              exactWorkspaceOptionGroup(
+                runtimeOptions.reasoningEffort,
+                "reasoning",
+                labelFrom(labelSource, "fields.reasoning", "Reasoning"),
+                "set-reasoning-effort",
+                "effortId",
+                owner && source.source === "acp-chat"
+                  ? {
+                      value: "default",
+                      label: labelFrom(
+                        labelSource,
+                        "options.default",
+                        "Default",
+                      ),
+                      description: "",
+                    }
+                  : null,
+              ),
+            ],
+        showUsageGauge: !isSkillRunner,
+        value: safeText(local.replyDraft),
+      };
+    })(),
     drawers: {
       layout: "workspace-task-drawer",
       contextTitle:

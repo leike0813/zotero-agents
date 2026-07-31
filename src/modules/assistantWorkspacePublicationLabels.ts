@@ -23,8 +23,8 @@ export function buildAssistantWorkspacePublicationLabels(
         "Completed Tasks",
       ),
       emptySelection: localize(
-        "task-dashboard-skillrunner-select-run" as any,
-        "Select a run to inspect its transcript.",
+        "task-dashboard-run-workspace-empty" as any,
+        "No SkillRunner tasks.",
       ),
       view: localize("task-dashboard-acp-view" as any, "View"),
       plain: localize("task-dashboard-acp-view-plain" as any, "Plain"),
