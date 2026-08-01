@@ -118,10 +118,7 @@ fn no_args(args: &[Value]) -> Result<(), String> {
 }
 
 fn now_string() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis().to_string())
-        .unwrap_or_else(|_| "0".into())
+    synthesis_protocol::utc_now_iso8601()
 }
 
 fn wire(result: CitationMutationResult) -> Result<Value, String> {

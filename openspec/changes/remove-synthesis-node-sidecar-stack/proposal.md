@@ -68,5 +68,9 @@ None.
   `packages/synthesis-contracts` or plugin-required pure logic.
 - Updates Stage-1 test-suite governance, package/XPI checks, Synthesis docs, and
   the Rust migration plan.
-- Depends on both `stabilize-synthesis-r9a-retirement-baseline` and
+- Depends on `stabilize-synthesis-r9a-retirement-baseline`, every completed task
+  and external parity/10k/25k gate in
+  `restore-synthesis-rust-sidecar-main-parity`, and
   `remove-synthesis-plugin-legacy-owner`; no release may occur between them.
+  Regression-repair results remain candidate evidence until those gates are
+  accepted for the same source identity.

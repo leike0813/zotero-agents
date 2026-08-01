@@ -21,11 +21,11 @@ use synthesis_repository::{
 use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationLayoutRecord,
-    CitationNodeRecord, RawReferenceRecord, ReferenceApplicationStateRecord,
-    ReferenceArtifactRecord, ReferenceBindingFactRecord, ReferenceMatchProposalRecord,
-    ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion, ReferenceMatchingStateRecord,
-    ReferenceProjectionReplacement, ReferenceRedirectFactRecord, ReferenceReviewTransition,
-    ReferenceSourceRecord,
+    CitationNodeRecord, LiteratureMatchingMetadataRecord, RawReferenceRecord,
+    ReferenceApplicationStateRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
+    ReferenceMatchProposalRecord, ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion,
+    ReferenceMatchingStateRecord, ReferenceProjectionReplacement, ReferenceRedirectFactRecord,
+    ReferenceReviewTransition, ReferenceSourceRecord,
 };
 use synthesis_repository::{
     ConceptApplicationStateRecord, ConceptKbReplacement, TagApplicationStateRecord, TagAuditRecord,
@@ -89,6 +89,12 @@ pub trait ReferenceRefreshRepositoryPort: Send + Sync {
     fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String>;
     fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String>;
     fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String>;
+    fn apply_literature_projection(
+        &self,
+        replacement: &ReferenceProjectionReplacement,
+        metadata: Option<&LiteratureMatchingMetadataRecord>,
+        receipt: &OperationRecord,
+    ) -> Result<bool, String>;
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
     fn update_operation(
         &self,
@@ -773,6 +779,18 @@ impl ReferenceRefreshRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .replace_reference_projection(replacement)
+    }
+
+    fn apply_literature_projection(
+        &self,
+        replacement: &ReferenceProjectionReplacement,
+        metadata: Option<&LiteratureMatchingMetadataRecord>,
+        receipt: &OperationRecord,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .apply_literature_reference_projection(replacement, metadata, receipt)
     }
 
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {

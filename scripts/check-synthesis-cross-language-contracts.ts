@@ -333,19 +333,23 @@ async function checkRustDeterministicParity(args: {
   const referenceDedupe = rebuildSynthesisReferenceDedupeRequest({
     contractVersion: "synthesis-reference-matcher.v1",
     algorithmVersion: "canonical-cluster-dedupe.v1",
-    canonicals: ["a", "b"].map((id) => ({
-      canonicalReferenceId: `canonical:${id}`,
-      title: "Exact Reference Matching Work",
-      normalizedTitle: "exact reference matching work",
+    canonicals: [
+      "Robust object detection for small targets",
+      "Robust object detection for small target",
+      "Robust object detection of small targets",
+    ].map((title, index) => ({
+      canonicalReferenceId: `canonical:${index}`,
+      title,
+      normalizedTitle: "",
       year: "2024",
       authors: ["Alpha"],
       acceptedBinding: false,
-      stickyRepresentative: id === "a",
-      rawReferenceIds: [`raw:${id}`],
-      rawHashes: [`hash:${id}`],
-      rawReferences: ["Exact Reference Matching Work"],
-      sourceRefs: [`1:${id.toUpperCase()}`],
-      identifiers: [{ kind: "doi", value: "10.1000/exact" }],
+      stickyRepresentative: false,
+      rawReferenceIds: [`raw:${index}`],
+      rawHashes: [`hash:${index}`],
+      rawReferences: [title],
+      sourceRefs: [`1:${index}`],
+      identifiers: [],
       titleCandidates: [],
     })),
   });

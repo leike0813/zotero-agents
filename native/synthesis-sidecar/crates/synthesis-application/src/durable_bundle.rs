@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use synthesis_canonical_store::{Promotion, canonical_json_hash};
 use synthesis_repository::{
     DurableBundleCapture, DurableDraft, DurableImportApply, DurableImportCapture,
@@ -1257,10 +1257,7 @@ fn admission_code(error: AdmissionError, busy: &str) -> String {
 }
 
 fn default_now() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().to_string())
-        .unwrap_or_else(|_| "0".into())
+    synthesis_protocol::utc_now_iso8601()
 }
 
 fn default_receipt_id() -> String {

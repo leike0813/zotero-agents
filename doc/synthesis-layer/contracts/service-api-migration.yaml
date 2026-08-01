@@ -1,7 +1,22 @@
-schema: synthesis.service_api_migration.v1
-description: Current public Synthesis service migration inventory and direct-consumer allowlist.
+schema: synthesis.service_api_migration.v2
+description: Fixed main-baseline Synthesis service migration inventory and direct-consumer allowlist.
 service_source: src/modules/synthesis/service.ts
 service_factory: createSynthesisService
+
+baseline:
+  commit: e210997a11e0054a3cb4ae0656e5cfb96102a09c
+  service_source: src/modules/synthesis/service.ts
+  service_factory: createSynthesisService
+  public_method_count: 131
+  canonicalization: sorted-newline-terminated
+  fingerprint_sha256: 86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e
+
+audit:
+  source_head: 045c6302452861db0dfa5bf6610885c64bba9e1d
+  worktree_state: dirty-preserved
+  source_public_method_count: 113
+  wire_operation_count: 95
+  deletion_authorization: []
 
 isolated_repository:
   mode: isolated_shadow
@@ -293,10 +308,12 @@ method_groups:
   - id: legacy_full_snapshot
     category: query
     target_capability: debug
-    disposition: remove
+    disposition: client_capability
     consumer_groups: [workbench]
     methods:
-      - getSynthesisSnapshot
+      - name: getSynthesisSnapshot
+        migration: merged
+        capability: client.debugSynthesisSnapshot
 
   - id: host_notifications
     category: command
@@ -453,9 +470,12 @@ method_groups:
       - initializeBuiltinTagPolicy
       - exportTagVocabularyCheckpoint
       - stageTagSuggestions
-      - updateStagedTagSuggestion
-      - updateTagVocabularyEntry
-      - deleteTagVocabularyEntry
+      - name: updateStagedTagSuggestion
+        introduced_after_baseline: true
+      - name: updateTagVocabularyEntry
+        introduced_after_baseline: true
+      - name: deleteTagVocabularyEntry
+        introduced_after_baseline: true
       - promoteStagedTagSuggestions
       - discardStagedTagSuggestions
       - clearStagedTagSuggestions
@@ -546,3 +566,77 @@ method_groups:
       - resumeWebDavSync
       - retryWebDavSync
       - resolveWebDavSyncConflict
+
+  - id: main_baseline_git_sync
+    category: command
+    target_capability: sync.git
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - name: loadGitSyncState
+        migration: pending
+        owner: git_sync_migration
+      - name: pauseGitSync
+        migration: pending
+        owner: git_sync_migration
+      - name: readGitSyncDiagnostics
+        migration: pending
+        owner: git_sync_migration
+      - name: rebuildMirrorFromCanonical
+        migration: pending
+        owner: git_sync_migration
+      - name: recoverCanonicalFromMirror
+        migration: pending
+        owner: git_sync_migration
+      - name: refreshMirror
+        migration: pending
+        owner: git_sync_migration
+      - name: resolveGitSyncConflict
+        migration: pending
+        owner: git_sync_migration
+      - name: resumeGitSync
+        migration: pending
+        owner: git_sync_migration
+      - name: retryGitSync
+        migration: pending
+        owner: git_sync_migration
+      - name: syncNow
+        migration: pending
+        owner: git_sync_migration
+
+  - id: main_baseline_host_sync_configuration
+    category: command
+    target_capability: host.sync.configuration
+    disposition: host_capability
+    consumer_groups: [workbench, host_bridge]
+    methods:
+      - name: clearGitSyncAccessToken
+        host_capability: host.synthesis.git_sync.credentials
+      - name: getGitSyncPrefsConfigurationStatus
+        host_capability: host.synthesis.git_sync.configuration
+      - name: saveGitSyncAccessToken
+        host_capability: host.synthesis.git_sync.credentials
+      - name: saveGitSyncPrefsConfiguration
+        host_capability: host.synthesis.git_sync.configuration
+      - name: testGitSyncPrefsConfiguration
+        host_capability: host.synthesis.git_sync.configuration
+      - name: clearWebDavSyncAccessCredential
+        host_capability: host.synthesis.webdav_sync.credentials
+      - name: getWebDavSyncPrefsConfigurationStatus
+        host_capability: host.synthesis.webdav_sync.configuration
+      - name: saveWebDavSyncAccessCredential
+        host_capability: host.synthesis.webdav_sync.credentials
+      - name: saveWebDavSyncPrefsConfiguration
+        host_capability: host.synthesis.webdav_sync.configuration
+      - name: testWebDavSyncPrefsConfiguration
+        host_capability: host.synthesis.webdav_sync.configuration
+
+  - id: workbench_warmup
+    category: command
+    target_capability: workbench
+    disposition: client_capability
+    consumer_groups: [workbench]
+    methods:
+      - name: warmSynthesisWorkbenchSurfaces
+        migration: merged
+        capability: client.getSynthesisWorkbenchSurfaceInput

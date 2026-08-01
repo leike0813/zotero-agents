@@ -5,7 +5,9 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     TagApplicationStateRecord, TagAuditRecord, TagEffectRecord, TagStagedSuggestionRecord,
@@ -760,11 +762,7 @@ fn worker_status(error: &str) -> TagMutationStatus {
 }
 
 fn default_now() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .to_string()
+    synthesis_protocol::utc_now_iso8601()
 }
 
 #[cfg(test)]

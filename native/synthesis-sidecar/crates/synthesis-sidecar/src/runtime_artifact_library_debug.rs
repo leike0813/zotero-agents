@@ -551,13 +551,9 @@ fn page_debug(items: Vec<Value>, request: &Value) -> Result<Value, String> {
         json!({"rows":page,"total":items.len(),"truncated":next<items.len(),"cursor":start.to_string(),"next_cursor":if next<items.len(){next.to_string()}else{String::new()},"has_more":next<items.len(),"limit":limit}),
     )
 }
-fn debug_profiler(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+fn debug_profiler(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let _ = one_object(args)?;
-    let profiler = serde_json::to_value(apps.debug.inspect_profiler()?)
-        .map_err(|_| "production_projection_invalid".to_owned())?;
-    Ok(
-        json!({"databasePath":"[redacted-path]","runs":profiler.pointer("/samples/items").cloned().unwrap_or_else(||json!([])),"phases":[],"totalRuns":0,"totalPhases":0,"truncated":false,"status":profiler.get("status").cloned().unwrap_or_else(||json!("unavailable")),"diagnostics":profiler.get("diagnostics").cloned().unwrap_or_else(||json!([]))}),
-    )
+    Err("operation_unavailable".into())
 }
 fn debug_paper(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one_object(args)?;

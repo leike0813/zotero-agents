@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use synthesis_application::tag_vocabulary::TagPromoteRequest;
+use synthesis_application::tag_vocabulary::{TagPromoteRequest, TagStagedPage};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
 
@@ -97,32 +97,44 @@ fn snapshot(apps: &ProductionApplications) -> Result<Value, String> {
 }
 
 fn list_staged(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let (cursor, limit) = match args {
-        [] => (0usize, 100usize),
-        [request] => {
-            let object = request
-                .as_object()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            if object.keys().any(|key| key != "cursor" && key != "limit") {
-                return Err("invalid_request".into());
-            }
-            let cursor = object
-                .get("cursor")
-                .and_then(Value::as_str)
-                .unwrap_or("0")
-                .parse::<usize>()
-                .map_err(|_| "invalid_request".to_owned())?;
-            let limit = object.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
-            (cursor, limit)
+    no_args(args)?;
+    wire(collect_staged_pages(|cursor, limit| {
+        apps.tags.list_staged(cursor, limit)
+    })?)
+}
+
+fn collect_staged_pages(
+    mut list: impl FnMut(usize, usize) -> Result<TagStagedPage, String>,
+) -> Result<Vec<TagStagedSuggestionRecord>, String> {
+    const PAGE_LIMIT: usize = 100;
+    let mut cursor = 0usize;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut entries = Vec::new();
+    loop {
+        if !seen.insert(cursor) {
+            return Err("production_projection_invalid".into());
         }
-        _ => return Err("invalid_request".into()),
-    };
-    let page = apps.tags.list_staged(cursor, limit)?;
-    Ok(json!({
-        "entries": page.items,
-        "nextCursor": page.next_cursor.map(|value| value.to_string()),
-        "stagedRevision": apps.tags.inspect()?.staged_revision,
-    }))
+        let page = list(cursor, PAGE_LIMIT)?;
+        if page.cursor != cursor
+            || page.items.len() > PAGE_LIMIT
+            || page.has_more != page.next_cursor.is_some()
+        {
+            return Err("production_projection_invalid".into());
+        }
+        entries.extend(page.items);
+        match page.next_cursor {
+            Some(next) if page.has_more && next > cursor => cursor = next,
+            None if !page.has_more => break,
+            _ => return Err("production_projection_invalid".into()),
+        }
+    }
+    entries.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left.tag.cmp(&right.tag))
+    });
+    Ok(entries)
 }
 
 fn candidate_request(args: &[Value]) -> Result<(Option<String>, TagVocabularyReplacement), String> {
@@ -387,4 +399,87 @@ fn clear_audit(apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
         .ok_or_else(|| "invalid_request".to_owned())?;
     let _ = apps.tags.clear_audit(library_id, item_key);
     Ok(json!({"ok":true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collects_empty_single_and_multi_page_staged_arrays() {
+        let empty = collect_staged_pages(|cursor, _| {
+            Ok(TagStagedPage {
+                items: Vec::new(),
+                cursor,
+                next_cursor: None,
+                has_more: false,
+            })
+        })
+        .expect("empty page");
+        assert!(empty.is_empty());
+
+        let single = collect_staged_pages(|cursor, _| {
+            Ok(TagStagedPage {
+                items: vec![staged("topic:one", "2")],
+                cursor,
+                next_cursor: None,
+                has_more: false,
+            })
+        })
+        .expect("single page");
+        assert_eq!(single, vec![staged("topic:one", "2")]);
+
+        let entries = (0..205)
+            .map(|index| staged(&format!("topic:{index:03}"), &format!("{:03}", 205 - index)))
+            .collect::<Vec<_>>();
+        let collected = collect_staged_pages(|cursor, limit| {
+            let page = entries
+                .iter()
+                .skip(cursor)
+                .take(limit)
+                .cloned()
+                .collect::<Vec<_>>();
+            let next = cursor + page.len();
+            Ok(TagStagedPage {
+                items: page,
+                cursor,
+                next_cursor: (next < entries.len()).then_some(next),
+                has_more: next < entries.len(),
+            })
+        })
+        .expect("multi page");
+        assert_eq!(collected.len(), 205);
+        assert_eq!(
+            collected.first().map(|row| row.updated_at.as_str()),
+            Some("205")
+        );
+        assert_eq!(
+            collected.last().map(|row| row.updated_at.as_str()),
+            Some("001")
+        );
+    }
+
+    #[test]
+    fn rejects_a_stalled_staged_cursor() {
+        assert_eq!(
+            collect_staged_pages(|cursor, _| {
+                Ok(TagStagedPage {
+                    items: vec![staged("topic:stalled", "1")],
+                    cursor,
+                    next_cursor: Some(cursor),
+                    has_more: true,
+                })
+            }),
+            Err("production_projection_invalid".into())
+        );
+    }
+
+    fn staged(tag: &str, updated_at: &str) -> TagStagedSuggestionRecord {
+        TagStagedSuggestionRecord {
+            tag: tag.into(),
+            facet: "topic".into(),
+            updated_at: updated_at.into(),
+            ..TagStagedSuggestionRecord::default()
+        }
+    }
 }

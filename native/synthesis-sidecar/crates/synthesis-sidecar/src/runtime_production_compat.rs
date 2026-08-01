@@ -1,18 +1,28 @@
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
-use synthesis_application::topic_graph::{TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest};
 use synthesis_application::{
     TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
 };
 use synthesis_repository::{TagStagedSuggestionRecord, TagVocabularyReplacement};
 
 use crate::runtime_artifact_library_debug;
+use crate::runtime_host_collection::{ReferenceHostItem, collect_host_items};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_reference_canonical::{
     CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
     CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest,
 };
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RelatedItemsEchoRequest {
+    library_id: i64,
+    item_key: String,
+    #[serde(default)]
+    related_item_key: Option<String>,
+}
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
@@ -395,43 +405,231 @@ fn topic_report_from_compat(
     }
 }
 
-fn resolver_from_compat(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = object_arg(args)?;
-    let resolver = request
-        .get("resolver")
-        .cloned()
-        .or_else(|| {
-            optional_string_field(&request, &["topicId", "topic_id"]).and_then(|topic_id| {
-                match topic_detail(apps, topic_id.to_owned()).ok()? {
-                    TopicDetailResult::Ready { topic, .. } => Some(topic.topic_resolver),
-                    _ => None,
-                }
-            })
-        })
-        .unwrap_or_else(|| request.clone());
-    if !resolver.is_object() {
+fn resolver_string_values(value: &Value, array_only: bool) -> Option<Vec<String>> {
+    let values = match value {
+        Value::String(value) if !array_only => vec![value.trim().to_owned()],
+        Value::Array(values) => values
+            .iter()
+            .map(|value| value.as_str().map(str::trim).map(str::to_owned))
+            .collect::<Option<Vec<_>>>()?,
+        _ => return None,
+    };
+    (!values.is_empty() && values.iter().all(|value| !value.is_empty())).then_some(values)
+}
+
+fn valid_tag_query(value: &Value) -> bool {
+    match value {
+        Value::String(_) | Value::Array(_) => resolver_string_values(value, false).is_some(),
+        Value::Object(object) => {
+            !object.is_empty()
+                && object
+                    .keys()
+                    .all(|key| matches!(key.as_str(), "and" | "or" | "not"))
+                && object
+                    .values()
+                    .all(|value| resolver_string_values(value, false).is_some())
+        }
+        _ => false,
+    }
+}
+
+fn resolver_errors(request: &serde_json::Map<String, Value>) -> Vec<&'static str> {
+    let mut errors = Vec::new();
+    if request.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "tag" | "collection_key" | "paper_refs" | "combine" | "limit" | "cursor"
+        )
+    }) {
+        errors.push("resolver payload contains unsupported fields");
+    }
+    if !["tag", "collection_key", "paper_refs"]
+        .iter()
+        .any(|key| request.contains_key(*key))
+    {
+        errors.push("resolver requires a selector");
+    }
+    if request
+        .get("tag")
+        .is_some_and(|value| !valid_tag_query(value))
+    {
+        errors.push("resolver tag is invalid");
+    }
+    if request
+        .get("collection_key")
+        .is_some_and(|value| resolver_string_values(value, false).is_none())
+    {
+        errors.push("resolver collection_key is invalid");
+    }
+    if request
+        .get("paper_refs")
+        .is_some_and(|value| resolver_string_values(value, true).is_none())
+    {
+        errors.push("resolver paper_refs must be an array");
+    }
+    if request
+        .get("combine")
+        .is_some_and(|value| !matches!(value.as_str(), Some("union" | "intersection")))
+    {
+        errors.push("resolver combine is invalid");
+    }
+    errors
+}
+
+fn tag_query_matches(item: &ReferenceHostItem, query: &Value) -> bool {
+    let tags = item
+        .tags
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let contains = |value: &str| tags.contains(&value.to_lowercase());
+    match query {
+        Value::String(value) => contains(value),
+        Value::Array(_) => resolver_string_values(query, false)
+            .is_some_and(|values| values.iter().all(|value| contains(value))),
+        Value::Object(object) => {
+            let values = |key: &str| {
+                object
+                    .get(key)
+                    .and_then(|value| resolver_string_values(value, false))
+                    .unwrap_or_default()
+            };
+            let and_values = values("and");
+            let or_values = values("or");
+            let not_values = values("not");
+            and_values.iter().all(|value| contains(value))
+                && (or_values.is_empty() || or_values.iter().any(|value| contains(value)))
+                && !not_values.iter().any(|value| contains(value))
+        }
+        _ => false,
+    }
+}
+
+fn resolver_page_number(
+    value: Option<&Value>,
+    default: usize,
+    max: usize,
+) -> Result<usize, String> {
+    let Some(value) = value else {
+        return Ok(default);
+    };
+    let number = match value {
+        Value::Number(value) => value.as_u64().and_then(|value| usize::try_from(value).ok()),
+        Value::String(value) => value.parse::<usize>().ok(),
+        _ => None,
+    }
+    .ok_or_else(|| "invalid_request".to_owned())?;
+    if number > max || (max != usize::MAX && number == 0) {
         return Err("invalid_request".into());
     }
-    let papers = request
-        .get("resolved_paper_set")
-        .or_else(|| request.get("resolvedPaperSet"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    Ok(number)
+}
+
+fn resolver_response_from_items(
+    items: &[ReferenceHostItem],
+    request: &Value,
+) -> Result<Value, String> {
+    let request = request
+        .as_object()
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    let errors = resolver_errors(request);
+    if !errors.is_empty() {
+        return Ok(json!({
+            "ok":false,
+            "errors":errors,
+            "papers":[],
+            "normalized_resolver":Value::Null,
+            "diagnostics":{"final_count":0,"total_candidates":items.len(),"rejected":true},
+        }));
+    }
+    let combine = request
+        .get("combine")
+        .and_then(Value::as_str)
+        .unwrap_or("union");
+    let selector_count = ["tag", "collection_key", "paper_refs"]
+        .iter()
+        .filter(|key| request.contains_key(**key))
+        .count();
+    let collections = request
+        .get("collection_key")
+        .and_then(|value| resolver_string_values(value, false))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| value.to_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let paper_refs = request
+        .get("paper_refs")
+        .and_then(|value| resolver_string_values(value, true))
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    let mut papers = items
+        .iter()
+        .filter_map(|item| {
+            let mut reasons = Vec::new();
+            if request
+                .get("tag")
+                .is_some_and(|query| tag_query_matches(item, query))
+            {
+                reasons.push("tag");
+            }
+            if request.contains_key("collection_key")
+                && item
+                    .collections
+                    .iter()
+                    .any(|value| collections.contains(&value.to_lowercase()))
+            {
+                reasons.push("collection_key");
+            }
+            if request.contains_key("paper_refs") && paper_refs.contains(&item.paper_ref) {
+                reasons.push("paper_refs");
+            }
+            let matched = if combine == "intersection" {
+                reasons.len() == selector_count
+            } else {
+                !reasons.is_empty()
+            };
+            matched.then(|| {
+                reasons.sort_unstable();
+                json!({
+                    "paper_ref":item.paper_ref,
+                    "item_key":item.item_key,
+                    "title":item.title,
+                    "year":item.year,
+                    "match_reasons":reasons,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    papers.sort_by(|left, right| left["paper_ref"].as_str().cmp(&right["paper_ref"].as_str()));
     let total = papers.len();
+    let cursor = resolver_page_number(request.get("cursor"), 0, usize::MAX)?;
+    let limit = resolver_page_number(request.get("limit"), 100, 250)?;
+    if cursor > total {
+        return Err("invalid_request".into());
+    }
+    let end = total.min(cursor.saturating_add(limit));
+    let page = papers[cursor..end].to_vec();
+    let has_more = end < total;
     Ok(json!({
         "ok":total > 0,
         "errors":if total == 0 { json!(["resolver matched no papers"]) } else { json!([]) },
-        "papers":papers,
-        "normalized_resolver":resolver,
-        "cursor":"",
-        "next_cursor":"",
-        "has_more":false,
-        "returned":total,
+        "papers":page,
+        "normalized_resolver":Value::Object(request.clone()),
+        "cursor":cursor.to_string(),
+        "next_cursor":if has_more { end.to_string() } else { String::new() },
+        "has_more":has_more,
+        "returned":end-cursor,
         "total":total,
-        "limit":total.max(1),
-        "diagnostics":{"final_count":total,"total_candidates":total,"rejected":false},
+        "limit":limit,
+        "diagnostics":{"final_count":total,"total_candidates":items.len(),"rejected":false},
     }))
+}
+
+fn resolver_from_compat(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let request = object_arg(args)?;
+    let items = collect_host_items(apps.host_items.as_ref())?;
+    resolver_response_from_items(&items, &request)
 }
 
 fn digest_resolution_from_compat(
@@ -778,13 +976,6 @@ fn reference_review_decisions(args: &[Value]) -> Result<Vec<ReferenceReviewDecis
         .collect()
 }
 
-fn topic_graph_manifest_hash(apps: &ProductionApplications) -> Result<String, String> {
-    apps.topic_graph
-        .inspect()?
-        .manifest_hash
-        .ok_or_else(|| "topic_graph_not_initialized".to_owned())
-}
-
 #[allow(dead_code)]
 fn tag_vocabulary_hash(apps: &ProductionApplications) -> Result<String, String> {
     apps.tags
@@ -891,19 +1082,16 @@ register_production_client_handlers!(
         runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisTopicInspect", args)
     }),
     ("client.applyTopicSynthesisResult", |apps, args| {
-        let request = match args {
-            [request] => serde_json::from_value(request.clone()).unwrap_or_else(|_| {
-                synthesis_application::TopicApplyRequest {
-                    bundle: request.clone(),
-                    assets: Vec::new(),
-                }
-            }),
-            _ => return Err("invalid_request".into()),
-        };
+        let request = one::<synthesis_application::TopicApplyRequest>(args)?;
         wire(apps.topics.apply(request))
     }),
     ("client.consumeRelatedItemsSyncEcho", |apps, args| {
-        apps.apply_related_items_effect(one::<Value>(args)?)
+        let request = one::<RelatedItemsEchoRequest>(args)?;
+        apps.consume_related_items_sync_echo(
+            request.library_id,
+            &request.item_key,
+            request.related_item_key.as_deref(),
+        )
     }),
     ("client.readPaperArtifacts", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.readPaperArtifacts", args)
@@ -924,29 +1112,14 @@ register_production_client_handlers!(
     ("client.applyLiteratureDigestSidecar", |apps, args| {
         apps.apply_literature_digest(one::<Value>(args)?)
     }),
-    ("client.deleteTopicArtifact", |apps, args| {
+    ("client.deleteTopicArtifact", |_apps, args| {
         let request = object_arg(args)?;
-        let mutation = TopicGraphMarkDeletedRequest {
-            expected_manifest_hash: topic_graph_manifest_hash(apps)?,
-            topic_id: string_field(&request, &["topicId", "topic_id"])?.to_owned(),
-        };
-        wire(apps.topic_graph.mark_topic_relations_deleted(&mutation))
+        string_field(&request, &["topicId", "topic_id"])?;
+        Err("operation_unavailable".into())
     }),
-    ("client.purgeDeletedTopicArtifacts", |apps, args| {
+    ("client.purgeDeletedTopicArtifacts", |_apps, args| {
         no_args(args)?;
-        let topic_ids = apps
-            .topic_graph
-            .load()?
-            .nodes
-            .into_iter()
-            .filter(|node| node.definition_status == "deleted")
-            .map(|node| node.topic_id)
-            .collect();
-        let mutation = TopicGraphPurgeRequest {
-            expected_manifest_hash: topic_graph_manifest_hash(apps)?,
-            topic_ids,
-        };
-        wire(apps.topic_graph.purge_deleted(&mutation))
+        Err("operation_unavailable".into())
     }),
     ("client.rejectTopicDiscoveryHint", |apps, args| {
         let request = object_arg(args)?;
@@ -1278,7 +1451,9 @@ mod tests {
 
     use super::*;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-    use synthesis_repository::{CanonicalReferenceRecord, Repository, RepositoryIdentity};
+    use synthesis_repository::{
+        CacheBasisRecord, CanonicalReferenceRecord, Repository, RepositoryIdentity,
+    };
     use synthesis_sidecar::production_capabilities::{
         READY_PRODUCTION_CLIENT_CAPABILITIES, production_client_capabilities,
     };
@@ -1324,6 +1499,63 @@ mod tests {
         )
     }
 
+    fn literature_digest_request() -> Value {
+        json!({
+            "libraryId":1,
+            "itemKey":"AAAA1111",
+            "paperRef":"1:AAAA1111",
+            "itemType":"journalArticle",
+            "title":"Source paper",
+            "year":"2026",
+            "date":"2026-01-01",
+            "creators":["Source Author"],
+            "tags":["topic:test"],
+            "collections":["collection-1"],
+            "doi":"10.1000/source",
+            "arxiv":"",
+            "isbn":"",
+            "url":"https://example.test/source",
+            "citekey":"source2026",
+            "dateAdded":"2026-01-01",
+            "digest":{
+                "noteKey":"DIGEST1",
+                "payloadHash":"sha256:digest-1",
+                "content":"# Digest\n".to_owned() + &"x".repeat(128 * 1024),
+            },
+            "references":{
+                "noteKey":"REFS1",
+                "payloadHash":"sha256:references-1",
+                "references":[{
+                    "title":"Matched paper",
+                    "year":"2024",
+                    "authors":["Matched Author"],
+                    "citekey":"matched2024",
+                    "raw":"Matched Author (2024). Matched paper."
+                }]
+            },
+            "citationAnalysis":{
+                "noteKey":"CITATION1",
+                "payloadHash":"sha256:citation-1",
+                "citations":[{"reference_index":0,"role":"background"}]
+            },
+            "literatureMatchingMetadata":{
+                "key_terms":["  Knowledge Graph  ","knowledge graph","Rust"],
+                "methods":["Case Study"],
+                "problems":["Reference Drift"],
+                "datasets":["Zotero Library"],
+                "exclude_terms":["Legacy"]
+            },
+            "matchedReferences":[{
+                "libraryId":1,
+                "itemKey":"BBBB2222",
+                "paperRef":"1:BBBB2222",
+                "title":"Matched paper",
+                "year":"2024",
+                "citekey":"matched2024"
+            }]
+        })
+    }
+
     #[test]
     fn registered_handlers_are_unique_and_declared() {
         let declared = production_client_capabilities()
@@ -1362,21 +1594,331 @@ mod tests {
     }
 
     #[test]
+    fn topic_apply_rejects_a_raw_bundle_without_the_strict_envelope() {
+        let root = test_root();
+        let apps = test_applications(&root);
+        let result = dispatch_legacy_client(
+            &apps,
+            "client.applyTopicSynthesisResult",
+            &[json!({"topicId":"topic:test","title":"Raw bundle"})],
+        );
+
+        assert_eq!(result, Err("invalid_request".into()));
+    }
+
+    #[test]
+    fn resolver_uses_host_library_facts_for_union_intersection_and_pagination() {
+        let item = |paper_ref: &str, tags: &[&str], collections: &[&str]| {
+            crate::runtime_host_collection::ReferenceHostItem {
+                paper_ref: paper_ref.into(),
+                library_id: 1,
+                item_key: paper_ref.split_once(':').expect("paper ref").1.into(),
+                item_type: "journalArticle".into(),
+                title: paper_ref.into(),
+                year: "2026".into(),
+                date: String::new(),
+                creators: Vec::new(),
+                tags: tags.iter().map(|value| (*value).into()).collect(),
+                collections: collections.iter().map(|value| (*value).into()).collect(),
+                doi: String::new(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: String::new(),
+                date_added: String::new(),
+                updated_at: String::new(),
+                metadata_hash: String::new(),
+            }
+        };
+        let items = vec![
+            item("1:AAAA1111", &["Topic:Alpha", "Domain:Vision"], &["COLL_A"]),
+            item("1:BBBB2222", &["topic:beta"], &["coll_b"]),
+        ];
+
+        let union = resolver_response_from_items(
+            &items,
+            &json!({"tag":"topic:alpha","paper_refs":["1:BBBB2222"]}),
+        )
+        .expect("union");
+        assert_eq!(union["total"], 2);
+        assert_eq!(union["papers"][0]["paper_ref"], "1:AAAA1111");
+        assert_eq!(union["papers"][1]["match_reasons"], json!(["paper_refs"]));
+
+        let intersection = resolver_response_from_items(
+            &items,
+            &json!({
+                "tag":{"and":["TOPIC:ALPHA"],"or":["domain:vision"]},
+                "collection_key":"coll_a",
+                "paper_refs":["1:AAAA1111","1:BBBB2222"],
+                "combine":"intersection",
+                "cursor":"0",
+                "limit":1
+            }),
+        )
+        .expect("intersection");
+        assert_eq!(intersection["returned"], 1);
+        assert_eq!(intersection["total"], 1);
+        assert_eq!(intersection["papers"][0]["paper_ref"], "1:AAAA1111");
+        assert_eq!(
+            intersection["papers"][0]["match_reasons"],
+            json!(["collection_key", "paper_refs", "tag"])
+        );
+
+        let invalid = resolver_response_from_items(
+            &items,
+            &json!({"resolver":{"selection_strategy":"tag_only"}}),
+        )
+        .expect("invalid response");
+        assert_eq!(invalid["ok"], false);
+        assert_eq!(invalid["diagnostics"]["rejected"], true);
+    }
+
+    #[test]
+    fn unsafe_topic_lifecycle_routes_fail_closed_before_touching_topic_graph() {
+        let root = test_root();
+        let apps = test_applications(&root);
+
+        assert_eq!(
+            dispatch_legacy_client(
+                &apps,
+                "client.deleteTopicArtifact",
+                &[json!({"topicId":"topic:test"})],
+            ),
+            Err("operation_unavailable".into())
+        );
+        assert_eq!(
+            dispatch_legacy_client(&apps, "client.purgeDeletedTopicArtifacts", &[]),
+            Err("operation_unavailable".into())
+        );
+        assert!(
+            apps.topic_graph
+                .load()
+                .expect("topic graph")
+                .nodes
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn related_items_echo_reads_repository_without_calling_reverse_host() {
+        let root = test_root();
+        let apps = test_applications(&root);
+        assert_eq!(
+            dispatch_legacy_client(
+                &apps,
+                "client.consumeRelatedItemsSyncEcho",
+                &[json!({"libraryId":1,"itemKey":"AAAA1111"})],
+            ),
+            Ok(json!({"consumed":false}))
+        );
+        let payload = json!({
+            "effectId":"effect:1",
+            "sourceLibraryId":1,
+            "sourceItemKey":"AAAA1111",
+            "targetLibraryId":1,
+            "targetItemKey":"BBBB2222",
+            "status":"applied",
+            "externalWriteAt":synthesis_protocol::utc_now_iso8601(),
+            "echoState":"awaiting_echo",
+            "updatedAt":synthesis_protocol::utc_now_iso8601()
+        });
+        apps.repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "INSERT INTO synt_related_items_sync_effect(effect_id,payload_json,updated_at) VALUES(?1,?2,?3)",
+                &[
+                    json!("effect:1"),
+                    json!(serde_json::to_string(&payload).expect("payload")),
+                    json!(synthesis_protocol::utc_now_iso8601()),
+                ],
+            )
+            .expect("seed echo");
+
+        assert_eq!(
+            dispatch_legacy_client(
+                &apps,
+                "client.consumeRelatedItemsSyncEcho",
+                &[json!({
+                    "libraryId":1,
+                    "itemKey":"AAAA1111",
+                    "relatedItemKey":"BBBB2222"
+                })],
+            ),
+            Ok(json!({"consumed":true}))
+        );
+    }
+
+    #[test]
+    fn unavailable_profiler_does_not_return_a_fabricated_success_projection() {
+        let root = test_root();
+        let apps = test_applications(&root);
+        let result =
+            dispatch_legacy_client(&apps, "client.debugSynthesisProfilerList", &[json!({})]);
+
+        assert_eq!(result, Err("operation_unavailable".into()));
+    }
+
+    #[test]
     fn literature_digest_receipt_is_idempotent_after_reopen() {
         let root = test_root();
-        let request = json!({"libraryId":1,"itemKey":"AAAA1111"});
+        let request = literature_digest_request();
         let first = test_applications(&root)
             .apply_literature_digest(request.clone())
-            .expect("first receipt");
-        assert_eq!(first["status"], "persisted");
+            .expect("first apply");
+        assert_eq!(first["status"], "sidecar_applied");
         assert_eq!(first["idempotent"], false);
 
         let second = test_applications(&root)
             .apply_literature_digest(request)
-            .expect("reopened receipt");
-        assert_eq!(second["status"], "persisted");
+            .expect("reopened apply");
+        assert_eq!(second["status"], "sidecar_applied");
         assert_eq!(second["idempotent"], true);
         assert_eq!(first["operationId"], second["operationId"]);
+    }
+
+    #[test]
+    fn literature_digest_apply_materializes_and_rolls_back_scoped_state() {
+        let root = test_root();
+        let apps = test_applications(&root);
+        let request = literature_digest_request();
+        let first = apps
+            .apply_literature_digest(request.clone())
+            .expect("materialized apply");
+        assert_eq!(first["status"], "sidecar_applied");
+        assert_eq!(first["sourceRef"], "1:AAAA1111");
+        assert_eq!(first["source_ref"], "1:AAAA1111");
+        assert_eq!(first["paperRef"], "1:AAAA1111");
+        assert_eq!(first["reference_count"], 1);
+        assert_eq!(first["matched_count"], 1);
+
+        let owner = apps.repository.owner();
+        let repository = owner.lock().expect("repository");
+        let artifacts = repository
+            .list_reference_artifacts(&["1:AAAA1111".into()])
+            .expect("artifacts");
+        assert_eq!(artifacts.len(), 3);
+        let raw_before = repository.list_raw_references().expect("references");
+        assert_eq!(raw_before.len(), 1);
+        assert!(raw_before[0].roles_json.contains("background"));
+        let bindings = repository.list_reference_bindings().expect("bindings");
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].item_key, "BBBB2222");
+        let metadata = repository
+            .query(
+                "SELECT * FROM synt_literature_matching_metadata WHERE literature_item_id=?1",
+                &[json!("1:AAAA1111")],
+            )
+            .expect("metadata");
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(
+            metadata[0]["key_terms_json"],
+            "[\"Knowledge Graph\",\"Rust\"]"
+        );
+
+        for key in ["citation-graph:library", "related-items-sync:global"] {
+            repository
+                .upsert_cache_basis(&CacheBasisRecord {
+                    cache_key: key.into(),
+                    cache_kind: key.into(),
+                    status: "ready".into(),
+                    updated_at: "ready".into(),
+                    ..CacheBasisRecord::default()
+                })
+                .expect("ready cache");
+        }
+        drop(repository);
+
+        let mut digest_only = request.clone();
+        digest_only["digest"]["payloadHash"] = json!("sha256:digest-2");
+        digest_only["digest"]["content"] = json!("changed digest");
+        apps.apply_literature_digest(digest_only)
+            .expect("digest-only apply");
+        let repository = owner.lock().expect("repository");
+        assert_eq!(
+            repository.list_raw_references().expect("references"),
+            raw_before
+        );
+        assert_eq!(
+            repository
+                .get_cache_basis("citation-graph:library")
+                .expect("graph cache")
+                .expect("graph cache row")
+                .status,
+            "ready"
+        );
+        drop(repository);
+
+        let mut citation_only = request.clone();
+        citation_only["citationAnalysis"]["payloadHash"] = json!("sha256:citation-2");
+        citation_only["citationAnalysis"]["citations"][0]["role"] = json!("method");
+        apps.apply_literature_digest(citation_only)
+            .expect("citation-only apply");
+        let repository = owner.lock().expect("repository");
+        assert!(
+            repository.list_raw_references().expect("references")[0]
+                .roles_json
+                .contains("method")
+        );
+        assert_eq!(
+            repository
+                .get_cache_basis("citation-graph:library")
+                .expect("graph cache")
+                .expect("graph cache row")
+                .status,
+            "stale"
+        );
+        drop(repository);
+
+        let mut ambiguous = request.clone();
+        ambiguous["matchedReferences"] = json!([
+            {"libraryId":1,"itemKey":"BBBB2222","paperRef":"1:BBBB2222","title":"Matched paper","year":"2024"},
+            {"libraryId":1,"itemKey":"CCCC3333","paperRef":"1:CCCC3333","title":"Matched paper","year":"2024"}
+        ]);
+        apps.apply_literature_digest(ambiguous)
+            .expect("ambiguous title-year apply");
+        let repository = owner.lock().expect("repository");
+        assert!(
+            repository
+                .list_reference_bindings()
+                .expect("bindings")
+                .is_empty()
+        );
+        let before_failure = repository.list_raw_references().expect("references");
+        drop(repository);
+
+        let mut invalid = request.clone();
+        invalid["references"]["payloadHash"] = json!("sha256:references-invalid");
+        invalid["references"]["references"] = json!("not-an-array");
+        assert!(apps.apply_literature_digest(invalid).is_err());
+        assert_eq!(
+            owner
+                .lock()
+                .expect("repository")
+                .list_raw_references()
+                .expect("references"),
+            before_failure
+        );
+
+        let mut missing_references = request;
+        missing_references
+            .as_object_mut()
+            .expect("request object")
+            .remove("references");
+        missing_references["citationAnalysis"] = Value::Null;
+        let missing = apps
+            .apply_literature_digest(missing_references)
+            .expect("missing references artifact");
+        assert_eq!(missing["reference_count"], 0);
+        assert!(
+            owner
+                .lock()
+                .expect("repository")
+                .list_raw_references()
+                .expect("references")
+                .is_empty()
+        );
     }
 
     #[test]

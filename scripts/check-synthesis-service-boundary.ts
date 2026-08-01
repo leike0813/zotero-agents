@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,11 +6,30 @@ import ts from "typescript";
 import { parse as parseYaml } from "yaml";
 
 type MethodCategory = "query" | "command" | "host_effect" | "debug";
-type MethodDisposition =
-  | "client_capability"
-  | "host_capability"
+type MethodDisposition = "client_capability" | "host_capability" | "internal";
+type MigrationDisposition =
+  | "direct"
+  | "merged"
+  | "host_owned"
   | "internal"
-  | "remove";
+  | "pending";
+
+interface InventoryBaseline {
+  commit: string;
+  service_source: string;
+  service_factory: string;
+  public_method_count: number;
+  canonicalization: "sorted-newline-terminated";
+  fingerprint_sha256: string;
+}
+
+interface InventoryAudit {
+  source_head: string;
+  worktree_state: string;
+  source_public_method_count: number;
+  wire_operation_count: number;
+  deletion_authorization: string[];
+}
 
 interface InventoryConsumer {
   path: string;
@@ -22,11 +42,23 @@ interface InventoryMethodGroup {
   target_capability: string;
   disposition: MethodDisposition;
   consumer_groups: string[];
-  methods: string[];
+  methods: Array<
+    | string
+    | {
+        name: string;
+        migration?: MigrationDisposition;
+        capability?: string;
+        host_capability?: string;
+        owner?: string;
+        introduced_after_baseline?: boolean;
+      }
+  >;
 }
 
 interface RawBoundaryInventory {
   schema: string;
+  baseline: InventoryBaseline;
+  audit: InventoryAudit;
   service_source: string;
   service_factory: string;
   direct_consumers: InventoryConsumer[];
@@ -39,10 +71,17 @@ export interface BoundaryInventoryMethod {
   target_capability: string;
   disposition: MethodDisposition;
   consumer_groups: string[];
+  migration: MigrationDisposition;
+  capability?: string;
+  host_capability?: string;
+  owner?: string;
+  introduced_after_baseline: boolean;
 }
 
 export interface BoundaryInventory {
   schema: string;
+  baseline: InventoryBaseline;
+  audit: InventoryAudit;
   service_source: string;
   service_factory: string;
   direct_consumers: InventoryConsumer[];
@@ -53,6 +92,10 @@ const ROOT_DIR = process.cwd();
 const INVENTORY_PATH = path.join(
   ROOT_DIR,
   "doc/synthesis-layer/contracts/service-api-migration.yaml",
+);
+const OPERATIONS_PATH = path.join(
+  ROOT_DIR,
+  "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
 );
 const CONTRACTS_ROOT = path.join(ROOT_DIR, "packages/synthesis-contracts/src");
 const SIDECAR_APP_ROOT = path.join(ROOT_DIR, "apps/synthesis-service/src");
@@ -83,7 +126,13 @@ const VALID_DISPOSITIONS = new Set<MethodDisposition>([
   "client_capability",
   "host_capability",
   "internal",
-  "remove",
+]);
+const VALID_MIGRATIONS = new Set<MigrationDisposition>([
+  "direct",
+  "merged",
+  "host_owned",
+  "internal",
+  "pending",
 ]);
 
 function normalizedRepoPath(filePath: string): string {
@@ -125,16 +174,32 @@ function readRawInventory(): RawBoundaryInventory {
 export function readSynthesisBoundaryInventory(): BoundaryInventory {
   const raw = readRawInventory();
   const methods = (raw.method_groups || []).flatMap((group) =>
-    (group.methods || []).map((name) => ({
-      name,
-      category: group.category,
-      target_capability: group.target_capability,
-      disposition: group.disposition,
-      consumer_groups: [...(group.consumer_groups || [])],
-    })),
+    (group.methods || []).map((entry) => {
+      const method = typeof entry === "string" ? { name: entry } : entry;
+      const defaultMigration: MigrationDisposition =
+        group.disposition === "client_capability"
+          ? "direct"
+          : group.disposition === "host_capability"
+            ? "host_owned"
+            : "internal";
+      return {
+        name: method.name,
+        category: group.category,
+        target_capability: group.target_capability,
+        disposition: group.disposition,
+        consumer_groups: [...(group.consumer_groups || [])],
+        migration: method.migration ?? defaultMigration,
+        capability: method.capability,
+        host_capability: method.host_capability,
+        owner: method.owner,
+        introduced_after_baseline: method.introduced_after_baseline === true,
+      };
+    }),
   );
   return {
     schema: raw.schema,
+    baseline: raw.baseline,
+    audit: raw.audit,
     service_source: raw.service_source,
     service_factory: raw.service_factory,
     direct_consumers: raw.direct_consumers || [],
@@ -504,10 +569,46 @@ function duplicates(values: string[]): string[] {
   return [...duplicateValues].sort();
 }
 
+function readProductionOperationCapabilities(): string[] {
+  const manifest = JSON.parse(fs.readFileSync(OPERATIONS_PATH, "utf8")) as {
+    access?: Record<string, string>;
+  };
+  return Object.keys(manifest.access || {}).sort();
+}
+
+function canonicalMethodFingerprint(methods: readonly string[]): string {
+  return createHash("sha256")
+    .update(`${[...methods].sort().join("\n")}\n`)
+    .digest("hex");
+}
+
 export function inspectSynthesisServiceBoundary() {
   const inventory = readSynthesisBoundaryInventory();
   const publicMethods = extractSynthesisPublicMethods(inventory);
   const inventoryMethodNames = inventory.methods.map((method) => method.name);
+  const baselineMethods = inventory.methods
+    .filter((method) => !method.introduced_after_baseline)
+    .map((method) => method.name)
+    .sort();
+  const introducedAfterBaseline = inventory.methods
+    .filter((method) => method.introduced_after_baseline)
+    .map((method) => method.name)
+    .sort();
+  const operationCapabilities = readProductionOperationCapabilities();
+  const operationCapabilitySet = new Set(operationCapabilities);
+  const expectedProductionOperations = inventory.methods
+    .flatMap((method) => {
+      if (method.migration === "direct") {
+        return [`client.${method.name}`];
+      }
+      if (method.migration === "merged" && method.capability) {
+        return [method.capability];
+      }
+      return [];
+    })
+    .filter((capability, index, all) => all.indexOf(capability) === index)
+    .sort();
+  const expectedProductionOperationSet = new Set(expectedProductionOperations);
   const directConsumers = findSynthesisDirectConsumers();
   const contractViolations = findSynthesisContractBoundaryViolations();
   const sidecarAppViolations = findSynthesisSidecarAppBoundaryViolations();
@@ -526,23 +627,79 @@ export function inspectSynthesisServiceBoundary() {
         !method.name ||
         !VALID_CATEGORIES.has(method.category) ||
         !VALID_DISPOSITIONS.has(method.disposition) ||
+        !VALID_MIGRATIONS.has(method.migration) ||
         !method.target_capability ||
-        method.consumer_groups.length === 0,
+        method.consumer_groups.length === 0 ||
+        (method.migration === "merged" && !method.capability) ||
+        (method.migration === "host_owned" && !method.host_capability) ||
+        (method.migration === "internal" && !method.owner) ||
+        (method.migration === "pending" && !method.owner),
     )
     .map((method) => method.name || "<unnamed>")
     .concat(duplicates(inventoryMethodNames))
     .sort();
 
+  const currentMethodsMissingFromInventory = publicMethods.filter(
+    (method) => !inventoryMethodSet.has(method),
+  );
+  const unknownInventoryMethods = introducedAfterBaseline.filter(
+    (method) => !publicMethodSet.has(method),
+  );
+  const actualBaselineFingerprint = canonicalMethodFingerprint(baselineMethods);
+  const baselineCountMismatch =
+    baselineMethods.length === inventory.baseline.public_method_count
+      ? []
+      : [
+          `expected ${inventory.baseline.public_method_count}, got ${baselineMethods.length}`,
+        ];
+  const baselineFingerprintMismatch =
+    actualBaselineFingerprint === inventory.baseline.fingerprint_sha256
+      ? []
+      : [
+          `expected ${inventory.baseline.fingerprint_sha256}, got ${actualBaselineFingerprint}`,
+        ];
+
   return {
     inventory,
     publicMethods,
+    baselineMethods,
+    introducedAfterBaseline,
+    operationCapabilities,
+    expectedProductionOperations,
     directConsumers,
-    missingMethods: publicMethods.filter(
-      (method) => !inventoryMethodSet.has(method),
+    missingMethods: currentMethodsMissingFromInventory,
+    unknownMethods: unknownInventoryMethods,
+    baselineCountMismatch,
+    baselineFingerprintMismatch,
+    baselineMethodsMissingFromInventory: [],
+    currentMethodsMissingFromInventory,
+    unknownInventoryMethods,
+    pendingMigrations: inventory.methods
+      .filter((method) => method.migration === "pending")
+      .map((method) => method.name)
+      .sort(),
+    missingProductionOperations: expectedProductionOperations.filter(
+      (capability) => !operationCapabilitySet.has(capability),
     ),
-    unknownMethods: inventoryMethodNames.filter(
-      (method) => !publicMethodSet.has(method),
+    unknownProductionOperations: operationCapabilities.filter(
+      (capability) => !expectedProductionOperationSet.has(capability),
     ),
+    invalidMergedTargets: inventory.methods
+      .filter(
+        (method) =>
+          method.migration === "merged" &&
+          (!method.capability ||
+            !operationCapabilitySet.has(method.capability)),
+      )
+      .map((method) => method.name)
+      .sort(),
+    invalidHostOwnedTargets: inventory.methods
+      .filter(
+        (method) =>
+          method.migration === "host_owned" && !method.host_capability,
+      )
+      .map((method) => method.name)
+      .sort(),
     invalidMethods,
     missingConsumers: directConsumers.filter(
       (consumer) => !inventoryConsumerSet.has(consumer),
@@ -567,6 +724,16 @@ function runCli() {
     contractViolations: report.contractViolations,
     sidecarAppViolations: report.sidecarAppViolations,
     productionBoundaryViolations: report.productionBoundaryViolations,
+    baselineCountMismatch: report.baselineCountMismatch,
+    baselineFingerprintMismatch: report.baselineFingerprintMismatch,
+    currentMethodsMissingFromInventory:
+      report.currentMethodsMissingFromInventory,
+    unknownInventoryMethods: report.unknownInventoryMethods,
+    pendingMigrations: report.pendingMigrations,
+    missingProductionOperations: report.missingProductionOperations,
+    unknownProductionOperations: report.unknownProductionOperations,
+    invalidMergedTargets: report.invalidMergedTargets,
+    invalidHostOwnedTargets: report.invalidHostOwnedTargets,
   };
   const hasErrors = Object.values(errors).some((values) => values.length > 0);
   process.stdout.write(

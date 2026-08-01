@@ -98,11 +98,21 @@ The memory response writer waits for output readiness, writes at most 32 KiB,
 and advances only by the byte count accepted by the stream, so a partial write
 cannot leave `Content-Length` larger than the transferred body. If transfer has
 started, failure closes the connection and cannot append a second HTTP
-response. Native parsing distinguishes header, status, Content-Length,
-truncated/trailing body, JSON, envelope, and result failures.
+response. After a complete response transfer the endpoint releases connection
+ownership without forcing `transport.close()`, allowing Gecko to drain bytes it
+has already accepted. Transfer failure and endpoint shutdown still abort and
+close owned transports. Native parsing reads exactly the declared
+`Content-Length` and parses as soon as those bytes arrive; it does not wait for
+peer EOF. Early EOF remains `reverse_host_response_body_truncated`, while
+header, status, length, JSON, envelope, and result failures retain their own
+stable codes.
 Reference refresh discards any preparation left by a subsequent Host-read
 failure, allowing a retry in the same process. The artifact-read capability has
-an explicit 8 MiB response and ten-second call budget; other reverse-Host calls
-retain the 1 MiB and two-second defaults. An oversized response exposes the
-applicable debug budget and stable code without retaining the attempted body,
-and the nested stable reason survives the Rust and plugin RPC boundaries.
+an explicit 8 MiB response and ten-second call budget. Artifact descriptor scan
+uses the same ten-second deadline with the ordinary 1 MiB response limit;
+unlisted reverse-Host calls retain the 1 MiB and two-second defaults. An
+oversized response exposes the applicable debug budget and stable code without
+retaining the attempted body, and the nested stable reason survives the Rust
+and plugin RPC boundaries. Retry is safe after a truncated response, timeout,
+or stopped endpoint because the corresponding preparation is discarded before
+another attempt.

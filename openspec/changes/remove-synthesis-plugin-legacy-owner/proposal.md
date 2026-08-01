@@ -59,7 +59,11 @@ None.
   boundary checks, and current-state architecture documentation.
 - Public `SynthesisClient`, Workflow, Workbench, Host Bridge, MCP, reverse-Host,
   cutover receipt, database, and canonical formats remain unchanged.
-- Depends on `stabilize-synthesis-r9a-retirement-baseline`.
+- Depends on `stabilize-synthesis-r9a-retirement-baseline` and the completed
+  parity, 10k target, and 25k degraded-scale gates in
+  `restore-synthesis-rust-sidecar-main-parity`. Audit findings and local repair
+  results from that change are candidate evidence only while any task or
+  external acceptance gate remains open.
 - Leaves `apps/synthesis-service` and its executable Node oracle temporarily
   intact for the final retirement change; it remains unreachable from product
   runtime and no release is allowed between the dependent R9b changes.

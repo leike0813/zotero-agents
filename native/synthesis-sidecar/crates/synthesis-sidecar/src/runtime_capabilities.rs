@@ -64,17 +64,59 @@ fn valid_bounded_text(value: &str, max: usize) -> bool {
 }
 
 fn json_within_bounds(value: &Value, depth: usize, nodes: &mut usize, max_nodes: usize) -> bool {
+    json_within_bounds_with_string_limit(value, depth, nodes, max_nodes, 64 * 1024)
+}
+
+fn json_within_bounds_for_capability(
+    value: &Value,
+    capability: &str,
+    nodes: &mut usize,
+    max_nodes: usize,
+) -> bool {
+    json_within_bounds_with_string_limit(
+        value,
+        0,
+        nodes,
+        max_nodes,
+        if capability.starts_with("client.") {
+            MAX_READ_BODY_BYTES
+        } else {
+            64 * 1024
+        },
+    )
+}
+
+fn json_within_bounds_with_string_limit(
+    value: &Value,
+    depth: usize,
+    nodes: &mut usize,
+    max_nodes: usize,
+    max_string_bytes: usize,
+) -> bool {
     if depth > 32 || *nodes >= max_nodes {
         return false;
     }
     *nodes += 1;
     match value {
-        Value::String(value) => value.len() <= 64 * 1024,
-        Value::Array(values) => values
-            .iter()
-            .all(|value| json_within_bounds(value, depth + 1, nodes, max_nodes)),
+        Value::String(value) => value.len() <= max_string_bytes,
+        Value::Array(values) => values.iter().all(|value| {
+            json_within_bounds_with_string_limit(
+                value,
+                depth + 1,
+                nodes,
+                max_nodes,
+                max_string_bytes,
+            )
+        }),
         Value::Object(object) => object.iter().all(|(key, value)| {
-            key.len() <= 64 * 1024 && json_within_bounds(value, depth + 1, nodes, max_nodes)
+            key.len() <= 64 * 1024
+                && json_within_bounds_with_string_limit(
+                    value,
+                    depth + 1,
+                    nodes,
+                    max_nodes,
+                    max_string_bytes,
+                )
         }),
         _ => true,
     }
@@ -235,7 +277,12 @@ pub(crate) fn handle_connection(
         || !valid_bounded_text(&call.profile_id, 512)
         || !valid_bounded_text(&call.capability, 128)
         || call.trace.as_ref().is_some_and(|trace| !trace.is_valid())
-        || !json_within_bounds(&call.payload, 0, &mut nodes, max_json_nodes)
+        || !json_within_bounds_for_capability(
+            &call.payload,
+            &call.capability,
+            &mut nodes,
+            max_json_nodes,
+        )
     {
         return response(&mut stream, 400, error_response("invalid_request"));
     }
@@ -601,4 +648,28 @@ pub(crate) fn handle_connection(
         }
         outcome
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_client_string_uses_the_request_budget() {
+        let payload = json!({"args":[{"content":"x".repeat(128 * 1024)}]});
+        let mut general_nodes = 0;
+        assert!(!json_within_bounds(
+            &payload,
+            0,
+            &mut general_nodes,
+            MAX_JSON_NODES
+        ));
+        let mut production_nodes = 0;
+        assert!(json_within_bounds_for_capability(
+            &payload,
+            "client.applyLiteratureDigestSidecar",
+            &mut production_nodes,
+            MAX_JSON_NODES,
+        ));
+    }
 }

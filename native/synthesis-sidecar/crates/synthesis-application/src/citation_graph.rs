@@ -5,7 +5,9 @@ use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphReplacement,
@@ -338,13 +340,7 @@ impl CitationGraphApplication {
         Self::with_factories(
             repository,
             compute,
-            Arc::new(|| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis()
-                    .to_string()
-            }),
+            Arc::new(synthesis_protocol::utc_now_iso8601),
             Arc::new(move || {
                 format!(
                     "citation-graph-{}",

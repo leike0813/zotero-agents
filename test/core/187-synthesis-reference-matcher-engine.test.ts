@@ -184,6 +184,32 @@ function complexDedupeRequest(): SynthesisReferenceDedupeRequest {
   };
 }
 
+function semanticActionDedupeRequest(): SynthesisReferenceDedupeRequest {
+  return rebuildSynthesisReferenceDedupeRequest({
+    contractVersion: "synthesis-reference-matcher.v1",
+    algorithmVersion: "canonical-cluster-dedupe.v1",
+    canonicals: [
+      "Robust object detection for small targets",
+      "Robust object detection for small target",
+      "Robust object detection of small targets",
+    ].map((title, index) => ({
+      canonicalReferenceId: `semantic:${index}`,
+      title,
+      normalizedTitle: "",
+      year: "2024",
+      authors: ["Alpha"],
+      acceptedBinding: false,
+      stickyRepresentative: false,
+      rawReferenceIds: [`raw:semantic:${index}`],
+      rawHashes: [`hash:semantic:${index}`],
+      rawReferences: [],
+      sourceRefs: [],
+      identifiers: [],
+      titleCandidates: [],
+    })),
+  });
+}
+
 function boundaryDedupeRequest(): SynthesisReferenceDedupeRequest {
   return rebuildSynthesisReferenceDedupeRequest({
     contractVersion: "synthesis-reference-matcher.v1",
@@ -504,6 +530,7 @@ describe("Synthesis Reference Matcher engine", function () {
     const complexDedupe = complexDedupeRequest();
     const boundaryDedupe = boundaryDedupeRequest();
     const titleCandidateDedupe = titleCandidateDedupeRequest();
+    const semanticActionDedupe = semanticActionDedupeRequest();
     const direct = createInProcessSynthesisReferenceMatcherEngine();
     const expected = {
       binding: await direct.matchBindings(binding),
@@ -511,6 +538,7 @@ describe("Synthesis Reference Matcher engine", function () {
       complexDedupe: await direct.dedupeCanonicals(complexDedupe),
       boundaryDedupe: await direct.dedupeCanonicals(boundaryDedupe),
       titleCandidateDedupe: await direct.dedupeCanonicals(titleCandidateDedupe),
+      semanticActionDedupe: await direct.dedupeCanonicals(semanticActionDedupe),
     };
     const pool = createSynthesisSidecarComputeWorkerPool();
     try {
@@ -521,10 +549,27 @@ describe("Synthesis Reference Matcher engine", function () {
         boundaryDedupe: await pool.runReferenceCanonicalDedupe(boundaryDedupe),
         titleCandidateDedupe:
           await pool.runReferenceCanonicalDedupe(titleCandidateDedupe),
+        semanticActionDedupe:
+          await pool.runReferenceCanonicalDedupe(semanticActionDedupe),
       };
       for (const key of Object.keys(expected) as (keyof typeof expected)[]) {
         assert.deepEqual(actual[key], expected[key], `${key} parity`);
       }
+      const sharedPairActions = actual.semanticActionDedupe.actions.filter(
+        (action) =>
+          action.sourceCanonicalReferenceId === "semantic:1" &&
+          action.targetCanonicalReferenceId === "semantic:0",
+      );
+      assert.deepEqual(
+        sharedPairActions.map((action) => action.edgeType),
+        ["contained_extension_risk", "weak_fuzzy_title"],
+      );
+      assert.equal(
+        actual.semanticActionDedupe.counters.review_action_count,
+        actual.semanticActionDedupe.actions.filter(
+          (action) => action.action === "review",
+        ).length,
+      );
     } finally {
       await pool.shutdown();
     }

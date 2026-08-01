@@ -5,7 +5,7 @@
 
 ## 1. Verify Preconditions and Freeze the Retirement Inventory
 
-- [ ] 1.1 Verify `stabilize-synthesis-r9a-retirement-baseline` and `remove-synthesis-plugin-legacy-owner` are complete for the same source lineage, with accepted pre-deletion candidate evidence and zero plugin legacy owner construction
+- [ ] 1.1 Verify `stabilize-synthesis-r9a-retirement-baseline`, every task and external parity/10k/25k gate in `restore-synthesis-rust-sidecar-main-parity`, and `remove-synthesis-plugin-legacy-owner` are complete for the same source lineage, with accepted pre-deletion candidate evidence and zero plugin legacy owner construction
 - [ ] 1.2 Record the source commit, Rust toolchain/Cargo lock, native fingerprints, `apps/synthesis-service` file list, JavaScript worker list, Node-dependent scripts/tests, workspace/dependencies, workflow/release paths, and current package/XPI inventories
 - [ ] 1.3 Build a reviewed evidence map assigning every stable Node-dependent invariant to a surviving language-neutral corpus, Rust/public test, or native package gate, and classify Node-private assertions for deletion
 - [ ] 1.4 Build a reviewed keep/prune map for `packages/synthesis-engine`, `packages/synthesis-application`, and `packages/synthesis-repository` from current callers after plugin legacy removal

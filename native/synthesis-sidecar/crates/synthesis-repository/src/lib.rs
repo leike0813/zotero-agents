@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use synthesis_protocol::unix_millis_from_utc_iso8601;
 
 mod citation_reference;
 pub use citation_reference::*;
@@ -790,6 +791,96 @@ impl Repository {
         Ok(result)
     }
 
+    pub fn consume_related_items_sync_echo(
+        &self,
+        library_id: i64,
+        item_key: &str,
+        related_item_key: Option<&str>,
+        observed_at: &str,
+    ) -> Result<bool, String> {
+        const ECHO_WINDOW_MILLIS: i64 = 10_000;
+        if library_id <= 0 || item_key.trim().is_empty() {
+            return Err("invalid_request".into());
+        }
+        let observed_millis = unix_millis_from_utc_iso8601(observed_at)
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let rows = self.query(
+            "SELECT effect_id,payload_json,updated_at FROM synt_related_items_sync_effect ORDER BY updated_at DESC,effect_id ASC",
+            &[],
+        )?;
+        for row in rows {
+            let effect_id = row_text(&row, "effect_id")?;
+            let original_payload = row_text(&row, "payload_json")?;
+            let mut payload: Value = serde_json::from_str(&original_payload)
+                .map_err(|_| "repository_payload_invalid".to_owned())?;
+            let field =
+                |camel: &str, snake: &str| payload.get(camel).or_else(|| payload.get(snake));
+            let text = |camel: &str, snake: &str| {
+                field(camel, snake)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            };
+            let integer = |camel: &str, snake: &str| {
+                field(camel, snake)
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default()
+            };
+            if !matches!(
+                text("status", "status"),
+                "pending_external_write" | "applied"
+            ) || text("echoState", "echo_state") != "awaiting_echo"
+            {
+                continue;
+            }
+            let source_matches = integer("sourceLibraryId", "source_library_id") == library_id
+                && text("sourceItemKey", "source_item_key") == item_key
+                && related_item_key
+                    .is_none_or(|related| text("targetItemKey", "target_item_key") == related);
+            let target_matches = integer("targetLibraryId", "target_library_id") == library_id
+                && text("targetItemKey", "target_item_key") == item_key
+                && related_item_key
+                    .is_none_or(|related| text("sourceItemKey", "source_item_key") == related);
+            if !source_matches && !target_matches {
+                continue;
+            }
+            let written_at = text("externalWriteAt", "external_write_at");
+            let written_at = if written_at.is_empty() {
+                row_text(&row, "updated_at")?
+            } else {
+                written_at.to_owned()
+            };
+            let expired = unix_millis_from_utc_iso8601(&written_at).is_some_and(|written| {
+                observed_millis.saturating_sub(written) > ECHO_WINDOW_MILLIS
+            });
+            let object = payload
+                .as_object_mut()
+                .ok_or_else(|| "repository_payload_invalid".to_owned())?;
+            object.insert(
+                "echoState".into(),
+                json!(if expired { "expired" } else { "observed" }),
+            );
+            object.insert("updatedAt".into(), json!(observed_at));
+            if !expired {
+                object.insert("echoObservedAt".into(), json!(observed_at));
+            }
+            let updated_payload = serde_json::to_string(&payload)
+                .map_err(|_| "repository_payload_invalid".to_owned())?;
+            let changed = self.execute(
+                "UPDATE synt_related_items_sync_effect SET payload_json=?1,updated_at=?2 WHERE effect_id=?3 AND payload_json=?4",
+                &[
+                    json!(updated_payload),
+                    json!(observed_at),
+                    json!(effect_id),
+                    json!(original_payload),
+                ],
+            )?;
+            if changed == 1 && !expired {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn transaction<T>(
         &mut self,
         operation: impl FnOnce(&mut Self) -> Result<T, String>,
@@ -1524,8 +1615,8 @@ mod tests {
         assert_eq!(pragmas["foreignKeys"], 1);
         assert_eq!(pragmas["busyTimeout"], 250);
         let inventory = repository.schema_inventory().expect("inventory");
-        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(51));
-        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(40));
+        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(52));
+        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(41));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -1979,6 +2070,68 @@ mod tests {
                 .is_some()
         );
         assert!(repository.application_state_rows_absent().expect("absence"));
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn consumes_related_items_echo_in_repository_without_a_host_effect() {
+        let root = root("related-items-echo");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let payload = json!({
+            "effectId":"effect:1",
+            "sourceLibraryId":1,
+            "sourceItemKey":"AAAA1111",
+            "targetLibraryId":1,
+            "targetItemKey":"BBBB2222",
+            "status":"applied",
+            "externalWriteAt":"2026-08-02T00:00:00.000Z",
+            "echoState":"awaiting_echo",
+            "updatedAt":"2026-08-02T00:00:00.000Z"
+        });
+        repository
+            .execute(
+                "INSERT INTO synt_related_items_sync_effect(effect_id,payload_json,updated_at) VALUES(?1,?2,?3)",
+                &[
+                    json!("effect:1"),
+                    json!(serde_json::to_string(&payload).expect("payload")),
+                    json!("2026-08-02T00:00:00.000Z"),
+                ],
+            )
+            .expect("seed");
+
+        assert!(
+            repository
+                .consume_related_items_sync_echo(
+                    1,
+                    "AAAA1111",
+                    Some("BBBB2222"),
+                    "2026-08-02T00:00:05.000Z",
+                )
+                .expect("consume")
+        );
+        assert!(
+            !repository
+                .consume_related_items_sync_echo(
+                    1,
+                    "AAAA1111",
+                    Some("BBBB2222"),
+                    "2026-08-02T00:00:06.000Z",
+                )
+                .expect("already consumed")
+        );
+        let rows = repository
+            .query(
+                "SELECT payload_json FROM synt_related_items_sync_effect WHERE effect_id=?1",
+                &[json!("effect:1")],
+            )
+            .expect("read");
+        let stored: Value =
+            serde_json::from_str(rows[0]["payload_json"].as_str().expect("stored payload"))
+                .expect("stored json");
+        assert_eq!(stored["echoState"], "observed");
+        assert_eq!(stored["echoObservedAt"], "2026-08-02T00:00:05.000Z");
+
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

@@ -14,6 +14,7 @@ export const SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_TABLES = [
   "synt_reference_redirect",
   "synt_reference_binding",
   "synt_reference_revision_review",
+  "synt_literature_matching_metadata",
 ] as const;
 
 export const SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_INDEXES = [
@@ -22,6 +23,7 @@ export const SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_INDEXES = [
   "idx_synt_reference_raw_canonical",
   "idx_synt_reference_binding_canonical",
   "idx_synt_reference_revision_review_status",
+  "idx_synt_literature_matching_metadata_updated",
 ] as const;
 
 export type SynthesisReferenceApplicationStateRecord = {
@@ -352,6 +354,15 @@ export function ensureSynthesisReferenceRefreshRepositorySchema(
     canonical_reference_id TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL,
     payload_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS synt_literature_matching_metadata (
+    literature_item_id TEXT PRIMARY KEY,
+    schema_id TEXT NOT NULL DEFAULT 'literature_matching_metadata.v1',
+    key_terms_json TEXT NOT NULL DEFAULT '[]', methods_json TEXT NOT NULL DEFAULT '[]',
+    problems_json TEXT NOT NULL DEFAULT '[]', datasets_json TEXT NOT NULL DEFAULT '[]',
+    exclude_terms_json TEXT NOT NULL DEFAULT '[]', source_artifact_hash TEXT NOT NULL DEFAULT '',
+    metadata_hash TEXT NOT NULL DEFAULT '', diagnostics_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL DEFAULT ''
+  )`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_synt_reference_artifact_source
     ON synt_reference_artifact(paper_ref, artifact_type)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_synt_reference_raw_source
@@ -362,6 +373,8 @@ export function ensureSynthesisReferenceRefreshRepositorySchema(
     ON synt_reference_binding(canonical_reference_id, status)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_synt_reference_revision_review_status
     ON synt_reference_revision_review(status, updated_at)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_synt_literature_matching_metadata_updated
+    ON synt_literature_matching_metadata(updated_at DESC)`);
   db.run(
     `INSERT OR IGNORE INTO synt_schema_meta (key, value)
      VALUES (@meta_key, @meta_value)`,

@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CanonicalReferenceRecord, RawReferenceRecord, ReferenceBindingFactRecord,
@@ -118,6 +120,7 @@ pub struct ReferenceMatcherInput {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceMatcherOutcome {
+    pub semantic_key: String,
     pub kind: ReferenceMatchKind,
     pub disposition: ReferenceMatchDisposition,
     pub confidence: ReferenceMatchConfidence,
@@ -275,13 +278,7 @@ impl ReferenceMatchingApplication {
         Self::with_factories(
             repository,
             matcher,
-            Arc::new(|| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis()
-                    .to_string()
-            }),
+            Arc::new(synthesis_protocol::utc_now_iso8601),
             Arc::new(move || {
                 format!(
                     "reference-matching:{}",
@@ -444,10 +441,10 @@ impl ReferenceMatchingApplication {
         if !self.is_accepting() {
             return prepare_result(ReferenceMatchingStatus::Stopping);
         }
-        outcomes.sort_by(|left, right| outcome_key(left).cmp(&outcome_key(right)));
+        outcomes.sort_by(|left, right| left.semantic_key.cmp(&right.semantic_key));
         if outcomes
             .windows(2)
-            .any(|pair| outcome_key(&pair[0]) == outcome_key(&pair[1]))
+            .any(|pair| pair[0].semantic_key == pair[1].semantic_key)
         {
             return prepare_result(ReferenceMatchingStatus::MatcherFailed);
         }
@@ -974,6 +971,7 @@ fn validate_outcomes(
     };
     for outcome in outcomes {
         if outcome.kind != expected_kind
+            || outcome.semantic_key.is_empty()
             || outcome.source_canonical_reference_id.is_empty()
             || !outcome.score.is_finite()
             || !(0.0..=1.0).contains(&outcome.score)
@@ -990,19 +988,6 @@ fn validate_outcomes(
         }
     }
     Ok(())
-}
-
-fn outcome_key(outcome: &ReferenceMatcherOutcome) -> (u8, &str, &str, i64, &str) {
-    (
-        match outcome.kind {
-            ReferenceMatchKind::Binding => 0,
-            ReferenceMatchKind::Redirect => 1,
-        },
-        &outcome.source_canonical_reference_id,
-        &outcome.target_canonical_reference_id,
-        outcome.target_library_id,
-        &outcome.target_item_key,
-    )
 }
 
 fn proposal_record(
@@ -1112,6 +1097,48 @@ mod tests {
         dedupe_exclusions: Arc<Mutex<Vec<String>>>,
     }
 
+    struct SemanticFixtureMatcher {
+        duplicate_semantic_key: bool,
+    }
+
+    impl ReferenceMatcherPort for SemanticFixtureMatcher {
+        fn match_pass(
+            &self,
+            pass: ReferenceMatchPass,
+            _input: &ReferenceMatcherInput,
+        ) -> Result<Vec<ReferenceMatcherOutcome>, String> {
+            if pass == ReferenceMatchPass::LibraryBinding {
+                return Ok(Vec::new());
+            }
+            let semantic_prefix =
+                "review::canonical:1::canonical:2::cluster:1::contained_extension_risk::";
+            Ok(
+                [("contained_extension_risk", 0.9), ("weak_fuzzy_title", 0.8)]
+                    .into_iter()
+                    .map(|(edge_type, score)| ReferenceMatcherOutcome {
+                        semantic_key: if self.duplicate_semantic_key {
+                            semantic_prefix.into()
+                        } else {
+                            format!("review::canonical:1::canonical:2::cluster:1::{edge_type}::")
+                        },
+                        kind: ReferenceMatchKind::Redirect,
+                        disposition: ReferenceMatchDisposition::Review,
+                        confidence: ReferenceMatchConfidence::Review,
+                        source_canonical_reference_id: "canonical:1".into(),
+                        source_raw_reference_ids: vec!["raw:1".into()],
+                        target_canonical_reference_id: "canonical:2".into(),
+                        target_library_id: 0,
+                        target_item_key: String::new(),
+                        score,
+                        reasons: vec![format!("cluster_{edge_type}")],
+                        evidence: json!({"edgeType":edge_type}),
+                        diagnostics: Vec::new(),
+                    })
+                    .collect(),
+            )
+        }
+    }
+
     impl ReferenceMatcherPort for AcceptingFixtureMatcher {
         fn match_pass(
             &self,
@@ -1120,6 +1147,7 @@ mod tests {
         ) -> Result<Vec<ReferenceMatcherOutcome>, String> {
             match pass {
                 ReferenceMatchPass::LibraryBinding => Ok(vec![ReferenceMatcherOutcome {
+                    semantic_key: "binding::canonical:1::1::TARGET".into(),
                     kind: ReferenceMatchKind::Binding,
                     disposition: ReferenceMatchDisposition::Accept,
                     confidence: ReferenceMatchConfidence::Deterministic,
@@ -1151,6 +1179,7 @@ mod tests {
             self.calls.fetch_add(1, Ordering::Relaxed);
             Ok(match pass {
                 ReferenceMatchPass::LibraryBinding => vec![ReferenceMatcherOutcome {
+                    semantic_key: "binding::canonical:1::1::TARGET".into(),
                     kind: ReferenceMatchKind::Binding,
                     disposition: ReferenceMatchDisposition::Review,
                     confidence: ReferenceMatchConfidence::Review,
@@ -1189,34 +1218,40 @@ mod tests {
                 scope: ReferenceProjectionScope::Full,
                 source_refs: vec!["1:A".into()],
                 replace_reference_source_refs: vec!["1:A".into()],
-                raw_references: vec![RawReferenceRecord {
-                    raw_reference_id: "raw:1".into(),
-                    source_ref: "1:A".into(),
-                    references_artifact_hash: "sha256:artifact".into(),
-                    raw_hash: "sha256:raw".into(),
-                    parsed_title: "Target".into(),
-                    normalized_title: "target".into(),
-                    raw_reference: "{}".into(),
-                    canonical_reference_id: "canonical:1".into(),
-                    status: "active".into(),
-                    roles_json: "[]".into(),
-                    diagnostics_json: "[]".into(),
-                    created_at: "2026-07-26T00:00:00.000Z".into(),
-                    updated_at: "2026-07-26T00:00:00.000Z".into(),
-                    ..RawReferenceRecord::default()
-                }],
-                canonicals: vec![CanonicalReferenceRecord {
-                    canonical_reference_id: "canonical:1".into(),
-                    title: "Target".into(),
-                    normalized_title: "target".into(),
-                    authors_json: "[]".into(),
-                    identifiers_json: "{}".into(),
-                    metadata_hash: "sha256:metadata".into(),
-                    status: "active".into(),
-                    created_at: "2026-07-26T00:00:00.000Z".into(),
-                    updated_at: "2026-07-26T00:00:00.000Z".into(),
-                    ..CanonicalReferenceRecord::default()
-                }],
+                raw_references: [1, 2]
+                    .into_iter()
+                    .map(|index| RawReferenceRecord {
+                        raw_reference_id: format!("raw:{index}"),
+                        source_ref: "1:A".into(),
+                        references_artifact_hash: "sha256:artifact".into(),
+                        raw_hash: format!("sha256:raw:{index}"),
+                        parsed_title: format!("Target {index}"),
+                        normalized_title: format!("target {index}"),
+                        raw_reference: "{}".into(),
+                        canonical_reference_id: format!("canonical:{index}"),
+                        status: "active".into(),
+                        roles_json: "[]".into(),
+                        diagnostics_json: "[]".into(),
+                        created_at: "2026-07-26T00:00:00.000Z".into(),
+                        updated_at: "2026-07-26T00:00:00.000Z".into(),
+                        ..RawReferenceRecord::default()
+                    })
+                    .collect(),
+                canonicals: [1, 2]
+                    .into_iter()
+                    .map(|index| CanonicalReferenceRecord {
+                        canonical_reference_id: format!("canonical:{index}"),
+                        title: format!("Target {index}"),
+                        normalized_title: format!("target {index}"),
+                        authors_json: "[]".into(),
+                        identifiers_json: "{}".into(),
+                        metadata_hash: format!("sha256:metadata:{index}"),
+                        status: "active".into(),
+                        created_at: "2026-07-26T00:00:00.000Z".into(),
+                        updated_at: "2026-07-26T00:00:00.000Z".into(),
+                        ..CanonicalReferenceRecord::default()
+                    })
+                    .collect(),
                 now: "2026-07-26T00:00:00.000Z".into(),
                 ..ReferenceProjectionReplacement::default()
             })
@@ -1417,6 +1452,94 @@ mod tests {
                 .diagnostics_json
                 .contains("reference_identifier_match")
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn promotes_distinct_semantic_actions_for_one_pair_atomically() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        seed(&mut repository);
+        let owner = Arc::new(Mutex::new(repository));
+        let application = ReferenceMatchingApplication::with_factories(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(SemanticFixtureMatcher {
+                duplicate_semantic_key: false,
+            }),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+            Arc::new(|| "matching:semantic".into()),
+        );
+
+        let prepared = application.prepare(ReferenceMatchingPrepareRequest {
+            expected_reference_hash: Some("sha256:reference".into()),
+            host_basis_hash: "sha256:host".into(),
+            host_candidates: Vec::new(),
+        });
+        assert_eq!(prepared.status, ReferenceMatchingStatus::Prepared);
+        let promoted = application.apply(
+            prepared.preparation_id.as_deref().expect("preparation id"),
+            "sha256:host",
+        );
+        assert_eq!(promoted.status, ReferenceMatchingStatus::Promoted);
+        assert_eq!(promoted.proposal_count, 2);
+        assert_eq!(promoted.fact_count, 0);
+        assert_eq!(application.read_proposals(0, 10).unwrap().records.len(), 2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_duplicate_semantic_actions_without_persisting_partial_state() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        seed(&mut repository);
+        let owner = Arc::new(Mutex::new(repository));
+        let application = ReferenceMatchingApplication::with_factories(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(SemanticFixtureMatcher {
+                duplicate_semantic_key: true,
+            }),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+            Arc::new(|| "matching:duplicate".into()),
+        );
+
+        let prepared = application.prepare(ReferenceMatchingPrepareRequest {
+            expected_reference_hash: Some("sha256:reference".into()),
+            host_basis_hash: "sha256:host".into(),
+            host_candidates: Vec::new(),
+        });
+
+        assert_eq!(prepared.status, ReferenceMatchingStatus::MatcherFailed);
+        assert!(prepared.preparation_id.is_none());
+        assert!(
+            application
+                .read_proposals(0, 10)
+                .unwrap()
+                .records
+                .is_empty()
+        );
+        let repository = owner.lock().expect("repository");
+        assert!(repository.list_reference_bindings().unwrap().is_empty());
+        assert!(repository.list_reference_redirects().unwrap().is_empty());
+        assert!(
+            !repository
+                .has_prepared_reference_matching_preparation()
+                .unwrap()
+        );
+        drop(repository);
         let _ = std::fs::remove_dir_all(root);
     }
 }

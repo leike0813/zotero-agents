@@ -4,12 +4,15 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    CanonicalReferenceRecord, OperationRecord, RawReferenceRecord, ReferenceApplicationStateRecord,
-    ReferenceArtifactRecord, ReferenceBindingFactRecord, ReferenceProjectionReplacement,
-    ReferenceProjectionScope, ReferenceRevisionReviewRecord, ReferenceSourceRecord,
+    CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
+    RawReferenceRecord, ReferenceApplicationStateRecord, ReferenceArtifactRecord,
+    ReferenceBindingFactRecord, ReferenceProjectionReplacement, ReferenceProjectionScope,
+    ReferenceRevisionReviewRecord, ReferenceSourceRecord,
 };
 
 const MAX_PREPARATION_BYTES: usize = 8 * 1024 * 1024;
@@ -166,6 +169,7 @@ struct Preparation {
     request: ReferenceRefreshPrepareRequest,
     reads: Vec<ReferenceRefreshRead>,
     replace_source_refs: Vec<String>,
+    binding_candidates: Vec<ReferenceRefreshItem>,
 }
 
 struct RefreshState {
@@ -202,13 +206,7 @@ impl ReferenceRefreshApplication {
         let id_sequence = Arc::clone(&sequence);
         Self::with_factories(
             repository,
-            Arc::new(|| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis()
-                    .to_string()
-            }),
+            Arc::new(synthesis_protocol::utc_now_iso8601),
             Arc::new(move || {
                 format!(
                     "reference-refresh:{}",
@@ -243,6 +241,24 @@ impl ReferenceRefreshApplication {
     pub fn prepare_refresh(
         &self,
         request: ReferenceRefreshPrepareRequest,
+    ) -> ReferenceRefreshPrepareResult {
+        self.prepare_refresh_with_options(request, Vec::new(), false, false)
+    }
+
+    pub fn prepare_literature_apply(
+        &self,
+        request: ReferenceRefreshPrepareRequest,
+        binding_candidates: Vec<ReferenceRefreshItem>,
+    ) -> ReferenceRefreshPrepareResult {
+        self.prepare_refresh_with_options(request, binding_candidates, true, true)
+    }
+
+    fn prepare_refresh_with_options(
+        &self,
+        request: ReferenceRefreshPrepareRequest,
+        binding_candidates: Vec<ReferenceRefreshItem>,
+        bypass_unchanged: bool,
+        reproject_sources: bool,
     ) -> ReferenceRefreshPrepareResult {
         if validate_prepare(&request).is_err() {
             return self.prepare_result(ReferenceRefreshStatus::InvalidRequest, None, Vec::new());
@@ -286,11 +302,21 @@ impl ReferenceRefreshApplication {
         {
             return self.prepare_result(ReferenceRefreshStatus::BasisMismatch, None, Vec::new());
         }
-        let input_hash = match canonical_json_hash(&json!({
-            "scope": request.scope,
-            "items": request.items,
-            "artifacts": request.artifacts,
-        })) {
+        let input_basis = if binding_candidates.is_empty() {
+            json!({
+                "scope": request.scope,
+                "items": request.items,
+                "artifacts": request.artifacts,
+            })
+        } else {
+            json!({
+                "scope": request.scope,
+                "items": request.items,
+                "artifacts": request.artifacts,
+                "bindingCandidates": binding_candidates,
+            })
+        };
+        let input_hash = match canonical_json_hash(&input_basis) {
             Ok(hash) => hash,
             Err(_) => {
                 return self.prepare_result(
@@ -301,6 +327,7 @@ impl ReferenceRefreshApplication {
             }
         };
         if !request.force
+            && !bypass_unchanged
             && current
                 .as_ref()
                 .is_some_and(|state| state.input_hash == input_hash)
@@ -344,6 +371,7 @@ impl ReferenceRefreshApplication {
                 let key = ((*paper_ref).clone(), "references".to_owned());
                 let next = descriptors[&key];
                 request.force
+                    || reproject_sources
                     || current_artifacts.get(&key).is_none_or(|current| {
                         current.status != next.status
                             || current.locator != next.locator
@@ -389,6 +417,7 @@ impl ReferenceRefreshApplication {
             request,
             reads: reads.clone(),
             replace_source_refs: changed_sources,
+            binding_candidates,
         };
         if self
             .repository
@@ -411,6 +440,24 @@ impl ReferenceRefreshApplication {
     pub fn apply_refresh(
         &self,
         request: ReferenceRefreshApplyRequest,
+    ) -> ReferenceRefreshMutationResult {
+        self.apply_refresh_with_commit(request, None, None)
+    }
+
+    pub fn apply_literature_refresh(
+        &self,
+        request: ReferenceRefreshApplyRequest,
+        metadata: Option<LiteratureMatchingMetadataRecord>,
+        receipt: OperationRecord,
+    ) -> ReferenceRefreshMutationResult {
+        self.apply_refresh_with_commit(request, metadata, Some(receipt))
+    }
+
+    fn apply_refresh_with_commit(
+        &self,
+        request: ReferenceRefreshApplyRequest,
+        metadata: Option<LiteratureMatchingMetadataRecord>,
+        receipt: Option<OperationRecord>,
     ) -> ReferenceRefreshMutationResult {
         let preparation = {
             let mut state = match self.state.lock() {
@@ -458,7 +505,7 @@ impl ReferenceRefreshApplication {
                 Vec::new(),
             );
         }
-        let projection = match self.project(&preparation, &request.payloads) {
+        let mut projection = match self.project(&preparation, &request.payloads) {
             Ok(projection) => projection,
             Err(_) => {
                 self.finish_operation(&preparation.operation_id, "failed", "payload_stale");
@@ -469,8 +516,22 @@ impl ReferenceRefreshApplication {
                 );
             }
         };
+        if receipt.is_some() && !projection.graph_facts_changed {
+            projection.replace_reference_source_refs.clear();
+            projection.remove_binding_ids.clear();
+            projection.raw_references.clear();
+            projection.canonicals.clear();
+            projection.bindings.clear();
+            projection.reviews.clear();
+        }
         let affected = preparation.replace_source_refs.clone();
-        match self.repository.replace(&projection) {
+        let replaced = if let Some(receipt) = receipt.as_ref() {
+            self.repository
+                .apply_literature_projection(&projection, metadata.as_ref(), receipt)
+        } else {
+            self.repository.replace(&projection)
+        };
+        match replaced {
             Ok(true) => {
                 let mut warnings = Vec::new();
                 if self
@@ -788,20 +849,13 @@ impl ReferenceRefreshApplication {
                     created_at: now.clone(),
                     updated_at: now.clone(),
                 });
-                let matched = preparation.request.items.iter().find(|item| {
-                    let item_citekey = item
-                        .metadata
-                        .get("citekey")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_lowercase();
-                    (!citekey.is_empty() && citekey == item_citekey)
-                        || (!normalized_title.is_empty()
-                            && normalized_title == normalize_title(&item.title)
-                            && canonicals
-                                .last()
-                                .is_some_and(|canonical| canonical.year == item.year))
-                });
+                let candidates = if preparation.binding_candidates.is_empty() {
+                    &preparation.request.items
+                } else {
+                    &preparation.binding_candidates
+                };
+                let matched =
+                    match_reference_candidate(candidates, &citekey, &normalized_title, &year);
                 if let Some(item) = matched {
                     let binding_hash = canonical_json_hash(&json!({
                         "canonicalReferenceId": canonical_id,
@@ -849,6 +903,7 @@ impl ReferenceRefreshApplication {
                     row.source_ref.clone(),
                     row.raw_reference_id.clone(),
                     row.canonical_reference_id.clone(),
+                    row.roles_json.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -857,6 +912,7 @@ impl ReferenceRefreshApplication {
                 row.source_ref.clone(),
                 row.raw_reference_id.clone(),
                 row.canonical_reference_id.clone(),
+                row.roles_json.clone(),
             )
         }));
         projected_facts.sort();
@@ -867,6 +923,7 @@ impl ReferenceRefreshApplication {
                     row.source_ref.clone(),
                     row.raw_reference_id.clone(),
                     row.canonical_reference_id.clone(),
+                    row.roles_json.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -910,14 +967,58 @@ impl ReferenceRefreshApplication {
             .cloned()
             .collect::<Vec<_>>();
         final_raws.extend(raw_references.iter().cloned());
+        let retained_canonical_ids = current_raws
+            .iter()
+            .filter(|row| !replacement_sources.contains(&row.source_ref))
+            .map(|row| row.canonical_reference_id.as_str())
+            .collect::<HashSet<_>>();
+        let replaced_canonical_ids = current_raws
+            .iter()
+            .filter(|row| replacement_sources.contains(&row.source_ref))
+            .map(|row| row.canonical_reference_id.as_str())
+            .collect::<HashSet<_>>();
+        let remove_binding_ids = current_bindings
+            .iter()
+            .filter(|binding| {
+                binding.reviewer == "reference-refresh-application"
+                    && replaced_canonical_ids.contains(binding.canonical_reference_id.as_str())
+                    && !retained_canonical_ids.contains(binding.canonical_reference_id.as_str())
+            })
+            .map(|binding| binding.binding_id.clone())
+            .collect::<Vec<_>>();
         let mut final_bindings = current_bindings
             .iter()
+            .filter(|row| !remove_binding_ids.contains(&row.binding_id))
             .cloned()
             .map(|row| (row.binding_id.clone(), row))
             .collect::<BTreeMap<_, _>>();
         for row in &bindings {
             final_bindings.insert(row.binding_id.clone(), row.clone());
         }
+        let projected_binding_facts = final_bindings
+            .values()
+            .map(|row| {
+                (
+                    row.binding_id.clone(),
+                    row.canonical_reference_id.clone(),
+                    row.library_id,
+                    row.item_key.clone(),
+                    row.status.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let previous_binding_facts = current_bindings
+            .iter()
+            .map(|row| {
+                (
+                    row.binding_id.clone(),
+                    row.canonical_reference_id.clone(),
+                    row.library_id,
+                    row.item_key.clone(),
+                    row.status.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
         final_raws.sort_by(|left, right| left.raw_reference_id.cmp(&right.raw_reference_id));
         let reference_hash = canonical_json_hash(&json!({
             "sources": final_sources.values().map(|row| {
@@ -962,13 +1063,15 @@ impl ReferenceRefreshApplication {
             },
             source_refs: scoped_source_refs(&preparation.request),
             replace_reference_source_refs: preparation.replace_source_refs.clone(),
+            remove_binding_ids,
             sources,
             artifacts,
             raw_references,
             canonicals,
             bindings,
             reviews,
-            graph_facts_changed: previous_facts != projected_facts,
+            graph_facts_changed: previous_facts != projected_facts
+                || previous_binding_facts != projected_binding_facts,
             now,
         })
     }
@@ -1196,6 +1299,32 @@ fn normalize_title(value: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
+}
+
+fn match_reference_candidate<'a>(
+    candidates: &'a [ReferenceRefreshItem],
+    citekey: &str,
+    normalized_title: &str,
+    year: &str,
+) -> Option<&'a ReferenceRefreshItem> {
+    if !citekey.is_empty()
+        && let Some(candidate) = candidates.iter().find(|item| {
+            item.metadata
+                .get("citekey")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.to_lowercase() == citekey)
+        })
+    {
+        return Some(candidate);
+    }
+    if normalized_title.is_empty() || year.is_empty() {
+        return None;
+    }
+    let mut matches = candidates
+        .iter()
+        .filter(|item| normalize_title(&item.title) == normalized_title && item.year == year);
+    let candidate = matches.next()?;
+    matches.next().is_none().then_some(candidate)
 }
 
 fn roles_for_reference(

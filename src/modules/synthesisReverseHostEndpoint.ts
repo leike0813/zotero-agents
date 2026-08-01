@@ -214,6 +214,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
   let server: any;
   let active = false;
   const reads = new Set<HostHttpRequestReadOperation>();
+  const transports = new Set<any>();
   const broker = createSynthesisReverseHostBroker({
     profileId: options.profileId,
     serviceInstanceId: () => serviceInstanceId,
@@ -227,10 +228,12 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
   });
 
   async function handleTransport(transport: any) {
+    transports.add(transport);
     const startedAt = options.now();
     const input = transport.openInputStream(0, 0, 0);
     const output = transport.openOutputStream(0, 0, 0);
     let responseStarted = false;
+    let responseCompleted = false;
     let capability: string | undefined;
     let trace: SynthesisSidecarTraceContext | undefined;
     const record = (
@@ -323,6 +326,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         outputStream: output,
         response: prepared,
       }).completion;
+      responseCompleted = true;
       record({
         context: trace,
         source: "host",
@@ -359,22 +363,30 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
       });
       if (!responseStarted) {
         responseStarted = true;
-        await beginRuntimeMemoryResponseTransfer({
-          outputStream: output,
-          response: encodeHttpResponse({
-            status: 400,
-            body: {
-              ok: false,
-              error: { code: "invalid_request" },
-            },
-          }),
-        }).completion.catch(() => undefined);
+        try {
+          await beginRuntimeMemoryResponseTransfer({
+            outputStream: output,
+            response: encodeHttpResponse({
+              status: 400,
+              body: {
+                ok: false,
+                error: { code: "invalid_request" },
+              },
+            }),
+          }).completion;
+          responseCompleted = true;
+        } catch {
+          // The failure path below aborts the underlying transport.
+        }
       }
     } finally {
       reads.delete(read);
+      transports.delete(transport);
       input.close?.();
       output.close?.();
-      transport.close?.(0);
+      if (!responseCompleted) {
+        transport.close?.(0);
+      }
     }
   }
 
@@ -420,6 +432,10 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         read.abort();
       }
       reads.clear();
+      for (const transport of transports) {
+        transport.close?.(0);
+      }
+      transports.clear();
       broker.dispose();
       server?.close?.();
       server = undefined;

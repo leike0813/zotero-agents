@@ -174,6 +174,22 @@ pub struct ReferenceArtifactRecord {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LiteratureMatchingMetadataRecord {
+    pub literature_item_id: String,
+    pub schema_id: String,
+    pub key_terms_json: String,
+    pub methods_json: String,
+    pub problems_json: String,
+    pub datasets_json: String,
+    pub exclude_terms_json: String,
+    pub source_artifact_hash: String,
+    pub metadata_hash: String,
+    pub diagnostics_json: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RawReferenceRecord {
     pub raw_reference_id: String,
     pub source_ref: String,
@@ -238,6 +254,7 @@ pub struct ReferenceProjectionReplacement {
     pub scope: ReferenceProjectionScope,
     pub source_refs: Vec<String>,
     pub replace_reference_source_refs: Vec<String>,
+    pub remove_binding_ids: Vec<String>,
     pub sources: Vec<ReferenceSourceRecord>,
     pub artifacts: Vec<ReferenceArtifactRecord>,
     pub raw_references: Vec<RawReferenceRecord>,
@@ -869,6 +886,21 @@ impl Repository {
         .collect()
     }
 
+    pub fn get_literature_matching_metadata(
+        &self,
+        literature_item_id: &str,
+    ) -> Result<Option<LiteratureMatchingMetadataRecord>, String> {
+        self.query(
+            "SELECT * FROM synt_literature_matching_metadata
+             WHERE literature_item_id=?1 LIMIT 1",
+            &[json!(literature_item_id)],
+        )?
+        .into_iter()
+        .next()
+        .map(literature_matching_metadata_record)
+        .transpose()
+    }
+
     pub fn list_raw_references_for_sources(
         &self,
         source_refs: &[String],
@@ -1386,6 +1418,12 @@ impl Repository {
                 "source_ref",
                 &replacement.replace_reference_source_refs,
             )?;
+            delete_in(
+                repository,
+                "synt_reference_binding",
+                "binding_id",
+                &replacement.remove_binding_ids,
+            )?;
             replacement
                 .sources
                 .iter()
@@ -1473,6 +1511,41 @@ impl Repository {
                 updated_at: replacement.now.clone(),
                 ..crate::CacheBasisRecord::default()
             })?;
+            Ok(true)
+        })
+    }
+
+    pub fn apply_literature_reference_projection(
+        &mut self,
+        replacement: &ReferenceProjectionReplacement,
+        metadata: Option<&LiteratureMatchingMetadataRecord>,
+        receipt: &crate::OperationRecord,
+    ) -> Result<bool, String> {
+        self.transaction(|repository| {
+            if !repository.replace_reference_projection(replacement)? {
+                return Ok(false);
+            }
+            if let Some(metadata) = metadata {
+                upsert_literature_matching_metadata(repository, metadata)?;
+            }
+            let mut receipt = receipt.clone();
+            let canonical_ids = repository
+                .list_raw_references_for_sources(&replacement.source_refs)?
+                .into_iter()
+                .map(|row| row.canonical_reference_id)
+                .collect::<BTreeSet<_>>();
+            let matched_count = repository
+                .list_reference_bindings()?
+                .into_iter()
+                .filter(|binding| canonical_ids.contains(&binding.canonical_reference_id))
+                .count();
+            let mut diagnostics: Value = serde_json::from_str(&receipt.diagnostics_json)
+                .map_err(|_| "operation_receipt_invalid".to_owned())?;
+            diagnostics["result"]["matched_count"] = json!(matched_count);
+            diagnostics["result"]["decision_count"] = json!(matched_count);
+            receipt.diagnostics_json = serde_json::to_string(&diagnostics)
+                .map_err(|_| "operation_receipt_invalid".to_owned())?;
+            repository.upsert_operation(&receipt)?;
             Ok(true)
         })
     }
@@ -2155,6 +2228,24 @@ fn reference_artifact_record(row: Value) -> Result<ReferenceArtifactRecord, Stri
     })
 }
 
+fn literature_matching_metadata_record(
+    row: Value,
+) -> Result<LiteratureMatchingMetadataRecord, String> {
+    Ok(LiteratureMatchingMetadataRecord {
+        literature_item_id: row_text(&row, "literature_item_id")?,
+        schema_id: row_text(&row, "schema_id")?,
+        key_terms_json: row_text(&row, "key_terms_json")?,
+        methods_json: row_text(&row, "methods_json")?,
+        problems_json: row_text(&row, "problems_json")?,
+        datasets_json: row_text(&row, "datasets_json")?,
+        exclude_terms_json: row_text(&row, "exclude_terms_json")?,
+        source_artifact_hash: row_text(&row, "source_artifact_hash")?,
+        metadata_hash: row_text(&row, "metadata_hash")?,
+        diagnostics_json: row_text(&row, "diagnostics_json")?,
+        updated_at: row_text(&row, "updated_at")?,
+    })
+}
+
 fn raw_reference_record(row: Value) -> Result<RawReferenceRecord, String> {
     Ok(RawReferenceRecord {
         raw_reference_id: row_text(&row, "raw_reference_id")?,
@@ -2648,6 +2739,39 @@ fn upsert_reference_artifact(
             json!(row.status),
             json!(row.locator),
             json!(row.payload_hash),
+            json!(row.diagnostics_json),
+            json!(row.updated_at),
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_literature_matching_metadata(
+    repository: &Repository,
+    row: &LiteratureMatchingMetadataRecord,
+) -> Result<(), String> {
+    repository.execute(
+        "INSERT INTO synt_literature_matching_metadata(
+         literature_item_id,schema_id,key_terms_json,methods_json,problems_json,datasets_json,
+         exclude_terms_json,source_artifact_hash,metadata_hash,diagnostics_json,updated_at
+         ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+         ON CONFLICT(literature_item_id) DO UPDATE SET
+         schema_id=excluded.schema_id,key_terms_json=excluded.key_terms_json,
+         methods_json=excluded.methods_json,problems_json=excluded.problems_json,
+         datasets_json=excluded.datasets_json,exclude_terms_json=excluded.exclude_terms_json,
+         source_artifact_hash=excluded.source_artifact_hash,
+         metadata_hash=excluded.metadata_hash,diagnostics_json=excluded.diagnostics_json,
+         updated_at=excluded.updated_at",
+        &[
+            json!(row.literature_item_id),
+            json!(row.schema_id),
+            json!(row.key_terms_json),
+            json!(row.methods_json),
+            json!(row.problems_json),
+            json!(row.datasets_json),
+            json!(row.exclude_terms_json),
+            json!(row.source_artifact_hash),
+            json!(row.metadata_hash),
             json!(row.diagnostics_json),
             json!(row.updated_at),
         ],

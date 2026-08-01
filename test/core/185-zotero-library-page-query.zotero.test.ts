@@ -5,6 +5,7 @@ import { queryZoteroLibraryPage } from "../../src/modules/zoteroLibraryPageQuery
 import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  SYNTHESIS_SIDECAR_OBSERVATION_SCHEMA,
 } from "../../packages/synthesis-contracts/src";
 import {
   createSynthesisReverseHostEndpoint,
@@ -12,6 +13,7 @@ import {
 } from "../../src/modules/synthesisReverseHostEndpoint";
 import type { SynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostBroker";
 import type { SynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -24,6 +26,7 @@ const describeZotero = isRealZoteroRuntime() ? describe : describe.skip;
 
 describeZotero("zotero library page query in Zotero runtime", function () {
   it("transfers one large Unicode reverse Host response with exact framing", async function () {
+    setDebugModeOverrideForTests(true);
     const authorizationToken = "a".repeat(64);
     const profileId = "b".repeat(64);
     const serviceInstanceId = "service-unicode";
@@ -46,6 +49,12 @@ describeZotero("zotero library page query in Zotero runtime", function () {
     });
     const locator = endpoint.start();
     endpoint.bindServiceInstance(serviceInstanceId);
+    const trace = {
+      schema: SYNTHESIS_SIDECAR_OBSERVATION_SCHEMA,
+      traceId: "c".repeat(32),
+      spanId: "d".repeat(16),
+      attempt: 0,
+    };
     try {
       const response = await fetch(
         `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
@@ -61,6 +70,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             profileId,
             serviceInstanceId,
             operationId: "operation-unicode",
+            trace,
             capability: "library.artifacts.read",
             deadlineAtMs: Date.now() + 30_000,
             payload: {},
@@ -98,6 +108,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             profileId,
             serviceInstanceId,
             operationId: "operation-oversized",
+            trace,
             capability: "library.artifacts.read",
             deadlineAtMs: Date.now() + 30_000,
             payload: {},
@@ -118,6 +129,36 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       assert.equal(aboveGeneralLimit.status, 200);
       assert.equal(JSON.parse(aboveGeneralLimitSource).result.value, value);
 
+      value = "页".repeat(300_000);
+      const scanResponse = await fetch(
+        `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${authorizationToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
+            requestId: "request-large-scan-page",
+            profileId,
+            serviceInstanceId,
+            operationId: "operation-large-scan-page",
+            trace,
+            capability: "library.artifacts.scan_page",
+            deadlineAtMs: Date.now() + 30_000,
+            payload: {},
+          }),
+        },
+      );
+      const scanSource = await scanResponse.text();
+      assert.equal(scanResponse.status, 200);
+      assert.equal(
+        Number(scanResponse.headers.get("content-length")),
+        new TextEncoder().encode(scanSource).byteLength,
+      );
+      assert.equal(JSON.parse(scanSource).result.value, value);
+
       value = "文".repeat(2_800_000);
       const oversized = await fetch(
         `http://127.0.0.1:${locator.port}${SYNTHESIS_REVERSE_HOST_PATH}`,
@@ -133,6 +174,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
             profileId,
             serviceInstanceId,
             operationId: "operation-over-artifact-limit",
+            trace,
             capability: "library.artifacts.read",
             deadlineAtMs: Date.now() + 30_000,
             payload: {},
@@ -167,6 +209,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       assert.isAbove(Number(oversizedEvent?.metrics?.responseBytes), 0);
     } finally {
       endpoint.stop();
+      setDebugModeOverrideForTests();
     }
   });
 

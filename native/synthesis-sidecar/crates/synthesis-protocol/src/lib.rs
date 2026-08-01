@@ -3,6 +3,7 @@ use serde_json::{Map, Value, json, value::RawValue};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const WORKER_PROTOCOL: &str = "synthesis-rust-worker.v1";
 pub const METRICS_OPERATION: &str = "citation_graph_metrics.v1";
@@ -25,6 +26,99 @@ pub const PAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 pub const PAGE_MAX_ROWS: usize = 100_000;
 pub const PAGE_MAX_JSON_NODES: usize = 100_000;
 pub const PAGE_MAX_INDEX: u64 = 255;
+
+pub fn utc_iso8601_from_unix_millis(unix_millis: i64) -> String {
+    const MILLIS_PER_DAY: i64 = 86_400_000;
+    let days = unix_millis.div_euclid(MILLIS_PER_DAY);
+    let day_millis = unix_millis.rem_euclid(MILLIS_PER_DAY);
+    let hour = day_millis / 3_600_000;
+    let minute = day_millis % 3_600_000 / 60_000;
+    let second = day_millis % 60_000 / 1_000;
+    let millis = day_millis % 1_000;
+
+    let shifted_days = days + 719_468;
+    let era = if shifted_days >= 0 {
+        shifted_days
+    } else {
+        shifted_days - 146_096
+    } / 146_097;
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    if month <= 2 {
+        year += 1;
+    }
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
+}
+
+pub fn utc_now_iso8601() -> String {
+    let unix_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| i64::try_from(duration.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
+    utc_iso8601_from_unix_millis(unix_millis)
+}
+
+pub fn unix_millis_from_utc_iso8601(value: &str) -> Option<i64> {
+    if value.len() != 24
+        || value.as_bytes().get(4) != Some(&b'-')
+        || value.as_bytes().get(7) != Some(&b'-')
+        || value.as_bytes().get(10) != Some(&b'T')
+        || value.as_bytes().get(13) != Some(&b':')
+        || value.as_bytes().get(16) != Some(&b':')
+        || value.as_bytes().get(19) != Some(&b'.')
+        || value.as_bytes().get(23) != Some(&b'Z')
+    {
+        return None;
+    }
+    let parse = |start: usize, end: usize| value.get(start..end)?.parse::<i64>().ok();
+    let mut year = parse(0, 4)?;
+    let month = parse(5, 7)?;
+    let day = parse(8, 10)?;
+    let hour = parse(11, 13)?;
+    let minute = parse(14, 16)?;
+    let second = parse(17, 19)?;
+    let millis = parse(20, 23)?;
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&month)
+        || day < 1
+        || day > month_days[usize::try_from(month - 1).ok()?]
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    year -= i64::from(month <= 2);
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let month_prime = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * month_prime + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    days.checked_mul(86_400_000)?
+        .checked_add(hour * 3_600_000 + minute * 60_000 + second * 1_000 + millis)
+}
 
 pub fn deterministic_operation(value: &str) -> bool {
     deterministic_operation_spec(value).is_some()
@@ -1368,6 +1462,28 @@ pub fn canonical_sha256<T: Serialize>(value: &T) -> Result<String, &'static str>
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn formats_persisted_clock_values_as_utc_iso_8601() {
+        assert_eq!(utc_iso8601_from_unix_millis(0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(
+            utc_iso8601_from_unix_millis(951_827_696_789),
+            "2000-02-29T12:34:56.789Z"
+        );
+        assert_eq!(
+            utc_iso8601_from_unix_millis(1_767_225_600_000),
+            "2026-01-01T00:00:00.000Z"
+        );
+        assert_eq!(
+            unix_millis_from_utc_iso8601("2000-02-29T12:34:56.789Z"),
+            Some(951_827_696_789)
+        );
+        assert_eq!(
+            unix_millis_from_utc_iso8601("2026-02-29T00:00:00.000Z"),
+            None
+        );
+        assert_eq!(unix_millis_from_utc_iso8601("1767225600000"), None);
+    }
 
     #[test]
     fn canonicalizes_utf16_keys_and_hashes() {

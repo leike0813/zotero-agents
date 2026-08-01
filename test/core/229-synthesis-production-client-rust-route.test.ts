@@ -312,11 +312,14 @@ describe("Synthesis Rust production client route", function () {
             content: {
               kind: "json",
               value: {
+                padding: smallReference
+                  ? ""
+                  : `共享引用 ${"文献".repeat(400_000)}`,
                 references: [
                   {
                     title: smallReference
                       ? "Small expanded reference"
-                      : `共享引用 ${"文献".repeat(400_000)}`,
+                      : "Shared expanded reference",
                     year: "   ",
                     authors: ["研究者"],
                   },
@@ -329,11 +332,18 @@ describe("Synthesis Rust production client route", function () {
           result = {};
         }
         const body = JSON.stringify({ ok: true, result });
-        response.writeHead(200, {
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(body),
-        });
-        response.end(body);
+        const send = () => {
+          response.writeHead(200, {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+          });
+          response.end(body);
+        };
+        if (call.capability === "library.artifacts.scan_page") {
+          setTimeout(send, 2_100);
+        } else {
+          send();
+        }
       });
     });
     await new Promise<void>((resolve) =>
@@ -412,14 +422,12 @@ describe("Synthesis Rust production client route", function () {
         },
       );
       assert.equal(matching.status, 200, JSON.stringify(matching.body));
-      assert.include(
-        [true, false],
-        matching.body.data.ok,
+      assert.equal(matching.body.data.ok, true, JSON.stringify(matching.body));
+      assert.equal(
+        matching.body.data.status,
+        "promoted",
         JSON.stringify(matching.body),
       );
-      if (matching.body.data.ok === false) {
-        assert.equal(matching.body.data.status, "matcher_failed");
-      }
 
       const chrome = await call(
         port,
@@ -680,21 +688,12 @@ describe("Synthesis Rust production client route", function () {
         .filter((event) => event?.boundary === "child-worker")
         .map((event) => event?.identities?.capability)
         .filter((value): value is string => typeof value === "string");
-      if (matching.body.data.ok === true) {
-        assert.include(
-          refreshTraceEvents.map((event) => event?.boundary),
-          "child-worker",
-        );
-        assert.include(workerCapabilities, "reference_binding.v1");
-        assert.include(workerCapabilities, "reference_canonical_dedupe.v1");
-      } else {
-        assert.isTrue(
-          refreshTraceEvents.some(
-            (event) =>
-              event?.outcome === "failed" && event.code === "matcher_failed",
-          ),
-        );
-      }
+      assert.include(
+        refreshTraceEvents.map((event) => event?.boundary),
+        "child-worker",
+      );
+      assert.include(workerCapabilities, "reference_binding.v1");
+      assert.include(workerCapabilities, "reference_canonical_dedupe.v1");
       assert.isTrue(
         refreshTraceEvents.some(
           (event) =>
@@ -735,6 +734,134 @@ describe("Synthesis Rust production client route", function () {
         await stop(sidecar.child);
       }
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+    }
+  });
+
+  it("admits and materializes a production literature apply with a large string", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-digest-route-"),
+    );
+    const reverseHost = http.createServer((request, response) => {
+      request.resume();
+      request.on("end", () => {
+        const body = JSON.stringify({
+          ok: true,
+          result: { configured: false },
+        });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "digest");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-digest",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    const request = {
+      libraryId: 1,
+      itemKey: "DIGEST01",
+      paperRef: "1:DIGEST01",
+      itemType: "journalArticle",
+      title: "Large digest apply",
+      year: "2026",
+      date: "2026-08-01",
+      creators: ["Researcher"],
+      tags: [],
+      collections: [],
+      doi: "",
+      arxiv: "",
+      isbn: "",
+      url: "",
+      citekey: "digest2026",
+      dateAdded: "2026-08-01",
+      digest: {
+        payloadHash: "sha256:digest-large",
+        content: `# Digest\n${"x".repeat(128 * 1024)}`,
+      },
+      references: {
+        payloadHash: "sha256:references-large",
+        references: [{ title: "Target", year: "2025", citekey: "target2025" }],
+      },
+      citationAnalysis: {
+        payloadHash: "sha256:citation-large",
+        citations: [{ reference_index: 0, role: "background" }],
+      },
+      literatureMatchingMetadata: { key_terms: ["Large request"] },
+      matchedReferences: [
+        {
+          libraryId: 1,
+          itemKey: "TARGET01",
+          paperRef: "1:TARGET01",
+          title: "Target",
+          year: "2025",
+          citekey: "target2025",
+        },
+      ],
+    };
+    let sidecar = start(configPath);
+    try {
+      let listening = await sidecar.listening;
+      const first = await call(
+        listening.port,
+        "client.applyLiteratureDigestSidecar",
+        { args: [request] },
+      );
+      assert.equal(first.status, 200, JSON.stringify(first.body));
+      assert.deepInclude(first.body.data, {
+        ok: true,
+        status: "sidecar_applied",
+        sourceRef: "1:DIGEST01",
+        source_ref: "1:DIGEST01",
+        paperRef: "1:DIGEST01",
+        reference_count: 1,
+        matched_count: 1,
+        idempotent: false,
+      });
+      const oversizedRequest = structuredClone(request);
+      oversizedRequest.digest.content = "x".repeat(1024 * 1024);
+      const oversized = await call(
+        listening.port,
+        "client.applyLiteratureDigestSidecar",
+        { args: [oversizedRequest] },
+      );
+      assert.equal(oversized.status, 413, JSON.stringify(oversized.body));
+      assert.equal(oversized.body.error?.code, "request_body_too_large");
+      await stop(sidecar.child);
+
+      sidecar = start(configPath);
+      listening = await sidecar.listening;
+      const repeated = await call(
+        listening.port,
+        "client.applyLiteratureDigestSidecar",
+        { args: [request] },
+      );
+      assert.equal(repeated.status, 200, JSON.stringify(repeated.body));
+      assert.equal(repeated.body.data.status, "sidecar_applied");
+      assert.equal(repeated.body.data.idempotent, true);
+    } finally {
+      if (sidecar.child.exitCode === null) await stop(sidecar.child);
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 

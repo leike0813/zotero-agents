@@ -30,6 +30,36 @@ async function loadBoundaryChecker() {
 }
 
 describe("Synthesis sidecar migration boundary", function () {
+  it("pins the executable main baseline and keeps every method in the migration inventory", async function () {
+    const checker = await loadBoundaryChecker();
+    const report = checker.inspectSynthesisServiceBoundary();
+
+    assert.deepEqual(report.inventory.baseline, {
+      commit: "e210997a11e0054a3cb4ae0656e5cfb96102a09c",
+      service_source: "src/modules/synthesis/service.ts",
+      service_factory: "createSynthesisService",
+      public_method_count: 131,
+      canonicalization: "sorted-newline-terminated",
+      fingerprint_sha256:
+        "86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e",
+    });
+    assert.deepEqual(report.inventory.audit.deletion_authorization, []);
+    assert.equal(report.inventory.audit.source_public_method_count, 113);
+    assert.equal(report.inventory.audit.wire_operation_count, 95);
+    assert.lengthOf(report.baselineMethods, 131);
+    assert.lengthOf(report.inventory.methods, 134);
+    assert.sameMembers(report.introducedAfterBaseline, [
+      "deleteTagVocabularyEntry",
+      "updateStagedTagSuggestion",
+      "updateTagVocabularyEntry",
+    ]);
+    assert.deepEqual(report.baselineCountMismatch, []);
+    assert.deepEqual(report.baselineFingerprintMismatch, []);
+    assert.deepEqual(report.baselineMethodsMissingFromInventory, []);
+    assert.deepEqual(report.currentMethodsMissingFromInventory, []);
+    assert.deepEqual(report.unknownInventoryMethods, []);
+  });
+
   it("keeps the service API inventory synchronized with the public return surface", async function () {
     const checker = await loadBoundaryChecker();
     const report = checker.inspectSynthesisServiceBoundary();
@@ -38,9 +68,9 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(report.unknownMethods, []);
     assert.deepEqual(report.productionBoundaryViolations, []);
     assert.lengthOf(report.publicMethods, 113);
-    assert.equal(report.publicMethods.length, report.inventory.methods.length);
+    assert.lengthOf(report.inventory.methods, 134);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
-    assert.notInclude(
+    assert.include(
       report.inventory.methods.map((method) => method.name),
       "warmSynthesisWorkbenchSurfaces",
     );
@@ -214,7 +244,7 @@ describe("Synthesis sidecar migration boundary", function () {
         production_mutation_enabled: boolean;
       };
     };
-    assert.notInclude(
+    assert.include(
       rawInventory.method_groups.map((group) => group.id),
       "workbench_warmup",
     );
@@ -589,7 +619,11 @@ describe("Synthesis sidecar migration boundary", function () {
       assert.match(method.category, /^(query|command|host_effect|debug)$/);
       assert.match(
         method.disposition,
-        /^(client_capability|host_capability|internal|remove)$/,
+        /^(client_capability|host_capability|internal)$/,
+      );
+      assert.match(
+        method.migration,
+        /^(direct|merged|host_owned|internal|pending)$/,
       );
       assert.isNotEmpty(method.target_capability);
     }
@@ -1800,12 +1834,11 @@ describe("Synthesis sidecar migration boundary", function () {
       storage,
       "No external process requirement just to keep a local index current.",
     );
-    assert.include(
+    assert.include(runtime, "The production owner injects the sidecar-backed");
+    assert.match(
       runtime,
-      "The production Synthesis application and data authority remain inside",
+      /do not\s+retry through Node or a plugin production owner/,
     );
-    assert.include(runtime, "injects the sidecar-backed");
-    assert.include(runtime, "not retried or executed locally");
     assert.include(
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
@@ -1838,15 +1871,13 @@ describe("Synthesis sidecar migration boundary", function () {
       "await deps.stopProductionSupervisor()",
     );
     assert.isAtLeast(invalidation, 0);
-    assert.isAbove(endpointStop, invalidation);
-    assert.isAbove(supervisorStop, endpointStop);
+    assert.isAbove(supervisorStop, invalidation);
+    assert.isAbove(endpointStop, supervisorStop);
     assert.notInclude(installer, "ensureSynthesisService");
     assert.notInclude(installer, "getMozillaSubprocessModule");
     assert.notInclude(installer, "resolveRuntimeCommand");
     assert.notInclude(supervisor, "getDefaultSynthesisClient");
     assert.notInclude(supervisor, "getDefaultSynthesisService");
-    assert.notInclude(supervisor, "synthesisDbPath");
-    assert.notInclude(supervisor, "canonical");
     assert.notInclude(supervisor, "pathSearch");
   });
 

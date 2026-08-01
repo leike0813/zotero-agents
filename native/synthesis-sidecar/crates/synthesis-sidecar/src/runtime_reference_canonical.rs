@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_application::RepositoryPort;
 use synthesis_application::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchingApplication, ReferenceMatchingPrepareRequest,
@@ -19,8 +21,9 @@ use synthesis_application::reference_refresh::{
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    OperationRecord, RawReferenceRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
-    ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, Repository,
+    LiteratureMatchingMetadataRecord, OperationRecord, RawReferenceRecord, ReferenceArtifactRecord,
+    ReferenceBindingFactRecord, ReferenceMatchProposalRecord, ReferenceRedirectFactRecord,
+    Repository,
 };
 
 use crate::runtime_deadline::bounded_timeout;
@@ -35,6 +38,7 @@ const REFRESH_JOB_ID: &str = "reference-job:refresh";
 const MATCHING_JOB_ID: &str = "reference-job:advanced-matching";
 const REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES: usize =
     REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES - 64 * 1024;
+const LITERATURE_MATCHING_METADATA_SCHEMA: &str = "literature_matching_metadata.v1";
 
 enum RefreshBatchAttempt {
     Converged {
@@ -108,6 +112,39 @@ pub(crate) struct ReferenceHostArtifactRead {
     pub content: Option<Value>,
     #[serde(default)]
     pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct LiteratureDigestApplyRequest {
+    pub library_id: i64,
+    pub item_key: String,
+    pub paper_ref: String,
+    pub item_type: String,
+    pub title: String,
+    pub year: String,
+    pub date: String,
+    pub creators: Vec<String>,
+    pub tags: Vec<String>,
+    pub collections: Vec<String>,
+    pub doi: String,
+    pub arxiv: String,
+    pub isbn: String,
+    pub url: String,
+    pub citekey: String,
+    pub date_added: String,
+    #[serde(default)]
+    pub digest: Option<Map<String, Value>>,
+    #[serde(default)]
+    pub references: Option<Map<String, Value>>,
+    #[serde(default)]
+    pub citation_analysis: Option<Map<String, Value>>,
+    #[serde(default)]
+    pub literature_matching_metadata: Option<Value>,
+    #[serde(default)]
+    pub matched_references: Option<Value>,
+    #[serde(default)]
+    pub source: Option<Value>,
 }
 
 pub(crate) trait ReferenceHostPort: HostItemCollectionPort {
@@ -233,6 +270,180 @@ impl ReferenceCanonicalApplication {
             host,
             mutation: Mutex::new(()),
         }
+    }
+
+    pub(crate) fn apply_literature_digest(&self, payload: Value) -> Result<Value, String> {
+        let request: LiteratureDigestApplyRequest =
+            serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+        validate_literature_digest_request(&request)?;
+        let source_hash = canonical_json_hash(
+            &serde_json::to_value(&request).map_err(|_| "invalid_request".to_owned())?,
+        )?;
+        let operation_id = format!("literature-digest:{source_hash}");
+        {
+            let repository = self.repository.owner();
+            let repository = repository
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            if let Some(receipt) = repository.get_operation(&operation_id)?
+                && matches!(receipt.status.as_str(), "completed" | "succeeded")
+            {
+                let mut result = receipt_result_value(&receipt)?;
+                result["idempotent"] = Value::Bool(true);
+                return Ok(result);
+            }
+        }
+
+        let digest_hash = literature_artifact_hash(request.digest.as_ref(), "digest")?;
+        let references_hash = literature_artifact_hash(request.references.as_ref(), "references")?;
+        let citation_hash =
+            literature_artifact_hash(request.citation_analysis.as_ref(), "citation_analysis")?;
+        let artifacts = vec![
+            literature_artifact_descriptor(
+                &request.paper_ref,
+                ReferenceArtifactType::Digest,
+                "digest-markdown",
+                request.digest.is_some(),
+                &digest_hash,
+            )?,
+            literature_artifact_descriptor(
+                &request.paper_ref,
+                ReferenceArtifactType::References,
+                "references-json",
+                request.references.is_some(),
+                &references_hash,
+            )?,
+            literature_artifact_descriptor(
+                &request.paper_ref,
+                ReferenceArtifactType::CitationAnalysis,
+                "citation-analysis-json",
+                request.citation_analysis.is_some(),
+                &citation_hash,
+            )?,
+        ];
+        let item = literature_refresh_item(&request);
+        let binding_candidates = literature_binding_candidates(request.matched_references.as_ref());
+        let prepared = self.refresh.prepare_literature_apply(
+            ReferenceRefreshPrepareRequest {
+                expected_reference_hash: self.refresh.inspect()?.reference_hash,
+                force: false,
+                scope: ReferenceRefreshScope::Sources {
+                    source_refs: vec![request.paper_ref.clone()],
+                },
+                items: vec![item],
+                artifacts,
+            },
+            binding_candidates,
+        );
+        if prepared.status != ReferenceRefreshStatus::Prepared {
+            return Err(refresh_status_name(&prepared.status));
+        }
+        let preparation_id = prepared
+            .preparation_id
+            .clone()
+            .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
+        let payloads = prepared
+            .reads
+            .iter()
+            .map(|read| {
+                let content = match read.artifact_type {
+                    ReferenceArtifactType::References => request
+                        .references
+                        .clone()
+                        .map(Value::Object)
+                        .ok_or_else(|| "invalid_request".to_owned())?,
+                    ReferenceArtifactType::CitationAnalysis => request
+                        .citation_analysis
+                        .clone()
+                        .map(Value::Object)
+                        .ok_or_else(|| "invalid_request".to_owned())?,
+                    ReferenceArtifactType::Digest => return Err("invalid_request".into()),
+                };
+                Ok(ReferenceRefreshPayload {
+                    locator: read.locator.clone(),
+                    expected_hash: read.expected_hash.clone(),
+                    status: "available".into(),
+                    payload_hash: read.expected_hash.clone(),
+                    content,
+                    diagnostics: Vec::new(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let input_reference_count = request
+            .references
+            .as_ref()
+            .and_then(|value| value.get("references"))
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let now = now_string();
+        let result = json!({
+            "ok":true,
+            "status":"sidecar_applied",
+            "sourceRef":request.paper_ref,
+            "source_ref":request.paper_ref,
+            "paperRef":request.paper_ref,
+            "reference_count":input_reference_count,
+            "input_reference_count":input_reference_count,
+            "rejected_reference_count":0,
+            "warning_reference_count":0,
+            "matched_count":0,
+            "decision_count":0,
+            "stale_canonical_governance":{
+                "affected":0,"autoRedirected":0,"autoStaled":0,
+                "proposalsCreated":0,"blocked":0
+            },
+            "operationId":operation_id,
+            "idempotent":false,
+        });
+        let receipt = OperationRecord {
+            operation_id: operation_id.clone(),
+            operation_type: "literature_digest_apply".into(),
+            library_id: request.library_id,
+            scope_kind: "paper".into(),
+            scope_ref: request.paper_ref.clone(),
+            status: "completed".into(),
+            label: "Apply literature digest".into(),
+            phase: "sidecar_applied".into(),
+            progress_mode: "determinate".into(),
+            processed_count: 1,
+            total_count: 1,
+            source_hash,
+            diagnostics_json: serde_json::to_string(&json!({"result":result}))
+                .map_err(|_| "serialization_failed".to_owned())?,
+            created_at: now.clone(),
+            started_at: now.clone(),
+            completed_at: now.clone(),
+            updated_at: now,
+            ..OperationRecord::default()
+        };
+        let metadata = literature_matching_metadata_record(
+            &request.paper_ref,
+            request.literature_matching_metadata.as_ref(),
+            &digest_hash,
+            &receipt.updated_at,
+        )?;
+        let applied = self.refresh.apply_literature_refresh(
+            ReferenceRefreshApplyRequest {
+                preparation_id,
+                payloads,
+            },
+            metadata,
+            receipt,
+        );
+        if applied.status != ReferenceRefreshStatus::Promoted {
+            return Err(refresh_status_name(&applied.status));
+        }
+        let result = {
+            let repository = self.repository.owner();
+            let repository = repository
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            let receipt = repository
+                .get_operation(&operation_id)?
+                .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+            receipt_result_value(&receipt)?
+        };
+        Ok(result)
     }
 
     pub(crate) fn sidecar_index(&self, request: &Value) -> Result<Value, String> {
@@ -2220,6 +2431,225 @@ fn refresh_item(item: &ReferenceHostItem) -> ReferenceRefreshItem {
     }
 }
 
+fn validate_literature_digest_request(
+    request: &LiteratureDigestApplyRequest,
+) -> Result<(), String> {
+    if request.library_id < 0
+        || request.item_key.trim().is_empty()
+        || request.paper_ref != format!("{}:{}", request.library_id, request.item_key.trim())
+        || request.item_type.trim().is_empty()
+        || request
+            .creators
+            .iter()
+            .chain(&request.tags)
+            .chain(&request.collections)
+            .any(|value| value.chars().any(char::is_control))
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
+fn literature_artifact_hash(
+    artifact: Option<&Map<String, Value>>,
+    artifact_type: &str,
+) -> Result<String, String> {
+    if let Some(hash) = artifact
+        .and_then(|artifact| {
+            artifact
+                .get("payloadHash")
+                .or_else(|| artifact.get("payload_hash"))
+        })
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(hash.to_owned());
+    }
+    canonical_json_hash(&json!({
+        "artifactType":artifact_type,
+        "payload":artifact.map(|artifact| Value::Object(artifact.clone())).unwrap_or(Value::Null),
+    }))
+}
+
+fn literature_artifact_descriptor(
+    paper_ref: &str,
+    artifact_type: ReferenceArtifactType,
+    payload_type: &str,
+    available: bool,
+    payload_hash: &str,
+) -> Result<ReferenceArtifactDescriptor, String> {
+    let locator_hash = canonical_json_hash(&json!({
+        "paperRef":paper_ref,
+        "artifactType":artifact_type,
+        "payloadHash":payload_hash,
+    }))?;
+    Ok(ReferenceArtifactDescriptor {
+        paper_ref: paper_ref.into(),
+        artifact_type,
+        payload_type: payload_type.into(),
+        status: if available { "available" } else { "missing" }.into(),
+        locator: format!("workflow:literature:{}", &locator_hash[7..31]),
+        payload_hash: payload_hash.into(),
+        estimated_size: None,
+        diagnostics: Vec::new(),
+    })
+}
+
+fn literature_refresh_item(request: &LiteratureDigestApplyRequest) -> ReferenceRefreshItem {
+    let metadata = BTreeMap::from([
+        ("itemType".into(), json!(request.item_type)),
+        ("date".into(), json!(request.date)),
+        ("creators".into(), json!(request.creators)),
+        ("tags".into(), json!(request.tags)),
+        ("collections".into(), json!(request.collections)),
+        ("doi".into(), json!(request.doi)),
+        ("arxiv".into(), json!(request.arxiv)),
+        ("isbn".into(), json!(request.isbn)),
+        ("url".into(), json!(request.url)),
+        ("citekey".into(), json!(request.citekey)),
+        ("dateAdded".into(), json!(request.date_added)),
+    ]);
+    ReferenceRefreshItem {
+        paper_ref: request.paper_ref.clone(),
+        library_id: request.library_id,
+        item_key: request.item_key.trim().into(),
+        title: request.title.trim().into(),
+        year: request.year.trim().into(),
+        metadata,
+    }
+}
+
+fn literature_binding_candidates(value: Option<&Value>) -> Vec<ReferenceRefreshItem> {
+    let mut candidates = value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            let object = value.as_object()?;
+            let library_id = object
+                .get("libraryId")
+                .or_else(|| object.get("library_id"))
+                .and_then(Value::as_i64)
+                .filter(|value| *value >= 0)?;
+            let item_key = object
+                .get("itemKey")
+                .or_else(|| object.get("item_key"))
+                .and_then(Value::as_str)?
+                .trim();
+            if item_key.is_empty() {
+                return None;
+            }
+            let paper_ref = object
+                .get("paperRef")
+                .or_else(|| object.get("paper_ref"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("{library_id}:{item_key}"));
+            let citekey = object
+                .get("citekey")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            Some(ReferenceRefreshItem {
+                paper_ref,
+                library_id,
+                item_key: item_key.into(),
+                title: object
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .into(),
+                year: object
+                    .get("year")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .into(),
+                metadata: BTreeMap::from([("citekey".into(), Value::String(citekey))]),
+            })
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.paper_ref.cmp(&right.paper_ref));
+    candidates
+}
+
+fn normalize_literature_terms(value: Option<&Value>, limit: usize) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut terms = Vec::new();
+    for value in value.and_then(Value::as_array).into_iter().flatten() {
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+        let key = normalized.to_lowercase();
+        if normalized.is_empty() || !seen.insert(key) {
+            continue;
+        }
+        terms.push(normalized);
+        if terms.len() == limit {
+            break;
+        }
+    }
+    terms
+}
+
+fn literature_matching_metadata_record(
+    paper_ref: &str,
+    value: Option<&Value>,
+    digest_hash: &str,
+    now: &str,
+) -> Result<Option<LiteratureMatchingMetadataRecord>, String> {
+    let Some(value) = value.and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let key_terms = normalize_literature_terms(value.get("key_terms"), 12);
+    let methods = normalize_literature_terms(value.get("methods"), 8);
+    let problems = normalize_literature_terms(value.get("problems"), 8);
+    let datasets = normalize_literature_terms(value.get("datasets"), 8);
+    let exclude_terms = normalize_literature_terms(value.get("exclude_terms"), 6);
+    let payload = json!({
+        "schema":LITERATURE_MATCHING_METADATA_SCHEMA,
+        "key_terms":key_terms,
+        "methods":methods,
+        "problems":problems,
+        "datasets":datasets,
+        "exclude_terms":exclude_terms,
+    });
+    Ok(Some(LiteratureMatchingMetadataRecord {
+        literature_item_id: paper_ref.into(),
+        schema_id: LITERATURE_MATCHING_METADATA_SCHEMA.into(),
+        key_terms_json: serde_json::to_string(&key_terms)
+            .map_err(|_| "serialization_failed".to_owned())?,
+        methods_json: serde_json::to_string(&methods)
+            .map_err(|_| "serialization_failed".to_owned())?,
+        problems_json: serde_json::to_string(&problems)
+            .map_err(|_| "serialization_failed".to_owned())?,
+        datasets_json: serde_json::to_string(&datasets)
+            .map_err(|_| "serialization_failed".to_owned())?,
+        exclude_terms_json: serde_json::to_string(&exclude_terms)
+            .map_err(|_| "serialization_failed".to_owned())?,
+        source_artifact_hash: digest_hash.into(),
+        metadata_hash: canonical_json_hash(&payload)?,
+        diagnostics_json: "[]".into(),
+        updated_at: now.into(),
+    }))
+}
+
+fn receipt_result_value(receipt: &OperationRecord) -> Result<Value, String> {
+    let diagnostics: Value = serde_json::from_str(&receipt.diagnostics_json)
+        .map_err(|_| "operation_receipt_invalid".to_owned())?;
+    diagnostics
+        .get("result")
+        .cloned()
+        .filter(Value::is_object)
+        .ok_or_else(|| "operation_receipt_invalid".into())
+}
+
 fn workbench_reference_row(reference: &ReferenceIndexFactReference) -> Value {
     let target_paper_ref = reference
         .binding
@@ -2748,11 +3178,7 @@ fn normalize_title(value: &str) -> String {
 }
 
 fn now_string() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .to_string()
+    synthesis_protocol::utc_now_iso8601()
 }
 
 #[cfg(test)]
@@ -3013,6 +3439,10 @@ mod tests {
                 .first()
                 .ok_or_else(|| "missing_candidate".to_owned())?;
             Ok(vec![ReferenceMatcherOutcome {
+                semantic_key: format!(
+                    "binding::{}::{}::{}",
+                    source.canonical_reference_id, target.library_id, target.item_key
+                ),
                 kind: ReferenceMatchKind::Binding,
                 disposition: ReferenceMatchDisposition::Review,
                 confidence: ReferenceMatchConfidence::Low,

@@ -32,15 +32,16 @@ default-service cache are not permitted to own production data or service a
 normal request. The detailed capability descriptions below identify domain
 adapters and bounded Host effects, not a second production owner.
 
-The production Synthesis application and data authority remain inside the
-Zotero plugin, while two pure kernels now cross the supervised
-mutation-disabled Node service: Citation Graph layout and metrics. The default
-production composition routes both through the same bounded authenticated
-worker; graph reads, basis checks, promotion, canonical files, and the other six
-engines remain plugin-owned. Compute request and response envelopes are each
-capped at 8 MiB; general and system calls retain the 1 MiB request cap.
-Reverse-Host calls retain a 1 MiB/two-second default, while
-`library.artifacts.read` has an explicit 8 MiB/ten-second capability policy.
+The production owner injects the sidecar-backed `SynthesisClient` after the
+authenticated Rust handshake succeeds. Rust owns the production Synthesis
+application, SQLite state, canonical Topic files, and bounded compute workers;
+the Zotero plugin owns only the reverse-Host adapters and their Zotero effects.
+Compute request and response envelopes are each capped at 8 MiB; general and
+system calls retain the 1 MiB request cap.
+Reverse-Host calls retain a 1 MiB/two-second default. Artifact descriptor scan
+has a 1 MiB/ten-second capability policy, while `library.artifacts.read` has an
+8 MiB/ten-second policy. Both artifact operations therefore tolerate bounded
+Host-library latency without widening the descriptor response budget.
 The production operation manifest supplies the native deadline and the plugin
 transport waits for that deadline plus two seconds. Ordinary operations use ten
 seconds; the three Reference Refresh entry points use sixty seconds so Rust can
@@ -162,6 +163,21 @@ Normal workflow apply is the only automatic sidecar update path:
 5. Topic apply updates topic artifact sidecars, source manifest summaries, discovery profile metadata, and Concept/Topic Graph proposals.
 
 No step above requires a full Registry rebuild, startup reconcile, or global dirty queue drain.
+
+`client.applyLiteratureDigestSidecar` admits its strict workflow DTO under the
+1 MiB production request budget, including a single string larger than the
+ordinary 64 KiB capability limit. Rust canonicalizes the three artifact
+descriptors and projects changed references, citation roles, stable bindings,
+and bounded literature-matching metadata through the existing Reference
+Refresh application. Artifact rows, reference projection, metadata, cache
+basis changes, and the success receipt commit in one SQLite transaction. A
+validation, preparation, or commit failure leaves none of those writes behind.
+Repeating the same canonical request returns the stored `sidecar_applied`
+result as an idempotent success. Digest-only changes update artifact and
+metadata state without rebuilding raw references; Citation Graph and
+related-items cache become stale only when reference, binding, or role facts
+change. Recovery is a later retry of the same workflow apply; there is no Node
+fallback or partial-success receipt.
 
 ## Explicit Cache Operations
 
@@ -297,6 +313,13 @@ Staged Tag Host writes use a separate effect boundary. Current staged rows store
 
 Promotion commits canonical vocabulary before dispatching Tag effects in batches of at most 50. `applied` and `already_satisfied` receipts project stable `parent_ref` values. Missing ports, transport failures, malformed receipts, missing targets, and mutation failures produce bounded stable diagnostics and never roll back the vocabulary commit. Tag Regulator stages refs and invokes the same promotion seam; it does not resolve or mutate bound parents itself.
 
+`client.listStagedTagSuggestions` remains a no-argument operation whose public
+result is the complete `SynthesisTagStagedSuggestion[]`. The native adapter
+drains repository pages in batches of 100, requires every continuation cursor
+to advance, and returns one deterministic array sorted by update time and tag.
+A stalled or inconsistent cursor fails with the stable production projection
+error instead of returning a partial list; retry starts a fresh bounded drain.
+
 Legacy Topic mirror items are inert historical data. Normal runtime does not discover, validate, rebuild, recover from, update, or delete them; any future one-shot import requires a separate explicit change.
 
 ## Failure Recovery
@@ -304,7 +327,13 @@ Legacy Topic mirror items are inert historical data. Normal runtime does not dis
 Use local recovery:
 
 - A failed short transaction rolls back.
+- A failed literature workflow apply leaves no partial artifact, reference,
+  metadata, cache-basis, or success-receipt state; retry the canonical request.
 - A failed cache refresh keeps the previous projection.
+- A reverse-Host body that ends before `Content-Length` is complete is rejected;
+  retry after the Host transport is healthy.
+- A staged-Tag pagination cursor that does not advance is rejected without a
+  partial public array; retry after repairing the native projection.
 - A failed side effect writes diagnostics and can be retried explicitly.
 - A bad approved reference/binding decision is corrected through review/repair, not through hidden rebuild behavior.
 - Database corruption recovery is covered in [Persistence and Files](./persistence-and-files.md).

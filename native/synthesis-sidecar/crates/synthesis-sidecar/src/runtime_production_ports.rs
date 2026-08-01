@@ -8,7 +8,7 @@ use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 use synthesis_application::citation_graph::{
     CITATION_GRAPH_LAYOUT_EDGE_MAX, CITATION_GRAPH_LAYOUT_NODE_MAX, CitationBuildOutput,
     CitationGraphComputePort, CitationLayoutRequest, CitationMetricsOutput,
@@ -34,6 +34,7 @@ use synthesis_application::{
     WorkbenchApplication,
 };
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
+use synthesis_protocol::utc_now_iso8601;
 use synthesis_reference_matcher::{
     BINDING_ALGORITHM_VERSION, CONTRACT_VERSION as REFERENCE_MATCHER_CONTRACT_VERSION,
     DEDUPE_ALGORITHM_VERSION,
@@ -43,9 +44,9 @@ use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationIncomingGroupRecord,
     CitationLayoutRecord, CitationLightMetricsRecord, CitationNodeRecord,
-    CitationSourceOwnershipRecord, OperationRecord, RawReferenceRecord, TagEffectRecord,
-    TagProtocolRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
-    TagVocabularyReplacement, TopicGraphReplacement,
+    CitationSourceOwnershipRecord, RawReferenceRecord, TagEffectRecord, TagProtocolRecord,
+    TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyReplacement,
+    TopicGraphReplacement,
 };
 use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
@@ -83,158 +84,28 @@ impl ProductionApplications {
         call_reverse_host(config, &self.service_instance_id, capability, payload)
     }
 
-    pub(crate) fn apply_related_items_effect(&self, payload: Value) -> Result<Value, String> {
-        if !payload.is_object() {
-            return Err("invalid_request".into());
-        }
-        self.apply_host_effect_once("effects.related_items.apply_batch", payload)
-    }
-
     pub(crate) fn apply_literature_digest(&self, payload: Value) -> Result<Value, String> {
-        let request = payload
-            .as_object()
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let library_id = request
-            .get("libraryId")
-            .or_else(|| request.get("library_id"))
-            .and_then(Value::as_i64)
-            .filter(|value| *value >= 0)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let item_key = request
-            .get("itemKey")
-            .or_else(|| request.get("item_key"))
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let source_ref = request
-            .get("paperRef")
-            .or_else(|| request.get("paper_ref"))
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("{library_id}:{item_key}"));
-        let source_hash = canonical_json_hash(&payload)?;
-        let operation_id = format!("literature-digest:{source_hash}");
-        let now = now_iso_like();
-        let repository = self.repository.owner();
-        let repository = repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        if let Some(receipt) = repository.get_operation(&operation_id)?
-            && matches!(receipt.status.as_str(), "completed" | "succeeded")
-        {
-            return Ok(serde_json::json!({
-                "ok":true,
-                "status":"persisted",
-                "sourceRef":source_ref,
-                "operationId":operation_id,
-                "idempotent":true,
-            }));
-        }
-        repository.upsert_operation(&OperationRecord {
-            operation_id: operation_id.clone(),
-            operation_type: "literature_digest_apply".into(),
-            library_id,
-            scope_kind: "paper".into(),
-            scope_ref: source_ref.clone(),
-            status: "completed".into(),
-            label: "Apply literature digest".into(),
-            phase: "persisted".into(),
-            progress_mode: "determinate".into(),
-            processed_count: 1,
-            total_count: 1,
-            source_hash,
-            created_at: now.clone(),
-            started_at: now.clone(),
-            completed_at: now.clone(),
-            updated_at: now,
-            ..OperationRecord::default()
-        })?;
-        Ok(serde_json::json!({
-            "ok":true,
-            "status":"persisted",
-            "sourceRef":source_ref,
-            "operationId":operation_id,
-            "idempotent":false,
-        }))
+        self.reference_canonical.apply_literature_digest(payload)
     }
 
-    fn apply_host_effect_once(&self, capability: &str, payload: Value) -> Result<Value, String> {
-        let source_hash = canonical_json_hash(&serde_json::json!({
-            "capability":capability,
-            "payload":payload,
-        }))?;
-        let operation_id = format!("host-effect:{source_hash}");
-        let now = now_iso_like();
-        {
-            let repository = self.repository.owner();
-            let repository = repository
-                .lock()
-                .map_err(|_| "repository_unavailable".to_owned())?;
-            if let Some(receipt) = repository.get_operation(&operation_id)? {
-                if matches!(receipt.status.as_str(), "completed" | "succeeded") {
-                    return Ok(serde_json::json!({
-                        "ok":true,
-                        "status":"already_applied",
-                        "operationId":operation_id,
-                    }));
-                }
-                if receipt.status == "running" {
-                    return Err("operation_in_progress".into());
-                }
-            }
-            repository.upsert_operation(&OperationRecord {
-                operation_id: operation_id.clone(),
-                operation_type: "related_items_effect".into(),
-                scope_kind: "host-effect".into(),
-                scope_ref: capability.into(),
-                status: "running".into(),
-                label: "Apply related-item effect".into(),
-                phase: "host_effect".into(),
-                progress_mode: "determinate".into(),
-                total_count: 1,
-                source_hash: source_hash.clone(),
-                created_at: now.clone(),
-                started_at: now.clone(),
-                updated_at: now.clone(),
-                ..OperationRecord::default()
-            })?;
-        }
-        match self.call_host(capability, payload) {
-            Ok(result) => {
-                let repository = self.repository.owner();
-                repository
-                    .lock()
-                    .map_err(|_| "repository_unavailable".to_owned())?
-                    .update_operation_status(
-                        &operation_id,
-                        "completed",
-                        "host_effect",
-                        &[],
-                        &now_iso_like(),
-                    )?;
-                Ok(serde_json::json!({
-                    "ok":true,
-                    "status":"applied",
-                    "operationId":operation_id,
-                    "result":result,
-                }))
-            }
-            Err(error) => {
-                let repository = self.repository.owner();
-                repository
-                    .lock()
-                    .map_err(|_| "repository_unavailable".to_owned())?
-                    .update_operation_status(
-                        &operation_id,
-                        "failed",
-                        "host_effect",
-                        std::slice::from_ref(&error),
-                        &now_iso_like(),
-                    )?;
-                Err(error)
-            }
-        }
+    pub(crate) fn consume_related_items_sync_echo(
+        &self,
+        library_id: i64,
+        item_key: &str,
+        related_item_key: Option<&str>,
+    ) -> Result<Value, String> {
+        let consumed = self
+            .repository
+            .owner()
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .consume_related_items_sync_echo(
+                library_id,
+                item_key,
+                related_item_key,
+                &utc_now_iso8601(),
+            )?;
+        Ok(json!({"consumed":consumed}))
     }
 
     pub(crate) fn initialize_builtin_tag_policy(&self) -> Result<Value, String> {
@@ -248,7 +119,7 @@ impl ProductionApplications {
         let mut candidate = self.repository.load_candidate()?;
         let expected_hash = (!candidate.state.vocabulary_hash.is_empty())
             .then(|| candidate.state.vocabulary_hash.clone());
-        let now = now_iso_like();
+        let now = utc_now_iso8601();
         if candidate.protocols.is_empty() {
             candidate.protocols.push(TagProtocolRecord {
                 protocol_id: "builtin".into(),
@@ -323,7 +194,7 @@ impl ProductionApplications {
         let hint = repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .update_topic_discovery_hint_status(hint_id, status, &now_iso_like())?;
+            .update_topic_discovery_hint_status(hint_id, status, &utc_now_iso8601())?;
         Ok(match hint {
             Some(hint) => serde_json::json!({
                 "ok":true,
@@ -407,8 +278,8 @@ pub(crate) fn build_production_applications(
         repository.clone(),
         Some(canonical.clone()),
         Some(canonical.clone()),
-        Arc::new(now_iso_like),
-        Arc::new(|| format!("durable-import:{}", now_iso_like())),
+        Arc::new(utc_now_iso8601),
+        Arc::new(|| format!("durable-import:{}", utc_now_iso8601())),
         "synthesis-sidecar".into(),
     );
     let webdav = WebDavSyncApplication::new(
@@ -418,7 +289,7 @@ pub(crate) fn build_production_applications(
         }),
         Arc::new(BoundedWebDavRetryScheduler::default()),
         Arc::new(durable),
-        Arc::new(now_iso_like),
+        Arc::new(utc_now_iso8601),
     );
     ProductionApplications {
         repository,
@@ -436,13 +307,6 @@ pub(crate) fn build_production_applications(
         config,
         service_instance_id,
     }
-}
-
-fn now_iso_like() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().to_string())
-        .unwrap_or_else(|_| "0".into())
 }
 
 struct NativeCitationGraphComputePort {
@@ -563,7 +427,7 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             input.clone(),
         )?;
         let graph_hash = canonical_json_hash(&result)?;
-        let updated_at = now_iso_like();
+        let updated_at = utc_now_iso8601();
         let metadata = input["references"]
             .as_array()
             .ok_or_else(|| "worker_result_invalid".to_owned())?
@@ -780,7 +644,7 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             request,
         )?;
         let metrics_hash = canonical_json_hash(&result)?;
-        let updated_at = now_iso_like();
+        let updated_at = utc_now_iso8601();
         let records = result
             .get("libraryNodeMetrics")
             .and_then(Value::as_array)
@@ -934,7 +798,7 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             .cloned()
             .ok_or_else(|| "worker_result_invalid".to_owned())?;
         layout.insert("layout_hash".into(), Value::String(layout_hash));
-        let now = now_iso_like();
+        let now = utc_now_iso8601();
         Ok(CitationLayoutRecord {
             layout_key: request.layout_key.clone(),
             view_key: request.view_key.clone(),
@@ -985,7 +849,7 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
                 "contractVersion":"synthesis-tag-vocabulary.v1",
                 "algorithmVersion":"tag-vocabulary-index.v1",
                 "sourceManifestHash":canonical_json_hash(&serde_json::json!(entries))?,
-                "rebuiltAt":now_iso_like(),
+                "rebuiltAt":utc_now_iso8601(),
                 "protocol":{},
                 "entries":entries,
                 "aliases":{},
@@ -1016,7 +880,7 @@ impl ConceptKbComputePort for NativeConceptKbComputePort {
                 "contractVersion":"synthesis-concept-kb-index.v1",
                 "algorithmVersion":"concept-kb-index.v1",
                 "sourceManifestHash":snapshot.state.manifest_hash,
-                "rebuiltAt":now_iso_like(),
+                "rebuiltAt":utc_now_iso8601(),
                 "concepts":snapshot.concepts,
                 "senses":snapshot.senses,
                 "aliases":snapshot.aliases,
@@ -1067,7 +931,7 @@ impl TopicGraphComputePort for NativeTopicGraphComputePort {
                 "contractVersion":"synthesis-topic-graph-index.v1",
                 "algorithmVersion":"topic-graph-index.v1",
                 "sourceManifestHash":snapshot.state.manifest_hash,
-                "rebuiltAt":now_iso_like(),
+                "rebuiltAt":utc_now_iso8601(),
                 "nodes":snapshot.nodes,
                 "edges":snapshot.edges,
             }),
@@ -1638,6 +1502,7 @@ fn binding_outcomes(
                 return Err(matcher_error());
             }
             outcomes.push(ReferenceMatcherOutcome {
+                semantic_key: format!("binding::{canonical_id}::{library_id}::{item_key}"),
                 kind: ReferenceMatchKind::Binding,
                 disposition,
                 confidence,
@@ -1713,10 +1578,13 @@ fn dedupe_outcomes(
         {
             return Err(matcher_error());
         }
-        let (disposition, expected_confidence) = match action.get("action").and_then(Value::as_str)
-        {
-            Some("redirect") => (ReferenceMatchDisposition::Accept, None),
-            Some("review") => (
+        let action_name = action
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or_else(matcher_error)?;
+        let (disposition, expected_confidence) = match action_name {
+            "redirect" => (ReferenceMatchDisposition::Accept, None),
+            "review" => (
                 ReferenceMatchDisposition::Review,
                 Some(ReferenceMatchConfidence::Review),
             ),
@@ -1738,6 +1606,20 @@ fn dedupe_outcomes(
         if !score.is_finite() || !(0.0..=1.0).contains(&score) {
             return Err(matcher_error());
         }
+        let reasons = string_array(action.get("reasons"))?;
+        let cluster_id = action
+            .get("clusterId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(matcher_error)?;
+        let edge_type = action
+            .get("edgeType")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(matcher_error)?;
+        let retarget = reasons
+            .iter()
+            .any(|reason| reason == "representative_retarget_review");
         let mut evidence = action
             .get("evidence")
             .and_then(Value::as_object)
@@ -1757,6 +1639,19 @@ fn dedupe_outcomes(
             )?;
         }
         outcomes.push(ReferenceMatcherOutcome {
+            semantic_key: [
+                action_name,
+                source,
+                target,
+                cluster_id,
+                edge_type,
+                if retarget {
+                    "representative_retarget_review"
+                } else {
+                    ""
+                },
+            ]
+            .join("::"),
             kind: ReferenceMatchKind::Redirect,
             disposition,
             confidence,
@@ -1769,7 +1664,7 @@ fn dedupe_outcomes(
             target_library_id: 0,
             target_item_key: String::new(),
             score,
-            reasons: string_array(action.get("reasons"))?,
+            reasons,
             evidence: Value::Object(evidence),
             diagnostics: diagnostics.clone(),
         });
@@ -2183,7 +2078,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "synthesis-webdav-state-{}-{}",
             std::process::id(),
-            now_iso_like()
+            utc_now_iso8601()
         ));
         let path = root.join("native-webdav-state.json");
         let state = WebDavSyncState {

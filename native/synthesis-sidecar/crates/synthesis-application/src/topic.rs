@@ -7,7 +7,9 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::{
     CurrentTopic, Promotion, TopicSnapshot, canonical_json_hash, canonical_topic_path_id,
 };
@@ -84,13 +86,7 @@ impl TopicApplication {
             repository,
             canonical,
             engine,
-            Arc::new(|| {
-                let millis = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                format!("{millis}")
-            }),
+            Arc::new(synthesis_protocol::utc_now_iso8601),
             Arc::new(move |topic_id| {
                 format!(
                     "topic-apply-{}-{}",

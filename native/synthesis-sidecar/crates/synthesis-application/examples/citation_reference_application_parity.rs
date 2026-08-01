@@ -259,6 +259,10 @@ impl ReferenceMatcherPort for FixtureMatcher {
         };
         Ok(match pass {
             ReferenceMatchPass::LibraryBinding => vec![ReferenceMatcherOutcome {
+                semantic_key: format!(
+                    "binding::{}::{}::{}",
+                    canonical.canonical_reference_id, host.library_id, host.item_key
+                ),
                 kind: ReferenceMatchKind::Binding,
                 disposition:
                     synthesis_application::reference_matching::ReferenceMatchDisposition::Accept,

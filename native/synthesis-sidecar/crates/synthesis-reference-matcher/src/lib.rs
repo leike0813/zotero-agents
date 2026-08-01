@@ -1519,6 +1519,58 @@ fn contained_title_details<'a>(
     })
 }
 
+fn semantic_action_key(action: &Value) -> String {
+    let retarget = action["reasons"].as_array().is_some_and(|reasons| {
+        reasons
+            .iter()
+            .any(|reason| reason == "representative_retarget_review")
+    });
+    [
+        action["action"].as_str().unwrap_or(""),
+        action["sourceCanonicalReferenceId"].as_str().unwrap_or(""),
+        action["targetCanonicalReferenceId"].as_str().unwrap_or(""),
+        action["clusterId"].as_str().unwrap_or(""),
+        action["edgeType"].as_str().unwrap_or(""),
+        if retarget {
+            "representative_retarget_review"
+        } else {
+            ""
+        },
+    ]
+    .join("::")
+}
+
+fn normalize_dedupe_actions(mut actions: Vec<Value>) -> Vec<Value> {
+    actions.sort_by(|left, right| {
+        right["score"]
+            .as_f64()
+            .unwrap_or_default()
+            .partial_cmp(&left["score"].as_f64().unwrap_or_default())
+            .unwrap_or(Ordering::Equal)
+    });
+    let mut semantic_keys = BTreeSet::new();
+    actions.retain(|action| semantic_keys.insert(semantic_action_key(action)));
+    actions.sort_by(|left, right| {
+        utf16_cmp(
+            left["clusterId"].as_str().unwrap_or(""),
+            right["clusterId"].as_str().unwrap_or(""),
+        )
+        .then_with(|| {
+            utf16_cmp(
+                left["sourceCanonicalReferenceId"].as_str().unwrap_or(""),
+                right["sourceCanonicalReferenceId"].as_str().unwrap_or(""),
+            )
+        })
+        .then_with(|| {
+            utf16_cmp(
+                left["targetCanonicalReferenceId"].as_str().unwrap_or(""),
+                right["targetCanonicalReferenceId"].as_str().unwrap_or(""),
+            )
+        })
+    });
+    actions
+}
+
 fn dedupe(request: Value, canceled_flag: &AtomicBool) -> Result<Value, &'static str> {
     canceled(canceled_flag)?;
     let request = request.as_object().ok_or("invalid_request")?;
@@ -2087,24 +2139,7 @@ fn dedupe(request: Value, canceled_flag: &AtomicBool) -> Result<Value, &'static 
             right["clusterId"].as_str().unwrap_or(""),
         )
     });
-    actions.sort_by(|left, right| {
-        utf16_cmp(
-            left["clusterId"].as_str().unwrap_or(""),
-            right["clusterId"].as_str().unwrap_or(""),
-        )
-        .then_with(|| {
-            utf16_cmp(
-                left["sourceCanonicalReferenceId"].as_str().unwrap_or(""),
-                right["sourceCanonicalReferenceId"].as_str().unwrap_or(""),
-            )
-        })
-        .then_with(|| {
-            utf16_cmp(
-                left["targetCanonicalReferenceId"].as_str().unwrap_or(""),
-                right["targetCanonicalReferenceId"].as_str().unwrap_or(""),
-            )
-        })
-    });
+    let actions = normalize_dedupe_actions(actions);
     let redirect_count = actions
         .iter()
         .filter(|action| action["action"] == "redirect")
@@ -2148,6 +2183,38 @@ pub fn compute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_actions_by_semantic_identity_and_best_score() {
+        let base = json!({
+            "action":"review",
+            "sourceCanonicalReferenceId":"canonical:source",
+            "targetCanonicalReferenceId":"canonical:target",
+            "clusterId":"cluster:1",
+            "subclusterId":"subcluster:1",
+            "confidence":"review",
+            "reasons":["cluster_contained_extension_risk"],
+            "riskSignals":[],
+            "evidence":{}
+        });
+        let mut lower = base.clone();
+        lower["actionId"] = json!("action:lower");
+        lower["edgeType"] = json!("contained_extension_risk");
+        lower["score"] = json!(0.8);
+        let mut higher = lower.clone();
+        higher["actionId"] = json!("action:higher");
+        higher["score"] = json!(0.9);
+        let mut distinct = base;
+        distinct["actionId"] = json!("action:distinct");
+        distinct["edgeType"] = json!("weak_fuzzy_title");
+        distinct["score"] = json!(0.7);
+
+        let actions = normalize_dedupe_actions(vec![lower, distinct, higher]);
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0]["actionId"], "action:higher");
+        assert_eq!(actions[1]["actionId"], "action:distinct");
+    }
 
     #[test]
     fn binding_preserves_identifier_and_title_semantics() {

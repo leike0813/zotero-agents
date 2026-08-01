@@ -4,7 +4,7 @@
 
 ## 1. Verify Preconditions and Classify Ownership
 
-- [ ] 1.1 Verify `stabilize-synthesis-r9a-retirement-baseline` local gates and accepted pre-deletion evidence, and record the exact source identity used by this change
+- [ ] 1.1 Verify `stabilize-synthesis-r9a-retirement-baseline` and every task plus external parity/10k/25k gate in `restore-synthesis-rust-sidecar-main-parity`, accept its candidate evidence for the exact source identity, and record that identity before deletion
 - [ ] 1.2 Use code-graph impact plus static import inventory to classify every `src/modules/synthesisClient/**`, `src/modules/synthesis/**`, and harness dependency as legacy owner, neutral client/DTO, plugin Host/UI responsibility, pure current helper, or zero-caller code
 - [ ] 1.3 Record an explicit deletion list and keep list before editing; do not delete whole directories or retained external Node oracle files by pattern
 

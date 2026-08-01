@@ -235,6 +235,17 @@ pass are added to the dedupe exclusion set. The adapter remains stateless:
 pass-specific state travels in `ReferenceMatcherInput`, repository reads remain
 owned by the application, and both passes are promoted in one transaction.
 
+Dedupe action identity follows the TypeScript `semanticActionKey` policy: the
+action, source, target, cluster, edge type, and representative-retarget marker
+form one semantic key. The Rust matcher keeps the highest-score action for each
+key before computing action counters, while retaining distinct edge-type or
+retarget actions for the same source-target pair. The adapter carries that
+identity as `ReferenceMatcherOutcome.semanticKey`; binding outcomes use their
+canonical source and target Zotero item identity. The application sorts and
+checks the combined two-pass result by `semanticKey`, so an exact duplicate
+fails before preparation persistence but different semantic actions for one
+pair remain eligible for atomic promotion.
+
 ## Risks / Trade-offs
 
 - **Corpus partition accidentally omits planning metadata** → Planning change

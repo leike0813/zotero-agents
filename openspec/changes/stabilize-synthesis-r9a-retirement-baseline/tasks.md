@@ -82,3 +82,5 @@
 - [x] 11.2 Route deterministic in-memory calls through the generic paged worker protocol, replace the broken native matcher adapter with one two-pass DTO boundary, and preserve atomic durable promotion without Node or plugin fallback
 - [x] 11.3 Add failing native and TypeScript tests for successful and non-success Advanced Matching terminals, including zero-result passes
 - [x] 11.4 Run focused Rust/TypeScript, surface-parity, OpenSpec, format, clippy, and type-check gates and record the local result without claiming pending real-machine or prebuild evidence
+- [x] 11.5 Normalize Rust dedupe actions by the TypeScript semantic action identity, carry stable semantic keys through both matcher passes, and reject only exact semantic duplicates before atomic promotion
+- [x] 11.6 Add same-pair edge-type and best-score regression/parity evidence, require the production Rust route to promote, and rerun the focused matcher, application, contract, fixture, and OpenSpec gates

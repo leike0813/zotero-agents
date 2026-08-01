@@ -17,6 +17,16 @@ pass SHALL be excluded from the same-run dedupe input.
 - **THEN** no partial matching state is promoted
 - **AND** the public command returns its stable semantic status
 
+#### Scenario: One pair has distinct review semantics
+- **WHEN** dedupe produces actions with the same source and target but different edge types or representative-retarget semantics
+- **THEN** the Rust matcher SHALL retain each distinct semantic action
+- **AND** the application SHALL promote the combined two-pass result atomically
+
+#### Scenario: Dedupe repeats one semantic action
+- **WHEN** multiple actions have the same action, source, target, cluster, edge type, and representative-retarget marker
+- **THEN** the Rust matcher SHALL retain only the highest-score action and compute counters from the normalized result
+- **AND** any duplicate semantic key that reaches the application SHALL fail before preparation, fact, or proposal persistence
+
 ### Requirement: Failed refresh preparation SHALL be retryable
 
 When reference refresh fails after creating a preparation but before promotion,

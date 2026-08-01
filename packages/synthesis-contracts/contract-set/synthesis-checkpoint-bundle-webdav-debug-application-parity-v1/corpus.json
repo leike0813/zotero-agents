@@ -42,8 +42,8 @@
     ]
   },
   "expected": {
-    "tables": 51,
-    "indexes": 40,
+    "tables": 52,
+    "indexes": 41,
     "applicationFamilies": 4,
     "retryLimit": 4,
     "bundleTextLimit": 4194304,
