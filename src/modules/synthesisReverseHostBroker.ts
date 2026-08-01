@@ -6,12 +6,13 @@ import {
   type SynthesisJsonValue,
   type SynthesisReverseHostCall,
   type SynthesisReverseHostCapability,
+  type SynthesisSidecarObservationEvent,
 } from "../../packages/synthesis-contracts/src";
 import { timingSafeEqualString } from "../utils/timingSafeEqual";
 import {
-  createSynthesisSidecarDiagnosticRecorders,
-  type SynthesisSidecarDiagnosticEventInput,
-} from "./synthesisSidecarDiagnosticEvents";
+  createSynthesisSidecarTraceContext,
+  recordSynthesisSidecarTraceEvent,
+} from "./synthesisSidecarTrace";
 
 type HandlerContext = {
   requestId: string;
@@ -40,7 +41,7 @@ type BrokerOptions = {
     call: SynthesisReverseHostCall,
   ) => boolean | Promise<boolean>;
   handlers: SynthesisReverseHostHandlers;
-  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
+  recordTraceEvent?: (event: SynthesisSidecarObservationEvent) => void;
 };
 
 type DispatchInput = {
@@ -95,24 +96,28 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
   let active = true;
   const completedEffects = new Map<string, EffectResult>();
   const inFlightEffects = new Map<string, Promise<SynthesisJsonValue>>();
-  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
-    options.recordDiagnosticEvent,
-  );
 
   async function execute(call: SynthesisReverseHostCall) {
-    if (!(await options.authorizeCapability(call))) {
-      failure("unavailable", "permission_denied");
-    }
     const startedAt = options.now();
-    diagnosticRecorders.debug?.({
-      component: "reverse-host",
-      stage: "handler-started",
-      status: "started",
-      capability: call.capability,
-      requestId: call.requestId,
-      operationId: call.operationId,
+    const trace = createSynthesisSidecarTraceContext({ parent: call.trace });
+    const record = (
+      event: Parameters<typeof recordSynthesisSidecarTraceEvent>[0],
+    ) => {
+      const retained = recordSynthesisSidecarTraceEvent(event);
+      if (retained) options.recordTraceEvent?.(retained);
+    };
+    record({
+      context: trace,
+      source: "host",
+      boundary: "reverse-host",
+      phase: "handler",
+      outcome: "started",
+      identities: { capability: call.capability },
     });
     try {
+      if (!(await options.authorizeCapability(call))) {
+        failure("unavailable", "permission_denied");
+      }
       const handler = options.handlers[call.capability];
       const result = toSynthesisJsonValue(
         await handler(call.payload, {
@@ -122,31 +127,35 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
         }),
         "synthesisReverseHostResult",
       );
-      diagnosticRecorders.debug?.({
-        component: "reverse-host",
-        stage: "handler-completed",
-        status: "succeeded",
-        capability: call.capability,
-        requestId: call.requestId,
-        operationId: call.operationId,
-        durationMs: Math.max(0, options.now() - startedAt),
-        responseBytes: textEncoder.encode(JSON.stringify(result)).byteLength,
+      record({
+        context: trace,
+        source: "host",
+        boundary: "reverse-host",
+        phase: "handler-terminal",
+        outcome: "succeeded",
+        identities: { capability: call.capability },
+        metrics: {
+          durationMs: Math.max(0, options.now() - startedAt),
+          responseBytes: textEncoder.encode(JSON.stringify(result)).byteLength,
+        },
       });
       return result;
     } catch (error) {
-      const reason =
-        error instanceof SynthesisClientError
-          ? String(error.details?.reason || error.code)
-          : "reverse_host_handler_failed";
-      diagnosticRecorders.failure({
-        component: "reverse-host",
-        stage: "handler-failed",
-        status: "failed",
-        capability: call.capability,
-        requestId: call.requestId,
-        operationId: call.operationId,
-        durationMs: Math.max(0, options.now() - startedAt),
-        code: reason,
+      record({
+        context: trace,
+        source: "host",
+        boundary: "reverse-host",
+        phase: "handler-terminal",
+        outcome:
+          error instanceof SynthesisClientError && error.code === "timeout"
+            ? "timed-out"
+            : "failed",
+        code:
+          error instanceof SynthesisClientError
+            ? error.code
+            : "reverse_host_handler_failed",
+        identities: { capability: call.capability },
+        metrics: { durationMs: Math.max(0, options.now() - startedAt) },
       });
       throw error;
     }

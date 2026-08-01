@@ -2,7 +2,8 @@ use crate::runtime_file_system::sync_directory;
 use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
 };
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -14,7 +15,8 @@ use synthesis_application::citation_graph::{
 };
 use synthesis_application::concept_kb::{ConceptIndexOutput, ConceptKbComputePort};
 use synthesis_application::reference_matching::{
-    ReferenceMatchPass, ReferenceMatcherInput, ReferenceMatcherOutcome, ReferenceMatcherPort,
+    ReferenceMatchConfidence, ReferenceMatchDisposition, ReferenceMatchKind, ReferenceMatchPass,
+    ReferenceMatcherInput, ReferenceMatcherOutcome, ReferenceMatcherPort,
 };
 use synthesis_application::tag_vocabulary::{
     TagHostEffectPort, TagIndexOutput, TagLegacyBindingResolverPort, TagVocabularyComputePort,
@@ -32,17 +34,22 @@ use synthesis_application::{
     WorkbenchApplication,
 };
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
+use synthesis_reference_matcher::{
+    BINDING_ALGORITHM_VERSION, CONTRACT_VERSION as REFERENCE_MATCHER_CONTRACT_VERSION,
+    DEDUPE_ALGORITHM_VERSION,
+};
 use synthesis_repository::Repository;
 use synthesis_repository::{
-    CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphApplicationStateRecord,
-    CitationGraphReplacement, CitationIncomingGroupRecord, CitationLayoutRecord,
-    CitationLightMetricsRecord, CitationNodeRecord, CitationSourceOwnershipRecord, OperationRecord,
-    TagEffectRecord, TagProtocolRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
+    CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
+    CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationIncomingGroupRecord,
+    CitationLayoutRecord, CitationLightMetricsRecord, CitationNodeRecord,
+    CitationSourceOwnershipRecord, OperationRecord, RawReferenceRecord, TagEffectRecord,
+    TagProtocolRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
     TagVocabularyReplacement, TopicGraphReplacement,
 };
 use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 use crate::runtime_reference_canonical::{
     ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
     ReferenceHostPort,
@@ -883,12 +890,12 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
                 result
             }
             Err(error) => {
-                emit(
+                emit_debug(|| {
                     diagnostic("layout-worker-failed", "failed")
                         .code(error.clone())
                         .worker_code(error.clone())
-                        .duration_ms(started_at.elapsed().as_millis() as u64),
-                );
+                        .duration_ms(started_at.elapsed().as_millis() as u64)
+                });
                 return Err(error);
             }
         };
@@ -1083,35 +1090,701 @@ impl ReferenceMatcherPort for NativeReferenceMatcherPort {
         pass: ReferenceMatchPass,
         input: &ReferenceMatcherInput,
     ) -> Result<Vec<ReferenceMatcherOutcome>, String> {
-        let (operation, request) = match pass {
-            ReferenceMatchPass::LibraryBinding => (
-                crate::runtime_worker_pool::WorkerOperation::ReferenceBinding,
-                serde_json::json!({
-                    "contractVersion":"synthesis-reference-binding.v1",
-                    "algorithmVersion":"reference-binding.v1",
-                    "policyId":"production",
-                    "papers":input.host_candidates,
-                    "references":input.raw_references,
-                }),
-            ),
-            ReferenceMatchPass::CanonicalRedirect => (
-                crate::runtime_worker_pool::WorkerOperation::ReferenceCanonicalDedupe,
-                serde_json::json!({
-                    "contractVersion":"synthesis-reference-canonical-dedupe.v1",
-                    "algorithmVersion":"reference-canonical-dedupe.v1",
-                    "canonicals":input.canonicals,
-                }),
-            ),
-        };
+        let (operation, request) = reference_matcher_request(pass, input)?;
         let result = self.compute.run_direct(operation, request)?;
-        serde_json::from_value(
-            result
-                .get("matches")
-                .or_else(|| result.get("actions"))
+        reference_matcher_outcomes(pass, input, &result)
+    }
+}
+
+type RawReferenceGroups<'a> = BTreeMap<String, Vec<&'a RawReferenceRecord>>;
+
+struct MatcherProjection<'a> {
+    canonicals: BTreeMap<String, &'a CanonicalReferenceRecord>,
+    redirects: BTreeMap<String, String>,
+    groups: RawReferenceGroups<'a>,
+    sticky: BTreeSet<String>,
+}
+
+fn matcher_error() -> String {
+    "worker_result_invalid".to_owned()
+}
+
+fn string_array(value: Option<&Value>) -> Result<Vec<String>, String> {
+    value
+        .and_then(Value::as_array)
+        .ok_or_else(matcher_error)?
+        .iter()
+        .map(|value| value.as_str().map(str::to_owned).ok_or_else(matcher_error))
+        .collect()
+}
+
+fn stored_string_array(source: &str) -> Result<Vec<String>, String> {
+    if source.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: Value = serde_json::from_str(source).map_err(|_| matcher_error())?;
+    string_array(Some(&value))
+}
+
+fn matcher_confidence(value: &str) -> Result<ReferenceMatchConfidence, String> {
+    match value {
+        "deterministic" => Ok(ReferenceMatchConfidence::Deterministic),
+        "high" => Ok(ReferenceMatchConfidence::High),
+        "low" => Ok(ReferenceMatchConfidence::Low),
+        "review" => Ok(ReferenceMatchConfidence::Review),
+        _ => Err(matcher_error()),
+    }
+}
+
+fn diagnostic_objects(value: Option<&Value>) -> Result<Vec<Value>, String> {
+    let values = value.and_then(Value::as_array).ok_or_else(matcher_error)?;
+    if values.iter().any(|value| !value.is_object()) {
+        return Err(matcher_error());
+    }
+    Ok(values.clone())
+}
+
+fn canonical_records(
+    input: &ReferenceMatcherInput,
+) -> Result<BTreeMap<String, &CanonicalReferenceRecord>, String> {
+    let mut records = BTreeMap::new();
+    for record in &input.canonicals {
+        if record.canonical_reference_id.is_empty()
+            || records
+                .insert(record.canonical_reference_id.clone(), record)
+                .is_some()
+        {
+            return Err(matcher_error());
+        }
+    }
+    Ok(records)
+}
+
+fn redirect_map(input: &ReferenceMatcherInput) -> Result<BTreeMap<String, String>, String> {
+    let canonicals = canonical_records(input)?;
+    let mut redirects = BTreeMap::new();
+    for redirect in &input.redirects {
+        if redirect.from_canonical_reference_id.is_empty()
+            || redirect.to_canonical_reference_id.is_empty()
+            || redirect.from_canonical_reference_id == redirect.to_canonical_reference_id
+        {
+            return Err(matcher_error());
+        }
+        if let Some(previous) = redirects.insert(
+            redirect.from_canonical_reference_id.clone(),
+            redirect.to_canonical_reference_id.clone(),
+        ) && previous != redirect.to_canonical_reference_id
+        {
+            return Err(matcher_error());
+        }
+    }
+    for id in redirects.keys() {
+        resolve_matcher_canonical(id, &redirects, &canonicals)?;
+    }
+    Ok(redirects)
+}
+
+fn resolve_matcher_canonical(
+    id: &str,
+    redirects: &BTreeMap<String, String>,
+    canonicals: &BTreeMap<String, &CanonicalReferenceRecord>,
+) -> Result<String, String> {
+    if !canonicals.contains_key(id) && !redirects.contains_key(id) {
+        return Err(matcher_error());
+    }
+    let mut current = id;
+    let mut seen = HashSet::new();
+    while let Some(next) = redirects.get(current) {
+        if !seen.insert(current.to_owned()) {
+            return Err(matcher_error());
+        }
+        current = next;
+    }
+    canonicals
+        .contains_key(current)
+        .then(|| current.to_owned())
+        .ok_or_else(matcher_error)
+}
+
+fn matcher_groups<'a>(input: &'a ReferenceMatcherInput) -> Result<MatcherProjection<'a>, String> {
+    let canonicals = canonical_records(input)?;
+    let redirects = redirect_map(input)?;
+    let mut excluded = BTreeSet::new();
+    for binding in input
+        .bindings
+        .iter()
+        .filter(|binding| binding.status == "accepted")
+    {
+        excluded.insert(resolve_matcher_canonical(
+            &binding.canonical_reference_id,
+            &redirects,
+            &canonicals,
+        )?);
+    }
+    for id in &input.accepted_binding_canonical_ids {
+        excluded.insert(resolve_matcher_canonical(id, &redirects, &canonicals)?);
+    }
+    let mut sticky = BTreeSet::new();
+    for source in redirects.keys() {
+        sticky.insert(resolve_matcher_canonical(source, &redirects, &canonicals)?);
+    }
+    let mut groups = BTreeMap::<String, Vec<&RawReferenceRecord>>::new();
+    for raw in input
+        .raw_references
+        .iter()
+        .filter(|raw| raw.status == "active")
+    {
+        let effective =
+            resolve_matcher_canonical(&raw.canonical_reference_id, &redirects, &canonicals)?;
+        if !excluded.contains(&effective) {
+            groups.entry(effective).or_default().push(raw);
+        }
+    }
+    for rows in groups.values_mut() {
+        rows.sort_by(|left, right| {
+            left.source_ref
+                .cmp(&right.source_ref)
+                .then_with(|| left.reference_index.cmp(&right.reference_index))
+                .then_with(|| left.raw_reference_id.cmp(&right.raw_reference_id))
+        });
+    }
+    Ok(MatcherProjection {
+        canonicals,
+        redirects,
+        groups,
+        sticky,
+    })
+}
+
+fn matcher_papers(input: &ReferenceMatcherInput) -> Result<Vec<Value>, String> {
+    let mut papers = input
+        .host_candidates
+        .iter()
+        .map(|candidate| {
+            let paper_ref = format!("{}:{}", candidate.library_id, candidate.item_key);
+            (
+                paper_ref.clone(),
+                json!({
+                    "paperRef":paper_ref,
+                    "itemKey":candidate.item_key,
+                    "title":candidate.title,
+                    "year":candidate.year,
+                    "authors":candidate.authors,
+                    "doi":candidate.doi,
+                    "arxiv":candidate.arxiv,
+                    "isbn":candidate.isbn,
+                    "url":candidate.url,
+                    "citekey":candidate.citekey,
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+    papers.sort_by(|left, right| left.0.cmp(&right.0));
+    if papers.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(matcher_error());
+    }
+    Ok(papers.into_iter().map(|(_, value)| value).collect())
+}
+
+fn binding_request(input: &ReferenceMatcherInput) -> Result<Value, String> {
+    let projection = matcher_groups(input)?;
+    let references = projection
+        .groups
+        .iter()
+        .map(|(canonical_id, rows)| {
+            let representative = rows.first().ok_or_else(matcher_error)?;
+            Ok(json!({
+                "canonicalReferenceId":canonical_id,
+                "reference":{
+                    "referenceInstanceId":representative.raw_reference_id,
+                    "parsedTitle":representative.parsed_title,
+                    "normalizedTitle":representative.normalized_title,
+                    "year":representative.year,
+                    "authors":stored_string_array(&representative.authors_json)?,
+                    "rawReference":representative.raw_reference,
+                }
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(json!({
+        "contractVersion":REFERENCE_MATCHER_CONTRACT_VERSION,
+        "algorithmVersion":BINDING_ALGORITHM_VERSION,
+        "policyId":"production",
+        "papers":matcher_papers(input)?,
+        "references":references,
+    }))
+}
+
+fn stored_identifiers(source: &str) -> Result<Vec<Value>, String> {
+    if source.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let parsed: Value = serde_json::from_str(source).map_err(|_| matcher_error())?;
+    let mut values = BTreeSet::<(String, String)>::new();
+    match parsed {
+        Value::Object(object) => {
+            for (kind, value) in object {
+                let entries = match value {
+                    Value::String(value) => vec![value],
+                    Value::Array(values) => values
+                        .into_iter()
+                        .map(|value| value.as_str().map(str::to_owned).ok_or_else(matcher_error))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    _ => return Err(matcher_error()),
+                };
+                for value in entries {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        values.insert((kind.clone(), value.to_owned()));
+                    }
+                }
+            }
+        }
+        Value::Array(rows) => {
+            for row in rows {
+                let row = row.as_object().ok_or_else(matcher_error)?;
+                let kind = row.get("kind").and_then(Value::as_str).unwrap_or("").trim();
+                let value = row
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                if kind.is_empty() || value.is_empty() {
+                    return Err(matcher_error());
+                }
+                values.insert((kind.to_owned(), value.to_owned()));
+            }
+        }
+        _ => return Err(matcher_error()),
+    }
+    Ok(values
+        .into_iter()
+        .map(|(kind, value)| json!({"kind":kind,"value":value}))
+        .collect())
+}
+
+fn dedupe_title_candidates(
+    effective_id: &str,
+    rows: &[&RawReferenceRecord],
+    canonicals: &BTreeMap<String, &CanonicalReferenceRecord>,
+    redirects: &BTreeMap<String, String>,
+) -> Result<Vec<Value>, String> {
+    let mut candidates = Vec::new();
+    let effective = canonicals.get(effective_id).ok_or_else(matcher_error)?;
+    if !effective.title.trim().is_empty() {
+        candidates.push(json!({
+            "title":effective.title,
+            "normalizedTitle":effective.normalized_title,
+            "year":effective.year,
+            "authors":stored_string_array(&effective.authors_json)?,
+            "identifiers":stored_identifiers(&effective.identifiers_json)?,
+            "source":"effective_canonical",
+            "sourceCanonicalReferenceId":effective_id,
+            "frequency":rows.len(),
+        }));
+    }
+    let mut physical_ids = rows
+        .iter()
+        .map(|raw| raw.canonical_reference_id.clone())
+        .collect::<BTreeSet<_>>();
+    physical_ids.insert(effective_id.to_owned());
+    for id in physical_ids {
+        if resolve_matcher_canonical(&id, redirects, canonicals)? != effective_id {
+            return Err(matcher_error());
+        }
+        let Some(canonical) = canonicals.get(&id) else {
+            continue;
+        };
+        let raw_ids = rows
+            .iter()
+            .filter(|raw| raw.canonical_reference_id == id)
+            .map(|raw| raw.raw_reference_id.clone())
+            .collect::<Vec<_>>();
+        if !canonical.title.trim().is_empty() {
+            candidates.push(json!({
+                "title":canonical.title,
+                "normalizedTitle":canonical.normalized_title,
+                "year":canonical.year,
+                "authors":stored_string_array(&canonical.authors_json)?,
+                "identifiers":stored_identifiers(&canonical.identifiers_json)?,
+                "rawReferenceIds":raw_ids,
+                "source":"physical_canonical",
+                "sourceCanonicalReferenceId":id,
+                "frequency":rows.iter().filter(|raw| raw.canonical_reference_id == id).count().max(1),
+            }));
+        }
+    }
+    let mut raw_groups = BTreeMap::<(String, String), Vec<&RawReferenceRecord>>::new();
+    for raw in rows {
+        if raw.parsed_title.trim().is_empty() {
+            continue;
+        }
+        let title = if raw.normalized_title.is_empty() {
+            raw.parsed_title.clone()
+        } else {
+            raw.normalized_title.clone()
+        };
+        raw_groups
+            .entry((title, raw.year.clone()))
+            .or_default()
+            .push(*raw);
+    }
+    for ((normalized_title, year), grouped) in raw_groups {
+        let representative = grouped.first().ok_or_else(matcher_error)?;
+        let mut raw_ids = Vec::new();
+        for raw in &grouped {
+            raw_ids.push(raw.raw_reference_id.clone());
+        }
+        candidates.push(json!({
+            "title":representative.parsed_title,
+            "normalizedTitle":normalized_title,
+            "year":year,
+            "authors":stored_string_array(&representative.authors_json)?,
+            "rawReferenceIds":raw_ids,
+            "source":"raw_reference",
+            "frequency":grouped.len(),
+        }));
+    }
+    candidates.truncate(16);
+    Ok(candidates)
+}
+
+fn dedupe_request(input: &ReferenceMatcherInput) -> Result<Value, String> {
+    let projection = matcher_groups(input)?;
+    let canonical_rows = projection
+        .groups
+        .iter()
+        .map(|(effective_id, rows)| {
+            let effective = projection
+                .canonicals
+                .get(effective_id)
+                .ok_or_else(matcher_error)?;
+            let mut identifiers = BTreeSet::new();
+            let mut physical_ids = rows
+                .iter()
+                .map(|raw| raw.canonical_reference_id.clone())
+                .collect::<BTreeSet<_>>();
+            physical_ids.insert(effective_id.clone());
+            for id in &physical_ids {
+                let Some(canonical) = projection.canonicals.get(id) else {
+                    continue;
+                };
+                for identifier in stored_identifiers(&canonical.identifiers_json)? {
+                    let object = identifier.as_object().ok_or_else(matcher_error)?;
+                    identifiers.insert((
+                        object.get("kind").and_then(Value::as_str).unwrap_or("").to_owned(),
+                        object.get("value").and_then(Value::as_str).unwrap_or("").to_owned(),
+                    ));
+                }
+            }
+            let raw_reference_ids = rows.iter().map(|raw| raw.raw_reference_id.clone()).collect::<BTreeSet<_>>();
+            let raw_hashes = rows.iter().map(|raw| raw.raw_hash.clone()).collect::<BTreeSet<_>>();
+            let raw_references = rows.iter().map(|raw| raw.raw_reference.clone()).collect::<BTreeSet<_>>();
+            let source_refs = rows.iter().map(|raw| raw.source_ref.clone()).collect::<BTreeSet<_>>();
+            let mut authors = stored_string_array(&effective.authors_json)?
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            for raw in rows {
+                authors.extend(stored_string_array(&raw.authors_json)?);
+            }
+            let first = rows.first().ok_or_else(matcher_error)?;
+            let title = if effective.title.trim().is_empty() {
+                first.parsed_title.clone()
+            } else {
+                effective.title.clone()
+            };
+            let normalized_title = if effective.normalized_title.trim().is_empty() {
+                first.normalized_title.clone()
+            } else {
+                effective.normalized_title.clone()
+            };
+            let year = if effective.year.trim().is_empty() {
+                first.year.clone()
+            } else {
+                effective.year.clone()
+            };
+            Ok(json!({
+                "canonicalReferenceId":effective_id,
+                "title":title,
+                "normalizedTitle":normalized_title,
+                "year":year,
+                "authors":authors,
+                "identifiers":identifiers.into_iter().map(|(kind,value)| json!({"kind":kind,"value":value})).collect::<Vec<_>>(),
+                "rawReferenceIds":raw_reference_ids,
+                "rawHashes":raw_hashes,
+                "rawReferences":raw_references,
+                "sourceRefs":source_refs,
+                "acceptedBinding":false,
+                "stickyRepresentative":projection.sticky.contains(effective_id),
+                "titleCandidates":dedupe_title_candidates(
+                    effective_id,
+                    rows,
+                    &projection.canonicals,
+                    &projection.redirects,
+                )?,
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(json!({
+        "contractVersion":REFERENCE_MATCHER_CONTRACT_VERSION,
+        "algorithmVersion":DEDUPE_ALGORITHM_VERSION,
+        "canonicals":canonical_rows,
+    }))
+}
+
+fn reference_matcher_request(
+    pass: ReferenceMatchPass,
+    input: &ReferenceMatcherInput,
+) -> Result<(crate::runtime_worker_pool::WorkerOperation, Value), String> {
+    match pass {
+        ReferenceMatchPass::LibraryBinding => Ok((
+            crate::runtime_worker_pool::WorkerOperation::ReferenceBinding,
+            binding_request(input)?,
+        )),
+        ReferenceMatchPass::CanonicalRedirect => Ok((
+            crate::runtime_worker_pool::WorkerOperation::ReferenceCanonicalDedupe,
+            dedupe_request(input)?,
+        )),
+    }
+}
+
+fn binding_outcomes(
+    input: &ReferenceMatcherInput,
+    result: &Value,
+) -> Result<Vec<ReferenceMatcherOutcome>, String> {
+    if result.get("contractVersion").and_then(Value::as_str)
+        != Some(REFERENCE_MATCHER_CONTRACT_VERSION)
+        || result.get("algorithmVersion").and_then(Value::as_str) != Some(BINDING_ALGORITHM_VERSION)
+        || result.get("policyId").and_then(Value::as_str) != Some("production")
+    {
+        return Err(matcher_error());
+    }
+    let projection = matcher_groups(input)?;
+    let papers = input
+        .host_candidates
+        .iter()
+        .map(|candidate| {
+            (
+                format!("{}:{}", candidate.library_id, candidate.item_key),
+                (candidate.library_id, candidate.item_key.clone()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let matches = result
+        .get("matches")
+        .and_then(Value::as_array)
+        .ok_or_else(matcher_error)?;
+    let mut seen = BTreeSet::new();
+    let mut outcomes = Vec::new();
+    for entry in matches {
+        let entry = entry.as_object().ok_or_else(matcher_error)?;
+        let canonical_id = entry
+            .get("canonicalReferenceId")
+            .and_then(Value::as_str)
+            .ok_or_else(matcher_error)?;
+        let source_rows = projection
+            .groups
+            .get(canonical_id)
+            .ok_or_else(matcher_error)?;
+        if !seen.insert(canonical_id.to_owned()) {
+            return Err(matcher_error());
+        }
+        let decision = entry
+            .get("result")
+            .and_then(Value::as_object)
+            .ok_or_else(matcher_error)?;
+        let status = decision.get("status").and_then(Value::as_str).unwrap_or("");
+        let confidence = matcher_confidence(
+            decision
+                .get("confidence")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        )?;
+        let diagnostics = diagnostic_objects(decision.get("diagnostics"))?;
+        let candidates = decision
+            .get("suggestedCandidates")
+            .and_then(Value::as_array)
+            .ok_or_else(matcher_error)?;
+        let disposition = match status {
+            "unmatched" if candidates.is_empty() => continue,
+            "matched"
+                if candidates.len() == 1
+                    && matches!(
+                        confidence,
+                        ReferenceMatchConfidence::Deterministic | ReferenceMatchConfidence::High
+                    ) =>
+            {
+                ReferenceMatchDisposition::Accept
+            }
+            "suggested" | "ambiguous" if candidates.len() <= 3 => ReferenceMatchDisposition::Review,
+            _ => return Err(matcher_error()),
+        };
+        for candidate in candidates.iter().take(3) {
+            let candidate = candidate.as_object().ok_or_else(matcher_error)?;
+            let paper_ref = candidate
+                .get("paperRef")
+                .and_then(Value::as_str)
+                .ok_or_else(matcher_error)?;
+            let (library_id, item_key) = papers.get(paper_ref).ok_or_else(matcher_error)?;
+            let score = candidate
+                .get("score")
+                .and_then(Value::as_f64)
+                .ok_or_else(matcher_error)?;
+            let evidence = candidate
+                .get("evidence")
                 .cloned()
-                .unwrap_or_else(|| Value::Array(Vec::new())),
-        )
-        .map_err(|_| "worker_result_invalid".to_owned())
+                .ok_or_else(matcher_error)?;
+            if !score.is_finite() || !(0.0..=1.0).contains(&score) || !evidence.is_object() {
+                return Err(matcher_error());
+            }
+            outcomes.push(ReferenceMatcherOutcome {
+                kind: ReferenceMatchKind::Binding,
+                disposition,
+                confidence,
+                source_canonical_reference_id: canonical_id.to_owned(),
+                source_raw_reference_ids: source_rows
+                    .iter()
+                    .map(|raw| raw.raw_reference_id.clone())
+                    .collect(),
+                target_canonical_reference_id: String::new(),
+                target_library_id: *library_id,
+                target_item_key: item_key.clone(),
+                score,
+                reasons: string_array(candidate.get("reasons"))?,
+                evidence,
+                diagnostics: diagnostics.clone(),
+            });
+        }
+    }
+    if seen.len() != projection.groups.len() {
+        return Err(matcher_error());
+    }
+    Ok(outcomes)
+}
+
+fn merge_evidence_field(
+    evidence: &mut Map<String, Value>,
+    key: &str,
+    value: Value,
+) -> Result<(), String> {
+    if let Some(existing) = evidence.get(key)
+        && existing != &value
+    {
+        return Err(matcher_error());
+    }
+    evidence.insert(key.to_owned(), value);
+    Ok(())
+}
+
+fn dedupe_outcomes(
+    input: &ReferenceMatcherInput,
+    result: &Value,
+) -> Result<Vec<ReferenceMatcherOutcome>, String> {
+    if result.get("contractVersion").and_then(Value::as_str)
+        != Some(REFERENCE_MATCHER_CONTRACT_VERSION)
+        || result.get("algorithmVersion").and_then(Value::as_str) != Some(DEDUPE_ALGORITHM_VERSION)
+    {
+        return Err(matcher_error());
+    }
+    let projection = matcher_groups(input)?;
+    let diagnostics = diagnostic_objects(result.get("diagnostics"))?;
+    let actions = result
+        .get("actions")
+        .and_then(Value::as_array)
+        .ok_or_else(matcher_error)?;
+    let mut action_ids = BTreeSet::new();
+    let mut outcomes = Vec::new();
+    for action in actions {
+        let action = action.as_object().ok_or_else(matcher_error)?;
+        let action_id = action.get("actionId").and_then(Value::as_str).unwrap_or("");
+        let source = action
+            .get("sourceCanonicalReferenceId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let target = action
+            .get("targetCanonicalReferenceId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if action_id.is_empty()
+            || !action_ids.insert(action_id.to_owned())
+            || source == target
+            || !projection.groups.contains_key(source)
+            || !projection.groups.contains_key(target)
+        {
+            return Err(matcher_error());
+        }
+        let (disposition, expected_confidence) = match action.get("action").and_then(Value::as_str)
+        {
+            Some("redirect") => (ReferenceMatchDisposition::Accept, None),
+            Some("review") => (
+                ReferenceMatchDisposition::Review,
+                Some(ReferenceMatchConfidence::Review),
+            ),
+            _ => return Err(matcher_error()),
+        };
+        let confidence = matcher_confidence(
+            action
+                .get("confidence")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        )?;
+        if expected_confidence.is_some_and(|expected| confidence != expected) {
+            return Err(matcher_error());
+        }
+        let score = action
+            .get("score")
+            .and_then(Value::as_f64)
+            .ok_or_else(matcher_error)?;
+        if !score.is_finite() || !(0.0..=1.0).contains(&score) {
+            return Err(matcher_error());
+        }
+        let mut evidence = action
+            .get("evidence")
+            .and_then(Value::as_object)
+            .cloned()
+            .ok_or_else(matcher_error)?;
+        for key in [
+            "actionId",
+            "clusterId",
+            "subclusterId",
+            "edgeType",
+            "riskSignals",
+        ] {
+            merge_evidence_field(
+                &mut evidence,
+                key,
+                action.get(key).cloned().ok_or_else(matcher_error)?,
+            )?;
+        }
+        outcomes.push(ReferenceMatcherOutcome {
+            kind: ReferenceMatchKind::Redirect,
+            disposition,
+            confidence,
+            source_canonical_reference_id: source.to_owned(),
+            source_raw_reference_ids: projection.groups[source]
+                .iter()
+                .map(|raw| raw.raw_reference_id.clone())
+                .collect(),
+            target_canonical_reference_id: target.to_owned(),
+            target_library_id: 0,
+            target_item_key: String::new(),
+            score,
+            reasons: string_array(action.get("reasons"))?,
+            evidence: Value::Object(evidence),
+            diagnostics: diagnostics.clone(),
+        });
+    }
+    Ok(outcomes)
+}
+
+fn reference_matcher_outcomes(
+    pass: ReferenceMatchPass,
+    input: &ReferenceMatcherInput,
+    result: &Value,
+) -> Result<Vec<ReferenceMatcherOutcome>, String> {
+    match pass {
+        ReferenceMatchPass::LibraryBinding => binding_outcomes(input, result),
+        ReferenceMatchPass::CanonicalRedirect => dedupe_outcomes(input, result),
     }
 }
 
@@ -1463,6 +2136,10 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synthesis_application::reference_matching::ReferenceHostCandidate;
+    use synthesis_repository::{
+        CanonicalReferenceRecord, RawReferenceRecord, ReferenceRedirectFactRecord,
+    };
 
     #[test]
     fn citation_compute_nodes_omit_blank_optional_text_and_bound_nonblank_text() {
@@ -1524,5 +2201,159 @@ mod tests {
             .expect("stored state");
         assert_eq!(reopened.queue_state, "paused");
         std::fs::remove_dir_all(root).expect("remove test state");
+    }
+
+    #[test]
+    fn reference_matcher_adapter_drives_real_two_pass_contract_and_excludes_binding_accepts() {
+        let input = ReferenceMatcherInput {
+            reference_hash: "sha256:reference".into(),
+            canonicals: vec![
+                CanonicalReferenceRecord {
+                    canonical_reference_id: "canonical:1".into(),
+                    title: "Exact Target Work".into(),
+                    normalized_title: "exact target work".into(),
+                    year: "2024".into(),
+                    authors_json: r#"["Alpha"]"#.into(),
+                    identifiers_json: r#"{"doi":"10.1000/exact"}"#.into(),
+                    status: "active".into(),
+                    ..CanonicalReferenceRecord::default()
+                },
+                CanonicalReferenceRecord {
+                    canonical_reference_id: "canonical:2".into(),
+                    title: "Different Reference Work".into(),
+                    normalized_title: "different reference work".into(),
+                    year: "2020".into(),
+                    authors_json: r#"["Beta"]"#.into(),
+                    identifiers_json: "{}".into(),
+                    status: "active".into(),
+                    ..CanonicalReferenceRecord::default()
+                },
+            ],
+            raw_references: vec![
+                RawReferenceRecord {
+                    raw_reference_id: "raw:1".into(),
+                    source_ref: "1:SOURCE".into(),
+                    reference_index: 0,
+                    raw_hash: "sha256:raw-1".into(),
+                    parsed_title: "Exact Target Work".into(),
+                    normalized_title: "exact target work".into(),
+                    year: "2024".into(),
+                    authors_json: r#"["Alpha"]"#.into(),
+                    raw_reference: "doi:10.1000/exact".into(),
+                    canonical_reference_id: "canonical:1".into(),
+                    status: "active".into(),
+                    ..RawReferenceRecord::default()
+                },
+                RawReferenceRecord {
+                    raw_reference_id: "raw:2".into(),
+                    source_ref: "1:SOURCE".into(),
+                    reference_index: 1,
+                    raw_hash: "sha256:raw-2".into(),
+                    parsed_title: "Different Reference Work".into(),
+                    normalized_title: "different reference work".into(),
+                    year: "2020".into(),
+                    authors_json: r#"["Beta"]"#.into(),
+                    raw_reference: "Different Reference Work".into(),
+                    canonical_reference_id: "canonical:old".into(),
+                    status: "active".into(),
+                    ..RawReferenceRecord::default()
+                },
+            ],
+            host_candidates: vec![ReferenceHostCandidate {
+                library_id: 1,
+                item_key: "TARGET".into(),
+                title: "Exact Target Work".into(),
+                year: "2024".into(),
+                authors: vec!["Alpha".into()],
+                doi: "10.1000/exact".into(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: "alpha2024".into(),
+            }],
+            bindings: Vec::new(),
+            redirects: vec![ReferenceRedirectFactRecord {
+                from_canonical_reference_id: "canonical:old".into(),
+                to_canonical_reference_id: "canonical:2".into(),
+                reason: "fixture".into(),
+                ..ReferenceRedirectFactRecord::default()
+            }],
+            accepted_binding_canonical_ids: Vec::new(),
+        };
+
+        let binding_request = binding_request(&input).expect("binding request");
+        assert_eq!(
+            binding_request["contractVersion"],
+            REFERENCE_MATCHER_CONTRACT_VERSION
+        );
+        assert_eq!(binding_request["papers"][0]["paperRef"], "1:TARGET");
+        assert_eq!(binding_request["papers"][0]["doi"], "10.1000/exact");
+        assert!(binding_request["references"][0].get("reference").is_some());
+        let binding_result = synthesis_reference_matcher::compute(
+            "reference_binding.v1",
+            binding_request,
+            &AtomicBool::new(false),
+        )
+        .expect("real binding result");
+        let binding_outcomes = binding_outcomes(&input, &binding_result).expect("binding outcomes");
+        assert_eq!(binding_outcomes.len(), 1);
+        assert_eq!(
+            binding_outcomes[0].disposition,
+            ReferenceMatchDisposition::Accept
+        );
+        assert_eq!(
+            binding_outcomes[0].confidence,
+            ReferenceMatchConfidence::Deterministic
+        );
+
+        let mut duplicate_input = input.clone();
+        duplicate_input.canonicals[1].title = "Exact Target Work".into();
+        duplicate_input.canonicals[1].normalized_title = "exact target work".into();
+        duplicate_input.canonicals[1].year = "2024".into();
+        duplicate_input.canonicals[1].authors_json = r#"["Alpha"]"#.into();
+        duplicate_input.canonicals[1].identifiers_json = r#"{"doi":["10.1000/exact"]}"#.into();
+        duplicate_input.raw_references[1].parsed_title = "Exact Target Work".into();
+        duplicate_input.raw_references[1].normalized_title = "exact target work".into();
+        duplicate_input.raw_references[1].year = "2024".into();
+        duplicate_input.raw_references[1].authors_json = r#"["Alpha"]"#.into();
+        let duplicate_request = dedupe_request(&duplicate_input).expect("duplicate request");
+        let duplicate_result = synthesis_reference_matcher::compute(
+            "reference_canonical_dedupe.v1",
+            duplicate_request,
+            &AtomicBool::new(false),
+        )
+        .expect("real duplicate result");
+        let duplicate_outcomes =
+            dedupe_outcomes(&duplicate_input, &duplicate_result).expect("duplicate outcomes");
+        assert_eq!(duplicate_outcomes.len(), 1);
+        assert_eq!(
+            duplicate_outcomes[0].disposition,
+            ReferenceMatchDisposition::Accept
+        );
+        assert_eq!(duplicate_outcomes[0].kind, ReferenceMatchKind::Redirect);
+        assert!(duplicate_outcomes[0].evidence.get("actionId").is_some());
+
+        let mut dedupe_input = input.clone();
+        dedupe_input.accepted_binding_canonical_ids = binding_outcomes
+            .iter()
+            .map(|outcome| outcome.source_canonical_reference_id.clone())
+            .collect();
+        let dedupe_request = dedupe_request(&dedupe_input).expect("dedupe request");
+        assert_eq!(dedupe_request["canonicals"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            dedupe_request["canonicals"][0]["canonicalReferenceId"],
+            "canonical:2"
+        );
+        let dedupe_result = synthesis_reference_matcher::compute(
+            "reference_canonical_dedupe.v1",
+            dedupe_request,
+            &AtomicBool::new(false),
+        )
+        .expect("real dedupe result");
+        assert!(
+            dedupe_outcomes(&dedupe_input, &dedupe_result)
+                .expect("dedupe outcomes")
+                .is_empty()
+        );
     }
 }

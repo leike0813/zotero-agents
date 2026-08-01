@@ -4,6 +4,7 @@ import {
   rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
   type SynthesisProductionDiscovery,
+  type SynthesisSidecarObservationEvent,
 } from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
 import { joinPath } from "../utils/path";
@@ -29,13 +30,9 @@ import {
   type SynthesisSidecarRuntimeInstallSnapshot,
   type SynthesisSidecarRuntimeInstaller,
 } from "./synthesisSidecarRuntimeInstaller";
-import {
-  createSynthesisSidecarDiagnosticRecorders,
-  type SynthesisSidecarDiagnosticComponent,
-  type SynthesisSidecarDiagnosticEventInput,
-  type SynthesisSidecarDiagnosticEventStatus,
-} from "./synthesisSidecarDiagnosticEvents";
+import { rebuildSynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability";
 import { isSynthesisSidecarDiagnosticsAvailable } from "./debugMode";
+import { retainSynthesisSidecarNativeTraceEvent } from "./synthesisSidecarTrace";
 
 type SubprocessModule = NonNullable<
   ReturnType<typeof getMozillaSubprocessModule>
@@ -93,7 +90,7 @@ type BaseSupervisorOptions = {
   discoveryTimeoutMs?: number;
   healthIntervalMs?: number;
   restartDelaysMs?: readonly number[];
-  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
+  recordTraceEvent?: (event: SynthesisSidecarObservationEvent) => void;
   diagnosticsEnabled?: boolean;
 };
 
@@ -207,93 +204,23 @@ function appendTail(current: string, chunk: string) {
     : combined.slice(-DIAGNOSTIC_TAIL_LIMIT);
 }
 
-const NATIVE_DIAGNOSTIC_SCHEMA = "synthesis-sidecar-native-diagnostic-event.v1";
-const DIAGNOSTIC_COMPONENTS = new Set<SynthesisSidecarDiagnosticComponent>([
-  "lifecycle",
-  "rpc",
-  "reverse-host",
-  "operation",
-  "batch",
-  "process",
-]);
-const DIAGNOSTIC_STATUSES = new Set<SynthesisSidecarDiagnosticEventStatus>([
-  "started",
-  "succeeded",
-  "failed",
-]);
-
 export function parseNativeDiagnosticEvent(
   source: string,
-): SynthesisSidecarDiagnosticEventInput | undefined {
+): SynthesisSidecarObservationEvent | undefined {
   let value: unknown;
   try {
     value = JSON.parse(source);
   } catch {
     return undefined;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  try {
+    const event = rebuildSynthesisSidecarObservationEvent(value);
+    return event.source === "rust-sidecar" || event.source === "child-worker"
+      ? event
+      : undefined;
+  } catch {
     return undefined;
   }
-  const record = value as Record<string, unknown>;
-  if (
-    record.schema !== NATIVE_DIAGNOSTIC_SCHEMA ||
-    typeof record.component !== "string" ||
-    !DIAGNOSTIC_COMPONENTS.has(
-      record.component as SynthesisSidecarDiagnosticComponent,
-    ) ||
-    typeof record.stage !== "string" ||
-    typeof record.status !== "string" ||
-    !DIAGNOSTIC_STATUSES.has(
-      record.status as SynthesisSidecarDiagnosticEventStatus,
-    )
-  ) {
-    return undefined;
-  }
-  const event: SynthesisSidecarDiagnosticEventInput = {
-    component: record.component as SynthesisSidecarDiagnosticComponent,
-    stage: record.stage,
-    status: record.status as SynthesisSidecarDiagnosticEventStatus,
-  };
-  for (const field of [
-    "capability",
-    "requestId",
-    "operationId",
-    "correlationId",
-    "code",
-    "mutationStatus",
-    "workerCode",
-    "algorithm",
-    "graphHash",
-  ] as const) {
-    if (typeof record[field] === "string") {
-      event[field] = record[field];
-    }
-  }
-  for (const field of [
-    "durationMs",
-    "requestBytes",
-    "responseBytes",
-    "httpStatus",
-    "returned",
-    "total",
-    "page",
-    "batchOrdinal",
-    "sourceCount",
-    "payloadCount",
-    "actualBytes",
-    "limitBytes",
-    "actualJsonNodes",
-    "limitJsonNodes",
-    "nodeCount",
-    "edgeCount",
-    "nodeLimit",
-    "edgeLimit",
-  ] as const) {
-    if (typeof record[field] === "number") {
-      event[field] = record[field];
-    }
-  }
-  return event;
 }
 
 function waitForPromise(promise: Promise<unknown>, timeoutMs: number) {
@@ -361,9 +288,6 @@ export function createSynthesisProductionRuntimeSupervisor(
       : options.subprocess;
   const controlClient =
     options.controlClient || createSynthesisProductionSidecarControlClient();
-  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
-    options.recordDiagnosticEvent,
-  );
   const diagnosticsEnabled =
     options.diagnosticsEnabled ?? isSynthesisSidecarDiagnosticsAvailable();
 
@@ -411,6 +335,10 @@ export function createSynthesisProductionRuntimeSupervisor(
       if (!chunk) {
         return;
       }
+      if (kind === "stderr" && !diagnosticsEnabled) {
+        await yieldToEventLoop();
+        continue;
+      }
       if (kind === "stdout") {
         current.stdoutTail = appendTail(current.stdoutTail, chunk);
       } else {
@@ -424,19 +352,9 @@ export function createSynthesisProductionRuntimeSupervisor(
       for (const line of lines) {
         const event =
           kind === "stderr" ? parseNativeDiagnosticEvent(line) : undefined;
-        const recorder =
-          event?.status === "failed"
-            ? diagnosticRecorders.failure
-            : diagnosticRecorders.debug;
-        if (recorder && (event || diagnosticsEnabled)) {
-          recorder(
-            event || {
-              component: "process",
-              stage: `${kind}-line`,
-              status: "succeeded",
-              responseBytes: new TextEncoder().encode(line).byteLength,
-            },
-          );
+        if (event) {
+          retainSynthesisSidecarNativeTraceEvent(event);
+          options.recordTraceEvent?.(event);
         }
       }
       await yieldToEventLoop();

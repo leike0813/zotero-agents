@@ -24,6 +24,7 @@ export * from "./representativeImageRead";
 export * from "./schemaVersion";
 export * from "./relatedItemsEffect";
 export * from "./sidecarLifecycle";
+export * from "./sidecarObservability";
 export * from "./sidecarProduction";
 export * from "./sidecarCanonicalStore";
 export * from "./sidecarSystem";

@@ -59,3 +59,13 @@ current request and service instance exactly.
 #### Scenario: Service returns an application failure with placeholder identity
 - **WHEN** the response contains a recognized error code
 - **THEN** the client reports that code instead of `runtime_mismatch`
+
+### Requirement: Supervision SHALL expose causal lifecycle spans in debug
+
+Debug traces SHALL cover launch, discovery, identity/health checks, process
+exit, bounded restart, fuse, graceful shutdown, and forced shutdown. The
+supervisor SHALL not maintain a second mutable startup diagnostic snapshot.
+
+#### Scenario: Three restarts open the fuse
+- **WHEN** the supervised process fails through the configured restart budget
+- **THEN** one trace shows each attempt and the terminal fused state

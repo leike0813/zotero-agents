@@ -1,9 +1,8 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 thread_local! {
     static REQUEST_DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
-    static REQUEST_CORRELATION_ID: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 pub(crate) fn with_request_deadline<T>(duration: Duration, operation: impl FnOnce() -> T) -> T {
@@ -17,19 +16,10 @@ pub(crate) fn with_request_deadline<T>(duration: Duration, operation: impl FnOnc
 
 pub(crate) fn with_request_context<T>(
     duration: Duration,
-    correlation_id: Option<&str>,
+    _correlation_id: Option<&str>,
     operation: impl FnOnce() -> T,
 ) -> T {
-    REQUEST_CORRELATION_ID.with(|current| {
-        let previous = current.replace(correlation_id.map(str::to_owned));
-        let result = with_request_deadline(duration, operation);
-        current.replace(previous);
-        result
-    })
-}
-
-pub(crate) fn current_request_correlation_id() -> Option<String> {
-    REQUEST_CORRELATION_ID.with(|current| current.borrow().clone())
+    with_request_deadline(duration, operation)
 }
 
 pub(crate) fn bounded_timeout(maximum: Duration) -> Result<Duration, String> {

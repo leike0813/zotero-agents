@@ -214,28 +214,26 @@ unchanged. The default client accepts discovery only against the ordered ready
 roster, and Rust Workbench dispatch accepts the eight public surface names from
 the shared contract.
 
-### 10. Publish one correlated sidecar diagnostic stream
+### 11. Keep Advanced Matching policy in the real worker contract
 
-The plugin owns one sanitized event sink for lifecycle, RPC, reverse-Host,
-operation, and process boundaries. Production retains only bounded failure
-summaries. Debug builds additionally retain start/success events, mirror them
-to the Zotero console, and expose a recent read-only timeline in Task Manager.
-Events carry capability, request/operation identity, duration, byte counts,
-status, and aggregate counts; they never carry credentials, payloads, artifact
-locators, paper identifiers, note text, or WebDAV content.
+The native production matcher adapter converts repository and reverse-Host
+records into the two strict `synthesis-reference-matcher.v1` worker requests.
+The matcher crate exports the contract and algorithm versions so the worker and
+adapter share one source. Because both matcher operations belong to the
+deterministic worker surface, the compute pool converts the in-memory request
+and result through the generic paged protocol rather than sending a rejected
+direct `run` frame. A real sidecar child-process test locks that transport
+boundary. Host candidates retain DOI, arXiv, ISBN, URL, and citekey identity.
+Binding and redirect outcomes carry an explicit disposition, typed confidence,
+structured evidence, and bounded diagnostic objects; the application persists
+the worker decision without inferring acceptance from a score threshold.
 
-Rust writes strict diagnostic NDJSON to stderr while stdout remains reserved
-for discovery/protocol output. The supervisor reconstructs chunked lines,
-validates the event schema, and sends them through the same plugin sink.
-Workbench shows a compact failure entry and runtime diagnostic bundles reuse
-the existing bounded/redacted runtime-log storage.
-
-Reverse-Host response framing has one owner on each side. The plugin prepares
-one complete UTF-8 response before transfer and never appends a fallback
-response after transfer begins. Rust validates bounded headers, exact
-Content-Length, JSON, envelope, and result stages separately. A reference
-refresh that fails after preparation discards that preparation before
-returning, so a same-process retry remains valid.
+Binding runs first. Accepted repository bindings and redirects are captured in
+the immutable preparation basis. Binding outcomes are validated before the
+dedupe input is derived, and canonicals accepted during the current binding
+pass are added to the dedupe exclusion set. The adapter remains stateless:
+pass-specific state travels in `ReferenceMatcherInput`, repository reads remain
+owned by the application, and both passes are promoted in one transaction.
 
 ## Risks / Trade-offs
 

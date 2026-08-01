@@ -13,8 +13,7 @@ import {
   listRuntimeLogs,
   type RuntimeLogListFilters,
 } from "./runtimeLogManager";
-import type { SynthesisSidecarDiagnosticSnapshot } from "./synthesisSidecarDiagnostics";
-import type { SynthesisSidecarDiagnosticEvent } from "./synthesisSidecarDiagnosticEvents";
+import type { SynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
@@ -332,8 +331,7 @@ type DashboardSnapshot = {
     };
   };
   synthesisSidecarView?: {
-    snapshot?: SynthesisSidecarDiagnosticSnapshot;
-    recentEvents: SynthesisSidecarDiagnosticEvent[];
+    traceSnapshot: SynthesisSidecarTraceSnapshot;
   };
   skillRunnerConnectionAuditView?: {
     generatedAt: string;
@@ -2168,13 +2166,10 @@ async function buildDashboardSnapshot(args: {
     synthesisSidecarDiagnosticsEnabled &&
     resolvedSelectedTabKey === "synthesis-sidecar"
   ) {
-    const {
-      getSynthesisSidecarDiagnosticSnapshot,
-      listSynthesisSidecarDiagnosticEvents,
-    } = await import("./synthesisSidecarDiagnostics");
+    const { readSynthesisSidecarTraceSnapshot } =
+      await import("./synthesisSidecarTrace");
     snapshot.synthesisSidecarView = {
-      snapshot: getSynthesisSidecarDiagnosticSnapshot(),
-      recentEvents: listSynthesisSidecarDiagnosticEvents(),
+      traceSnapshot: readSynthesisSidecarTraceSnapshot(),
     };
     return finalizeDashboardSnapshot(snapshot);
   }
@@ -4559,10 +4554,10 @@ export async function openTaskManagerDialog(args?: {
       }
     });
     if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
-      void import("./synthesisSidecarDiagnostics").then(
-        ({ subscribeSynthesisSidecarDiagnostics }) => {
+      void import("./synthesisSidecarTrace").then(
+        ({ subscribeSynthesisSidecarTracePatches }) => {
           unsubscribeSynthesisDiagnostics =
-            subscribeSynthesisSidecarDiagnostics(() => {
+            subscribeSynthesisSidecarTracePatches(() => {
               if (state.selectedTabKey === "synthesis-sidecar") {
                 refresh("diagnostic-update");
               }

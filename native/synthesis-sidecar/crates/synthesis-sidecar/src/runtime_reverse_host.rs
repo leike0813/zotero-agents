@@ -5,8 +5,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use synthesis_sidecar::runtime_contract::{NativeLaunchConfig, current_time_ms};
 
-use crate::runtime_deadline::{bounded_timeout, current_request_correlation_id};
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, correlate, emit, emit_debug};
+use crate::runtime_deadline::bounded_timeout;
+use crate::runtime_diagnostics::{
+    NativeDiagnosticEvent, child_observation_context, correlate, emit_debug,
+};
 
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
@@ -144,7 +146,7 @@ pub(crate) fn call_reverse_host(
     } else {
         MAX_REVERSE_HOST_RESPONSE_BODY_BYTES
     };
-    let correlation_id = current_request_correlation_id();
+    let trace = child_observation_context();
     let mut call = json!({
         "schema":"synthesis-reverse-host-call.v1",
         "requestId":request_id.clone(),
@@ -155,8 +157,9 @@ pub(crate) fn call_reverse_host(
         "deadlineAtMs":now.saturating_add(timeout.as_millis() as u64),
         "payload":payload,
     });
-    if let Some(correlation_id) = &correlation_id {
-        call["correlationId"] = Value::String(correlation_id.clone());
+    if let Some(trace) = trace {
+        call["trace"] =
+            serde_json::to_value(trace).map_err(|_| "reverse_host_request_invalid".to_owned())?;
     }
     let body = serde_json::to_vec(&call).map_err(|_| "reverse_host_request_invalid".to_owned())?;
     emit_debug(|| {
@@ -186,14 +189,16 @@ pub(crate) fn call_reverse_host(
             Ok(result)
         }
         Err(error) => {
-            emit(correlate(
-                NativeDiagnosticEvent::new("reverse-host", "call-failed", "failed")
-                    .capability(capability)
-                    .request_id(request_id)
-                    .operation_id(operation_id)
-                    .code(&error)
-                    .duration_ms(current_time_ms().unwrap_or(now).saturating_sub(now)),
-            ));
+            emit_debug(|| {
+                correlate(
+                    NativeDiagnosticEvent::new("reverse-host", "call-failed", "failed")
+                        .capability(capability)
+                        .request_id(request_id)
+                        .operation_id(operation_id)
+                        .code(&error)
+                        .duration_ms(current_time_ms().unwrap_or(now).saturating_sub(now)),
+                )
+            });
             Err(error)
         }
     }

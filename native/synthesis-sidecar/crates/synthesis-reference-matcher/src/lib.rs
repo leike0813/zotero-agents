@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use unicode_categories::UnicodeCategories;
 use unicode_normalization::UnicodeNormalization;
 
-const CONTRACT: &str = "synthesis-reference-matcher.v1";
+pub const CONTRACT_VERSION: &str = "synthesis-reference-matcher.v1";
+pub const BINDING_ALGORITHM_VERSION: &str = "reference-binding.v1";
+pub const DEDUPE_ALGORITHM_VERSION: &str = "canonical-cluster-dedupe.v1";
 
 fn canceled(flag: &AtomicBool) -> Result<(), &'static str> {
     if flag.load(AtomicOrdering::Relaxed) {
@@ -393,8 +395,8 @@ fn title_variants(object: &Map<String, Value>) -> Vec<(String, String, bool)> {
 fn binding(request: Value, canceled_flag: &AtomicBool) -> Result<Value, &'static str> {
     canceled(canceled_flag)?;
     let request = request.as_object().ok_or("invalid_request")?;
-    if string(request, "contractVersion") != CONTRACT
-        || string(request, "algorithmVersion") != "reference-binding.v1"
+    if string(request, "contractVersion") != CONTRACT_VERSION
+        || string(request, "algorithmVersion") != BINDING_ALGORITHM_VERSION
     {
         return Err("invalid_request");
     }
@@ -606,7 +608,7 @@ fn binding(request: Value, canceled_flag: &AtomicBool) -> Result<Value, &'static
         matches.push(json!({"canonicalReferenceId":string(entry,"canonicalReferenceId"),"result":decision.unwrap()}));
     }
     Ok(
-        json!({"contractVersion":CONTRACT,"algorithmVersion":"reference-binding.v1","policyId":policy,"matches":matches}),
+        json!({"contractVersion":CONTRACT_VERSION,"algorithmVersion":BINDING_ALGORITHM_VERSION,"policyId":policy,"matches":matches}),
     )
 }
 
@@ -1520,8 +1522,8 @@ fn contained_title_details<'a>(
 fn dedupe(request: Value, canceled_flag: &AtomicBool) -> Result<Value, &'static str> {
     canceled(canceled_flag)?;
     let request = request.as_object().ok_or("invalid_request")?;
-    if string(request, "contractVersion") != CONTRACT
-        || string(request, "algorithmVersion") != "canonical-cluster-dedupe.v1"
+    if string(request, "contractVersion") != CONTRACT_VERSION
+        || string(request, "algorithmVersion") != DEDUPE_ALGORITHM_VERSION
     {
         return Err("invalid_request");
     }
@@ -2117,8 +2119,8 @@ fn dedupe(request: Value, canceled_flag: &AtomicBool) -> Result<Value, &'static 
         .map(|cluster| cluster["subclusters"].as_array().map_or(0, Vec::len))
         .sum::<usize>();
     Ok(json!({
-        "contractVersion":CONTRACT,
-        "algorithmVersion":"canonical-cluster-dedupe.v1",
+        "contractVersion":CONTRACT_VERSION,
+        "algorithmVersion":DEDUPE_ALGORITHM_VERSION,
         "clusters":clusters, "edges":edges, "actions":actions, "diagnostics":diagnostics,
         "counters":{
             "canonical_count":records.len(), "block_count":block_count,
@@ -2150,7 +2152,7 @@ mod tests {
     #[test]
     fn binding_preserves_identifier_and_title_semantics() {
         let request = json!({
-            "contractVersion":CONTRACT,"algorithmVersion":"reference-binding.v1","policyId":"production",
+            "contractVersion":CONTRACT_VERSION,"algorithmVersion":BINDING_ALGORITHM_VERSION,"policyId":"production",
             "papers":[{"paperRef":"1:A","itemKey":"A","title":"Exact Work","year":"2024","authors":["Alpha"],"identifiers":[{"kind":"doi","value":"10.1000/exact"}]}],
             "references":[{"canonicalReferenceId":"canonical:1","reference":{"title":"Exact Work","rawReference":"doi:10.1000/exact"}}]
         });

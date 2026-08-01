@@ -106,5 +106,31 @@
     "client.resumeWebDavSync": "mutation",
     "client.retryWebDavSync": "mutation",
     "client.resolveWebDavSyncConflict": "mutation"
+  },
+  "semanticSuccess": {
+    "client.recomputeCitationGraphLayout": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.refreshCitationGraphMetricsNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.runAdvancedReferenceMatchingNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryAdvancedReferenceMatching": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.refreshReferenceSidecarNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryReferenceSidecarRefresh": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    }
   }
 }

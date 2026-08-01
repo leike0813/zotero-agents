@@ -5,6 +5,10 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import {
+  rebuildSynthesisSidecarObservationEvent,
+  type SynthesisSidecarTraceContext,
+} from "../../packages/synthesis-contracts/src/sidecarObservability";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 import { buildSynthesisUiSnapshot } from "../../src/modules/synthesis/uiModel";
@@ -113,7 +117,12 @@ async function stop(child: ChildProcessWithoutNullStreams) {
   await exited;
 }
 
-async function call(port: number, capability: string, payload: unknown) {
+async function call(
+  port: number,
+  capability: string,
+  payload: unknown,
+  trace?: SynthesisSidecarTraceContext,
+) {
   const response = await fetch(`http://127.0.0.1:${port}/synthesis/v1/call`, {
     method: "POST",
     headers: {
@@ -126,6 +135,7 @@ async function call(port: number, capability: string, payload: unknown) {
       profileId: "1".repeat(64),
       capability,
       payload,
+      ...(trace ? { trace } : {}),
     }),
   });
   return {
@@ -376,11 +386,40 @@ describe("Synthesis Rust production client route", function () {
         "missing",
       );
 
-      const refresh = await call(port, "client.refreshReferenceSidecarNow", {
-        args: [],
-      });
+      const refreshTrace = {
+        schema: "synthesis-sidecar-observation.v2",
+        traceId: "a".repeat(32),
+        spanId: "b".repeat(16),
+        attempt: 0,
+      } as const;
+      const refresh = await call(
+        port,
+        "client.refreshReferenceSidecarNow",
+        { args: [] },
+        refreshTrace,
+      );
       assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
       assert.equal(refresh.body.data.ok, true);
+
+      const matching = await call(
+        port,
+        "client.runAdvancedReferenceMatchingNow",
+        { args: [] },
+        {
+          ...refreshTrace,
+          spanId: "c".repeat(16),
+          parentSpanId: refreshTrace.spanId,
+        },
+      );
+      assert.equal(matching.status, 200, JSON.stringify(matching.body));
+      assert.include(
+        [true, false],
+        matching.body.data.ok,
+        JSON.stringify(matching.body),
+      );
+      if (matching.body.data.ok === false) {
+        assert.equal(matching.body.data.status, "matcher_failed");
+      }
 
       const chrome = await call(
         port,
@@ -621,8 +660,51 @@ describe("Synthesis Rust production client route", function () {
         JSON.stringify(ranking.body),
       );
       assert.notProperty(metrics.body.data.items[0], "literatureItemId");
-      assert.include(sidecar.stderr(), '"stage":"call-completed"');
+      const refreshTraceEvents = sidecar
+        .stderr()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          try {
+            return rebuildSynthesisSidecarObservationEvent(JSON.parse(line));
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((event) => event?.traceId === refreshTrace.traceId);
+      assert.includeMembers(
+        [...new Set(refreshTraceEvents.map((event) => event!.boundary))],
+        ["host-rpc", "reverse-host", "operation"],
+      );
+      const workerCapabilities = refreshTraceEvents
+        .filter((event) => event?.boundary === "child-worker")
+        .map((event) => event?.identities?.capability)
+        .filter((value): value is string => typeof value === "string");
+      if (matching.body.data.ok === true) {
+        assert.include(
+          refreshTraceEvents.map((event) => event?.boundary),
+          "child-worker",
+        );
+        assert.include(workerCapabilities, "reference_binding.v1");
+        assert.include(workerCapabilities, "reference_canonical_dedupe.v1");
+      } else {
+        assert.isTrue(
+          refreshTraceEvents.some(
+            (event) =>
+              event?.outcome === "failed" && event.code === "matcher_failed",
+          ),
+        );
+      }
+      assert.isTrue(
+        refreshTraceEvents.some(
+          (event) =>
+            event?.parentSpanId === refreshTrace.spanId &&
+            event.outcome === "succeeded",
+        ),
+      );
       assert.notInclude(sidecar.stderr(), "共享引用");
+      assert.notInclude(sidecar.stderr(), "fixture:references:");
+      assert.notInclude(sidecar.stderr(), CLIENT_TOKEN);
 
       await stop(sidecar.child);
       const restarted = start(configPath);

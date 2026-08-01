@@ -135,14 +135,24 @@ struct ProductionClientOperationManifest {
     deadline_ms: u64,
     deadline_overrides_ms: BTreeMap<String, u64>,
     access: BTreeMap<String, ProductionClientAccess>,
+    #[serde(default)]
+    semantic_success: BTreeMap<String, ProductionClientSemanticSuccess>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProductionClientSemanticSuccess {
+    pub field: String,
+    pub values: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProductionClientOperationMetadata {
     pub access: ProductionClientAccess,
     pub request_bytes: usize,
     pub response_bytes: usize,
     pub deadline_ms: u64,
+    pub semantic_success: Option<ProductionClientSemanticSuccess>,
 }
 
 fn production_client_operation_manifest() -> Result<ProductionClientOperationManifest, String> {
@@ -163,6 +173,20 @@ fn production_client_operation_manifest() -> Result<ProductionClientOperationMan
             .any(|(capability, deadline)| {
                 !manifest.access.contains_key(capability) || !(100..=60_000).contains(deadline)
             })
+        || manifest.semantic_success.iter().any(|(capability, rule)| {
+            !manifest.access.contains_key(capability)
+                || rule.field != "status"
+                || rule.values.is_empty()
+                || rule.values.iter().any(|value| {
+                    value.is_empty()
+                        || value.len() > 128
+                        || !value.bytes().all(|byte| {
+                            byte.is_ascii_lowercase()
+                                || byte.is_ascii_digit()
+                                || b"_.:-".contains(&byte)
+                        })
+                })
+        })
     {
         return Err("invalid_production_operation_manifest".into());
     }
@@ -181,6 +205,7 @@ pub fn production_client_operation_metadata()
                 .get(&capability)
                 .copied()
                 .unwrap_or(manifest.deadline_ms);
+            let semantic_success = manifest.semantic_success.get(&capability).cloned();
             (
                 capability,
                 ProductionClientOperationMetadata {
@@ -188,6 +213,7 @@ pub fn production_client_operation_metadata()
                     request_bytes: manifest.request_bytes,
                     response_bytes: manifest.response_bytes,
                     deadline_ms,
+                    semantic_success,
                 },
             )
         })

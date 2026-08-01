@@ -24,7 +24,7 @@ use synthesis_repository::{
 };
 
 use crate::runtime_deadline::bounded_timeout;
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 
 const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 3;
 use crate::runtime_host_collection::{
@@ -1396,15 +1396,15 @@ impl ReferenceCanonicalApplication {
                 Ok(payload) => payloads.push(payload),
                 Err(error) => {
                     self.refresh.discard_preparation(&preparation_id);
-                    emit(
+                    emit_debug(|| {
                         NativeDiagnosticEvent::new("operation", "artifact-read-failed", "failed")
                             .capability("library.artifacts.read")
                             .operation_id(REFRESH_JOB_ID)
                             .batch_ordinal(batch_ordinal)
                             .page(index)
                             .total(prepared.reads.len())
-                            .code(&error),
-                    );
+                            .code(&error)
+                    });
                     return Ok(RefreshBatchAttempt::Failed {
                         code: error,
                         capacity: None,
@@ -1428,7 +1428,7 @@ impl ReferenceCanonicalApplication {
         };
         if let Err(error) = validate_reference_refresh_apply_request(&apply_request) {
             self.refresh.discard_preparation(&preparation_id);
-            emit(
+            emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "refresh-apply-rejected", "failed")
                     .capability("reference_sidecar_refresh")
                     .operation_id(REFRESH_JOB_ID)
@@ -1439,8 +1439,8 @@ impl ReferenceCanonicalApplication {
                     .limit_bytes(REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES)
                     .actual_json_nodes(capacity.json_nodes)
                     .limit_json_nodes(REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES)
-                    .code(error),
-            );
+                    .code(error)
+            });
             return if items.len() > 1 && error == "reference_refresh_payload_too_large" {
                 Ok(RefreshBatchAttempt::Split)
             } else {
@@ -1590,6 +1590,11 @@ impl ReferenceCanonicalApplication {
                     title: item.title.clone(),
                     year: item.year.clone(),
                     authors: item.creators.clone(),
+                    doi: item.doi.clone(),
+                    arxiv: item.arxiv.clone(),
+                    isbn: item.isbn.clone(),
+                    url: item.url.clone(),
+                    citekey: item.citekey.clone(),
                 })
                 .collect::<Vec<_>>();
             candidates.sort_by(|left, right| {
@@ -1919,22 +1924,32 @@ impl ReferenceCanonicalApplication {
                 self.write_job(&job)?;
                 if ok {
                     emit_debug(|| {
-                        NativeDiagnosticEvent::new("operation", "operation-completed", "succeeded")
+                        operation_result_event(
+                            NativeDiagnosticEvent::new(
+                                "operation",
+                                "operation-completed",
+                                "succeeded",
+                            )
                             .capability(&job.operation_type)
-                            .operation_id(&job.operation_id)
+                            .operation_id(&job.operation_id),
+                            &result,
+                        )
                     });
                 } else {
-                    emit(
-                        NativeDiagnosticEvent::new("operation", "operation-failed", "failed")
-                            .capability(&job.operation_type)
-                            .operation_id(&job.operation_id)
-                            .code(
-                                result
-                                    .get("status")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("operation_failed"),
-                            ),
-                    );
+                    emit_debug(|| {
+                        operation_result_event(
+                            NativeDiagnosticEvent::new("operation", "operation-failed", "failed")
+                                .capability(&job.operation_type)
+                                .operation_id(&job.operation_id)
+                                .code(
+                                    result
+                                        .get("status")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("operation_failed"),
+                                ),
+                            &result,
+                        )
+                    });
                 }
                 Ok(result)
             }
@@ -1947,12 +1962,12 @@ impl ReferenceCanonicalApplication {
                 job.completed_at = now.clone();
                 job.updated_at = now;
                 self.write_job(&job)?;
-                emit(
+                emit_debug(|| {
                     NativeDiagnosticEvent::new("operation", "operation-failed", "failed")
                         .capability(&job.operation_type)
                         .operation_id(&job.operation_id)
-                        .code(&error),
-                );
+                        .code(&error)
+                });
                 Err(error)
             }
         }
@@ -1973,6 +1988,44 @@ impl ReferenceCanonicalApplication {
             .map_err(|_| "repository_unavailable".to_owned())?
             .upsert_operation(record)
     }
+}
+
+fn operation_result_event(
+    mut event: NativeDiagnosticEvent,
+    result: &Value,
+) -> NativeDiagnosticEvent {
+    if let Some(status) = result
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        event = event.mutation_status(status);
+    }
+    if let Some(matching_hash) = result
+        .get("matching_hash")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        event = event.matching_hash(matching_hash);
+    }
+    if let Some(count) = result
+        .get("proposal_created_count")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        event = event.proposal_created_count(count);
+    }
+    if let Some(count) = result
+        .get("fact_count")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        event = event.fact_count(count);
+    }
+    if let Some(warnings) = result.get("warnings").and_then(Value::as_array) {
+        event = event.warning_count(warnings.len());
+    }
+    event
 }
 
 fn partition_refresh_batches(
@@ -2712,6 +2765,9 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use synthesis_application::reference_matching::{
+        ReferenceMatchConfidence, ReferenceMatchDisposition,
+    };
+    use synthesis_application::reference_matching::{
         ReferenceMatchKind, ReferenceMatchPass, ReferenceMatcherInput, ReferenceMatcherOutcome,
         ReferenceMatcherPort,
     };
@@ -2958,6 +3014,8 @@ mod tests {
                 .ok_or_else(|| "missing_candidate".to_owned())?;
             Ok(vec![ReferenceMatcherOutcome {
                 kind: ReferenceMatchKind::Binding,
+                disposition: ReferenceMatchDisposition::Review,
+                confidence: ReferenceMatchConfidence::Low,
                 source_canonical_reference_id: source.canonical_reference_id.clone(),
                 source_raw_reference_ids: vec![source.raw_reference_id.clone()],
                 target_canonical_reference_id: String::new(),
@@ -2965,7 +3023,8 @@ mod tests {
                 target_item_key: target.item_key.clone(),
                 score: 0.5,
                 reasons: vec!["fixture".into()],
-                evidence: Vec::new(),
+                evidence: json!({"source":"fixture"}),
+                diagnostics: Vec::new(),
             }])
         }
     }
@@ -2979,6 +3038,39 @@ mod tests {
                 .unwrap_or_default()
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn matching_terminal_event_projects_counts_without_warning_text() {
+        let event = operation_result_event(
+            NativeDiagnosticEvent::new("operation", "operation-completed", "succeeded")
+                .capability("advanced_reference_matching")
+                .operation_id(MATCHING_JOB_ID),
+            &json!({
+                "ok":true,
+                "status":"promoted",
+                "matching_hash":format!("sha256:{}", "c".repeat(64)),
+                "proposal_created_count":0,
+                "fact_count":2,
+                "warnings":["private paper title"],
+            }),
+        );
+        let source = serde_json::to_string(&event).expect("terminal event");
+        assert!(source.contains("\"semanticStatus\":\"promoted\""));
+        assert!(source.contains("\"proposalCount\":0"));
+        assert!(source.contains("\"factCount\":2"));
+        assert!(source.contains("\"warningCount\":1"));
+        assert!(!source.contains("private paper title"));
+
+        let early_failure = operation_result_event(
+            NativeDiagnosticEvent::new("operation", "operation-failed", "failed")
+                .code("basis_mismatch"),
+            &json!({"ok":false,"status":"basis_mismatch"}),
+        );
+        let source = serde_json::to_string(&early_failure).expect("early failure event");
+        assert!(source.contains("\"semanticStatus\":\"basis_mismatch\""));
+        assert!(!source.contains("matchingHash"));
+        assert!(!source.contains("proposalCount"));
     }
 
     fn application(

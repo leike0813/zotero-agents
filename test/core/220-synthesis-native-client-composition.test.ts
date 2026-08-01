@@ -4,6 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
+import { beginSynthesisSidecarBusinessAudit } from "../../src/modules/synthesisSidecarBusinessAudit";
+import {
   SynthesisClientError,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
   type SynthesisSidecarProductionClientCapability,
@@ -21,6 +26,54 @@ import {
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
 describe("Synthesis native client composition", function () {
+  beforeEach(function () {
+    void clearRuntimeLogs();
+  });
+
+  it("audits mutation terminals, read failures, and semantic non-success once", function () {
+    let clock = 10;
+    const mutation = beginSynthesisSidecarBusinessAudit({
+      operation: "client.runAdvancedReferenceMatchingNow",
+      now: () => clock++,
+    });
+    mutation.succeeded({ status: "worker_failed" });
+    mutation.failed({ code: "service_unavailable" });
+
+    const read = beginSynthesisSidecarBusinessAudit({
+      operation: "client.listTopics",
+      now: () => clock++,
+    });
+    read.failed({ code: "request_timeout" });
+
+    const entries = listRuntimeLogs({
+      component: "synthesis-sidecar-business",
+      order: "asc",
+    });
+    assert.deepEqual(
+      entries.map((entry) => [entry.operation, entry.stage]),
+      [
+        ["client.runAdvancedReferenceMatchingNow", "started"],
+        ["client.runAdvancedReferenceMatchingNow", "failed"],
+        ["client.listTopics", "failed"],
+      ],
+    );
+    assert.deepInclude(entries[1]?.details as Record<string, unknown>, {
+      semanticStatus: "worker_failed",
+      classification: "conflict",
+    });
+    assert.deepInclude(entries[2]?.details as Record<string, unknown>, {
+      classification: "timeout",
+    });
+    const serialized = JSON.stringify(entries);
+    for (const forbidden of [
+      "httpStatus",
+      "requestBytes",
+      "workerCode",
+      "traceId",
+    ]) {
+      assert.notInclude(serialized, forbidden);
+    }
+  });
   it("keeps the TypeScript port and Rust manifest on one closed fingerprint", function () {
     const report = inspectSynthesisProductionCapabilities();
     assert.equal(report.capabilityCount, 95);

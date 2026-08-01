@@ -1,0 +1,64 @@
+{
+  "schema": "synthesis-sidecar-observation-corpus.v2",
+  "positive": [
+    {
+      "id": "zero-valued-matching-terminal",
+      "kind": "event",
+      "value": {
+        "schema": "synthesis-sidecar-observation.v2",
+        "traceId": "11111111111111111111111111111111",
+        "spanId": "2222222222222222",
+        "parentSpanId": "3333333333333333",
+        "attempt": 0,
+        "source": "rust-sidecar",
+        "boundary": "operation",
+        "phase": "terminal",
+        "outcome": "succeeded",
+        "occurredAtMs": 0,
+        "identities": { "operation": "advanced_reference_matching" },
+        "metrics": { "durationMs": 0 },
+        "facts": {
+          "semanticStatus": "promoted",
+          "matchingHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "proposalCount": 0,
+          "factCount": 2,
+          "warningCount": 0
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "unknown-payload",
+      "kind": "event",
+      "value": {
+        "schema": "synthesis-sidecar-observation.v2",
+        "traceId": "11111111111111111111111111111111",
+        "spanId": "2222222222222222",
+        "attempt": 1,
+        "source": "host",
+        "boundary": "host-rpc",
+        "phase": "request",
+        "outcome": "started",
+        "occurredAtMs": 1,
+        "payload": { "title": "private" }
+      }
+    },
+    {
+      "id": "free-error-text",
+      "kind": "event",
+      "value": {
+        "schema": "synthesis-sidecar-observation.v2",
+        "traceId": "11111111111111111111111111111111",
+        "spanId": "2222222222222222",
+        "attempt": 1,
+        "source": "host",
+        "boundary": "host-rpc",
+        "phase": "request",
+        "outcome": "failed",
+        "code": "request failed because private paper /tmp/a",
+        "occurredAtMs": 1
+      }
+    }
+  ]
+}

@@ -55,13 +55,17 @@ The production-isolation gate SHALL cover ACP semantic trace, ACP Replay and pro
 - **THEN** SkillRunner audit modules SHALL contribute zero output bytes
 - **AND** governor hot paths SHALL contain no audit recorder call or runtime marker.
 
-### Requirement: Synthesis Sidecar diagnostics SHALL be build-exclusive
+### Requirement: Production SHALL elide sidecar debug machinery
 
-The shared production-isolation manifest SHALL cover the Synthesis Sidecar
-debug recorder, store, projection, subscriptions, Dashboard executable
-surface, native launch enablement, and source-specific runtime markers.
-Production builds and source-disabled debug builds SHALL retain no executable
-Synthesis diagnostic surface or successful-boundary instrumentation.
+With debug disabled, production SHALL not construct success events, propagate
+trace context, parse structured stderr, retain tails or trace stores, register
+subscriptions, or publish sidecar UI patches. Business failure incidents SHALL
+remain available.
+
+#### Scenario: Release-elision gate runs
+- **WHEN** the production bundle is inspected
+- **THEN** all debug-only markers and module bytes are absent
+- **AND** the business audit module remains present
 
 #### Scenario: Production plugin and Dashboard are audited
 - **WHEN** the real plugin and Dashboard entries are compiled with `__debug_mode__` false

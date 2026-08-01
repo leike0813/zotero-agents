@@ -61,37 +61,37 @@ receipt, admission, activation, pointer, version, owner, or lease files.
 
 ## Diagnostics
 
-The plugin separates sidecar diagnostics into two planes. Bounded failure
-summaries always enter Runtime Log so production failures remain supportable.
-The richer in-memory timeline retains start, success, and failure events only
-when both the hard-coded Synthesis diagnostics source switch and
-`__debug_mode__` are enabled; it is exposed by the top-level Synthesis Sidecar
-Task Manager page and mirrored to the Zotero console. Release bundling removes
-that page, its retained event store, and native debug-event construction when
-either gate is disabled.
+The plugin has two independent observation planes. Runtime Log is a Host-owned
+business audit: mutations record start and terminal, while reads and periodic
+operations record failures only. A single invocation owns terminalization, so
+a worker, reverse-Host, and RPC failure cannot create three incidents. Stored
+details are limited to operation, trigger, stage, outcome, duration, Host
+classification, and a declared public semantic status. HTTP status, byte
+counts, native request identity, worker code, and trace fields are excluded.
 
-Events cover lifecycle, plugin RPC, native RPC dispatch, reverse-Host calls,
-Reference Refresh batches and apply, native operations, and process output
-boundaries. The outer plugin request ID is the debug-only `correlationId`;
-native request, operation, and Reverse Host IDs remain distinct local
-identities. The Dashboard joins by `correlationId` first and falls back to ID
-equality for older events. Safe metadata includes duration, HTTP status, byte
-and JSON-node actual/limit pairs, batch ordinal, source and payload counts,
-page number, and aggregate counts. Citation Graph layout worker events may also
-include stable mutation and worker codes, algorithm, graph hash, and node/edge
-count-to-limit pairs. An HTTP-success Graph mutation with a non-success domain
-status produces a distinct failed operation event, so RPC transport success does
-not hide the semantic failure. Credentials, authorization
-headers, payloads, artifact locators, paper references, note text, and WebDAV
-content are never event fields.
+Debug builds additionally expose `synthesis-sidecar-observation.v2` causal
+traces. Optional context crosses Host RPC and reverse-Host wire envelopes, then
+links supervisor/process, RPC, reverse-Host, child-worker, transfer, and durable
+operation spans. The strict contract accepts only stable identity names,
+duration/queue/size/count metrics, stable codes, hashes, and closed domain
+facts. Advanced Matching facts are matching hash plus proposal, fact, and
+warning counts. Payloads, titles, bodies, locators, identifier values, paths,
+credentials, and free error text are rejected.
 
-The launch config carries the resolved diagnostics gate into Rust. When it is
-disabled, native start/success events are not constructed or serialized;
-failure events remain strict diagnostic NDJSON on stderr. Stdout remains
-reserved for discovery/protocol output. The supervisor reconstructs chunked
-stderr lines, validates their schema, and routes them through the matching
-failure or debug plane; unstructured output remains available only as a
-bounded, redacted process tail while diagnostics are enabled.
+The trace store is process memory only. It holds at most 1,000 events and 128
+events per trace, pins active traces, evicts the oldest completed trace as a
+unit, and preserves a trace start, first failure, terminal, and dropped count
+when a trace overflows. The Task Manager reads one snapshot when its Sidecar tab
+opens and then consumes 200 ms `added`/`updated`/`evicted` batches. Existing
+trace rows, selection, detail, and scroll remain mounted when their data does
+not change.
+
+The launch config carries the resolved debug gate into Rust. With the gate
+closed, Host and Rust create no trace IDs or events, serialize no trace context,
+parse no structured stderr, retain no stderr tail or trace store, register no
+trace subscription, and publish no Sidecar UI patch. Rust reports production
+failure through RPC results and supervisor process state; the Host business
+audit remains available. Stdout remains reserved for discovery/protocol output.
 
 Reverse-Host responses are prepared as one UTF-8 byte sequence before transfer.
 The memory response writer waits for output readiness, writes at most 32 KiB,
@@ -103,7 +103,6 @@ truncated/trailing body, JSON, envelope, and result failures.
 Reference refresh discards any preparation left by a subsequent Host-read
 failure, allowing a retry in the same process. The artifact-read capability has
 an explicit 8 MiB response and ten-second call budget; other reverse-Host calls
-retain the 1 MiB and two-second defaults. An oversized response records both
-the attempted encoded byte count and the applicable limit before the bounded
-error envelope replaces it, and the nested reason survives the Rust and plugin
-RPC boundaries.
+retain the 1 MiB and two-second defaults. An oversized response exposes the
+applicable debug budget and stable code without retaining the attempted body,
+and the nested stable reason survives the Rust and plugin RPC boundaries.

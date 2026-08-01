@@ -26,6 +26,10 @@ import {
   rebuildSynthesisSidecarTransferSnapshot,
   type SynthesisSidecarTransferSnapshot,
 } from "./sidecarTransfer.js";
+import {
+  rebuildSynthesisSidecarTraceContext,
+  type SynthesisSidecarTraceContext,
+} from "./sidecarObservability.js";
 
 export const SYNTHESIS_REVERSE_HOST_CALL_SCHEMA =
   "synthesis-reverse-host-call.v1" as const;
@@ -90,6 +94,7 @@ export type SynthesisReverseHostCall = {
   serviceInstanceId: string;
   operationId: string;
   correlationId?: string;
+  trace?: SynthesisSidecarTraceContext;
   capability: SynthesisReverseHostCapability;
   deadlineAtMs: number;
   payload: SynthesisJsonObject;
@@ -540,6 +545,7 @@ export function rebuildSynthesisReverseHostCall(
       "serviceInstanceId",
       "operationId",
       ...(record.correlationId === undefined ? [] : ["correlationId"]),
+      ...(record.trace === undefined ? [] : ["trace"]),
       "capability",
       "deadlineAtMs",
       "payload",
@@ -577,6 +583,9 @@ export function rebuildSynthesisReverseHostCall(
             512,
           ),
         }),
+    ...(record.trace === undefined
+      ? {}
+      : { trace: rebuildSynthesisSidecarTraceContext(record.trace) }),
     capability: record.capability as SynthesisReverseHostCapability,
     deadlineAtMs: safeInteger(
       record.deadlineAtMs,

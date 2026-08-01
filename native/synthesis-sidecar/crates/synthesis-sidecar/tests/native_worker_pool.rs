@@ -3,6 +3,9 @@
 #[path = "../src/runtime_deadline.rs"]
 mod runtime_deadline;
 
+#[path = "../src/runtime_diagnostics.rs"]
+mod runtime_diagnostics;
+
 #[path = "../src/runtime_worker_pool.rs"]
 mod runtime_worker_pool;
 
@@ -71,4 +74,90 @@ fn reuses_a_successful_child_and_fuses_three_crashes() {
         "three consecutive child crashes open the fuse"
     );
     assert_eq!(pool.snapshot(false).expect("snapshot")["restartCount"], 4);
+}
+
+#[test]
+fn reference_matcher_uses_the_real_paged_worker_protocol() {
+    let executable = PathBuf::from(env!("CARGO_BIN_EXE_synthesis-sidecar"));
+    let pool = Arc::new(NativeComputePool::new_with_executable(executable));
+    let stopping = AtomicBool::new(false);
+    let admission = pool.admit(&stopping).expect("worker admission");
+
+    let binding = pool
+        .run_direct(
+            WorkerOperation::ReferenceBinding,
+            json!({
+                "contractVersion":"synthesis-reference-matcher.v1",
+                "algorithmVersion":"reference-binding.v1",
+                "policyId":"production",
+                "papers":[{
+                    "paperRef":"1:TARGET",
+                    "itemKey":"TARGET",
+                    "title":"Exact Target Work",
+                    "year":"2024",
+                    "authors":["Alpha"],
+                    "doi":"10.1000/exact"
+                }],
+                "references":[{
+                    "canonicalReferenceId":"canonical:1",
+                    "reference":{
+                        "referenceInstanceId":"raw:1",
+                        "parsedTitle":"Exact Target Work",
+                        "normalizedTitle":"exact target work",
+                        "year":"2024",
+                        "authors":["Alpha"],
+                        "rawReference":"doi:10.1000/exact"
+                    }
+                }]
+            }),
+        )
+        .expect("paged binding result");
+    assert_eq!(
+        binding["matches"][0]["result"]["targetPaperRef"],
+        "1:TARGET"
+    );
+
+    let dedupe = pool
+        .run_direct(
+            WorkerOperation::ReferenceCanonicalDedupe,
+            json!({
+                "contractVersion":"synthesis-reference-matcher.v1",
+                "algorithmVersion":"canonical-cluster-dedupe.v1",
+                "canonicals":[
+                    {
+                        "canonicalReferenceId":"canonical:1",
+                        "title":"Exact Target Work",
+                        "normalizedTitle":"exact target work",
+                        "year":"2024",
+                        "authors":["Alpha"],
+                        "identifiers":[{"kind":"doi","value":"10.1000/exact"}],
+                        "rawReferenceIds":["raw:1"],
+                        "rawHashes":["sha256:raw-1"],
+                        "rawReferences":["Exact Target Work"],
+                        "sourceRefs":["1:SOURCE"],
+                        "acceptedBinding":false,
+                        "stickyRepresentative":false,
+                        "titleCandidates":[]
+                    },
+                    {
+                        "canonicalReferenceId":"canonical:2",
+                        "title":"Exact Target Work",
+                        "normalizedTitle":"exact target work",
+                        "year":"2024",
+                        "authors":["Alpha"],
+                        "identifiers":[{"kind":"doi","value":"10.1000/exact"}],
+                        "rawReferenceIds":["raw:2"],
+                        "rawHashes":["sha256:raw-2"],
+                        "rawReferences":["Exact Target Work"],
+                        "sourceRefs":["1:SOURCE"],
+                        "acceptedBinding":false,
+                        "stickyRepresentative":false,
+                        "titleCandidates":[]
+                    }
+                ]
+            }),
+        )
+        .expect("paged dedupe result");
+    assert_eq!(dedupe["actions"].as_array().map(Vec::len), Some(1));
+    drop(admission);
 }

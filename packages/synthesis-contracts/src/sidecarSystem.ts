@@ -4,6 +4,10 @@ import {
   type SynthesisJsonObject,
 } from "./common.js";
 import {
+  rebuildSynthesisSidecarTraceContext,
+  type SynthesisSidecarTraceContext,
+} from "./sidecarObservability.js";
+import {
   rebuildSynthesisSidecarTransferSnapshot,
   type SynthesisSidecarTransferSnapshot,
 } from "./sidecarTransfer.js";
@@ -303,6 +307,7 @@ export type SynthesisSidecarCallRequest = {
   profileId: string;
   capability: string;
   payload: SynthesisJsonObject;
+  trace?: SynthesisSidecarTraceContext;
 };
 
 export type SynthesisSidecarHealth = {
@@ -453,6 +458,27 @@ export function rebuildSynthesisSidecarCallRequest(
   value: unknown,
 ): SynthesisSidecarCallRequest {
   const json = toSynthesisJsonObject(value, "sidecarCallRequest");
+  const keys = Object.keys(json).sort();
+  const allowed = [
+    "capability",
+    "payload",
+    "profileId",
+    "protocol",
+    "requestId",
+    "trace",
+  ];
+  if (
+    ["capability", "payload", "profileId", "protocol", "requestId"].some(
+      (field) => !(field in json),
+    ) ||
+    keys.some((field) => !allowed.includes(field))
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarCallRequest fields are invalid",
+      { location: "sidecarCallRequest" },
+    );
+  }
   return {
     protocol: requireBoundedString(json.protocol, "protocol", 64),
     requestId: requireBoundedString(
@@ -471,6 +497,9 @@ export function rebuildSynthesisSidecarCallRequest(
       SYNTHESIS_SIDECAR_LIMITS.capabilityLength,
     ),
     payload: toSynthesisJsonObject(json.payload, "payload"),
+    ...(json.trace === undefined
+      ? {}
+      : { trace: rebuildSynthesisSidecarTraceContext(json.trace) }),
   };
 }
 

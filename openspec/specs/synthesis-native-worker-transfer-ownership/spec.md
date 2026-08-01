@@ -64,3 +64,13 @@ Transfer canonical bytes SHALL live only beneath an isolated profile runtime tra
 #### Scenario: Session is canceled
 - **WHEN** a client explicitly cancels a session
 - **THEN** its input, attempts, output, descriptors, and idempotency reservation SHALL be removed
+
+### Requirement: Transfer traces SHALL follow asynchronous attempts
+
+Debug traces SHALL correlate transfer prepare, page flow, queued/executing
+attempts, cancel, timeout, failure, and terminal promotion without exposing page
+payloads or locators.
+
+#### Scenario: An asynchronous attempt fails
+- **WHEN** transfer execution terminates after request return
+- **THEN** the original trace receives the attempt and terminal span updates

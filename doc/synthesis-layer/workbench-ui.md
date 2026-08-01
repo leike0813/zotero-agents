@@ -12,15 +12,14 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 - Normal Workbench reads must not start library-wide reconciliation or cache refresh.
 - Progress, chrome, client, and debug reads are pure queries: they must not cancel or update a `running` operation. Explicit startup reconciliation is the only lifecycle path that cancels persisted `running` rows as restart orphans.
 
-In debug builds, a failed native startup is projected through one
-attempt-correlated lifecycle snapshot. Every Workbench surface shows the same
-compact failure card and links to the read-only **Synthesis Sidecar** page in
-Task Manager. That page shows the current phase, stable failure code, verified
-bundle/runtime identity, supervisor state, bounded redacted process tails, and
-the structured lifecycle timeline. It offers no retry, restart, repair, or
-mutation action. The same snapshot is included in the existing runtime issue
-diagnostic bundle under its redaction policy; release builds retain neither
-this UI nor process-tail evidence.
+In debug builds, failed native startup spans are part of the same causal trace
+store as RPC, reverse-Host, worker, transfer, and durable-operation spans.
+Workbench may show the latest stable startup phase and code and link to the
+read-only **Synthesis Sidecar** page in Task Manager. The page groups spans by
+trace, shows parent/child depth, attempt, dropped counts, allowlisted metrics
+and facts, and copies the complete sanitized selected trace. It offers no
+retry, restart, repair, or mutation action. Release builds retain neither this
+page nor trace context, process tails, trace stores, subscriptions, or patches.
 
 ## Surface-Scoped Refresh Architecture
 

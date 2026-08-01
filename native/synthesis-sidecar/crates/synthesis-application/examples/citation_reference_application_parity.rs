@@ -260,6 +260,10 @@ impl ReferenceMatcherPort for FixtureMatcher {
         Ok(match pass {
             ReferenceMatchPass::LibraryBinding => vec![ReferenceMatcherOutcome {
                 kind: ReferenceMatchKind::Binding,
+                disposition:
+                    synthesis_application::reference_matching::ReferenceMatchDisposition::Accept,
+                confidence:
+                    synthesis_application::reference_matching::ReferenceMatchConfidence::High,
                 source_canonical_reference_id: canonical.canonical_reference_id.clone(),
                 source_raw_reference_ids: input
                     .raw_references
@@ -272,7 +276,8 @@ impl ReferenceMatcherPort for FixtureMatcher {
                 target_item_key: host.item_key.clone(),
                 score: 0.99,
                 reasons: vec!["fixture_title_match".into()],
-                evidence: vec![host.title.clone()],
+                evidence: serde_json::json!({"title":host.title}),
+                diagnostics: Vec::new(),
             }],
             ReferenceMatchPass::CanonicalRedirect => Vec::new(),
         })

@@ -11,7 +11,7 @@ import {
   SYNTHESIS_REVERSE_HOST_PATH,
 } from "../../src/modules/synthesisReverseHostEndpoint";
 import type { SynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostBroker";
-import type { SynthesisSidecarDiagnosticEventInput } from "../../src/modules/synthesisSidecarDiagnosticEvents";
+import type { SynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -27,7 +27,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
     const authorizationToken = "a".repeat(64);
     const profileId = "b".repeat(64);
     const serviceInstanceId = "service-unicode";
-    const diagnosticEvents: SynthesisSidecarDiagnosticEventInput[] = [];
+    const diagnosticEvents: SynthesisSidecarObservationEvent[] = [];
     let value = `目录治理 ${"文献".repeat(32_000)}`;
     const handlers = Object.fromEntries(
       SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((capability) => [
@@ -42,7 +42,7 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       isHostConnected: () => true,
       authorizeCapability: () => true,
       handlers,
-      recordDiagnosticEvent: (event) => diagnosticEvents.push(event),
+      recordTraceEvent: (event) => diagnosticEvents.push(event),
     });
     const locator = endpoint.start();
     endpoint.bindServiceInstance(serviceInstanceId);
@@ -157,27 +157,14 @@ describeZotero("zotero library page query in Zotero runtime", function () {
         JSON.parse(oversizedSource).error.details.reason,
         "reverse_host_response_too_large",
       );
-      assert.deepInclude(
-        diagnosticEvents.find(
-          (event) =>
-            event.requestId === "request-over-artifact-limit" &&
-            event.stage === "response-rejected",
-        ),
-        {
-          status: "failed",
-          code: "reverse_host_response_too_large",
-          attemptedResponseBytes: new TextEncoder().encode(
-            JSON.stringify({
-              ok: true,
-              result: {
-                capability: "library.artifacts.read",
-                value,
-              },
-            }),
-          ).byteLength,
-          limitBytes: 8 * 1024 * 1024,
-        },
+      const oversizedEvent = diagnosticEvents.find(
+        (event) =>
+          event.phase === "transport-terminal" &&
+          event.code === "reverse_host_response_too_large",
       );
+      assert.equal(oversizedEvent?.outcome, "failed");
+      assert.equal(oversizedEvent?.metrics?.budgetBytes, 8 * 1024 * 1024);
+      assert.isAbove(Number(oversizedEvent?.metrics?.responseBytes), 0);
     } finally {
       endpoint.stop();
     }

@@ -84,9 +84,14 @@ export const runtimeDiagnosticsFeatureGroups = {
   synthesisSidecar: {
     switchKey: "synthesisSidecar",
     define: "__synthesis_sidecar_diagnostics_enabled__",
-    exclusiveModules: ["src/modules/synthesisSidecarDiagnostics.ts"],
+    exclusiveModules: [
+      "src/modules/synthesisSidecarTrace.ts",
+      "packages/synthesis-contracts/src/sidecarObservability.ts",
+    ],
     forbiddenRuntimeMarkers: [
-      "synthesis-sidecar-diagnostic-snapshot.v1",
+      "synthesis-sidecar-observation.v2",
+      "synthesis-sidecar-trace-snapshot.v2",
+      "synthesis-sidecar-trace-patch.v2",
       "synthesis-sidecar:events",
     ],
   },

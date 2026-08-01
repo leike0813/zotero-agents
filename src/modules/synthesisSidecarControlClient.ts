@@ -13,7 +13,12 @@ import {
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarHandshakeResult,
   type SynthesisSidecarHealth,
+  type SynthesisSidecarTraceContext,
 } from "../../packages/synthesis-contracts/src";
+import {
+  createSynthesisSidecarTraceContext,
+  recordSynthesisSidecarTraceEvent,
+} from "./synthesisSidecarTrace";
 
 export type SynthesisSidecarControlConnection = {
   discovery: SynthesisSidecarDiscovery;
@@ -227,6 +232,7 @@ async function callSystem(args: {
   payload: Record<string, unknown>;
   timeoutMs: number;
   fetchImpl: FetchLike;
+  trace?: SynthesisSidecarTraceContext;
 }) {
   return withDeadline(args.timeoutMs, async (signal) => {
     const response = await args.fetchImpl(
@@ -243,6 +249,7 @@ async function callSystem(args: {
           profileId: args.connection.discovery.profileId,
           capability: args.capability,
           payload: args.payload,
+          ...(args.trace ? { trace: args.trace } : {}),
         }),
         signal,
       },
@@ -272,41 +279,94 @@ function createControlClient<
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_control_fetch_unavailable");
   }
+  async function observe<Result>(
+    phase: "health" | "handshake" | "shutdown",
+    operation: (
+      trace: SynthesisSidecarTraceContext | undefined,
+    ) => Promise<Result>,
+  ) {
+    const trace = createSynthesisSidecarTraceContext();
+    const startedAt = Date.now();
+    recordSynthesisSidecarTraceEvent({
+      context: trace,
+      source: "host",
+      boundary: "supervisor",
+      phase,
+      outcome: "started",
+      identities: { operation: phase, trigger: "internal" },
+    });
+    try {
+      const result = await operation(trace);
+      recordSynthesisSidecarTraceEvent({
+        context: trace,
+        source: "host",
+        boundary: "supervisor",
+        phase: `${phase}-terminal`,
+        outcome: "succeeded",
+        identities: { operation: phase, trigger: "internal" },
+        metrics: { durationMs: Math.max(0, Date.now() - startedAt) },
+      });
+      return result;
+    } catch (error) {
+      const value = error instanceof Error ? error.message : "control_failed";
+      recordSynthesisSidecarTraceEvent({
+        context: trace,
+        source: "host",
+        boundary: "supervisor",
+        phase: `${phase}-terminal`,
+        outcome: value.includes("timeout") ? "timed-out" : "failed",
+        code: /^[a-z][a-z0-9_.:-]{0,127}$/.test(value)
+          ? value
+          : "control_failed",
+        identities: { operation: phase, trigger: "internal" },
+        metrics: { durationMs: Math.max(0, Date.now() - startedAt) },
+      });
+      throw error;
+    }
+  }
   return {
     async health(connection: TConnection) {
-      const value = await withDeadline(timeoutMs, async (signal) => {
-        const response = await fetchImpl(
-          endpoint(connection, SYNTHESIS_SIDECAR_HEALTH_PATH),
-          { method: "GET", signal },
-        );
-        return readJsonResponse(response);
+      return observe("health", async () => {
+        const value = await withDeadline(timeoutMs, async (signal) => {
+          const response = await fetchImpl(
+            endpoint(connection, SYNTHESIS_SIDECAR_HEALTH_PATH),
+            { method: "GET", signal },
+          );
+          return readJsonResponse(response);
+        });
+        return validators.health(value, connection);
       });
-      return validators.health(value, connection);
     },
     async handshake(connection: TConnection) {
-      const value = await callSystem({
-        connection,
-        token: connection.clientToken,
-        capability: "system.handshake",
-        payload: {
-          schemaVersion: connection.discovery.schemaVersion,
-          bundleId: connection.discovery.bundleId,
-          buildFingerprint: connection.discovery.buildFingerprint,
-          supervisorInstanceId: connection.discovery.supervisorInstanceId,
-        },
-        timeoutMs,
-        fetchImpl,
+      return observe("handshake", async (trace) => {
+        const value = await callSystem({
+          connection,
+          token: connection.clientToken,
+          capability: "system.handshake",
+          payload: {
+            schemaVersion: connection.discovery.schemaVersion,
+            bundleId: connection.discovery.bundleId,
+            buildFingerprint: connection.discovery.buildFingerprint,
+            supervisorInstanceId: connection.discovery.supervisorInstanceId,
+          },
+          timeoutMs,
+          fetchImpl,
+          trace,
+        });
+        return validators.handshake(value, connection);
       });
-      return validators.handshake(value, connection);
     },
     async shutdown(connection: TConnection) {
-      await callSystem({
-        connection,
-        token: connection.lifecycleToken,
-        capability: "system.shutdown",
-        payload: {},
-        timeoutMs,
-        fetchImpl,
+      return observe("shutdown", async (trace) => {
+        await callSystem({
+          connection,
+          token: connection.lifecycleToken,
+          capability: "system.shutdown",
+          payload: {},
+          timeoutMs,
+          fetchImpl,
+          trace,
+        });
       });
     },
   };

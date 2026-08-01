@@ -8,7 +8,7 @@ import {
 const runtimeDiagnosticsModuleFilter = new RegExp(
   `(?:^|/)(?:${runtimeDiagnosticsModuleBasenames()
     .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|")})$`,
+    .join("|")})(?:\\.(?:js|ts))?$`,
 );
 
 const profilerModuleBasename = path.basename(
@@ -20,7 +20,11 @@ const chatDiagnosticAuditModuleBasename = path.basename(
   ".ts",
 );
 const synthesisSidecarDiagnosticsModuleBasename = path.basename(
-  "src/modules/synthesisSidecarDiagnostics.ts",
+  runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules[0],
+  ".ts",
+);
+const synthesisSidecarObservabilityModuleBasename = path.basename(
+  runtimeDiagnosticsFeatureGroups.synthesisSidecar.exclusiveModules[1],
   ".ts",
 );
 
@@ -54,14 +58,23 @@ export function discardAllAcpChatDiagnosticAuditsForTests() {}
 `;
 
 const disabledSynthesisSidecarDiagnosticsModule = `
-export function beginSynthesisSidecarStartupAttempt() { return ""; }
-export function recordSynthesisSidecarStartupPhase() {}
-export function getSynthesisSidecarDiagnosticSnapshot() { return undefined; }
-export function subscribeSynthesisSidecarDiagnostics() { return () => {}; }
-export function retainSynthesisSidecarDiagnosticEvent() {}
-export function listSynthesisSidecarDiagnosticEvents() { return []; }
-export function resetSynthesisSidecarDiagnosticsForTests() {}
+export function createSynthesisSidecarTraceContext() { return undefined; }
+export function recordSynthesisSidecarTraceEvent() { return undefined; }
+export function retainSynthesisSidecarNativeTraceEvent() { return undefined; }
+export function readSynthesisSidecarTraceSnapshot() { return { traces: [], eventCount: 0 }; }
+export function subscribeSynthesisSidecarTracePatches() { return () => {}; }
+export function flushSynthesisSidecarTracePatchesForTests() {}
+export function resetSynthesisSidecarTraceForTests() {}
 `;
+
+const disabledSynthesisSidecarObservabilityModule = `
+export function rebuildSynthesisSidecarTraceContext() { return undefined; }
+export function rebuildSynthesisSidecarObservationEvent() { return undefined; }
+`;
+
+function moduleBasename(modulePath: string) {
+  return path.basename(modulePath).replace(/\.(?:js|ts)$/, "");
+}
 
 export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
   name: "runtime-diagnostics-side-effects",
@@ -85,7 +98,7 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       (args) => {
         if (
           profilerDisabled &&
-          path.basename(args.path) === profilerModuleBasename
+          moduleBasename(args.path) === profilerModuleBasename
         ) {
           return {
             path: profilerModuleBasename,
@@ -95,7 +108,7 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
         }
         if (
           debugDisabled &&
-          path.basename(args.path) === chatDiagnosticAuditModuleBasename
+          moduleBasename(args.path) === chatDiagnosticAuditModuleBasename
         ) {
           return {
             path: chatDiagnosticAuditModuleBasename,
@@ -105,7 +118,8 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
         }
         if (
           synthesisSidecarDisabled &&
-          path.basename(args.path) === synthesisSidecarDiagnosticsModuleBasename
+          moduleBasename(args.path) ===
+            synthesisSidecarDiagnosticsModuleBasename
         ) {
           return {
             path: synthesisSidecarDiagnosticsModuleBasename,
@@ -113,8 +127,26 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
             sideEffects: false,
           };
         }
+        if (
+          synthesisSidecarDisabled &&
+          moduleBasename(args.path) ===
+            synthesisSidecarObservabilityModuleBasename
+        ) {
+          return {
+            path: synthesisSidecarObservabilityModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
         return {
-          path: path.resolve(args.resolveDir, `${args.path}.ts`),
+          path: path.resolve(
+            args.resolveDir,
+            args.path.endsWith(".js")
+              ? `${args.path.slice(0, -3)}.ts`
+              : args.path.endsWith(".ts")
+                ? args.path
+                : `${args.path}.ts`,
+          ),
           sideEffects: false,
         };
       },
@@ -146,6 +178,16 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       },
       () => ({
         contents: disabledSynthesisSidecarDiagnosticsModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${synthesisSidecarObservabilityModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledSynthesisSidecarObservabilityModule,
         loader: "js",
       }),
     );

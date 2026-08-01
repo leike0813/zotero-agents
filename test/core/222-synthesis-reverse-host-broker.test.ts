@@ -9,6 +9,10 @@ import {
   createSynthesisReverseHostBroker,
   type SynthesisReverseHostHandlers,
 } from "../../src/modules/synthesisReverseHostBroker";
+import {
+  setDebugModeOverrideForTests,
+  setSynthesisSidecarDiagnosticsSourceOverrideForTests,
+} from "../../src/modules/debugMode";
 
 const profileId = "1".repeat(64);
 const serviceInstanceId = "service-1";
@@ -46,6 +50,16 @@ function reason(error: unknown) {
 }
 
 describe("Synthesis reverse Host broker", function () {
+  beforeEach(function () {
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+  });
+
+  afterEach(function () {
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+    setDebugModeOverrideForTests(undefined);
+  });
+
   it("reports payload-free handler boundaries with shared correlation ids", async function () {
     const events: Record<string, unknown>[] = [];
     const broker = createSynthesisReverseHostBroker({
@@ -56,7 +70,7 @@ describe("Synthesis reverse Host broker", function () {
       isHostConnected: () => true,
       authorizeCapability: () => true,
       handlers: makeHandlers(() => ({ value: "目录" })),
-      recordDiagnosticEvent: (event) => events.push(event),
+      recordTraceEvent: (event) => events.push(event),
     });
 
     await broker.dispatch({
@@ -66,27 +80,19 @@ describe("Synthesis reverse Host broker", function () {
 
     assert.deepEqual(
       events.map((event) => [
-        event.stage,
-        event.status,
-        event.requestId,
-        event.operationId,
+        event.phase,
+        event.outcome,
+        (event.identities as Record<string, unknown>)?.capability,
       ]),
       [
-        [
-          "handler-started",
-          "started",
-          "request-1",
-          "operation-1",
-        ],
-        [
-          "handler-completed",
-          "succeeded",
-          "request-1",
-          "operation-1",
-        ],
+        ["handler", "started", "library.artifacts.read"],
+        ["handler-terminal", "succeeded", "library.artifacts.read"],
       ],
     );
-    assert.isAbove(Number(events[1]?.responseBytes), "目录".length);
+    assert.isAbove(
+      Number((events[1]?.metrics as Record<string, unknown>)?.responseBytes),
+      "目录".length,
+    );
     assert.notInclude(JSON.stringify(events), "目录");
   });
 

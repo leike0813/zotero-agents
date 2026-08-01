@@ -15,6 +15,11 @@ import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   synthesisProductionTransportDeadlineMs,
 } from "../synthesisProductionRpcPolicy";
+import { beginSynthesisSidecarBusinessAudit } from "../synthesisSidecarBusinessAudit";
+import {
+  createSynthesisSidecarTraceContext,
+  recordSynthesisSidecarTraceEvent,
+} from "../synthesisSidecarTrace";
 import { getReadySynthesisProductionControlConnection } from "../synthesisSidecarRuntimeSupervisor";
 import {
   createSynthesisClientFromPort,
@@ -60,11 +65,18 @@ function normalizeRpcError(error: unknown) {
     return error;
   }
   if (error instanceof SynthesisSidecarRpcError) {
+    const detailReason = error.details.reason;
+    const hasControlCharacter =
+      typeof detailReason === "string" &&
+      [...detailReason].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      });
     const reason =
-      typeof error.details.reason === "string" &&
-      error.details.reason.length <= 160 &&
-      !/[\u0000-\u001f\u007f]/.test(error.details.reason)
-        ? error.details.reason
+      typeof detailReason === "string" &&
+      detailReason.length <= 160 &&
+      !hasControlCharacter
+        ? detailReason
         : error.code;
     return new SynthesisClientError(
       error.code === "invalid_request"
@@ -101,14 +113,26 @@ function createNativePort(args: {
         return undefined;
       }
       return async (...methodArgs: unknown[]) => {
-        if (!args.isActive()) {
-          throw unavailable("composition_disposed");
-        }
-        const connection = args.getReadyConnection();
-        if (!connection) {
-          throw unavailable("service_not_ready");
-        }
+        const operation =
+          capability as SynthesisSidecarProductionClientCapability;
+        const audit = beginSynthesisSidecarBusinessAudit({ operation });
+        const trace = createSynthesisSidecarTraceContext();
+        recordSynthesisSidecarTraceEvent({
+          context: trace,
+          source: "host",
+          boundary: "operation",
+          phase: "start",
+          outcome: "started",
+          identities: { operation },
+        });
         try {
+          if (!args.isActive()) {
+            throw unavailable("composition_disposed");
+          }
+          const connection = args.getReadyConnection();
+          if (!connection) {
+            throw unavailable("service_not_ready");
+          }
           const normalizedArgs =
             property === "applyTopicSynthesisResult"
               ? [
@@ -129,10 +153,9 @@ function createNativePort(args: {
           ) {
             normalizedArgs.pop();
           }
-          return await args.rpcClient.call({
+          const result = await args.rpcClient.call({
             connection: rpcConnection(connection),
-            capability:
-              capability as SynthesisSidecarProductionClientCapability,
+            capability: operation,
             payload: toSynthesisJsonObject(
               {
                 args: normalizedArgs.map((value) =>
@@ -143,12 +166,40 @@ function createNativePort(args: {
             ),
             rebuildResult: (value) =>
               toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
-            deadlineMs: synthesisProductionTransportDeadlineMs(
-              capability as SynthesisSidecarProductionClientCapability,
-            ),
+            deadlineMs: synthesisProductionTransportDeadlineMs(operation),
+            trace,
           });
+          const semantic = audit.succeeded(result);
+          const semanticStatus =
+            result && typeof result === "object" && !Array.isArray(result)
+              ? (result as Record<string, unknown>).status
+              : undefined;
+          recordSynthesisSidecarTraceEvent({
+            context: trace,
+            source: "host",
+            boundary: "operation",
+            phase: "terminal",
+            outcome: semantic.succeeded ? "succeeded" : "failed",
+            ...(!semantic.succeeded ? { code: "semantic_non_success" } : {}),
+            identities: { operation },
+            ...(typeof semanticStatus === "string"
+              ? { facts: { semanticStatus } }
+              : {}),
+          });
+          return result;
         } catch (error) {
-          throw normalizeRpcError(error);
+          const normalized = normalizeRpcError(error);
+          audit.failed(normalized);
+          recordSynthesisSidecarTraceEvent({
+            context: trace,
+            source: "host",
+            boundary: "operation",
+            phase: "terminal",
+            outcome: "failed",
+            code: normalized.code,
+            identities: { operation },
+          });
+          throw normalized;
         }
       };
     },

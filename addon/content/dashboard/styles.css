@@ -1743,6 +1743,29 @@ tr.clickable {
   max-height: calc(100vh - 340px);
 }
 
+.synthesis-sidecar-span-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.synthesis-sidecar-span-table td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-color);
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.synthesis-sidecar-span-table td:first-child {
+  width: 18%;
+}
+
+.synthesis-sidecar-span-table td:nth-child(2),
+.synthesis-sidecar-span-table td:nth-child(4) {
+  width: 12%;
+}
+
 @media (max-width: 1000px) {
   .synthesis-sidecar-layout {
     grid-template-columns: 1fr;

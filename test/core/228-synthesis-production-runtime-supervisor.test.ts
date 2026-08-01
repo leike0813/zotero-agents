@@ -224,8 +224,8 @@ describe("Synthesis production runtime supervisor", function () {
             JSON.stringify(discovery(config, "service-1")),
           );
           const stderrChunks = [
-            '{"schema":"synthesis-sidecar-native-diagnostic-event.v1","tsMs":1,"component":"reverse-host","stage":"call-',
-            'failed","status":"failed","capability":"library.artifacts.read","requestId":"native:1","operationId":"native:read:1","code":"reverse_host_response_body_truncated"}\n',
+            '{"schema":"synthesis-sidecar-observation.v2","traceId":"11111111111111111111111111111111","spanId":"22222222',
+            '22222222","attempt":0,"source":"rust-sidecar","boundary":"reverse-host","phase":"call-failed","outcome":"failed","code":"reverse_host_response_body_truncated","occurredAtMs":1,"identities":{"capability":"library.artifacts.read"}}\n',
           ];
           return {
             stdout: { readString: async () => "" },
@@ -245,7 +245,8 @@ describe("Synthesis production runtime supervisor", function () {
       } as never,
       discoveryTimeoutMs: 500,
       healthIntervalMs: 0,
-      recordDiagnosticEvent: (event) => diagnosticEvents.push(event),
+      diagnosticsEnabled: true,
+      recordTraceEvent: (event) => diagnosticEvents.push(event),
     });
 
     supervisor.start();
@@ -265,15 +266,12 @@ describe("Synthesis production runtime supervisor", function () {
     });
     assert.notProperty(configs[0], "leaseNonce");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.deepInclude(diagnosticEvents, {
-      component: "reverse-host",
-      stage: "call-failed",
-      status: "failed",
-      capability: "library.artifacts.read",
-      requestId: "native:1",
-      operationId: "native:read:1",
-      code: "reverse_host_response_body_truncated",
-    });
+    const nativeEvent = diagnosticEvents[0];
+    assert.equal(nativeEvent?.boundary, "reverse-host");
+    assert.equal(nativeEvent?.phase, "call-failed");
+    assert.equal(nativeEvent?.outcome, "failed");
+    assert.equal(nativeEvent?.code, "reverse_host_response_body_truncated");
+    assert.equal(nativeEvent?.identities?.capability, "library.artifacts.read");
     assert.equal(fs.readFileSync(legacyActivePath, "utf8"), "legacy-active\n");
     assert.equal(
       fs.readFileSync(legacyVersionPath, "utf8"),

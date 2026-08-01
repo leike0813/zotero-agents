@@ -11,21 +11,6 @@
       "sha256": "sha256:8ea42081471bf081697b912e59f207b803004aaf41fc75df225c77941edda7ed"
     },
     {
-      "id": "call-request-drops-unknown-field",
-      "oracle": "sidecarCallRequest",
-      "schemaRef": "schemas/system.schema.json#/$defs/callRequest",
-      "inputJson": "{\"protocol\":\"synthesis-sidecar.v1\",\"requestId\":\"r1\",\"profileId\":\"p1\",\"capability\":\"system.handshake\",\"payload\":{},\"unknown\":true}",
-      "output": {
-        "protocol": "synthesis-sidecar.v1",
-        "requestId": "r1",
-        "profileId": "p1",
-        "capability": "system.handshake",
-        "payload": {}
-      },
-      "canonicalJson": "{\"capability\":\"system.handshake\",\"payload\":{},\"profileId\":\"p1\",\"protocol\":\"synthesis-sidecar.v1\",\"requestId\":\"r1\"}",
-      "sha256": "sha256:116e6595c60efac54ed2e4f5141c3431496760b945997bb3d4ac4ac7ff947fc3"
-    },
-    {
       "id": "runtime-pointer-v1",
       "oracle": "runtimePointer",
       "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/pointer",

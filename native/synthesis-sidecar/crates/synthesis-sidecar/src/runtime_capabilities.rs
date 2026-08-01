@@ -13,7 +13,10 @@ use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, debug_events_enabled, emit, emit_debug};
+use crate::runtime_diagnostics::{
+    NativeDiagnosticEvent, TraceContext, child_observation_context, emit_debug,
+    with_observation_context,
+};
 use crate::runtime_http::{read_http, response};
 use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_client::{
@@ -37,6 +40,8 @@ struct CallEnvelope {
     profile_id: String,
     capability: String,
     payload: Value,
+    #[serde(default)]
+    trace: Option<TraceContext>,
 }
 
 pub(crate) struct ServeState {
@@ -229,6 +234,7 @@ pub(crate) fn handle_connection(
         || !valid_bounded_text(&call.request_id, 512)
         || !valid_bounded_text(&call.profile_id, 512)
         || !valid_bounded_text(&call.capability, 128)
+        || call.trace.as_ref().is_some_and(|trace| !trace.is_valid())
         || !json_within_bounds(&call.payload, 0, &mut nodes, max_json_nodes)
     {
         return response(&mut stream, 400, error_response("invalid_request"));
@@ -256,300 +262,343 @@ pub(crate) fn handle_connection(
     if !call.capability.starts_with("compute.") && body.len() > MAX_READ_BODY_BYTES {
         return response(&mut stream, 413, error_response("request_too_large"));
     }
-    let request_started_at = current_time_ms().unwrap_or_default();
-    emit_debug(|| {
-        NativeDiagnosticEvent::new("rpc", "request-started", "started")
-            .capability(&call.capability)
-            .request_id(&call.request_id)
-            .correlation_id(&call.request_id)
-            .request_bytes(body.len())
-    });
-    let mut handler_failure = None;
-    let outcome = match call.capability.as_str() {
-        capability if capability.starts_with("client.") => {
-            match dispatch_production_client(&state, &call.request_id, capability, call.payload) {
-                Ok(data) => bounded_response(
+    with_observation_context(call.trace.as_ref(), || {
+        let request_started_at = current_time_ms().unwrap_or_default();
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("rpc", "request-started", "started")
+                .capability(&call.capability)
+                .request_id(&call.request_id)
+                .correlation_id(&call.request_id)
+                .request_bytes(body.len())
+        });
+        let mut handler_failure = None;
+        let outcome = match call.capability.as_str() {
+            capability if capability.starts_with("client.") => {
+                match dispatch_production_client(&state, &call.request_id, capability, call.payload)
+                {
+                    Ok(data) => bounded_response(
+                        &mut stream,
+                        200,
+                        call_response(&call.request_id, &state.service_instance_id, data),
+                        MAX_READ_RESPONSE_BYTES,
+                    ),
+                    Err(code) => {
+                        handler_failure = Some(code.clone());
+                        response(
+                            &mut stream,
+                            production_client_error_status(&code),
+                            error_response(&code),
+                        )
+                    }
+                }
+            }
+            capability @ ("compute.citation_graph_layout"
+            | "compute.citation_graph_metrics"
+            | "compute.citation_graph_build") => {
+                let _admission = match state.compute_pool.admit(&state.stopping) {
+                    Ok(admission) => admission,
+                    Err(code) => return response(&mut stream, 503, error_response(code)),
+                };
+                let operation = match capability {
+                    "compute.citation_graph_layout" => WorkerOperation::CitationGraphLayout,
+                    "compute.citation_graph_build" => WorkerOperation::CitationGraphBuild,
+                    _ => WorkerOperation::CitationGraphMetrics,
+                };
+                if let Ok(delay) = std::env::var("SYNTHESIS_R7_FAULT_COMPUTE_HOLD_MS")
+                    && let Ok(delay) = delay.parse::<u64>()
+                {
+                    thread::sleep(Duration::from_millis(delay.min(2_000)));
+                }
+                match state.compute_pool.run_direct(operation, call.payload) {
+                    Ok(data) => {
+                        let value =
+                            call_response(&call.request_id, &state.service_instance_id, data);
+                        let mut response_nodes = 0;
+                        if !json_within_bounds(
+                            &value,
+                            0,
+                            &mut response_nodes,
+                            MAX_COMPUTE_RESPONSE_JSON_NODES,
+                        ) {
+                            response(&mut stream, 503, error_response("response_too_large"))
+                        } else {
+                            bounded_response(&mut stream, 200, value, MAX_READ_RESPONSE_BYTES * 8)
+                        }
+                    }
+                    Err(code) => response(
+                        &mut stream,
+                        if code == "invalid_request" { 400 } else { 503 },
+                        error_response(&code),
+                    ),
+                }
+            }
+            "compute.citation_graph_build_transfer" => {
+                emit_debug(|| {
+                    NativeDiagnosticEvent::new("batch", "dispatch", "started")
+                        .capability("compute.citation_graph_build_transfer")
+                });
+                let result = state
+                    .transfer
+                    .lock()
+                    .map_err(|_| "transfer_unavailable".to_owned())?
+                    .handle(call.payload, current_time_ms()?);
+                emit_debug(|| {
+                    let event = NativeDiagnosticEvent::new(
+                        "batch",
+                        "dispatch-terminal",
+                        if result.is_ok() {
+                            "succeeded"
+                        } else {
+                            "failed"
+                        },
+                    )
+                    .capability("compute.citation_graph_build_transfer");
+                    match &result {
+                        Ok(_) => event,
+                        Err(code) => event.code(code),
+                    }
+                });
+                match result {
+                    Ok(TransferDispatch::Response(data)) => bounded_response(
+                        &mut stream,
+                        200,
+                        call_response(&call.request_id, &state.service_instance_id, data),
+                        MAX_READ_RESPONSE_BYTES * 8,
+                    ),
+                    Ok(TransferDispatch::Execute(execution)) => {
+                        let crate::runtime_transfer::TransferExecution {
+                            status,
+                            mut source,
+                            mut sink,
+                        } = *execution;
+                        let (session_id, attempt) = source.identity();
+                        let session_id = session_id.to_owned();
+                        let cancellation = source.cancellation();
+                        let mut reservation = match state.compute_pool.reserve() {
+                            Ok(reservation) => reservation,
+                            Err(code) => {
+                                if let Ok(mut transfer) = state.transfer.lock() {
+                                    transfer.reject_queued(
+                                        &session_id,
+                                        attempt,
+                                        current_time_ms().unwrap_or_default(),
+                                    );
+                                }
+                                return response(&mut stream, 503, error_response(code));
+                            }
+                        };
+                        let state_for_attempt = Arc::clone(&state);
+                        let attempt_trace = child_observation_context();
+                        thread::spawn(move || {
+                            with_observation_context(attempt_trace.as_ref(), || {
+                                emit_debug(|| {
+                                    NativeDiagnosticEvent::new("batch", "attempt", "started")
+                                        .capability("compute.citation_graph_build_transfer")
+                                });
+                                let result = match reservation
+                                    .wait(&state_for_attempt.stopping, &cancellation)
+                                {
+                                    Ok(()) => {
+                                        let now_ms = current_time_ms().unwrap_or_default();
+                                        if let Ok(mut transfer) = state_for_attempt.transfer.lock()
+                                        {
+                                            transfer.mark_executing(&session_id, attempt, now_ms);
+                                        }
+                                        state_for_attempt.compute_pool.run_paged(
+                                            WorkerOperation::CitationGraphBuildTransfer,
+                                            &mut source,
+                                            &mut sink,
+                                            &cancellation,
+                                        )
+                                    }
+                                    Err(code) => Err(code.to_owned()),
+                                };
+                                drop(reservation);
+                                emit_debug(|| {
+                                    let event = NativeDiagnosticEvent::new(
+                                        "batch",
+                                        "attempt-terminal",
+                                        if result.is_ok() {
+                                            "succeeded"
+                                        } else {
+                                            "failed"
+                                        },
+                                    )
+                                    .capability("compute.citation_graph_build_transfer");
+                                    match &result {
+                                        Ok(_) => event,
+                                        Err(code) => event.code(code),
+                                    }
+                                });
+                                if let Ok(mut transfer) = state_for_attempt.transfer.lock() {
+                                    transfer.finish_attempt(
+                                        &session_id,
+                                        attempt,
+                                        result,
+                                        current_time_ms().unwrap_or_default(),
+                                    );
+                                }
+                            })
+                        });
+                        bounded_response(
+                            &mut stream,
+                            200,
+                            call_response(&call.request_id, &state.service_instance_id, status),
+                            MAX_READ_RESPONSE_BYTES * 8,
+                        )
+                    }
+                    Err(code) => {
+                        let status = match code.as_str() {
+                            "transfer_busy" => 429,
+                            "transfer_not_found" => 404,
+                            "transfer_conflict"
+                            | "transfer_incomplete"
+                            | "transfer_output_not_ready" => 409,
+                            "transfer_limit_exceeded" => 413,
+                            "transfer_stopping" => 503,
+                            _ => 400,
+                        };
+                        response(&mut stream, status, error_response(&code))
+                    }
+                }
+            }
+            "system.handshake" => {
+                if !exact_payload(
+                    &call.payload,
+                    &[
+                        "schemaVersion",
+                        "bundleId",
+                        "buildFingerprint",
+                        "supervisorInstanceId",
+                    ],
+                ) {
+                    return response(&mut stream, 400, error_response("invalid_request"));
+                }
+                if call.payload["schemaVersion"] != state.config.schema_version
+                    || call.payload["bundleId"] != state.config.bundle_id
+                    || call.payload["buildFingerprint"] != state.config.build_fingerprint
+                    || call.payload["supervisorInstanceId"] != state.config.supervisor_instance_id
+                {
+                    return response(&mut stream, 409, error_response("runtime_mismatch"));
+                }
+                let handshake = json!({
+                    "protocol":"synthesis-sidecar.v1",
+                    "serviceVersion":state.config.service_version,
+                    "serviceInstanceId":state.service_instance_id,
+                    "supervisorInstanceId":state.config.supervisor_instance_id,
+                    "bundleId":state.config.bundle_id,
+                    "implementation":state.config.implementation,
+                    "target":state.config.target,
+                    "targetTriple":state.config.target_triple,
+                    "buildFingerprint":state.config.build_fingerprint,
+                    "platformSignature":state.config.platform_signature,
+                    "profileId":state.config.profile_id,
+                    "schemaVersion":state.config.schema_version,
+                    "runtimeRootId":state.config.runtime_root_id,
+                    "dataRootId":state.config.data_root_id,
+                    "capabilities":SIDECAR_CAPABILITIES,
+                    "lifecycleState":"ready",
+                    "repository":repository_snapshot(&state),
+                    "canonicalStore":canonical_snapshot(&state)?,
+                    "computePool":compute_pool_snapshot(&state)?,
+                    "citationGraphTransfer":transfer_snapshot(&state)?,
+                });
+                bounded_response(
+                    &mut stream,
+                    200,
+                    call_response(&call.request_id, &state.service_instance_id, handshake),
+                    MAX_READ_RESPONSE_BYTES,
+                )
+            }
+            "workbench.chrome.read" => {
+                if !exact_payload(&call.payload, &["state"]) || !call.payload["state"].is_object() {
+                    return response(&mut stream, 400, error_response("invalid_request"));
+                }
+                let data = state.applications.workbench.read_json()?;
+                bounded_response(
                     &mut stream,
                     200,
                     call_response(&call.request_id, &state.service_instance_id, data),
                     MAX_READ_RESPONSE_BYTES,
-                ),
-                Err(code) => {
-                    handler_failure = Some(code.clone());
-                    response(
-                        &mut stream,
-                        production_client_error_status(&code),
-                        error_response(&code),
-                    )
+                )
+            }
+            "topics.canonical.inspect" => {
+                if !exact_payload(&call.payload, &["topicId"]) {
+                    return response(&mut stream, 400, error_response("invalid_request"));
                 }
-            }
-        }
-        capability @ ("compute.citation_graph_layout"
-        | "compute.citation_graph_metrics"
-        | "compute.citation_graph_build") => {
-            let _admission = match state.compute_pool.admit(&state.stopping) {
-                Ok(admission) => admission,
-                Err(code) => return response(&mut stream, 503, error_response(code)),
-            };
-            let operation = match capability {
-                "compute.citation_graph_layout" => WorkerOperation::CitationGraphLayout,
-                "compute.citation_graph_build" => WorkerOperation::CitationGraphBuild,
-                _ => WorkerOperation::CitationGraphMetrics,
-            };
-            if let Ok(delay) = std::env::var("SYNTHESIS_R7_FAULT_COMPUTE_HOLD_MS")
-                && let Ok(delay) = delay.parse::<u64>()
-            {
-                thread::sleep(Duration::from_millis(delay.min(2_000)));
-            }
-            match state.compute_pool.run_direct(operation, call.payload) {
-                Ok(data) => {
-                    let value = call_response(&call.request_id, &state.service_instance_id, data);
-                    let mut response_nodes = 0;
-                    if !json_within_bounds(
-                        &value,
-                        0,
-                        &mut response_nodes,
-                        MAX_COMPUTE_RESPONSE_JSON_NODES,
-                    ) {
-                        response(&mut stream, 503, error_response("response_too_large"))
-                    } else {
-                        bounded_response(&mut stream, 200, value, MAX_READ_RESPONSE_BYTES * 8)
-                    }
-                }
-                Err(code) => response(
-                    &mut stream,
-                    if code == "invalid_request" { 400 } else { 503 },
-                    error_response(&code),
-                ),
-            }
-        }
-        "compute.citation_graph_build_transfer" => {
-            let result = state
-                .transfer
-                .lock()
-                .map_err(|_| "transfer_unavailable".to_owned())?
-                .handle(call.payload, current_time_ms()?);
-            match result {
-                Ok(TransferDispatch::Response(data)) => bounded_response(
+                let Some(topic_id) = call.payload["topicId"].as_str() else {
+                    return response(&mut stream, 400, error_response("invalid_request"));
+                };
+                let data = state.canonical.inspect(topic_id)?;
+                bounded_response(
                     &mut stream,
                     200,
                     call_response(&call.request_id, &state.service_instance_id, data),
-                    MAX_READ_RESPONSE_BYTES * 8,
-                ),
-                Ok(TransferDispatch::Execute(execution)) => {
-                    let crate::runtime_transfer::TransferExecution {
-                        status,
-                        mut source,
-                        mut sink,
-                    } = *execution;
-                    let (session_id, attempt) = source.identity();
-                    let session_id = session_id.to_owned();
-                    let cancellation = source.cancellation();
-                    let mut reservation = match state.compute_pool.reserve() {
-                        Ok(reservation) => reservation,
-                        Err(code) => {
-                            if let Ok(mut transfer) = state.transfer.lock() {
-                                transfer.reject_queued(
-                                    &session_id,
-                                    attempt,
-                                    current_time_ms().unwrap_or_default(),
-                                );
-                            }
-                            return response(&mut stream, 503, error_response(code));
-                        }
-                    };
-                    let state_for_attempt = Arc::clone(&state);
-                    thread::spawn(move || {
-                        let result =
-                            match reservation.wait(&state_for_attempt.stopping, &cancellation) {
-                                Ok(()) => {
-                                    let now_ms = current_time_ms().unwrap_or_default();
-                                    if let Ok(mut transfer) = state_for_attempt.transfer.lock() {
-                                        transfer.mark_executing(&session_id, attempt, now_ms);
-                                    }
-                                    state_for_attempt.compute_pool.run_paged(
-                                        WorkerOperation::CitationGraphBuildTransfer,
-                                        &mut source,
-                                        &mut sink,
-                                        &cancellation,
-                                    )
-                                }
-                                Err(code) => Err(code.to_owned()),
-                            };
-                        drop(reservation);
-                        if let Ok(mut transfer) = state_for_attempt.transfer.lock() {
-                            transfer.finish_attempt(
-                                &session_id,
-                                attempt,
-                                result,
-                                current_time_ms().unwrap_or_default(),
-                            );
-                        }
-                    });
-                    bounded_response(
-                        &mut stream,
-                        200,
-                        call_response(&call.request_id, &state.service_instance_id, status),
-                        MAX_READ_RESPONSE_BYTES * 8,
-                    )
-                }
-                Err(code) => {
-                    let status = match code.as_str() {
-                        "transfer_busy" => 429,
-                        "transfer_not_found" => 404,
-                        "transfer_conflict"
-                        | "transfer_incomplete"
-                        | "transfer_output_not_ready" => 409,
-                        "transfer_limit_exceeded" => 413,
-                        "transfer_stopping" => 503,
-                        _ => 400,
-                    };
-                    response(&mut stream, status, error_response(&code))
-                }
-            }
-        }
-        "system.handshake" => {
-            if !exact_payload(
-                &call.payload,
-                &[
-                    "schemaVersion",
-                    "bundleId",
-                    "buildFingerprint",
-                    "supervisorInstanceId",
-                ],
-            ) {
-                return response(&mut stream, 400, error_response("invalid_request"));
-            }
-            if call.payload["schemaVersion"] != state.config.schema_version
-                || call.payload["bundleId"] != state.config.bundle_id
-                || call.payload["buildFingerprint"] != state.config.build_fingerprint
-                || call.payload["supervisorInstanceId"] != state.config.supervisor_instance_id
-            {
-                return response(&mut stream, 409, error_response("runtime_mismatch"));
-            }
-            let handshake = json!({
-                "protocol":"synthesis-sidecar.v1",
-                "serviceVersion":state.config.service_version,
-                "serviceInstanceId":state.service_instance_id,
-                "supervisorInstanceId":state.config.supervisor_instance_id,
-                "bundleId":state.config.bundle_id,
-                "implementation":state.config.implementation,
-                "target":state.config.target,
-                "targetTriple":state.config.target_triple,
-                "buildFingerprint":state.config.build_fingerprint,
-                "platformSignature":state.config.platform_signature,
-                "profileId":state.config.profile_id,
-                "schemaVersion":state.config.schema_version,
-                "runtimeRootId":state.config.runtime_root_id,
-                "dataRootId":state.config.data_root_id,
-                "capabilities":SIDECAR_CAPABILITIES,
-                "lifecycleState":"ready",
-                "repository":repository_snapshot(&state),
-                "canonicalStore":canonical_snapshot(&state)?,
-                "computePool":compute_pool_snapshot(&state)?,
-                "citationGraphTransfer":transfer_snapshot(&state)?,
-            });
-            bounded_response(
-                &mut stream,
-                200,
-                call_response(&call.request_id, &state.service_instance_id, handshake),
-                MAX_READ_RESPONSE_BYTES,
-            )
-        }
-        "workbench.chrome.read" => {
-            if !exact_payload(&call.payload, &["state"]) || !call.payload["state"].is_object() {
-                return response(&mut stream, 400, error_response("invalid_request"));
-            }
-            let data = state.applications.workbench.read_json()?;
-            bounded_response(
-                &mut stream,
-                200,
-                call_response(&call.request_id, &state.service_instance_id, data),
-                MAX_READ_RESPONSE_BYTES,
-            )
-        }
-        "topics.canonical.inspect" => {
-            if !exact_payload(&call.payload, &["topicId"]) {
-                return response(&mut stream, 400, error_response("invalid_request"));
-            }
-            let Some(topic_id) = call.payload["topicId"].as_str() else {
-                return response(&mut stream, 400, error_response("invalid_request"));
-            };
-            let data = state.canonical.inspect(topic_id)?;
-            bounded_response(
-                &mut stream,
-                200,
-                call_response(&call.request_id, &state.service_instance_id, data),
-                MAX_READ_RESPONSE_BYTES,
-            )
-        }
-        "system.shutdown" => {
-            if !exact_payload(&call.payload, &[]) {
-                return response(&mut stream, 400, error_response("invalid_request"));
-            }
-            state.stopping.store(true, Ordering::Release);
-            state.compute_pool.stop();
-            state
-                .transfer
-                .lock()
-                .map_err(|_| "transfer_unavailable".to_owned())?
-                .stop();
-            response(
-                &mut stream,
-                200,
-                call_response(
-                    &call.request_id,
-                    &state.service_instance_id,
-                    json!({"accepted":true,"lifecycleState":"stopping"}),
-                ),
-            )
-        }
-        _ => response(&mut stream, 404, error_response("capability_not_found")),
-    };
-    if let Some(code) = &handler_failure {
-        let event = NativeDiagnosticEvent::new("rpc", "handler-failed", "failed")
-            .capability(&call.capability)
-            .request_id(&call.request_id)
-            .code(code)
-            .duration_ms(
-                current_time_ms()
-                    .unwrap_or(request_started_at)
-                    .saturating_sub(request_started_at),
-            );
-        emit(if debug_events_enabled() {
-            event.correlation_id(&call.request_id)
-        } else {
-            event
-        });
-    }
-    match &outcome {
-        Ok(()) => emit_debug(|| {
-            NativeDiagnosticEvent::new("rpc", "response-written", "succeeded")
-                .capability(&call.capability)
-                .request_id(&call.request_id)
-                .correlation_id(&call.request_id)
-                .duration_ms(
-                    current_time_ms()
-                        .unwrap_or(request_started_at)
-                        .saturating_sub(request_started_at),
+                    MAX_READ_RESPONSE_BYTES,
                 )
-        }),
-        Err(error) => {
-            let event = NativeDiagnosticEvent::new("rpc", "request-failed", "failed")
-                .capability(&call.capability)
-                .request_id(&call.request_id)
-                .code(error)
-                .duration_ms(
-                    current_time_ms()
-                        .unwrap_or(request_started_at)
-                        .saturating_sub(request_started_at),
-                );
-            emit(if debug_events_enabled() {
-                event.correlation_id(&call.request_id)
-            } else {
-                event
+            }
+            "system.shutdown" => {
+                if !exact_payload(&call.payload, &[]) {
+                    return response(&mut stream, 400, error_response("invalid_request"));
+                }
+                state.stopping.store(true, Ordering::Release);
+                state.compute_pool.stop();
+                state
+                    .transfer
+                    .lock()
+                    .map_err(|_| "transfer_unavailable".to_owned())?
+                    .stop();
+                response(
+                    &mut stream,
+                    200,
+                    call_response(
+                        &call.request_id,
+                        &state.service_instance_id,
+                        json!({"accepted":true,"lifecycleState":"stopping"}),
+                    ),
+                )
+            }
+            _ => response(&mut stream, 404, error_response("capability_not_found")),
+        };
+        if let Some(code) = &handler_failure {
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("rpc", "handler-failed", "failed")
+                    .capability(&call.capability)
+                    .request_id(&call.request_id)
+                    .code(code)
+                    .duration_ms(
+                        current_time_ms()
+                            .unwrap_or(request_started_at)
+                            .saturating_sub(request_started_at),
+                    )
             });
         }
-    }
-    outcome
+        match &outcome {
+            Ok(()) => emit_debug(|| {
+                NativeDiagnosticEvent::new("rpc", "response-written", "succeeded")
+                    .capability(&call.capability)
+                    .request_id(&call.request_id)
+                    .correlation_id(&call.request_id)
+                    .duration_ms(
+                        current_time_ms()
+                            .unwrap_or(request_started_at)
+                            .saturating_sub(request_started_at),
+                    )
+            }),
+            Err(error) => {
+                emit_debug(|| {
+                    NativeDiagnosticEvent::new("rpc", "request-failed", "failed")
+                        .capability(&call.capability)
+                        .request_id(&call.request_id)
+                        .code(error)
+                        .duration_ms(
+                            current_time_ms()
+                                .unwrap_or(request_started_at)
+                                .saturating_sub(request_started_at),
+                        )
+                });
+            }
+        }
+        outcome
+    })
 }

@@ -3,8 +3,11 @@ import {
   SynthesisClientError,
   synthesisReverseHostResponseBodyLimit,
   toSynthesisJsonValue,
+  type SynthesisSidecarObservationEvent,
+  type SynthesisSidecarTraceContext,
   type SynthesisJsonValue,
 } from "../../packages/synthesis-contracts/src";
+import { rebuildSynthesisSidecarTraceContext } from "../../packages/synthesis-contracts/src/sidecarObservability";
 import {
   beginHostHttpRequestRead,
   type HostHttpRequestReadOperation,
@@ -18,9 +21,9 @@ import {
   prepareJsonHttpResponse,
 } from "./runtimeHttpResponse";
 import {
-  createSynthesisSidecarDiagnosticRecorders,
-  type SynthesisSidecarDiagnosticEventInput,
-} from "./synthesisSidecarDiagnosticEvents";
+  createSynthesisSidecarTraceContext,
+  recordSynthesisSidecarTraceEvent,
+} from "./synthesisSidecarTrace";
 
 export const SYNTHESIS_REVERSE_HOST_PATH = "/synthesis/v1/host-call" as const;
 
@@ -203,7 +206,7 @@ type EndpointOptions = {
   allowUnboundServiceInstance?: boolean;
   handlers: SynthesisReverseHostHandlers;
   serverSocketFactory?: () => any;
-  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
+  recordTraceEvent?: (event: SynthesisSidecarObservationEvent) => void;
 };
 
 export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
@@ -211,9 +214,6 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
   let server: any;
   let active = false;
   const reads = new Set<HostHttpRequestReadOperation>();
-  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
-    options.recordDiagnosticEvent,
-  );
   const broker = createSynthesisReverseHostBroker({
     profileId: options.profileId,
     serviceInstanceId: () => serviceInstanceId,
@@ -223,7 +223,7 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
     authorizeCapability: options.authorizeCapability,
     allowUnboundServiceInstance: options.allowUnboundServiceInstance === true,
     handlers: options.handlers,
-    recordDiagnosticEvent: options.recordDiagnosticEvent,
+    recordTraceEvent: options.recordTraceEvent,
   });
 
   async function handleTransport(transport: any) {
@@ -231,10 +231,14 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
     const input = transport.openInputStream(0, 0, 0);
     const output = transport.openOutputStream(0, 0, 0);
     let responseStarted = false;
-    let context: Pick<
-      SynthesisSidecarDiagnosticEventInput,
-      "capability" | "requestId" | "operationId" | "correlationId"
-    > = {};
+    let capability: string | undefined;
+    let trace: SynthesisSidecarTraceContext | undefined;
+    const record = (
+      event: Parameters<typeof recordSynthesisSidecarTraceEvent>[0],
+    ) => {
+      const retained = recordSynthesisSidecarTraceEvent(event);
+      if (retained) options.recordTraceEvent?.(retained);
+    };
     const read = beginHostHttpRequestRead(input, {
       limits: {
         maxHeaderBytes: SYNTHESIS_REVERSE_HOST_LIMITS.requestHeaderBytes,
@@ -249,25 +253,26 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
       const request = parseHttpRequest(readResult.bytes);
       if (request.body && typeof request.body === "object") {
         const call = request.body as Record<string, unknown>;
-        context = {
-          capability:
-            typeof call.capability === "string" ? call.capability : undefined,
-          requestId:
-            typeof call.requestId === "string" ? call.requestId : undefined,
-          operationId:
-            typeof call.operationId === "string" ? call.operationId : undefined,
-          correlationId:
-            typeof call.correlationId === "string"
-              ? call.correlationId
-              : undefined,
-        };
+        capability =
+          typeof call.capability === "string" ? call.capability : undefined;
+        if (call.trace !== undefined) {
+          try {
+            trace = createSynthesisSidecarTraceContext({
+              parent: rebuildSynthesisSidecarTraceContext(call.trace),
+            });
+          } catch {
+            trace = undefined;
+          }
+        }
       }
-      diagnosticRecorders.debug?.({
-        component: "reverse-host",
-        stage: "request-received",
-        status: "started",
-        ...context,
-        requestBytes: readResult.bytes.byteLength,
+      record({
+        context: trace,
+        source: "host",
+        boundary: "reverse-host",
+        phase: "transport",
+        outcome: "started",
+        ...(capability ? { identities: { capability } } : {}),
+        metrics: { requestBytes: readResult.bytes.byteLength },
       });
       const result = await handleSynthesisReverseHostHttpRequest(
         request,
@@ -296,9 +301,8 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         status: result.status,
         body: toSynthesisJsonValue(result.body),
       });
-      const responseBodyLimit = synthesisReverseHostResponseBodyLimit(
-        context.capability,
-      );
+      const responseBodyLimit =
+        synthesisReverseHostResponseBodyLimit(capability);
       const attemptedResponseBytes = prepared.bodyByteLength;
       if (attemptedResponseBytes > responseBodyLimit) {
         responseStatus = 503;
@@ -319,24 +323,21 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
         outputStream: output,
         response: prepared,
       }).completion;
-      (responseStatus >= 400
-        ? diagnosticRecorders.failure
-        : diagnosticRecorders.debug)?.({
-        component: "reverse-host",
-        stage:
-          responseStatus >= 400 ? "response-rejected" : "response-completed",
-        status: responseStatus >= 400 ? "failed" : "succeeded",
-        ...context,
-        code: responseCode,
-        httpStatus: responseStatus,
-        responseBytes: prepared.bodyByteLength,
-        ...(responseCode === "reverse_host_response_too_large"
-          ? {
-              attemptedResponseBytes,
-              limitBytes: responseBodyLimit,
-            }
-          : {}),
-        durationMs: Math.max(0, options.now() - startedAt),
+      record({
+        context: trace,
+        source: "host",
+        boundary: "reverse-host",
+        phase: "transport-terminal",
+        outcome: responseStatus >= 400 ? "failed" : "succeeded",
+        ...(responseCode ? { code: responseCode } : {}),
+        ...(capability ? { identities: { capability } } : {}),
+        metrics: {
+          responseBytes: prepared.bodyByteLength,
+          ...(responseCode === "reverse_host_response_too_large"
+            ? { budgetBytes: responseBodyLimit }
+            : {}),
+          durationMs: Math.max(0, options.now() - startedAt),
+        },
       });
     } catch (error) {
       const code =
@@ -346,13 +347,15 @@ export function createSynthesisReverseHostEndpoint(options: EndpointOptions) {
           : responseStarted
             ? "reverse_host_response_transfer_failed"
             : "reverse_host_request_invalid";
-      diagnosticRecorders.failure({
-        component: "reverse-host",
-        stage: responseStarted ? "response-failed" : "request-failed",
-        status: "failed",
-        ...context,
+      record({
+        context: trace,
+        source: "host",
+        boundary: "reverse-host",
+        phase: responseStarted ? "response-failed" : "request-failed",
+        outcome: "failed",
+        ...(capability ? { identities: { capability } } : {}),
         code,
-        durationMs: Math.max(0, options.now() - startedAt),
+        metrics: { durationMs: Math.max(0, options.now() - startedAt) },
       });
       if (!responseStarted) {
         responseStarted = true;

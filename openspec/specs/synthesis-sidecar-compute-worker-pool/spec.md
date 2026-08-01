@@ -26,3 +26,13 @@ Native direct and paged work SHALL share one active slot, at most two queued slo
 - **WHEN** three consecutive runtime faults occur across direct and paged operations
 - **THEN** queued and new work SHALL fail with `worker_unavailable`
 - **AND** health and shutdown SHALL remain responsive
+
+### Requirement: Worker spans SHALL cover queue and process ownership
+
+Debug worker traces SHALL record admission, queue wait, start, cancel, timeout,
+crash, replacement, fuse, and terminal result with stable codes and bounded
+metrics.
+
+#### Scenario: A queued worker is canceled
+- **WHEN** cancellation occurs before execution
+- **THEN** the child span terminates as canceled with queue wait and attempt

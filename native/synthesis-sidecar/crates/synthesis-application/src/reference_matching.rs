@@ -44,6 +44,33 @@ pub enum ReferenceMatchKind {
     Redirect,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceMatchDisposition {
+    Accept,
+    Review,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceMatchConfidence {
+    Deterministic,
+    High,
+    Low,
+    Review,
+}
+
+impl ReferenceMatchConfidence {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Deterministic => "deterministic",
+            Self::High => "high",
+            Self::Low => "low",
+            Self::Review => "review",
+        }
+    }
+}
+
 impl ReferenceMatchKind {
     fn as_str(self) -> &'static str {
         match self {
@@ -63,6 +90,16 @@ pub struct ReferenceHostCandidate {
     pub year: String,
     #[serde(default)]
     pub authors: Vec<String>,
+    #[serde(default)]
+    pub doi: String,
+    #[serde(default)]
+    pub arxiv: String,
+    #[serde(default)]
+    pub isbn: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub citekey: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,12 +109,18 @@ pub struct ReferenceMatcherInput {
     pub canonicals: Vec<CanonicalReferenceRecord>,
     pub raw_references: Vec<RawReferenceRecord>,
     pub host_candidates: Vec<ReferenceHostCandidate>,
+    pub bindings: Vec<ReferenceBindingFactRecord>,
+    pub redirects: Vec<ReferenceRedirectFactRecord>,
+    #[serde(default)]
+    pub accepted_binding_canonical_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceMatcherOutcome {
     pub kind: ReferenceMatchKind,
+    pub disposition: ReferenceMatchDisposition,
+    pub confidence: ReferenceMatchConfidence,
     pub source_canonical_reference_id: String,
     #[serde(default)]
     pub source_raw_reference_ids: Vec<String>,
@@ -90,8 +133,9 @@ pub struct ReferenceMatcherOutcome {
     pub score: f64,
     #[serde(default)]
     pub reasons: Vec<String>,
+    pub evidence: Value,
     #[serde(default)]
-    pub evidence: Vec<String>,
+    pub diagnostics: Vec<Value>,
 }
 
 pub trait ReferenceMatcherPort: Send + Sync {
@@ -363,6 +407,9 @@ impl ReferenceMatchingApplication {
             canonicals,
             raw_references,
             host_candidates: request.host_candidates,
+            bindings,
+            redirects,
+            accepted_binding_canonical_ids: Vec::new(),
         };
         let mut outcomes = match self
             .matcher
@@ -371,21 +418,39 @@ impl ReferenceMatchingApplication {
             Ok(outcomes) => outcomes,
             Err(_) => return prepare_result(ReferenceMatchingStatus::MatcherFailed),
         };
+        if validate_outcomes(ReferenceMatchPass::LibraryBinding, &outcomes).is_err() {
+            return prepare_result(ReferenceMatchingStatus::MatcherFailed);
+        }
+        let mut dedupe_input = input.clone();
+        dedupe_input.accepted_binding_canonical_ids = outcomes
+            .iter()
+            .filter(|outcome| outcome.disposition == ReferenceMatchDisposition::Accept)
+            .map(|outcome| outcome.source_canonical_reference_id.clone())
+            .collect();
+        dedupe_input.accepted_binding_canonical_ids.sort();
+        dedupe_input.accepted_binding_canonical_ids.dedup();
         match self
             .matcher
-            .match_pass(ReferenceMatchPass::CanonicalRedirect, &input)
+            .match_pass(ReferenceMatchPass::CanonicalRedirect, &dedupe_input)
         {
-            Ok(second_pass) => outcomes.extend(second_pass),
+            Ok(second_pass) => {
+                if validate_outcomes(ReferenceMatchPass::CanonicalRedirect, &second_pass).is_err() {
+                    return prepare_result(ReferenceMatchingStatus::MatcherFailed);
+                }
+                outcomes.extend(second_pass);
+            }
             Err(_) => return prepare_result(ReferenceMatchingStatus::MatcherFailed),
         }
         if !self.is_accepting() {
             return prepare_result(ReferenceMatchingStatus::Stopping);
         }
-        if validate_outcomes(&outcomes).is_err() {
+        outcomes.sort_by(|left, right| outcome_key(left).cmp(&outcome_key(right)));
+        if outcomes
+            .windows(2)
+            .any(|pair| outcome_key(&pair[0]) == outcome_key(&pair[1]))
+        {
             return prepare_result(ReferenceMatchingStatus::MatcherFailed);
         }
-        outcomes.sort_by(|left, right| outcome_key(left).cmp(&outcome_key(right)));
-        outcomes.dedup_by(|left, right| outcome_key(left) == outcome_key(right));
         let preparation_id = (self.preparation_id)();
         let now = (self.now)();
         let diagnostics_json = match serde_json::to_string(&PreparedMatcherResult { outcomes }) {
@@ -677,7 +742,7 @@ impl ReferenceMatchingApplication {
             {
                 continue;
             }
-            let confidence = confidence(outcome.score);
+            let confidence = outcome.confidence.as_str();
             let proposal_id = stable_id(
                 "proposal",
                 &json!({
@@ -686,11 +751,7 @@ impl ReferenceMatchingApplication {
                     "sourceHash": source_hash,
                 }),
             )?;
-            let auto_accept = outcome.score
-                >= match outcome.kind {
-                    ReferenceMatchKind::Binding => 0.95,
-                    ReferenceMatchKind::Redirect => 0.98,
-                };
+            let auto_accept = outcome.disposition == ReferenceMatchDisposition::Accept;
             let proposal = proposal_record(
                 &proposal_id,
                 if auto_accept { "accepted" } else { "open" },
@@ -903,11 +964,21 @@ fn has_duplicate_host_candidates(candidates: &[ReferenceHostCandidate]) -> bool 
     keys.windows(2).any(|pair| pair[0] == pair[1])
 }
 
-fn validate_outcomes(outcomes: &[ReferenceMatcherOutcome]) -> Result<(), String> {
+fn validate_outcomes(
+    pass: ReferenceMatchPass,
+    outcomes: &[ReferenceMatcherOutcome],
+) -> Result<(), String> {
+    let expected_kind = match pass {
+        ReferenceMatchPass::LibraryBinding => ReferenceMatchKind::Binding,
+        ReferenceMatchPass::CanonicalRedirect => ReferenceMatchKind::Redirect,
+    };
     for outcome in outcomes {
-        if outcome.source_canonical_reference_id.is_empty()
+        if outcome.kind != expected_kind
+            || outcome.source_canonical_reference_id.is_empty()
             || !outcome.score.is_finite()
             || !(0.0..=1.0).contains(&outcome.score)
+            || !outcome.evidence.is_object()
+            || outcome.diagnostics.iter().any(|value| !value.is_object())
             || (outcome.kind == ReferenceMatchKind::Binding
                 && (outcome.target_library_id <= 0 || outcome.target_item_key.is_empty()))
             || (outcome.kind == ReferenceMatchKind::Redirect
@@ -934,16 +1005,6 @@ fn outcome_key(outcome: &ReferenceMatcherOutcome) -> (u8, &str, &str, i64, &str)
     )
 }
 
-fn confidence(score: f64) -> &'static str {
-    if score >= 0.95 {
-        "high"
-    } else if score >= 0.75 {
-        "medium"
-    } else {
-        "low"
-    }
-}
-
 fn proposal_record(
     proposal_id: &str,
     status: &str,
@@ -968,7 +1029,8 @@ fn proposal_record(
         reasons_json: serde_json::to_string(&outcome.reasons).map_err(|error| error.to_string())?,
         evidence_json: serde_json::to_string(&outcome.evidence)
             .map_err(|error| error.to_string())?,
-        diagnostics_json: "[]".into(),
+        diagnostics_json: serde_json::to_string(&outcome.diagnostics)
+            .map_err(|error| error.to_string())?,
         basis_hash: basis_hash.into(),
         source_hash: source_hash.into(),
         created_at: now.into(),
@@ -997,7 +1059,7 @@ fn binding_from_proposal(
         confidence: proposal.confidence.clone(),
         reviewer: reviewer.into(),
         basis_hash: proposal.basis_hash.clone(),
-        diagnostics_json: "[]".into(),
+        diagnostics_json: proposal.diagnostics_json.clone(),
         created_at: now.into(),
         updated_at: now.into(),
     })
@@ -1014,7 +1076,7 @@ fn redirect_from_proposal(
         from_canonical_reference_id: proposal.source_canonical_reference_id.clone(),
         to_canonical_reference_id: proposal.target_canonical_reference_id.clone(),
         reason: "reference_matching".into(),
-        diagnostics_json: "[]".into(),
+        diagnostics_json: proposal.diagnostics_json.clone(),
         created_at: now.into(),
         updated_at: now.into(),
     })
@@ -1046,6 +1108,40 @@ mod tests {
         calls: Arc<AtomicUsize>,
     }
 
+    struct AcceptingFixtureMatcher {
+        dedupe_exclusions: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ReferenceMatcherPort for AcceptingFixtureMatcher {
+        fn match_pass(
+            &self,
+            pass: ReferenceMatchPass,
+            input: &ReferenceMatcherInput,
+        ) -> Result<Vec<ReferenceMatcherOutcome>, String> {
+            match pass {
+                ReferenceMatchPass::LibraryBinding => Ok(vec![ReferenceMatcherOutcome {
+                    kind: ReferenceMatchKind::Binding,
+                    disposition: ReferenceMatchDisposition::Accept,
+                    confidence: ReferenceMatchConfidence::Deterministic,
+                    source_canonical_reference_id: "canonical:1".into(),
+                    source_raw_reference_ids: vec!["raw:1".into()],
+                    target_canonical_reference_id: String::new(),
+                    target_library_id: 1,
+                    target_item_key: "TARGET".into(),
+                    score: 1.0,
+                    reasons: vec!["identifier:doi".into()],
+                    evidence: json!({"identifier":"doi"}),
+                    diagnostics: vec![json!({"code":"reference_identifier_match"})],
+                }]),
+                ReferenceMatchPass::CanonicalRedirect => {
+                    *self.dedupe_exclusions.lock().expect("dedupe exclusions") =
+                        input.accepted_binding_canonical_ids.clone();
+                    Ok(Vec::new())
+                }
+            }
+        }
+    }
+
     impl ReferenceMatcherPort for FixtureMatcher {
         fn match_pass(
             &self,
@@ -1056,14 +1152,17 @@ mod tests {
             Ok(match pass {
                 ReferenceMatchPass::LibraryBinding => vec![ReferenceMatcherOutcome {
                     kind: ReferenceMatchKind::Binding,
+                    disposition: ReferenceMatchDisposition::Review,
+                    confidence: ReferenceMatchConfidence::Review,
                     source_canonical_reference_id: "canonical:1".into(),
                     source_raw_reference_ids: vec!["raw:1".into()],
                     target_canonical_reference_id: String::new(),
                     target_library_id: 1,
                     target_item_key: "TARGET".into(),
-                    score: 0.9,
+                    score: 1.0,
                     reasons: vec!["title".into()],
-                    evidence: Vec::new(),
+                    evidence: json!({"source":"fixture"}),
+                    diagnostics: vec![json!({"code":"fixture"})],
                 }],
                 ReferenceMatchPass::CanonicalRedirect => Vec::new(),
             })
@@ -1155,6 +1254,11 @@ mod tests {
                 title: "Target".into(),
                 year: "2024".into(),
                 authors: Vec::new(),
+                doi: String::new(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: String::new(),
             }],
         });
         assert_eq!(prepared.status, ReferenceMatchingStatus::Prepared);
@@ -1177,6 +1281,11 @@ mod tests {
                 title: "Target".into(),
                 year: "2024".into(),
                 authors: Vec::new(),
+                doi: String::new(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: String::new(),
             }],
         });
         let preparation_id = prepared.preparation_id.expect("preparation id");
@@ -1239,6 +1348,75 @@ mod tests {
             1
         );
         assert!(application.shutdown(Duration::from_secs(1)));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn excludes_same_run_accepted_bindings_from_dedupe_and_promotes_the_fact() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        seed(&mut repository);
+        let owner = Arc::new(Mutex::new(repository));
+        let dedupe_exclusions = Arc::new(Mutex::new(Vec::new()));
+        let application = ReferenceMatchingApplication::with_factories(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(AcceptingFixtureMatcher {
+                dedupe_exclusions: Arc::clone(&dedupe_exclusions),
+            }),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+            Arc::new(|| "matching:accepted".into()),
+        );
+
+        let prepared = application.prepare(ReferenceMatchingPrepareRequest {
+            expected_reference_hash: Some("sha256:reference".into()),
+            host_basis_hash: "sha256:host".into(),
+            host_candidates: vec![ReferenceHostCandidate {
+                library_id: 1,
+                item_key: "TARGET".into(),
+                title: "Target".into(),
+                year: "2024".into(),
+                authors: Vec::new(),
+                doi: "10.1000/target".into(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: String::new(),
+            }],
+        });
+
+        assert_eq!(prepared.status, ReferenceMatchingStatus::Prepared);
+        assert_eq!(
+            *dedupe_exclusions.lock().expect("dedupe exclusions"),
+            vec!["canonical:1"]
+        );
+        let promoted = application.apply(
+            prepared.preparation_id.as_deref().expect("preparation id"),
+            "sha256:host",
+        );
+        assert_eq!(promoted.status, ReferenceMatchingStatus::Promoted);
+        assert_eq!(promoted.fact_count, 1);
+        assert_eq!(promoted.proposal_count, 0);
+        let binding = owner
+            .lock()
+            .expect("repository")
+            .list_reference_bindings()
+            .expect("bindings")
+            .into_iter()
+            .next()
+            .expect("accepted binding");
+        assert_eq!(binding.confidence, "deterministic");
+        assert!(
+            binding
+                .diagnostics_json
+                .contains("reference_identifier_match")
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

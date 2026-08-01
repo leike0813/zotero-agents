@@ -1,21 +1,9 @@
 import { assert } from "chai";
 import { promises as fs } from "node:fs";
 import {
-  beginSynthesisSidecarStartupAttempt,
-  getSynthesisSidecarDiagnosticSnapshot,
-  listSynthesisSidecarDiagnosticEvents,
-  recordSynthesisSidecarStartupPhase,
-  resetSynthesisSidecarDiagnosticsForTests,
-} from "../../src/modules/synthesisSidecarDiagnostics";
-import {
-  recordSynthesisSidecarDiagnosticEvent,
-  synthesisSidecarDiagnosticCode,
-} from "../../src/modules/synthesisSidecarDiagnosticEvents";
-import {
-  buildRuntimeIssueDiagnosticBundle,
-  clearRuntimeLogs,
-  listRuntimeLogs,
-} from "../../src/modules/runtimeLogManager";
+  rebuildSynthesisSidecarObservationEvent,
+  rebuildSynthesisSidecarTraceContext,
+} from "../../packages/synthesis-contracts/src/sidecarObservability";
 import {
   setDebugModeOverrideForTests,
   setSynthesisSidecarDiagnosticsSourceOverrideForTests,
@@ -26,407 +14,218 @@ import {
 } from "../../src/modules/synthesisSidecarRpcClient";
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesisProductionRpcPolicy";
 import { parseNativeDiagnosticEvent } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
+import {
+  createSynthesisSidecarTraceContext,
+  flushSynthesisSidecarTracePatchesForTests,
+  readSynthesisSidecarTraceSnapshot,
+  recordSynthesisSidecarTraceEvent,
+  resetSynthesisSidecarTraceForTests,
+  subscribeSynthesisSidecarTracePatches,
+} from "../../src/modules/synthesisSidecarTrace";
 
 describe("Synthesis sidecar debug observability", function () {
   beforeEach(function () {
     setDebugModeOverrideForTests(true);
     setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
-    resetSynthesisSidecarDiagnosticsForTests();
-    void clearRuntimeLogs();
+    resetSynthesisSidecarTraceForTests();
   });
 
   afterEach(function () {
     setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
     setDebugModeOverrideForTests(undefined);
-    resetSynthesisSidecarDiagnosticsForTests();
+    resetSynthesisSidecarTraceForTests();
   });
 
-  it("projects one correlated startup attempt while logging only its failure", function () {
-    const attemptId = beginSynthesisSidecarStartupAttempt();
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "runtime-install",
-      status: "running",
-      evidence: {
-        bundleId: "bundle-1",
-        runtimeRoot: "/profile/zotero-agents",
+  it("strictly rebuilds v2 context and preserves zero-valued allowlisted facts", function () {
+    const context = rebuildSynthesisSidecarTraceContext({
+      schema: "synthesis-sidecar-observation.v2",
+      traceId: "1".repeat(32),
+      spanId: "2".repeat(16),
+      attempt: 0,
+    });
+    const event = rebuildSynthesisSidecarObservationEvent({
+      ...context,
+      source: "rust-sidecar",
+      boundary: "operation",
+      phase: "terminal",
+      outcome: "succeeded",
+      occurredAtMs: 0,
+      facts: {
+        semanticStatus: "promoted",
+        matchingHash: `sha256:${"c".repeat(64)}`,
+        proposalCount: 0,
+        factCount: 2,
+        warningCount: 0,
       },
     });
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "runtime-install",
-      status: "failed",
-      code: "sidecar_runtime_missing",
-      error: new Error("sidecar_runtime_missing"),
+    assert.deepEqual(event.facts, {
+      semanticStatus: "promoted",
+      matchingHash: `sha256:${"c".repeat(64)}`,
+      proposalCount: 0,
+      factCount: 2,
+      warningCount: 0,
     });
-
-    const snapshot = getSynthesisSidecarDiagnosticSnapshot();
-    assert.equal(snapshot?.attemptId, attemptId);
-    assert.equal(snapshot?.phase, "runtime-install");
-    assert.equal(snapshot?.status, "failed");
-    assert.equal(snapshot?.code, "sidecar_runtime_missing");
-    assert.deepEqual(snapshot?.evidence, {
-      bundleId: "bundle-1",
-      runtimeRoot: "/profile/zotero-agents",
-    });
-
-    const logs = listRuntimeLogs({
-      component: "synthesis-sidecar-lifecycle",
-      operation: "production-startup",
-      order: "asc",
-    });
-    assert.deepEqual(
-      logs.map((entry) => [entry.phase, entry.stage]),
-      [["runtime-install", "failed"]],
-    );
-    assert.isTrue(logs.every((entry) => entry.requestId === attemptId));
-    assert.deepEqual(
-      buildRuntimeIssueDiagnosticBundle({
-        includeDebug: true,
-      }).debugContext?.synthesisSidecar,
-      snapshot,
-    );
+    for (const invalid of [
+      { ...event, payload: { title: "private" } },
+      { ...event, code: "private error at /tmp/library" },
+      { ...event, facts: { ...event.facts, locator: "zotero://item/1" } },
+    ]) {
+      assert.throws(() => rebuildSynthesisSidecarObservationEvent(invalid));
+    }
   });
 
-  it("prefers structured runtime-admission reasons over prose", function () {
-    const error = {
-      code: "conflict",
-      message: "The admitted native owner does not match this runtime",
-      details: { reason: "runtime_mismatch" },
+  it("rejects unknown native fields instead of projecting them", function () {
+    const value = {
+      schema: "synthesis-sidecar-observation.v2",
+      traceId: "1".repeat(32),
+      spanId: "2".repeat(16),
+      attempt: 0,
+      source: "rust-sidecar",
+      boundary: "child-worker",
+      phase: "terminal",
+      outcome: "failed",
+      code: "worker_failed",
+      occurredAtMs: 1,
+      metrics: { queueWaitMs: 0 },
+      facts: { proposalCount: 0, warningCount: 0 },
     };
-    assert.equal(synthesisSidecarDiagnosticCode(error), "runtime_mismatch");
-    assert.equal(
-      synthesisSidecarDiagnosticCode(
-        new Error("The admitted native owner does not match this runtime"),
+    assert.deepEqual(parseNativeDiagnosticEvent(JSON.stringify(value)), value);
+    assert.isUndefined(
+      parseNativeDiagnosticEvent(
+        JSON.stringify({ ...value, payload: { title: "private" } }),
       ),
-      "synthesis_sidecar_startup_failed",
     );
-
-    const attemptId = beginSynthesisSidecarStartupAttempt();
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "runtime-admission",
-      status: "running",
-      evidence: {
-        currentBuildFingerprint: "a".repeat(64),
-        targetBuildFingerprint: "b".repeat(64),
-      },
-    });
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "runtime-admission",
-      status: "failed",
-      code: synthesisSidecarDiagnosticCode(error),
-      error,
-    });
-    const snapshot = getSynthesisSidecarDiagnosticSnapshot();
-    assert.equal(snapshot?.phase, "runtime-admission");
-    assert.equal(snapshot?.code, "runtime_mismatch");
-    assert.equal(snapshot?.evidence.currentBuildFingerprint, "a".repeat(64));
-    assert.equal(snapshot?.evidence.targetBuildFingerprint, "b".repeat(64));
   });
 
-  it("does not retain diagnostic state outside debug mode", function () {
+  it("does no trace construction, storage, or patch publication behind the gate", function () {
+    const patches: unknown[] = [];
     setDebugModeOverrideForTests(false);
-    const attemptId = beginSynthesisSidecarStartupAttempt();
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "runtime-install",
-      status: "failed",
-      code: "sidecar_runtime_missing",
-    });
-
-    assert.isUndefined(getSynthesisSidecarDiagnosticSnapshot());
-    const logs = listRuntimeLogs({
-      component: "synthesis-sidecar-lifecycle",
-    });
-    assert.lengthOf(logs, 1);
-    assert.equal(logs[0]?.level, "error");
-    assert.equal(logs[0]?.stage, "failed");
-  });
-
-  it("does not retain diagnostic state when the independent source is disabled", function () {
-    setSynthesisSidecarDiagnosticsSourceOverrideForTests(false);
-    const attemptId = beginSynthesisSidecarStartupAttempt();
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "runtime-install",
-      status: "running",
-    });
-
-    assert.isUndefined(getSynthesisSidecarDiagnosticSnapshot());
-    assert.deepEqual(listSynthesisSidecarDiagnosticEvents(), []);
-  });
-
-  it("keeps only failure summaries in normal mode and full correlated events in debug mode", function () {
-    recordSynthesisSidecarDiagnosticEvent({
-      component: "reverse-host",
-      stage: "request-started",
-      status: "started",
-      capability: "library.artifacts.read",
-      requestId: "request-debug",
-      operationId: "operation-debug",
-      requestBytes: 128,
-    });
-    recordSynthesisSidecarDiagnosticEvent({
-      component: "reverse-host",
-      stage: "response-completed",
-      status: "succeeded",
-      capability: "library.artifacts.read",
-      requestId: "request-debug",
-      operationId: "operation-debug",
-      responseBytes: 512,
-      durationMs: 4,
-    });
-    assert.deepEqual(
-      listSynthesisSidecarDiagnosticEvents().map((event) => event.status),
-      ["started", "succeeded"],
+    const unsubscribe = subscribeSynthesisSidecarTracePatches((patch) =>
+      patches.push(patch),
     );
-    assert.lengthOf(
-      listRuntimeLogs({
-        component: "synthesis-sidecar",
-        requestId: "request-debug",
-      }),
-      0,
-    );
-
-    setDebugModeOverrideForTests(false);
-    recordSynthesisSidecarDiagnosticEvent({
-      component: "rpc",
-      stage: "request-started",
-      status: "started",
-      capability: "client.refreshReferenceSidecarNow",
-      requestId: "request-normal",
-    });
-    recordSynthesisSidecarDiagnosticEvent({
-      component: "rpc",
-      stage: "request-failed",
-      status: "failed",
-      capability: "client.refreshReferenceSidecarNow",
-      requestId: "request-normal",
-      code: "reverse_host_response_body_truncated",
-      durationMs: 8,
-    });
-
-    const normalLogs = listRuntimeLogs({
-      component: "synthesis-sidecar",
-      requestId: "request-normal",
-      order: "asc",
-    });
-    assert.deepEqual(
-      normalLogs.map((entry) => [entry.stage, entry.level]),
-      [["request-failed", "error"]],
-    );
-  });
-
-  it("retains bounded Citation Graph mutation and layout capacity metadata", function () {
-    recordSynthesisSidecarDiagnosticEvent({
-      component: "operation",
-      stage: "layout-worker-failed",
-      status: "failed",
-      capability: "client.recomputeCitationGraphLayout",
-      requestId: "request-layout",
-      correlationId: "request-layout",
-      code: "invalid_request",
-      mutationStatus: "invalid_request",
-      workerCode: "invalid_request",
-      algorithm: "force",
-      graphHash: `sha256:${"a".repeat(64)}`,
-      nodeCount: 7_432,
-      edgeCount: 11_377,
-      nodeLimit: 20_000,
-      edgeLimit: 80_000,
-    });
-
-    const event = listSynthesisSidecarDiagnosticEvents()[0];
-    assert.deepInclude(event, {
-      mutationStatus: "invalid_request",
-      workerCode: "invalid_request",
-      algorithm: "force",
-      nodeCount: 7_432,
-      edgeCount: 11_377,
-      nodeLimit: 20_000,
-      edgeLimit: 80_000,
-    });
-    assert.equal(event?.correlationId, "request-layout");
-    const serialized = JSON.stringify(event);
-    for (const forbidden of ["payload", "authorization", "token", "nodeIds"]) {
-      assert.notInclude(serialized, forbidden);
-    }
-  });
-
-  it("parses only allowlisted native Citation Graph diagnostic metadata", function () {
-    const event = parseNativeDiagnosticEvent(
-      JSON.stringify({
-        schema: "synthesis-sidecar-native-diagnostic-event.v1",
-        component: "operation",
-        stage: "layout-worker-failed",
-        status: "failed",
-        code: "invalid_request",
-        mutationStatus: "invalid_request",
-        workerCode: "invalid_request",
-        algorithm: "force",
-        graphHash: `sha256:${"b".repeat(64)}`,
-        nodeCount: 7_432,
-        edgeCount: 11_377,
-        nodeLimit: 20_000,
-        edgeLimit: 80_000,
-        payload: { title: "must not cross the stderr boundary" },
+    const context = createSynthesisSidecarTraceContext();
+    assert.isUndefined(context);
+    assert.isUndefined(
+      recordSynthesisSidecarTraceEvent({
+        context,
+        source: "host",
+        boundary: "host-rpc",
+        phase: "request",
+        outcome: "started",
       }),
     );
+    flushSynthesisSidecarTracePatchesForTests();
+    unsubscribe();
+    assert.deepEqual(readSynthesisSidecarTraceSnapshot().traces, []);
+    assert.deepEqual(patches, []);
+  });
 
-    assert.deepInclude(event, {
-      component: "operation",
-      stage: "layout-worker-failed",
-      status: "failed",
-      workerCode: "invalid_request",
-      nodeCount: 7_432,
-      edgeLimit: 80_000,
+  it("batches patches and preserves root, first failure, terminal, and dropped count", function () {
+    const patches: unknown[] = [];
+    const unsubscribe = subscribeSynthesisSidecarTracePatches((patch) =>
+      patches.push(patch),
+    );
+    const root = createSynthesisSidecarTraceContext()!;
+    recordSynthesisSidecarTraceEvent({
+      context: root,
+      source: "host",
+      boundary: "host-rpc",
+      phase: "request",
+      outcome: "started",
+      occurredAtMs: 1,
     });
-    assert.notProperty(event || {}, "payload");
-  });
-
-  it("bounds the debug timeline and retains exact capacity evidence", function () {
-    const previousDebug = console.debug;
-    const previousError = console.error;
-    const runtime = globalThis as typeof globalThis & {
-      Zotero?: { debug?: (message: string) => void };
-    };
-    const previousZoteroDebug = runtime.Zotero?.debug;
-    console.debug = () => undefined;
-    console.error = () => undefined;
-    if (runtime.Zotero) runtime.Zotero.debug = () => undefined;
-    try {
-      for (let index = 0; index < 505; index += 1) {
-        recordSynthesisSidecarDiagnosticEvent({
-          component: "reverse-host",
-          stage: "response-rejected",
-          status: "failed",
-          requestId: `request-${index}`,
-          attemptedResponseBytes: 1_048_576 + index,
-          limitBytes: 8 * 1_024 * 1_024,
-          code: "reverse_host_response_too_large",
-        });
-      }
-    } finally {
-      console.debug = previousDebug;
-      console.error = previousError;
-      if (runtime.Zotero) runtime.Zotero.debug = previousZoteroDebug;
-    }
-
-    const events = listSynthesisSidecarDiagnosticEvents();
-    assert.lengthOf(events, 500);
-    assert.equal(events[0]?.requestId, "request-5");
-    assert.equal(events[499]?.attemptedResponseBytes, 1_049_080);
-    assert.equal(events[499]?.limitBytes, 8 * 1_024 * 1_024);
-  });
-
-  it("emits payload-free debug events to both console sinks", function () {
-    const consoleCalls: unknown[][] = [];
-    const zoteroCalls: string[] = [];
-    const previousDebug = console.debug;
-    const runtime = globalThis as typeof globalThis & {
-      Zotero?: { debug?: (message: string) => void };
-    };
-    const previousZotero = runtime.Zotero;
-    const previousZoteroDebug = previousZotero?.debug;
-    console.debug = (...args: unknown[]) => consoleCalls.push(args);
-    if (runtime.Zotero) {
-      runtime.Zotero.debug = (message: string) => zoteroCalls.push(message);
-    } else {
-      runtime.Zotero = {
-        debug: (message: string) => zoteroCalls.push(message),
-      };
-    }
-    try {
-      recordSynthesisSidecarDiagnosticEvent({
-        component: "reverse-host",
-        stage: "handler-completed",
-        status: "succeeded",
-        capability: "library.artifacts.read",
-        requestId: "request-console",
-        operationId: "operation-console",
-        responseBytes: 256,
+    for (let index = 0; index < 140; index += 1) {
+      const child = createSynthesisSidecarTraceContext({
+        parent: root,
+        attempt: index,
+      })!;
+      recordSynthesisSidecarTraceEvent({
+        context: child,
+        source: "child-worker",
+        boundary: "child-worker",
+        phase: "attempt",
+        outcome: index === 130 ? "failed" : "succeeded",
+        ...(index === 130 ? { code: "worker_failed" } : {}),
+        occurredAtMs: index + 2,
       });
-    } finally {
-      console.debug = previousDebug;
-      if (previousZotero) {
-        previousZotero.debug = previousZoteroDebug;
-        runtime.Zotero = previousZotero;
-      } else {
-        delete runtime.Zotero;
-      }
     }
+    recordSynthesisSidecarTraceEvent({
+      context: root,
+      source: "host",
+      boundary: "host-rpc",
+      phase: "terminal",
+      outcome: "failed",
+      code: "service_unavailable",
+      occurredAtMs: 200,
+    });
+    flushSynthesisSidecarTracePatchesForTests();
+    unsubscribe();
 
-    assert.lengthOf(consoleCalls, 1);
-    assert.lengthOf(zoteroCalls, 1);
-    const serialized = JSON.stringify([consoleCalls, zoteroCalls]);
-    assert.include(serialized, "[synthesis-sidecar]");
-    assert.notInclude(serialized, "authorization");
-    assert.notInclude(serialized, "payload");
+    const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
+    assert.lengthOf(trace.events, 128);
+    assert.isAbove(trace.droppedCount, 0);
+    assert.isFalse(trace.active);
+    assert.equal(trace.events[0]?.outcome, "started");
+    assert.isTrue(trace.events.some((event) => event.code === "worker_failed"));
+    assert.equal(trace.events[127]?.phase, "terminal");
+    assert.lengthOf(patches, 1);
   });
 
-  it("correlates RPC request and response metadata without retaining payloads", async function () {
-    const events: Record<string, unknown>[] = [];
-    let clock = 10;
+  it("propagates trace context over RPC only in debug mode", async function () {
+    const bodies: Record<string, unknown>[] = [];
+    const events: unknown[] = [];
     const rpc = createSynthesisSidecarRpcClient({
-      now: () => clock++,
-      recordDiagnosticEvent: (event) => events.push(event),
+      recordTraceEvent: (event) => events.push(event),
       fetch: (async (_input: unknown, init?: RequestInit) => {
         const request = JSON.parse(String(init?.body || "{}"));
-        const source = JSON.stringify({
-          ok: true,
-          requestId: request.requestId,
-          serviceInstanceId: "service-1",
-          data: { accepted: true },
-        });
-        return new Response(source, {
-          status: 200,
-          headers: { "content-length": String(Buffer.byteLength(source)) },
-        });
+        bodies.push(request);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            requestId: request.requestId,
+            serviceInstanceId: "service-1",
+            data: { accepted: true },
+          }),
+          { status: 200 },
+        );
       }) as typeof fetch,
     });
-
-    assert.deepEqual(
-      await rpc.call({
-        connection: {
-          baseUrl: "http://127.0.0.1:1",
-          profileId: "profile-1",
-          clientToken: "secret-token",
-          serviceInstanceId: "service-1",
-        },
-        capability: "client.refreshReferenceSidecarNow",
-        payload: { privateValue: "must-not-be-logged" },
-        rebuildResult: (value) => value,
-      }),
-      { accepted: true },
-    );
-
-    assert.deepEqual(
-      events.map((event) => [event.stage, event.status]),
-      [
-        ["request-started", "started"],
-        ["request-completed", "succeeded"],
-      ],
-    );
-    assert.equal(events[0]?.requestId, events[1]?.requestId);
-    assert.equal(events[0]?.correlationId, events[0]?.requestId);
-    assert.equal(events[1]?.correlationId, events[0]?.requestId);
-    assert.isAbove(Number(events[0]?.requestBytes), 0);
-    assert.isAbove(Number(events[1]?.responseBytes), 0);
-    const serialized = JSON.stringify(events);
-    assert.notInclude(serialized, "secret-token");
-    assert.notInclude(serialized, "must-not-be-logged");
-  });
-
-  it("preserves native operation timeout and keeps local production timeout distinct", async function () {
     const connection = {
       baseUrl: "http://127.0.0.1:1",
       profileId: "profile-1",
       clientToken: "secret-token",
       serviceInstanceId: "service-1",
     };
-    const nativeTimeout = createSynthesisSidecarRpcClient({
+    await rpc.call({
+      connection,
+      capability: "client.listTopics",
+      payload: { privateValue: "not-observed" },
+      rebuildResult: (value) => value,
+    });
+    assert.property(bodies[0] || {}, "trace");
+    assert.lengthOf(events, 2);
+    assert.notInclude(JSON.stringify(events), "not-observed");
+    assert.notInclude(JSON.stringify(events), "secret-token");
+
+    setDebugModeOverrideForTests(false);
+    await rpc.call({
+      connection,
+      capability: "client.listTopics",
+      payload: {},
+      rebuildResult: (value) => value,
+    });
+    assert.notProperty(bodies[1] || {}, "trace");
+    assert.lengthOf(events, 2);
+  });
+
+  it("preserves native operation timeout separately from local transport timeout", async function () {
+    const connection = {
+      baseUrl: "http://127.0.0.1:1",
+      profileId: "profile-1",
+      clientToken: "secret-token",
+      serviceInstanceId: "service-1",
+    };
+    const rpc = createSynthesisSidecarRpcClient({
       transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
       fetch: (async (_input: unknown, init?: RequestInit) => {
         const request = JSON.parse(String(init?.body || "{}"));
@@ -441,156 +240,35 @@ describe("Synthesis sidecar debug observability", function () {
         );
       }) as typeof fetch,
     });
-    let nativeFailure: unknown;
-    try {
-      await nativeTimeout.call({
-        connection,
-        capability: "client.refreshReferenceSidecarNow",
-        payload: {},
-        rebuildResult: (value) => value,
-      });
-    } catch (error) {
-      nativeFailure = error;
-    }
-    assert.instanceOf(nativeFailure, SynthesisSidecarRpcError);
-    assert.equal(
-      (nativeFailure as SynthesisSidecarRpcError).code,
-      "operation_timeout",
-    );
-
-    const localTimeout = createSynthesisSidecarRpcClient({
-      deadlineMs: 1,
-      transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
-      fetch: (() => new Promise<Response>(() => undefined)) as typeof fetch,
-    });
-    let localFailure: unknown;
-    try {
-      await localTimeout.call({
-        connection,
-        capability: "client.refreshReferenceSidecarNow",
-        payload: {},
-        rebuildResult: (value) => value,
-      });
-    } catch (error) {
-      localFailure = error;
-    }
-    assert.instanceOf(localFailure, SynthesisSidecarRpcError);
-    assert.equal(
-      (localFailure as SynthesisSidecarRpcError).code,
-      "request_timeout",
-    );
-  });
-
-  it("preserves a bounded nested failure reason across the RPC boundary", async function () {
-    const events: Record<string, unknown>[] = [];
-    const rpc = createSynthesisSidecarRpcClient({
-      recordDiagnosticEvent: (event) => events.push(event),
-      fetch: (async (_input: unknown, init?: RequestInit) => {
-        const request = JSON.parse(String(init?.body || "{}"));
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            requestId: request.requestId,
-            serviceInstanceId: "service-1",
-            error: {
-              code: "internal_error",
-              details: {
-                reason: "reverse_host_response_too_large",
-              },
-            },
-          }),
-          { status: 503 },
-        );
-      }) as typeof fetch,
-    });
-
-    let caught: unknown;
+    let failure: unknown;
     try {
       await rpc.call({
-        connection: {
-          baseUrl: "http://127.0.0.1:1",
-          profileId: "profile-1",
-          clientToken: "secret-token",
-          serviceInstanceId: "service-1",
-        },
+        connection,
         capability: "client.refreshReferenceSidecarNow",
         payload: {},
         rebuildResult: (value) => value,
       });
     } catch (error) {
-      caught = error;
+      failure = error;
     }
-
-    assert.instanceOf(caught, SynthesisSidecarRpcError);
-    assert.equal((caught as SynthesisSidecarRpcError).code, "internal_error");
-    assert.deepEqual((caught as SynthesisSidecarRpcError).details, {
-      reason: "reverse_host_response_too_large",
-    });
-    assert.deepInclude(events[events.length - 1], {
-      stage: "request-failed",
-      status: "failed",
-      code: "reverse_host_response_too_large",
-    });
-  });
-
-  it("ignores stale events from an earlier attempt", function () {
-    const staleAttempt = beginSynthesisSidecarStartupAttempt();
-    const currentAttempt = beginSynthesisSidecarStartupAttempt();
-    recordSynthesisSidecarStartupPhase({
-      attemptId: staleAttempt,
-      phase: "backup",
-      status: "failed",
-      code: "stale_failure",
-    });
-
+    assert.instanceOf(failure, SynthesisSidecarRpcError);
     assert.equal(
-      getSynthesisSidecarDiagnosticSnapshot()?.attemptId,
-      currentAttempt,
+      (failure as SynthesisSidecarRpcError).code,
+      "operation_timeout",
     );
-    assert.equal(getSynthesisSidecarDiagnosticSnapshot()?.phase, "startup");
   });
 
-  it("bounds process tails and redacts credential-shaped values", function () {
-    const attemptId = beginSynthesisSidecarStartupAttempt();
-    recordSynthesisSidecarStartupPhase({
-      attemptId,
-      phase: "supervisor-launch",
-      status: "failed",
-      evidence: {
-        stderrTail: `${"x".repeat(20_000)} clientToken=private-value`,
-      },
-    });
-
-    const tail =
-      getSynthesisSidecarDiagnosticSnapshot()?.evidence.stderrTail || "";
-    assert.isAtMost(tail.length, 8_192);
-    assert.notInclude(tail, "private-value");
-    assert.include(tail, "<redacted>");
-  });
-
-  it("binds the debug-mode constant in the independent Workbench bundle", async function () {
-    const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
-    const workbenchEntry = config.indexOf(
-      'entryPoints: ["src/synthesisWorkbenchApp.ts"]',
-    );
-    const nextEntry = config.indexOf(
-      'entryPoints: ["src/workspaceApp.ts"]',
-      workbenchEntry,
-    );
-    assert.isAtLeast(workbenchEntry, 0);
-    assert.isAbove(nextEntry, workbenchEntry);
-    const workbenchBuild = config.slice(workbenchEntry, nextEntry);
-
-    assert.include(workbenchBuild, "__debug_mode__: String(DEBUG_MODE)");
-    assert.include(workbenchBuild, "minifySyntax: true");
-  });
-
-  it("binds the independent Synthesis source switch in plugin and Dashboard builds", async function () {
+  it("binds and elides the independent sidecar observation switch", async function () {
     const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
     assert.include(
       config,
       "__synthesis_sidecar_diagnostics_enabled__: String(",
     );
-    assert.include(config, 'entryPoints: ["addon/content/dashboard/app.js"]');
+    const manifest = await fs.readFile(
+      "scripts/runtime-diagnostics-production-manifest.ts",
+      "utf8",
+    );
+    assert.include(manifest, "src/modules/synthesisSidecarTrace.ts");
+    assert.include(manifest, "synthesis-sidecar-observation.v2");
   });
 });

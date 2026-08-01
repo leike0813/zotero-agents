@@ -53,17 +53,14 @@
 - [x] 7.3 Replace ambiguous runtime-root strings with one expanded sidecar runtime path and prove the nested layout is unreachable
 - [x] 7.4 Keep startup reconcile behind native mutation admission and restore default-client acquisition after a cutover generation drain
 
-## 8. Complete Sidecar Observability and Real-Profile Repair
+## 8. Complete Reverse-Host Framing and Real-Profile Repair
 
-- [x] 8.1 Add one sanitized attempt/phase snapshot and structured runtime-log events with bounded process evidence
-- [x] 8.2 Add the Workbench failure entry, read-only Task Manager Sidecar page, and diagnostic-bundle projection
-- [x] 8.3 Add direct-launcher packaged-runtime preflight, Zotero stream forwarding, and filtered lifecycle output
-- [x] 8.4 Repair reverse-Host UTF-8 response framing, forbid fallback responses after transfer starts, and discard failed reference-refresh preparations
-- [x] 8.5 Add one payload-free correlated event sink across plugin RPC/reverse-Host, native RPC/operation/process, runtime logs, and debug console output
-- [x] 8.6 Extend the read-only Task Manager Sidecar page and diagnostic export from startup-only evidence to a bounded recent runtime timeline
-- [ ] 8.7 Verify focused TypeScript/Rust tests, release elision, packaging gates, production build, and repeat the clean-profile real-machine check
+- [x] 8.1 Add direct-launcher packaged-runtime preflight and Zotero stream forwarding
+- [x] 8.2 Repair reverse-Host UTF-8 response framing, forbid fallback responses after transfer starts, and discard failed reference-refresh preparations
+- [ ] 8.3 Verify focused TypeScript/Rust tests, packaging gates, production build, and repeat the clean-profile real-machine check
   - Focused tests, release elision, production/direct build, XPI inventory, empty-profile real-machine startup, all public Workbench surfaces, Task Manager diagnostics, and admitted cold restart pass locally.
   - Seven-platform runtime freshness remains pending the separately governed prebuild for source fingerprint `5fb7e92c4729b5267288b423fa27e8d1bf07a65dac1725957d52f0f55e5274a0`.
+  - Advanced Matching real-engine DTO, application parity, atomic promotion, Sidecar audit projection, and focused Rust/TypeScript/UI gates pass locally; representative clean-profile rerun remains pending.
 
 ## 9. Repair Citation Graph Native Command Boundary
 
@@ -78,3 +75,10 @@
 - [x] 10.2 Add one coherent native Citation Graph projection for Workbench and all six public read capabilities, including semantic main/hover slices and topic scopes
 - [x] 10.3 Normalize worker layout results before persistence, reject stale raw layouts, preserve last-good graph visibility, and bound worker/UI title input
 - [x] 10.4 Update current specifications and run the focused TypeScript, Rust, surface-parity, production-capability, and OpenSpec gates
+
+## 11. Repair Advanced Matching
+
+- [x] 11.1 Add failing application and real-child-worker tests for paged binding/dedupe transport, strict requests, identifier parity, explicit accept/review disposition, and same-run accepted-binding exclusion
+- [x] 11.2 Route deterministic in-memory calls through the generic paged worker protocol, replace the broken native matcher adapter with one two-pass DTO boundary, and preserve atomic durable promotion without Node or plugin fallback
+- [x] 11.3 Add failing native and TypeScript tests for successful and non-success Advanced Matching terminals, including zero-result passes
+- [x] 11.4 Run focused Rust/TypeScript, surface-parity, OpenSpec, format, clippy, and type-check gates and record the local result without claiming pending real-machine or prebuild evidence

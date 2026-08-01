@@ -80,7 +80,7 @@ import {
   BUILTIN_STATUS_FACET,
   isBuiltinStatusTag,
 } from "./synthesis/builtinTagPolicy";
-import { getSynthesisSidecarDiagnosticSnapshot } from "./synthesisSidecarDiagnostics";
+import { readSynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import { openTaskManagerDialog } from "./taskManagerDialog";
 
 type SynthesisBridgeMessageType =
@@ -478,13 +478,17 @@ function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
   const fallback = buildDefaultSnapshotInput();
   const fallbackMessage =
     error instanceof Error ? error.message : String(error || "unknown error");
-  const sidecar = getSynthesisSidecarDiagnosticSnapshot();
-  const isSidecarFailure = sidecar?.status === "failed";
+  const sidecar = readSynthesisSidecarTraceSnapshot()
+    .traces.flatMap((trace) => trace.events)
+    .filter(
+      (event) => event.boundary === "supervisor" && event.outcome === "failed",
+    )
+    .sort((left, right) => right.occurredAtMs - left.occurredAtMs)[0];
+  const isSidecarFailure = Boolean(sidecar);
   const message = isSidecarFailure
     ? [
-        `Synthesis sidecar startup failed during ${sidecar.phase}.`,
-        sidecar.code ? `Code: ${sidecar.code}.` : "",
-        `Attempt: ${sidecar.attemptId}.`,
+        `Synthesis sidecar startup failed during ${sidecar?.phase}.`,
+        sidecar?.code ? `Code: ${sidecar.code}.` : "",
       ]
         .filter(Boolean)
         .join(" ")

@@ -20,6 +20,7 @@
     dashboardScrollTopsByKey: Object.create(null),
     productExpandedTreePathsById: Object.create(null),
     synthesisEventId: "",
+    synthesisTraceId: "",
     synthesisStatusFilter: "",
     synthesisComponentFilter: "",
     synthesisCorrelationFilter: "",
@@ -4047,6 +4048,193 @@
   if (SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE) {
     renderSynthesisSidecar = function (main, snapshot) {
     const view = snapshot.synthesisSidecarView || {};
+    const traceSnapshot = view.traceSnapshot;
+    if (!traceSnapshot || !Array.isArray(traceSnapshot.traces)) {
+      main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
+      main.appendChild(
+        el("div", "empty-state", "No sidecar traces in this debug session."),
+      );
+      return;
+    }
+    if (traceSnapshot && Array.isArray(traceSnapshot.traces)) {
+      const traces = traceSnapshot.traces;
+      main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
+      if (traces.length === 0) {
+        main.appendChild(
+          el("div", "empty-state", "No sidecar traces in this debug session."),
+        );
+        return;
+      }
+      const summary = el("section", "synthesis-sidecar-summary");
+      const activeCount = traces.filter(function (trace) {
+        return trace.active === true;
+      }).length;
+      const droppedCount = traces.reduce(function (sum, trace) {
+        return sum + Number(trace.droppedCount || 0);
+      }, 0);
+      [
+        ["Traces", traces.length],
+        ["Events", Number(traceSnapshot.eventCount || 0)],
+        ["Active", activeCount],
+        ["Dropped", droppedCount],
+      ].forEach(function (entry) {
+        const card = el("div", "card");
+        card.appendChild(el("div", "card-label", entry[0]));
+        card.appendChild(el("div", "card-value mono", String(entry[1])));
+        summary.appendChild(card);
+      });
+      main.appendChild(summary);
+
+      const selected =
+        traces.find(function (trace) {
+          return trace.traceId === state.synthesisTraceId;
+        }) ||
+        traces
+          .slice()
+          .reverse()
+          .find(function (trace) {
+            return trace.events.some(function (event) {
+              return event.outcome === "failed";
+            });
+          }) ||
+        traces[traces.length - 1];
+      state.synthesisTraceId = selected ? selected.traceId : "";
+      const layout = el("div", "synthesis-sidecar-layout");
+      const tableWrap = el("div", "table-wrap synthesis-sidecar-events");
+      tableWrap.dataset.dashboardScrollKey = "synthesis-sidecar:events";
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      const header = document.createElement("tr");
+      ["Outcome", "Trace", "Operation", "Started", "Spans", "Dropped"].forEach(
+        function (label) {
+          header.appendChild(el("th", "", label));
+        },
+      );
+      thead.appendChild(header);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      traces.forEach(function (trace) {
+        const root = trace.events.find(function (event) {
+          return !event.parentSpanId;
+        });
+        const terminal = trace.events
+          .slice()
+          .reverse()
+          .find(function (event) {
+            return !event.parentSpanId && event.outcome !== "started";
+          });
+        const outcome = terminal ? terminal.outcome : trace.active ? "started" : "succeeded";
+        const operation =
+          (root && root.identities && root.identities.operation) ||
+          (root && root.identities && root.identities.capability) ||
+          "-";
+        const row = document.createElement("tr");
+        row.className = "clickable-row synthesis-trace-row";
+        row.dataset.traceId = trace.traceId;
+        row.dataset.traceSignature = JSON.stringify({
+          outcome,
+          operation,
+          updatedAtMs: trace.updatedAtMs,
+          count: trace.events.length,
+          dropped: trace.droppedCount,
+        });
+        if (selected && selected.traceId === trace.traceId) row.classList.add("selected");
+        const statusCell = el("td", "mono");
+        statusCell.appendChild(renderStatusBadge(outcome, outcome));
+        row.appendChild(statusCell);
+        row.appendChild(el("td", "mono", trace.traceId.slice(0, 12)));
+        row.appendChild(el("td", "mono", String(operation)));
+        row.appendChild(el("td", "mono", formatTime(new Date(trace.startedAtMs).toISOString())));
+        row.appendChild(el("td", "mono", String(trace.events.length)));
+        row.appendChild(el("td", "mono", String(trace.droppedCount || 0)));
+        row.addEventListener("click", function () {
+          state.synthesisTraceId = trace.traceId;
+          render();
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      tableWrap.appendChild(table);
+      layout.appendChild(tableWrap);
+
+      const detail = el("section", "panel synthesis-sidecar-detail");
+      detail.dataset.traceId = selected ? selected.traceId : "";
+      detail.dataset.traceSignature = selected
+        ? `${selected.updatedAtMs}:${selected.events.length}:${selected.droppedCount}`
+        : "";
+      const detailHeader = el("div", "synthesis-sidecar-detail-header");
+      const heading = el("div");
+      heading.appendChild(el("h3", "panel-title", "Causal trace"));
+      heading.appendChild(
+        el(
+          "div",
+          "muted mono",
+          selected
+            ? `${selected.traceId} · ${selected.events.length} spans · ${selected.droppedCount || 0} dropped`
+            : "No trace selected",
+        ),
+      );
+      detailHeader.appendChild(heading);
+      if (selected) {
+        const copy = el("button", "btn", "Copy trace");
+        copy.type = "button";
+        copy.addEventListener("click", function () {
+          copyTextToClipboard(JSON.stringify(selected, null, 2)).then(
+            function () {
+              copy.textContent = "Copied";
+              showToast("Trace copied");
+            },
+            function () {
+              copy.textContent = "Copy failed";
+              showToast("Copy failed");
+            },
+          );
+        });
+        detailHeader.appendChild(copy);
+      }
+      detail.appendChild(detailHeader);
+      if (selected) {
+        const spanParents = new Map();
+        selected.events.forEach(function (event) {
+          spanParents.set(event.spanId, event.parentSpanId || "");
+        });
+        function depth(event) {
+          let value = 0;
+          let parent = event.parentSpanId;
+          const seen = new Set();
+          while (parent && !seen.has(parent) && value < 12) {
+            seen.add(parent);
+            value += 1;
+            parent = spanParents.get(parent);
+          }
+          return value;
+        }
+        const spanTable = document.createElement("table");
+        spanTable.className = "synthesis-sidecar-span-table";
+        const spanBody = document.createElement("tbody");
+        selected.events.forEach(function (event) {
+          const row = document.createElement("tr");
+          row.dataset.spanId = event.spanId;
+          const phase = el("td", "mono", event.phase || "-");
+          phase.style.paddingLeft = `${8 + depth(event) * 14}px`;
+          row.appendChild(phase);
+          row.appendChild(el("td", "mono", event.boundary || "-"));
+          row.appendChild(el("td", "mono", String(event.attempt || 0)));
+          const outcomeCell = el("td", "mono");
+          outcomeCell.appendChild(renderStatusBadge(event.outcome, event.outcome));
+          row.appendChild(outcomeCell);
+          row.appendChild(el("td", "mono", event.code || "-"));
+          const facts = Object.assign({}, event.identities || {}, event.metrics || {}, event.facts || {});
+          row.appendChild(el("td", "mono", Object.keys(facts).length ? JSON.stringify(facts) : "-"));
+          spanBody.appendChild(row);
+        });
+        spanTable.appendChild(spanBody);
+        detail.appendChild(spanTable);
+      }
+      layout.appendChild(detail);
+      main.appendChild(layout);
+      return;
+    }
     main.appendChild(el("h2", "page-title", "Synthesis Sidecar"));
     const current = view.snapshot;
     if (!current) {
@@ -4360,6 +4548,7 @@
       appendDetailSummary("Worker code", selected.workerCode);
       appendDetailSummary("Algorithm", selected.algorithm);
       appendDetailSummary("Graph hash", selected.graphHash);
+      appendDetailSummary("Matching hash", selected.matchingHash);
       appendDetailSummary(
         "Duration",
         typeof selected.durationMs === "number"
@@ -4382,6 +4571,9 @@
       appendDetailSummary("Attempt", selected.attemptId);
       appendDetailSummary("Batch", selected.batchOrdinal);
       appendDetailSummary("Sources", selected.sourceCount);
+      appendDetailSummary("Proposals created", selected.proposalCreatedCount);
+      appendDetailSummary("Facts", selected.factCount);
+      appendDetailSummary("Warnings", selected.warningCount);
       appendDetailSummary(
         "Nodes",
         typeof selected.nodeCount === "number"
@@ -4477,6 +4669,82 @@
 
         tableWrap.scrollTop = currentScroll;
         state.logsScrollTop = currentScroll;
+        rememberSnapshotRenderSignature(snapshot);
+        return;
+      }
+    }
+
+    if (
+      SYNTHESIS_SIDECAR_DIAGNOSTICS_AVAILABLE &&
+      snapshot &&
+      snapshot.selectedTabKey === "synthesis-sidecar" &&
+      state.previousTabKey === "synthesis-sidecar"
+    ) {
+      const main = app.querySelector("main");
+      const oldBody =
+        main && main.querySelector(".synthesis-sidecar-events tbody");
+      if (main && oldBody) {
+        const tableWrap = main.querySelector(".synthesis-sidecar-events");
+        const scrollTop = tableWrap ? tableWrap.scrollTop : 0;
+        const tempMain = document.createElement("main");
+        renderSynthesisSidecar(tempMain, snapshot);
+        const newBody = tempMain.querySelector(
+          ".synthesis-sidecar-events tbody",
+        );
+        if (newBody) {
+          const retained = new Map();
+          Array.from(oldBody.querySelectorAll("tr[data-trace-id]")).forEach(
+            function (row) {
+              retained.set(row.dataset.traceId, row);
+            },
+          );
+          Array.from(newBody.querySelectorAll("tr[data-trace-id]")).forEach(
+            function (nextRow) {
+              const currentRow = retained.get(nextRow.dataset.traceId);
+              if (!currentRow) {
+                oldBody.appendChild(nextRow);
+                return;
+              }
+              if (
+                currentRow.dataset.traceSignature !==
+                nextRow.dataset.traceSignature
+              ) {
+                currentRow.replaceChildren.apply(
+                  currentRow,
+                  Array.from(nextRow.childNodes),
+                );
+                currentRow.dataset.traceSignature =
+                  nextRow.dataset.traceSignature;
+              }
+              currentRow.className = nextRow.className;
+              oldBody.appendChild(currentRow);
+              retained.delete(nextRow.dataset.traceId);
+            },
+          );
+          retained.forEach(function (row) {
+            row.remove();
+          });
+        }
+        const oldSummary = main.querySelector(".synthesis-sidecar-summary");
+        const newSummary = tempMain.querySelector(".synthesis-sidecar-summary");
+        if (oldSummary && newSummary) {
+          oldSummary.replaceChildren.apply(
+            oldSummary,
+            Array.from(newSummary.childNodes),
+          );
+        }
+        const oldDetail = main.querySelector(".synthesis-sidecar-detail");
+        const newDetail = tempMain.querySelector(".synthesis-sidecar-detail");
+        if (
+          oldDetail &&
+          newDetail &&
+          (oldDetail.dataset.traceId !== newDetail.dataset.traceId ||
+            oldDetail.dataset.traceSignature !==
+              newDetail.dataset.traceSignature)
+        ) {
+          oldDetail.parentNode.replaceChild(newDetail, oldDetail);
+        }
+        if (tableWrap) tableWrap.scrollTop = scrollTop;
         rememberSnapshotRenderSignature(snapshot);
         return;
       }

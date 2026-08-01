@@ -37,10 +37,6 @@ native owner can be re-verified from current-state contracts alone.
 - Repair the clean-profile production bootstrap, default-client cutover
   lifecycle, and runtime-root composition defects found by the representative
   Zotero check.
-- Add a read-only Synthesis diagnostic surface shared by Workbench, Task
-  Manager, runtime diagnostic export, and the direct launcher: production keeps
-  bounded failure summaries, while debug builds add correlated lifecycle, RPC,
-  reverse-Host, operation, and process events.
 
 ## Capabilities
 
@@ -62,9 +58,6 @@ None.
   shared `addon/bin/<target>/` native asset layout.
 - `synthesis-sidecar-prebuild-release`: Treat the workflow-emitted v2 result
   document and its cache summary as the synchronization authorization boundary.
-- `synthesis-sidecar-debug-observability`: Expose sanitized failure summaries
-  in production and a correlated, payload-free operation timeline in
-  development builds.
 
 ## Impact
 

@@ -1,4 +1,5 @@
 use serde_json::{Map, Value, json};
+use std::collections::VecDeque;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -9,15 +10,17 @@ use std::time::{Duration, Instant};
 use synthesis_protocol::{
     CITATION_GRAPH_BUILD_OPERATION, CITATION_GRAPH_BUILD_TRANSFER_OPERATION,
     CITATION_GRAPH_LAYOUT_OPERATION, CONCEPT_KB_INDEX_OPERATION, CONCEPT_KB_QUERY_OPERATION,
-    METRICS_OPERATION, MetricsResult, REFERENCE_BINDING_OPERATION,
-    REFERENCE_CANONICAL_DEDUPE_OPERATION, TAG_VOCABULARY_INDEX_OPERATION,
+    METRICS_OPERATION, MetricsResult, PAGE_MAX_ROWS, PageDescriptor, REFERENCE_BINDING_OPERATION,
+    REFERENCE_CANONICAL_DEDUPE_OPERATION, SectionShape, TAG_VOCABULARY_INDEX_OPERATION,
     TAG_VOCABULARY_VALIDATE_OPERATION, TOPIC_ARTIFACT_ASSEMBLE_OPERATION,
     TOPIC_ARTIFACT_VALIDATE_OPERATION, TOPIC_GRAPH_INDEX_OPERATION,
     TOPIC_MANIFEST_VALIDATE_OPERATION, TOPIC_SECTION_PATCH_OPERATION, WORKER_PROTOCOL,
-    canonical_json, canonical_sha256, count_json_nodes,
+    canonical_json, canonical_sha256, count_json_nodes, deterministic_operation,
+    deterministic_operation_spec, page_descriptor, paged_request_hash, split_paged_result,
 };
 
 use crate::runtime_deadline::bounded_timeout;
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 
 const WORKER_READY_DEADLINE: Duration = Duration::from_secs(5);
 const DIRECT_DEADLINE: Duration = Duration::from_secs(5);
@@ -117,6 +120,273 @@ pub(crate) trait PagedOutputSink {
     fn stage_page(&mut self, frame: PagedOutputFrame) -> Result<(), String>;
     fn commit(&mut self) -> Result<Value, String>;
     fn rollback(&mut self);
+}
+
+struct InMemoryPagedInput {
+    header: Map<String, Value>,
+    frames: VecDeque<PagedInputFrame>,
+    request_hash: String,
+}
+
+impl InMemoryPagedInput {
+    fn new(operation: &str, request: Value) -> Result<Self, String> {
+        let spec = deterministic_operation_spec(operation).ok_or("invalid_request")?;
+        let mut request = request
+            .as_object()
+            .cloned()
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let mut frames = VecDeque::new();
+        let mut descriptors = Vec::new();
+        for section in spec.input_sections {
+            let value = request
+                .remove(section.name)
+                .ok_or_else(|| "invalid_request".to_owned())?;
+            let rows = paged_section_rows(section.shape, value)?;
+            if rows.len() > section.max_rows {
+                return Err("invalid_request".into());
+            }
+            append_paged_frames(section.name, &rows, &mut frames, &mut descriptors)?;
+        }
+        if request.len() != spec.input_header_fields.len()
+            || !spec
+                .input_header_fields
+                .iter()
+                .all(|field| request.contains_key(*field))
+        {
+            return Err("invalid_request".into());
+        }
+        let request_hash = paged_request_hash(operation, &request, &descriptors)
+            .map_err(|_| "invalid_request".to_owned())?;
+        Ok(Self {
+            header: request,
+            frames,
+            request_hash,
+        })
+    }
+}
+
+impl PagedInputSource for InMemoryPagedInput {
+    fn header(&self) -> Result<Map<String, Value>, String> {
+        Ok(self.header.clone())
+    }
+
+    fn request_hash(&self) -> &str {
+        &self.request_hash
+    }
+
+    fn next_page(&mut self) -> Result<Option<PagedInputFrame>, String> {
+        Ok(self.frames.pop_front())
+    }
+}
+
+struct InMemoryPagedOutput {
+    operation: &'static str,
+    header: Option<Map<String, Value>>,
+    sections: Vec<Vec<Value>>,
+    section_index: usize,
+    page_index: u64,
+    started: bool,
+}
+
+impl InMemoryPagedOutput {
+    fn new(operation: &'static str) -> Result<Self, String> {
+        let spec = deterministic_operation_spec(operation).ok_or("invalid_request")?;
+        Ok(Self {
+            operation,
+            header: None,
+            sections: vec![Vec::new(); spec.output_sections.len()],
+            section_index: 0,
+            page_index: 0,
+            started: false,
+        })
+    }
+}
+
+impl PagedOutputSink for InMemoryPagedOutput {
+    fn begin(&mut self, header: Map<String, Value>) -> Result<(), String> {
+        let spec = deterministic_operation_spec(self.operation).ok_or("worker_result_invalid")?;
+        if self.header.is_some()
+            || header.len() != spec.output_header_fields.len()
+            || !spec
+                .output_header_fields
+                .iter()
+                .all(|field| header.contains_key(*field))
+        {
+            return Err("worker_result_invalid".into());
+        }
+        self.header = Some(header);
+        Ok(())
+    }
+
+    fn stage_page(&mut self, frame: PagedOutputFrame) -> Result<(), String> {
+        let spec = deterministic_operation_spec(self.operation).ok_or("worker_result_invalid")?;
+        let mut section_index = self.section_index;
+        let mut page_index = self.page_index;
+        let current = spec
+            .output_sections
+            .get(section_index)
+            .ok_or("worker_result_invalid")?;
+        if frame.section != current.name {
+            let next = spec
+                .output_sections
+                .get(section_index + 1)
+                .ok_or("worker_result_invalid")?;
+            if !self.started || frame.section != next.name {
+                return Err("worker_result_invalid".into());
+            }
+            section_index += 1;
+            page_index = 0;
+        }
+        let section = spec.output_sections[section_index];
+        self.sections[section_index]
+            .len()
+            .checked_add(frame.rows.len())
+            .filter(|count| *count <= section.max_rows)
+            .ok_or("worker_result_invalid")?;
+        if frame.section != section.name || frame.page_index != page_index {
+            return Err("worker_result_invalid".into());
+        }
+        self.sections[section_index].extend(frame.rows);
+        self.section_index = section_index;
+        self.page_index = page_index + 1;
+        self.started = true;
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<Value, String> {
+        let spec = deterministic_operation_spec(self.operation).ok_or("worker_result_invalid")?;
+        if !self.started || self.section_index + 1 != spec.output_sections.len() {
+            return Err("worker_result_invalid".into());
+        }
+        let mut result = self.header.take().ok_or("worker_result_invalid")?;
+        for (section, rows) in spec
+            .output_sections
+            .iter()
+            .zip(std::mem::take(&mut self.sections))
+        {
+            result.insert(
+                section.name.into(),
+                paged_section_value(section.shape, rows)?,
+            );
+        }
+        let result = Value::Object(result);
+        split_paged_result(self.operation, result.clone())
+            .map_err(|_| "worker_result_invalid".to_owned())?;
+        Ok(result)
+    }
+
+    fn rollback(&mut self) {
+        self.header = None;
+        self.sections.iter_mut().for_each(Vec::clear);
+        self.section_index = 0;
+        self.page_index = 0;
+        self.started = false;
+    }
+}
+
+fn paged_section_rows(shape: SectionShape, value: Value) -> Result<Vec<Value>, String> {
+    match shape {
+        SectionShape::Array => value
+            .as_array()
+            .cloned()
+            .ok_or_else(|| "invalid_request".to_owned()),
+        SectionShape::StringRecord => value
+            .as_object()
+            .ok_or_else(|| "invalid_request".to_owned())
+            .map(|record| {
+                record
+                    .iter()
+                    .map(|(key, value)| json!([key, value]))
+                    .collect()
+            }),
+        SectionShape::CanonicalJsonChunks => {
+            let source = canonical_json(&value).map_err(|_| "invalid_request".to_owned())?;
+            const CHUNK_BYTES: usize = 1024 * 1024;
+            let mut rows = Vec::new();
+            let mut start = 0;
+            while start < source.len() {
+                let mut end = (start + CHUNK_BYTES).min(source.len());
+                while !source.is_char_boundary(end) {
+                    end -= 1;
+                }
+                if end == start {
+                    return Err("invalid_request".into());
+                }
+                rows.push(Value::String(source[start..end].to_owned()));
+                start = end;
+            }
+            if rows.is_empty() {
+                rows.push(Value::String(source));
+            }
+            Ok(rows)
+        }
+    }
+}
+
+fn paged_section_value(shape: SectionShape, rows: Vec<Value>) -> Result<Value, String> {
+    match shape {
+        SectionShape::Array => Ok(Value::Array(rows)),
+        SectionShape::StringRecord => rows
+            .into_iter()
+            .try_fold(Map::new(), |mut record, row| {
+                let pair = row.as_array().ok_or("worker_result_invalid")?;
+                if pair.len() != 2 {
+                    return Err("worker_result_invalid".into());
+                }
+                let key = pair[0]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or("worker_result_invalid")?;
+                if record.insert(key.into(), pair[1].clone()).is_some() {
+                    return Err("worker_result_invalid".into());
+                }
+                Ok(record)
+            })
+            .map(Value::Object),
+        SectionShape::CanonicalJsonChunks => {
+            let source = rows
+                .iter()
+                .map(|row| row.as_str().ok_or("worker_result_invalid"))
+                .collect::<Result<String, _>>()?;
+            serde_json::from_str(&source).map_err(|_| "worker_result_invalid".into())
+        }
+    }
+}
+
+fn append_paged_frames(
+    section: &str,
+    rows: &[Value],
+    frames: &mut VecDeque<PagedInputFrame>,
+    descriptors: &mut Vec<PageDescriptor>,
+) -> Result<(), String> {
+    let mut start = 0;
+    let mut page_index = 0u64;
+    loop {
+        let mut end = (start + PAGE_MAX_ROWS).min(rows.len());
+        let descriptor = loop {
+            match page_descriptor(section, page_index, &rows[start..end]) {
+                Ok(descriptor) => break descriptor,
+                Err(_) if end > start + 1 => end = start + (end - start) / 2,
+                Err(_) => return Err("invalid_request".into()),
+            }
+        };
+        let raw_rows = canonical_json(&Value::Array(rows[start..end].to_vec()))
+            .map_err(|_| "invalid_request".to_owned())?;
+        descriptors.push(descriptor);
+        frames.push_back(PagedInputFrame {
+            section: section.into(),
+            page_index,
+            row_count: end - start,
+            raw_rows,
+        });
+        if end == rows.len() {
+            return Ok(());
+        }
+        start = end;
+        page_index = page_index
+            .checked_add(1)
+            .ok_or_else(|| "invalid_request".to_owned())?;
+    }
 }
 
 struct ComputePoolInner {
@@ -363,6 +633,11 @@ impl NativeComputePool {
             validate_direct_result(operation, &request, &result)?;
             return Ok(result);
         }
+        if deterministic_operation(operation.protocol_name()) {
+            let mut source = InMemoryPagedInput::new(operation.protocol_name(), request)?;
+            let mut sink = InMemoryPagedOutput::new(operation.protocol_name())?;
+            return self.run_paged(operation, &mut source, &mut sink, &AtomicBool::new(false));
+        }
         let accepted_request = request.clone();
         let task_id = self.task_id();
         let deadline = Instant::now() + bounded_timeout(operation.direct_deadline())?;
@@ -403,8 +678,12 @@ impl NativeComputePool {
         sink: &mut dyn PagedOutputSink,
         canceled: &AtomicBool,
     ) -> Result<Value, String> {
+        let observation_started = Instant::now();
         let task_id = self.task_id();
         let operation_name = operation.protocol_name();
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("worker", "attempt", "started").capability(operation_name)
+        });
         let request_hash = source.request_hash().to_owned();
         let deadline = Instant::now() + TRANSFER_DEADLINE;
         let result = self.with_worker(|worker| {
@@ -527,6 +806,23 @@ impl NativeComputePool {
             self.discard_worker();
         }
         self.finish_runtime_result(&result);
+        emit_debug(|| {
+            let event = NativeDiagnosticEvent::new(
+                "worker",
+                "attempt-terminal",
+                if result.is_ok() {
+                    "succeeded"
+                } else {
+                    "failed"
+                },
+            )
+            .capability(operation_name)
+            .duration_ms(observation_started.elapsed().as_millis() as u64);
+            match &result {
+                Ok(_) => event,
+                Err(code) => event.code(code),
+            }
+        });
         result
     }
 
@@ -584,11 +880,20 @@ impl NativeComputePool {
             inner.restart_count += 1;
             inner.failure_count = inner.failure_count.saturating_add(1);
             inner.degraded = inner.failure_count >= 3;
+            let degraded = inner.degraded;
             self.available.notify_all();
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("worker", "replacement", "failed").code(if degraded {
+                    "worker_fused"
+                } else {
+                    "worker_replacement_required"
+                })
+            });
         }
     }
 
     pub(crate) fn stop(&self) {
+        emit_debug(|| NativeDiagnosticEvent::new("worker", "shutdown", "started"));
         self.stop_requested.store(true, Ordering::Release);
         if let Ok(mut inner) = self.inner.lock() {
             inner.stopping = true;
@@ -599,6 +904,7 @@ impl NativeComputePool {
         {
             child.terminate();
         }
+        emit_debug(|| NativeDiagnosticEvent::new("worker", "shutdown-terminal", "succeeded"));
     }
 
     pub(crate) fn snapshot(&self, stopping: bool) -> Result<Value, String> {
@@ -642,6 +948,8 @@ impl ComputeReservation {
         if self.acquired {
             return Ok(());
         }
+        let queued_at = Instant::now();
+        emit_debug(|| NativeDiagnosticEvent::new("worker", "queue", "started"));
         let mut inner = self.pool.inner.lock().map_err(|_| "worker_unavailable")?;
         while inner.active
             && !inner.degraded
@@ -661,13 +969,27 @@ impl ComputeReservation {
             self.queued = false;
         }
         if canceled.load(Ordering::Acquire) || stopping.load(Ordering::Acquire) || inner.stopping {
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("worker", "queue-terminal", "canceled")
+                    .code("worker_canceled")
+                    .queue_wait_ms(queued_at.elapsed().as_millis() as u64)
+            });
             return Err("worker_canceled");
         }
         if inner.degraded {
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("worker", "queue-terminal", "failed")
+                    .code("worker_unavailable")
+                    .queue_wait_ms(queued_at.elapsed().as_millis() as u64)
+            });
             return Err("worker_unavailable");
         }
         inner.active = true;
         self.acquired = true;
+        emit_debug(|| {
+            NativeDiagnosticEvent::new("worker", "queue-terminal", "succeeded")
+                .queue_wait_ms(queued_at.elapsed().as_millis() as u64)
+        });
         Ok(())
     }
 }

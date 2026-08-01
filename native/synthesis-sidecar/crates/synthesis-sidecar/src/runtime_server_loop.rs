@@ -8,7 +8,7 @@ use std::time::Duration;
 use synthesis_sidecar::runtime_contract::{SIDECAR_CAPABILITIES, current_time_ms};
 
 use crate::runtime_capabilities::{ServeState, handle_connection};
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 
 pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String> {
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
@@ -70,10 +70,10 @@ pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String>
                 let state = Arc::clone(&state);
                 handlers.push(thread::spawn(move || {
                     if let Err(error) = handle_connection(stream, state) {
-                        emit(
+                        emit_debug(|| {
                             NativeDiagnosticEvent::new("process", "http-handler-failed", "failed")
-                                .code(error),
-                        );
+                                .code(error)
+                        });
                     }
                 }));
             }

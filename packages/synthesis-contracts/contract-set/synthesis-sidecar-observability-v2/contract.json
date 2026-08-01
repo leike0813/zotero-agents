@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/contracts/synthesis-sidecar-observation.v2.json",
+  "$defs": {
+    "traceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "traceId", "spanId", "attempt"],
+      "properties": {
+        "schema": { "const": "synthesis-sidecar-observation.v2" },
+        "traceId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "spanId": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+        "parentSpanId": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+        "attempt": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "traceId",
+        "spanId",
+        "attempt",
+        "source",
+        "boundary",
+        "phase",
+        "outcome",
+        "occurredAtMs"
+      ],
+      "properties": {
+        "schema": { "const": "synthesis-sidecar-observation.v2" },
+        "traceId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "spanId": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+        "parentSpanId": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "source": { "enum": ["host", "rust-sidecar", "child-worker"] },
+        "boundary": {
+          "enum": [
+            "supervisor",
+            "process",
+            "host-rpc",
+            "reverse-host",
+            "child-worker",
+            "transfer",
+            "operation"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "outcome": {
+          "enum": ["started", "succeeded", "failed", "canceled", "timed-out"]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "occurredAtMs": { "type": "integer", "minimum": 0 },
+        "identities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "capability": { "type": "string" },
+            "operation": { "type": "string" },
+            "trigger": { "type": "string" }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "durationMs": { "type": "integer", "minimum": 0 },
+            "queueWaitMs": { "type": "integer", "minimum": 0 },
+            "requestBytes": { "type": "integer", "minimum": 0 },
+            "responseBytes": { "type": "integer", "minimum": 0 },
+            "budgetBytes": { "type": "integer", "minimum": 0 },
+            "returnedCount": { "type": "integer", "minimum": 0 },
+            "totalCount": { "type": "integer", "minimum": 0 },
+            "batchOrdinal": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "semanticStatus": { "type": "string" },
+            "algorithm": { "type": "string" },
+            "graphHash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "matchingHash": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "proposalCount": { "type": "integer", "minimum": 0 },
+            "factCount": { "type": "integer", "minimum": 0 },
+            "warningCount": { "type": "integer", "minimum": 0 },
+            "nodeCount": { "type": "integer", "minimum": 0 },
+            "edgeCount": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

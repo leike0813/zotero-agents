@@ -8,6 +8,7 @@ import {
   hashSynthesisContractCanonicalJson,
 } from "../packages/synthesis-contracts/src/canonicalJson.js";
 import { SynthesisClientError } from "../packages/synthesis-contracts/src/common.js";
+import { rebuildSynthesisSidecarObservationEvent } from "../packages/synthesis-contracts/src/sidecarObservability.js";
 import { rebuildSynthesisSidecarCallRequest } from "../packages/synthesis-contracts/src/sidecarSystem.js";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
@@ -54,6 +55,10 @@ import {
 const CONTRACT_SET_ROOT = path.resolve(
   import.meta.dirname,
   "../packages/synthesis-contracts/contract-set/synthesis-cross-language-v1",
+);
+const SIDECAR_OBSERVATION_CORPUS = path.resolve(
+  import.meta.dirname,
+  "../packages/synthesis-contracts/contract-set/synthesis-sidecar-observability-v2/corpus.json",
 );
 
 type JsonObject = Record<string, unknown>;
@@ -687,6 +692,44 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
     }
   }
 
+  const observationCorpus = JSON.parse(
+    fs.readFileSync(SIDECAR_OBSERVATION_CORPUS, "utf8"),
+  ) as {
+    schema: string;
+    positive: Array<{ id: string; value: unknown }>;
+    negative: Array<{ id: string; value: unknown }>;
+  };
+  if (observationCorpus.schema !== "synthesis-sidecar-observation-corpus.v2") {
+    errors.push("sidecar_observation_corpus_schema_invalid");
+  }
+  for (const corpusCase of observationCorpus.positive) {
+    try {
+      const rebuilt = rebuildSynthesisSidecarObservationEvent(corpusCase.value);
+      if (
+        canonicalizeSynthesisContractJson(rebuilt) !==
+        canonicalizeSynthesisContractJson(corpusCase.value)
+      ) {
+        errors.push(`sidecar_observation_positive_mismatch:${corpusCase.id}`);
+      }
+    } catch (error) {
+      errors.push(
+        `sidecar_observation_positive_failed:${corpusCase.id}:${stableErrorCode(error)}`,
+      );
+    }
+  }
+  for (const corpusCase of observationCorpus.negative) {
+    try {
+      rebuildSynthesisSidecarObservationEvent(corpusCase.value);
+      errors.push(`sidecar_observation_negative_admitted:${corpusCase.id}`);
+    } catch (error) {
+      if (stableErrorCode(error) !== "invalid_request") {
+        errors.push(
+          `sidecar_observation_negative_code:${corpusCase.id}:${stableErrorCode(error)}`,
+        );
+      }
+    }
+  }
+
   await checkRustDeterministicParity({
     ajv,
     schemas,
@@ -704,14 +747,17 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
       path: entry.path,
       document: readJson(entry.path),
     })),
+    sidecarObservation: observationCorpus,
   };
   return {
     ok: errors.length === 0,
     contractSetVersion: manifest.contractSetVersion,
     schemaCount: manifest.schemas.length,
     definitionCount: definitionRefs.length,
-    positiveCaseCount: positiveCorpus.cases.length,
-    negativeCaseCount: negativeCorpus.cases.length,
+    positiveCaseCount:
+      positiveCorpus.cases.length + observationCorpus.positive.length,
+    negativeCaseCount:
+      negativeCorpus.cases.length + observationCorpus.negative.length,
     fingerprint: hashSynthesisContractCanonicalJson(fingerprintInput),
     errors,
   };

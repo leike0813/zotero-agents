@@ -3,79 +3,114 @@ import { chromium, type Browser, type Page } from "playwright";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-function diagnosticSnapshot() {
+const TRACE_ID = "1".repeat(32);
+
+function traceSnapshot(includeSecondTrace = false) {
+  const traces = [
+    {
+      traceId: TRACE_ID,
+      active: false,
+      droppedCount: 3,
+      startedAtMs: Date.parse("2026-07-31T01:00:00.000Z"),
+      updatedAtMs: Date.parse("2026-07-31T01:00:02.000Z"),
+      events: [
+        {
+          schema: "synthesis-sidecar-observation.v2",
+          traceId: TRACE_ID,
+          spanId: "2".repeat(16),
+          attempt: 0,
+          source: "host",
+          boundary: "operation",
+          phase: "start",
+          outcome: "started",
+          occurredAtMs: Date.parse("2026-07-31T01:00:00.000Z"),
+          identities: {
+            operation: "client.runAdvancedReferenceMatchingNow",
+          },
+        },
+        {
+          schema: "synthesis-sidecar-observation.v2",
+          traceId: TRACE_ID,
+          spanId: "3".repeat(16),
+          parentSpanId: "2".repeat(16),
+          attempt: 2,
+          source: "child-worker",
+          boundary: "child-worker",
+          phase: "matching-terminal",
+          outcome: "succeeded",
+          occurredAtMs: Date.parse("2026-07-31T01:00:01.000Z"),
+          metrics: { durationMs: 1000, responseBytes: 256 },
+          facts: {
+            semanticStatus: "promoted",
+            matchingHash: `sha256:${"c".repeat(64)}`,
+            proposalCount: 0,
+            factCount: 2,
+            warningCount: 0,
+          },
+        },
+        {
+          schema: "synthesis-sidecar-observation.v2",
+          traceId: TRACE_ID,
+          spanId: "2".repeat(16),
+          attempt: 0,
+          source: "host",
+          boundary: "operation",
+          phase: "terminal",
+          outcome: "succeeded",
+          occurredAtMs: Date.parse("2026-07-31T01:00:02.000Z"),
+          facts: { semanticStatus: "promoted" },
+        },
+      ],
+    },
+  ];
+  if (includeSecondTrace) {
+    traces.push({
+      traceId: "4".repeat(32),
+      active: false,
+      droppedCount: 0,
+      startedAtMs: Date.parse("2026-07-31T01:00:03.000Z"),
+      updatedAtMs: Date.parse("2026-07-31T01:00:04.000Z"),
+      events: [
+        {
+          schema: "synthesis-sidecar-observation.v2",
+          traceId: "4".repeat(32),
+          spanId: "5".repeat(16),
+          attempt: 0,
+          source: "host",
+          boundary: "host-rpc",
+          phase: "terminal",
+          outcome: "failed",
+          code: "service_unavailable",
+          occurredAtMs: Date.parse("2026-07-31T01:00:04.000Z"),
+          identities: { capability: "client.listTopics" },
+        },
+      ],
+    } as (typeof traces)[number]);
+  }
   return {
     title: "Synthesis Sidecar",
     labels: {},
     selectedTabKey: "synthesis-sidecar",
     tabs: [{ key: "synthesis-sidecar", label: "Synthesis Sidecar" }],
     synthesisSidecarView: {
-      snapshot: {
-        phase: "production",
-        status: "succeeded",
-        attemptId: "attempt-1",
-        evidence: { serviceInstanceId: "service-1" },
+      traceSnapshot: {
+        schema: "synthesis-sidecar-trace-snapshot.v2",
+        traces,
+        eventCount: traces.reduce((sum, trace) => sum + trace.events.length, 0),
       },
-      recentEvents: [
-        {
-          id: "event-started",
-          ts: "2026-07-31T01:00:00.000Z",
-          status: "started",
-          component: "rpc",
-          stage: "request-started",
-          capability: "client.refreshReferenceSidecarNow",
-          correlationId: "correlation-1",
-          requestId: "request-1",
-        },
-        {
-          id: "event-succeeded",
-          ts: "2026-07-31T01:00:01.000Z",
-          status: "succeeded",
-          component: "operation",
-          stage: "refresh-batch-completed",
-          capability: "reference_sidecar_refresh",
-          correlationId: "correlation-1",
-          operationId: "operation-1",
-          durationMs: 1000,
-          responseBytes: 256,
-        },
-        {
-          id: "event-failed",
-          ts: "2026-07-31T01:00:02.000Z",
-          status: "failed",
-          component: "operation",
-          stage: "layout-worker-failed",
-          capability: "client.recomputeCitationGraphLayout",
-          correlationId: "correlation-1",
-          requestId: "request-2",
-          code: "invalid_request",
-          mutationStatus: "invalid_request",
-          workerCode: "invalid_request",
-          algorithm: "force",
-          graphHash: `sha256:${"a".repeat(64)}`,
-          nodeCount: 7432,
-          edgeCount: 11377,
-          nodeLimit: 20000,
-          edgeLimit: 80000,
-          durationMs: 4,
-          attemptedResponseBytes: 512,
-          limitBytes: 1024,
-        },
-      ],
     },
   };
 }
 
-async function postSnapshot(page: Page) {
+async function postSnapshot(page: Page, includeSecondTrace = false) {
   await page.evaluate((payload) => {
     window.postMessage({ type: "dashboard:snapshot", payload }, "*");
-  }, diagnosticSnapshot());
+  }, traceSnapshot(includeSecondTrace));
   await page.locator(".synthesis-sidecar-layout").waitFor();
 }
 
 describe("Synthesis Sidecar Dashboard", function () {
   this.timeout(20_000);
-
   let browser: Browser;
   let page: Page;
 
@@ -111,72 +146,96 @@ describe("Synthesis Sidecar Dashboard", function () {
     await postSnapshot(page);
   }
 
-  it("uses semantic status badges and summary-plus-JSON detail", async function () {
+  it("renders a fixed-density causal hierarchy with attempts and dropped counts", async function () {
     await openDashboard();
-
-    const badges = page.locator(".synthesis-sidecar-events tbody .status");
-    assert.equal(await badges.count(), 3);
-    assert.include(
-      (await badges.nth(0).getAttribute("class")) || "",
-      "is-accent",
-    );
-    assert.include(
-      (await badges.nth(1).getAttribute("class")) || "",
-      "is-success",
-    );
-    assert.include(
-      (await badges.nth(2).getAttribute("class")) || "",
-      "is-error",
-    );
     assert.equal(
-      await page.locator(".synthesis-sidecar-summary .status").textContent(),
-      "succeeded",
-    );
-
-    assert.equal(
-      await page.locator(".synthesis-sidecar-detail-summary").count(),
-      1,
-    );
-    assert.equal(
-      await page
-        .locator(".synthesis-sidecar-json-section .payload-view")
-        .count(),
-      1,
+      await page.locator(".synthesis-sidecar-events thead th").count(),
+      6,
     );
     assert.include(
-      (await page.locator(".synthesis-sidecar-detail-summary").textContent()) ||
-        "",
-      "correlation-1",
+      (await page.locator(".synthesis-sidecar-summary").textContent()) || "",
+      "Dropped3",
     );
-    const summary =
-      (await page.locator(".synthesis-sidecar-detail-summary").textContent()) ||
-      "";
-    assert.include(summary, "invalid_request");
-    assert.include(summary, "7432/20000");
-    assert.include(summary, "11377/80000");
+    const detail =
+      (await page.locator(".synthesis-sidecar-detail").textContent()) || "";
+    assert.include(detail, "matching-terminal");
+    assert.include(detail, "promoted");
+    assert.include(detail, `sha256:${"c".repeat(64)}`);
+    assert.include(detail, '"proposalCount":0');
+    assert.include(detail, '"warningCount":0');
+    const childPadding = await page
+      .locator('[data-span-id="3333333333333333"] td')
+      .first()
+      .evaluate((node) => (node as HTMLElement).style.paddingLeft);
+    assert.equal(childPadding, "22px");
   });
 
-  it("reports clipboard success and failure visibly", async function () {
+  it("copies the complete sanitized trace with visible success and failure", async function () {
     await openDashboard();
-    const copy = page.getByRole("button", { name: "Copy JSON" });
-    await copy.click();
+    await page.getByRole("button", { name: "Copy trace" }).click();
     await page.getByRole("button", { name: "Copied" }).waitFor();
-    assert.equal(await page.locator("#zs-toast").textContent(), "JSON copied");
-    assert.include(
-      await page.evaluate(
-        () =>
-          (window as typeof window & { __copiedText?: string }).__copiedText ||
-          "",
-      ),
-      '"selected"',
+    assert.equal(await page.locator("#zs-toast").textContent(), "Trace copied");
+    const copied = await page.evaluate(
+      () =>
+        (window as typeof window & { __copiedText?: string }).__copiedText ||
+        "",
     );
+    assert.include(copied, '"traceId"');
+    assert.notInclude(copied, "payload");
 
     await page.close();
     page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await openDashboard(true);
-    const failingCopy = page.getByRole("button", { name: "Copy JSON" });
-    await failingCopy.click();
+    await page.getByRole("button", { name: "Copy trace" }).click();
     await page.getByRole("button", { name: "Copy failed" }).waitFor();
     assert.equal(await page.locator("#zs-toast").textContent(), "Copy failed");
+  });
+
+  it("appends a trace without replacing unchanged rows, selection, detail, or scroll", async function () {
+    await openDashboard();
+    await page.evaluate(() => {
+      const runtime = window as typeof window & {
+        __traceRow?: Element;
+        __traceDetail?: Element;
+      };
+      runtime.__traceRow =
+        document.querySelector(`[data-trace-id="${"1".repeat(32)}"]`) ||
+        undefined;
+      runtime.__traceDetail =
+        document.querySelector(".synthesis-sidecar-detail") || undefined;
+      const table = document.querySelector(
+        ".synthesis-sidecar-events",
+      ) as HTMLElement | null;
+      if (table) {
+        table.style.height = "20px";
+        table.style.maxHeight = "20px";
+        table.style.overflowY = "scroll";
+        table.scrollTop = 17;
+      }
+    });
+    await postSnapshot(page, true);
+
+    const identity = await page.evaluate(() => {
+      const runtime = window as typeof window & {
+        __traceRow?: Element;
+        __traceDetail?: Element;
+      };
+      return {
+        row:
+          runtime.__traceRow ===
+          document.querySelector(`[data-trace-id="${"1".repeat(32)}"]`),
+        detail:
+          runtime.__traceDetail ===
+          document.querySelector(".synthesis-sidecar-detail"),
+        scroll:
+          (document.querySelector(".synthesis-sidecar-events") as HTMLElement)
+            ?.scrollTop || 0,
+      };
+    });
+    assert.deepEqual(identity, { row: true, detail: true, scroll: 17 });
+    assert.equal(
+      await page.locator(".synthesis-sidecar-events tbody tr").count(),
+      2,
+    );
   });
 });

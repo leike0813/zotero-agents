@@ -64,3 +64,13 @@ The default client SHALL delegate to the current in-process service and SHALL NO
 - **WHEN** the plugin uses the default Synthesis client
 - **THEN** the query SHALL execute against the current in-process service through the adapter
 - **AND** no remote runtime SHALL be required
+
+### Requirement: Observation contracts SHALL be strict and payload-free
+
+The v2 rebuilder SHALL reject unknown fields, free error text, raw locators,
+paths, credentials, and identifiers outside closed identity/fact/metric keys.
+Zero-valued allowlisted metrics and facts SHALL be preserved.
+
+#### Scenario: Unknown detail is supplied
+- **WHEN** an event contains a title or arbitrary detail key
+- **THEN** rebuilding fails closed

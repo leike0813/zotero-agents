@@ -8,6 +8,12 @@
       "errorCode": "malformed_json"
     },
     {
+      "id": "call-request-unknown-field",
+      "oracle": "sidecarCallRequest",
+      "inputJson": "{\"protocol\":\"synthesis-sidecar.v1\",\"requestId\":\"r1\",\"profileId\":\"p1\",\"capability\":\"system.handshake\",\"payload\":{},\"unknown\":true}",
+      "errorCode": "invalid_request"
+    },
+    {
       "id": "owner-unsafe-integer",
       "oracle": "sidecarOwner",
       "inputJson": "{\"schema\":\"synthesis-sidecar-owner.v1\",\"profileId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"supervisorInstanceId\":\"supervisor-1\",\"serviceInstanceId\":\"service-1\",\"leaseNonce\":\"lease-1\",\"pid\":9007199254740992,\"createdAtMs\":0}",

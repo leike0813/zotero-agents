@@ -9,9 +9,13 @@ import {
   type SynthesisSidecarProductionClientCapability,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
-  createSynthesisSidecarDiagnosticRecorders,
-  type SynthesisSidecarDiagnosticEventInput,
-} from "./synthesisSidecarDiagnosticEvents";
+  type SynthesisSidecarObservationEvent,
+  type SynthesisSidecarTraceContext,
+} from "../../packages/synthesis-contracts/src/sidecarObservability";
+import {
+  createSynthesisSidecarTraceContext,
+  recordSynthesisSidecarTraceEvent,
+} from "./synthesisSidecarTrace";
 
 export type SynthesisSidecarRpcConnection = {
   baseUrl: string;
@@ -154,7 +158,7 @@ export function createSynthesisSidecarRpcClient(options?: {
   requestIdPrefix?: string;
   transportErrors?: SynthesisSidecarRpcTransportErrors;
   now?: () => number;
-  recordDiagnosticEvent?: (event: SynthesisSidecarDiagnosticEventInput) => void;
+  recordTraceEvent?: (event: SynthesisSidecarObservationEvent) => void;
 }) {
   const fetchImpl = options?.fetch ?? globalThis.fetch;
   const defaultDeadlineMs = options?.deadlineMs ?? 5_000;
@@ -166,9 +170,6 @@ export function createSynthesisSidecarRpcClient(options?: {
     unavailable: "worker_unavailable",
   };
   const now = options?.now ?? Date.now;
-  const diagnosticRecorders = createSynthesisSidecarDiagnosticRecorders(
-    options?.recordDiagnosticEvent,
-  );
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_rpc_fetch_unavailable");
   }
@@ -182,21 +183,27 @@ export function createSynthesisSidecarRpcClient(options?: {
       rebuildResult(value: unknown): Result;
       signal?: AbortSignal;
       deadlineMs?: number;
+      trace?: SynthesisSidecarTraceContext;
     }): Promise<Result> {
       if (args.signal?.aborted) {
         return fail(transportErrors.canceled);
       }
       const requestId = nextRequestId(requestIdPrefix);
       const startedAt = now();
-      const correlation = diagnosticRecorders.debug
-        ? { correlationId: requestId }
-        : {};
+      const trace = createSynthesisSidecarTraceContext({ parent: args.trace });
+      const record = (
+        event: Parameters<typeof recordSynthesisSidecarTraceEvent>[0],
+      ) => {
+        const retained = recordSynthesisSidecarTraceEvent(event);
+        if (retained) options?.recordTraceEvent?.(retained);
+      };
       const requestSource = JSON.stringify({
         protocol: SYNTHESIS_SIDECAR_PROTOCOL,
         requestId,
         profileId: args.connection.profileId,
         capability: args.capability,
         payload: args.payload,
+        ...(trace ? { trace } : {}),
       });
       const isCompute = isSynthesisSidecarComputeCapability(args.capability);
       if (
@@ -205,27 +212,28 @@ export function createSynthesisSidecarRpcClient(options?: {
           ? SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes
           : SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes)
       ) {
-        diagnosticRecorders.failure({
-          component: "rpc",
-          stage: "request-rejected",
-          status: "failed",
-          capability: args.capability,
-          requestId,
-          ...correlation,
+        record({
+          context: trace,
+          source: "host",
+          boundary: "host-rpc",
+          phase: "request-rejected",
+          outcome: "failed",
           code: "request_body_too_large",
-          requestBytes: textEncoder.encode(requestSource).byteLength,
+          identities: { capability: args.capability },
+          metrics: {
+            requestBytes: textEncoder.encode(requestSource).byteLength,
+          },
         });
         return fail("request_body_too_large");
       }
-      diagnosticRecorders.debug?.({
-        component: "rpc",
-        stage: "request-started",
-        status: "started",
-        capability: args.capability,
-        requestId,
-        ...correlation,
-        serviceInstanceId: args.connection.serviceInstanceId,
-        requestBytes: textEncoder.encode(requestSource).byteLength,
+      record({
+        context: trace,
+        source: "host",
+        boundary: "host-rpc",
+        phase: "request",
+        outcome: "started",
+        identities: { capability: args.capability },
+        metrics: { requestBytes: textEncoder.encode(requestSource).byteLength },
       });
       const deadline = composedSignal(
         args.signal,
@@ -286,18 +294,18 @@ export function createSynthesisSidecarRpcClient(options?: {
         }
         try {
           const result = args.rebuildResult(body.data);
-          diagnosticRecorders.debug?.({
-            component: "rpc",
-            stage: "request-completed",
-            status: "succeeded",
-            capability: args.capability,
-            requestId,
-            ...correlation,
-            serviceInstanceId: args.connection.serviceInstanceId,
-            httpStatus: response.status,
-            requestBytes: textEncoder.encode(requestSource).byteLength,
-            responseBytes: textEncoder.encode(responseSource).byteLength,
-            durationMs: Math.max(0, now() - startedAt),
+          record({
+            context: trace,
+            source: "host",
+            boundary: "host-rpc",
+            phase: "terminal",
+            outcome: "succeeded",
+            identities: { capability: args.capability },
+            metrics: {
+              requestBytes: textEncoder.encode(requestSource).byteLength,
+              responseBytes: textEncoder.encode(responseSource).byteLength,
+              durationMs: Math.max(0, now() - startedAt),
+            },
           });
           return result;
         } catch {
@@ -305,57 +313,56 @@ export function createSynthesisSidecarRpcClient(options?: {
         }
       } catch (error) {
         if (error instanceof SynthesisSidecarRpcError) {
-          diagnosticRecorders.failure({
-            component: "rpc",
-            stage: "request-failed",
-            status: "failed",
-            capability: args.capability,
-            requestId,
-            ...correlation,
-            serviceInstanceId: args.connection.serviceInstanceId,
+          record({
+            context: trace,
+            source: "host",
+            boundary: "host-rpc",
+            phase: "terminal",
+            outcome: "failed",
             code:
               typeof error.details.reason === "string"
                 ? error.details.reason
                 : error.code,
-            durationMs: Math.max(0, now() - startedAt),
+            identities: { capability: args.capability },
+            metrics: { durationMs: Math.max(0, now() - startedAt) },
           });
           throw error;
         }
         if (args.signal?.aborted) {
-          diagnosticRecorders.failure({
-            component: "rpc",
-            stage: "request-failed",
-            status: "failed",
-            capability: args.capability,
-            requestId,
-            ...correlation,
+          record({
+            context: trace,
+            source: "host",
+            boundary: "host-rpc",
+            phase: "terminal",
+            outcome: "canceled",
             code: transportErrors.canceled,
-            durationMs: Math.max(0, now() - startedAt),
+            identities: { capability: args.capability },
+            metrics: { durationMs: Math.max(0, now() - startedAt) },
           });
           return fail(transportErrors.canceled);
         }
         if (deadline.timedOut()) {
-          diagnosticRecorders.failure({
-            component: "rpc",
-            stage: "request-failed",
-            status: "failed",
-            capability: args.capability,
-            requestId,
-            ...correlation,
+          record({
+            context: trace,
+            source: "host",
+            boundary: "host-rpc",
+            phase: "terminal",
+            outcome: "timed-out",
             code: transportErrors.timeout,
-            durationMs: Math.max(0, now() - startedAt),
+            identities: { capability: args.capability },
+            metrics: { durationMs: Math.max(0, now() - startedAt) },
           });
           return fail(transportErrors.timeout);
         }
-        diagnosticRecorders.failure({
-          component: "rpc",
-          stage: "request-failed",
-          status: "failed",
-          capability: args.capability,
-          requestId,
-          ...correlation,
+        record({
+          context: trace,
+          source: "host",
+          boundary: "host-rpc",
+          phase: "terminal",
+          outcome: "failed",
           code: transportErrors.unavailable,
-          durationMs: Math.max(0, now() - startedAt),
+          identities: { capability: args.capability },
+          metrics: { durationMs: Math.max(0, now() - startedAt) },
         });
         return fail(transportErrors.unavailable);
       } finally {

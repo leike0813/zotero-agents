@@ -1,4 +1,7 @@
-import { toSynthesisJsonObject } from "../../packages/synthesis-contracts/src";
+import {
+  toSynthesisJsonObject,
+  type SynthesisSidecarTraceContext,
+} from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { getRuntimePersistencePaths } from "./runtimePersistence";
@@ -20,12 +23,9 @@ import {
   type SynthesisSidecarSupervisorSnapshot,
 } from "./synthesisSidecarRuntimeSupervisor";
 import {
-  beginSynthesisSidecarStartupAttempt,
-  getSynthesisSidecarDiagnosticSnapshot,
-  recordSynthesisSidecarStartupPhase,
-  type SynthesisSidecarStartupPhase,
-} from "./synthesisSidecarDiagnostics";
-import { synthesisSidecarDiagnosticCode } from "./synthesisSidecarDiagnosticEvents";
+  createSynthesisSidecarTraceContext,
+  recordSynthesisSidecarTraceEvent,
+} from "./synthesisSidecarTrace";
 
 type ReverseHostLocator = {
   host: "127.0.0.1";
@@ -221,20 +221,41 @@ function requireReadyInstall(
   }
 }
 
-async function createDefaultSynthesisProductionOwner(attemptId: string) {
+function startupCode(error: unknown) {
+  const value = error instanceof Error ? error.message : String(error || "");
+  return /^[a-z][a-z0-9_.:-]{0,127}$/.test(value)
+    ? value
+    : "synthesis_sidecar_startup_failed";
+}
+
+function recordStartup(args: {
+  trace: SynthesisSidecarTraceContext | undefined;
+  phase: string;
+  outcome: "started" | "succeeded" | "failed";
+  code?: string;
+}) {
+  recordSynthesisSidecarTraceEvent({
+    context: args.trace,
+    source: "host",
+    boundary: "supervisor",
+    phase: args.phase,
+    outcome: args.outcome,
+    ...(args.code ? { code: args.code } : {}),
+    identities: { operation: "production-startup", trigger: "startup" },
+  });
+}
+
+async function createDefaultSynthesisProductionOwner(
+  startupTrace: SynthesisSidecarTraceContext | undefined,
+) {
   const persistence = getRuntimePersistencePaths();
   const resolvedProfilePath = profilePath();
   const profileId = await hashText(resolvedProfilePath);
   const reverseHostToken = randomHex(32);
-  recordSynthesisSidecarStartupPhase({
-    attemptId,
+  recordStartup({
+    trace: startupTrace,
     phase: "runtime-install",
-    status: "running",
-    evidence: {
-      runtimeRoot: persistence.runtimeRoot,
-      repositoryDbPath: persistence.synthesisDbPath,
-      canonicalRoot: persistence.synthesisDataRoot,
-    },
+    outcome: "started",
   });
   const installer = createSynthesisSidecarRuntimeInstaller({
     runtimeRoot: persistence.runtimeRoot,
@@ -242,15 +263,10 @@ async function createDefaultSynthesisProductionOwner(attemptId: string) {
   });
   const install = await installer.ensureInstalled();
   requireReadyInstall(install);
-  recordSynthesisSidecarStartupPhase({
-    attemptId,
+  recordStartup({
+    trace: startupTrace,
     phase: "runtime-install",
-    status: "succeeded",
-    evidence: {
-      bundleId: install.bundleId,
-      buildFingerprint: install.buildFingerprint,
-      targetTriple: install.targetTriple,
-    },
+    outcome: "succeeded",
   });
 
   const endpoint = createSynthesisReverseHostEndpoint({
@@ -282,14 +298,10 @@ async function createDefaultSynthesisProductionOwner(attemptId: string) {
       };
     },
     startProductionSupervisor(reverseHost) {
-      recordSynthesisSidecarStartupPhase({
-        attemptId,
+      recordStartup({
+        trace: startupTrace,
         phase: "supervisor-launch",
-        status: "running",
-        evidence: {
-          bundleId: install.bundleId,
-          buildFingerprint: install.buildFingerprint,
-        },
+        outcome: "started",
       });
       const supervisor = startSynthesisProductionRuntimeSupervisor({
         runtimeRoot: persistence.runtimeRoot,
@@ -301,42 +313,34 @@ async function createDefaultSynthesisProductionOwner(attemptId: string) {
         resolvedInstall: install,
       });
       supervisor.subscribe((snapshot) => {
-        const diagnostics = supervisor.getDiagnosticEvidence();
-        recordSynthesisSidecarStartupPhase({
-          attemptId,
+        const attemptTrace = createSynthesisSidecarTraceContext({
+          parent: startupTrace,
+          attempt: snapshot.restartCount,
+        });
+        recordStartup({
+          trace: attemptTrace,
           phase:
             snapshot.status === "ready" ? "discovery" : "supervisor-launch",
-          status:
+          outcome:
             snapshot.status === "ready"
               ? "succeeded"
               : snapshot.recoveryState === "manual-recovery-required"
                 ? "failed"
-                : "running",
+                : "started",
           code: snapshot.reasonCode,
-          evidence: {
-            bundleId: snapshot.bundleId || install.bundleId,
-            buildFingerprint: install.buildFingerprint,
-            supervisorInstanceId: snapshot.supervisorInstanceId,
-            serviceInstanceId: snapshot.serviceInstanceId,
-            supervisorStatus: snapshot.status,
-            recoveryState: snapshot.recoveryState,
-            restartCount: snapshot.restartCount,
-            stdoutTail: diagnostics.stdoutTail,
-            stderrTail: diagnostics.stderrTail,
-          },
         });
       });
       return supervisor;
     },
     stopProductionSupervisor: stopSynthesisProductionRuntimeSupervisor,
     async afterReady(connection) {
-      recordSynthesisSidecarStartupPhase({
-        attemptId,
+      const reconcileTrace = createSynthesisSidecarTraceContext({
+        parent: startupTrace,
+      });
+      recordStartup({
+        trace: reconcileTrace,
         phase: "reconcile",
-        status: "running",
-        evidence: {
-          serviceInstanceId: connection.discovery.serviceInstanceId,
-        },
+        outcome: "started",
       });
       await createSynthesisSidecarRpcClient({
         transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
@@ -353,21 +357,17 @@ async function createDefaultSynthesisProductionOwner(attemptId: string) {
         deadlineMs: synthesisProductionTransportDeadlineMs(
           "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         ),
+        trace: reconcileTrace,
       });
-      recordSynthesisSidecarStartupPhase({
-        attemptId,
+      recordStartup({
+        trace: reconcileTrace,
         phase: "reconcile",
-        status: "succeeded",
+        outcome: "succeeded",
       });
-      recordSynthesisSidecarStartupPhase({
-        attemptId,
+      recordStartup({
+        trace: startupTrace,
         phase: "ready",
-        status: "succeeded",
-        evidence: {
-          bundleId: install.bundleId,
-          buildFingerprint: install.buildFingerprint,
-          serviceInstanceId: connection.discovery.serviceInstanceId,
-        },
+        outcome: "succeeded",
       });
     },
   });
@@ -379,13 +379,18 @@ let defaultProductionOwner: Awaited<
 let defaultProductionOwnerTask: ReturnType<
   typeof createDefaultSynthesisProductionOwner
 > | null = null;
-let defaultProductionAttemptId: string | null = null;
+let defaultProductionStartupTrace: SynthesisSidecarTraceContext | undefined;
 
 async function getDefaultSynthesisProductionOwner() {
   if (!defaultProductionOwnerTask) {
-    defaultProductionAttemptId = beginSynthesisSidecarStartupAttempt();
+    defaultProductionStartupTrace = createSynthesisSidecarTraceContext();
+    recordStartup({
+      trace: defaultProductionStartupTrace,
+      phase: "startup",
+      outcome: "started",
+    });
     defaultProductionOwnerTask = createDefaultSynthesisProductionOwner(
-      defaultProductionAttemptId,
+      defaultProductionStartupTrace,
     );
   }
   defaultProductionOwner ||= await defaultProductionOwnerTask;
@@ -396,33 +401,31 @@ export async function startDefaultSynthesisProductionOwner() {
   try {
     return await (await getDefaultSynthesisProductionOwner()).start();
   } catch (error) {
-    const attemptId = defaultProductionAttemptId;
-    if (attemptId) {
-      const phase: SynthesisSidecarStartupPhase =
-        getSynthesisSidecarDiagnosticSnapshot()?.phase || "startup";
-      recordSynthesisSidecarStartupPhase({
-        attemptId,
-        phase,
-        status: "failed",
-        code: synthesisSidecarDiagnosticCode(error),
-        error,
-      });
-    }
+    recordStartup({
+      trace: defaultProductionStartupTrace,
+      phase: "startup-terminal",
+      outcome: "failed",
+      code: startupCode(error),
+    });
     throw error;
   }
 }
 
 export async function stopDefaultSynthesisProductionOwner() {
-  if (defaultProductionAttemptId) {
-    recordSynthesisSidecarStartupPhase({
-      attemptId: defaultProductionAttemptId,
-      phase: "shutdown",
-      status: "running",
-    });
-  }
+  const shutdownTrace = createSynthesisSidecarTraceContext();
+  recordStartup({
+    trace: shutdownTrace,
+    phase: "shutdown",
+    outcome: "started",
+  });
   const owner = await defaultProductionOwnerTask?.catch(() => null);
   defaultProductionOwner = null;
   defaultProductionOwnerTask = null;
   await owner?.shutdown();
-  defaultProductionAttemptId = null;
+  recordStartup({
+    trace: shutdownTrace,
+    phase: "shutdown-terminal",
+    outcome: "succeeded",
+  });
+  defaultProductionStartupTrace = undefined;
 }
