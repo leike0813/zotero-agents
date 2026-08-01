@@ -29,11 +29,17 @@ import {
   createAssistantWorkspaceTranscriptPage,
   type AssistantWorkspaceTranscriptRegion,
 } from "./assistantWorkspaceTranscriptPublication";
-import {
-  defineAssistantWorkspacePublicationAdapter,
-  type AssistantWorkspacePublicationAdapter,
-  type AssistantWorkspacePublicationRuntimePayloadByKind,
+import type {
+  AssistantWorkspacePublicationAdapter,
+  AssistantWorkspacePublicationRuntimePayloadByKind,
 } from "./assistantWorkspacePublicationRuntime";
+import {
+  createWorkspaceOwnerControl,
+  defineAssistantWorkspaceSurfaceAdapter,
+  mapWorkspaceChangeKindsToPublicationKinds,
+  readWorkspaceOwnerRegions,
+  type AssistantWorkspaceOwnerRegionKind,
+} from "./assistantWorkspaceSurfaceSkeleton";
 
 export type AcpChatTranscriptPageRequest = {
   cursor?: number;
@@ -147,15 +153,11 @@ export function mapAcpChatWorkspaceChangeKinds(
   state: Pick<AcpChatSnapshotRefreshState, "executionDisplayMode">,
   change: AcpChatWorkspaceChange,
 ): AssistantWorkspacePublicationKind[] {
-  return Array.from(
-    new Set(
-      normalizedChangeKinds(change)
-        .filter(
-          (kind) =>
-            kind !== "transcript-append" ||
-            state.executionDisplayMode === "live",
-        )
-        .flatMap((kind) => ACP_CHAT_CHANGE_PUBLICATION_MAPPING[kind]),
+  return mapWorkspaceChangeKindsToPublicationKinds(
+    ACP_CHAT_CHANGE_PUBLICATION_MAPPING,
+    normalizedChangeKinds(change).filter(
+      (kind) =>
+        kind !== "transcript-append" || state.executionDisplayMode === "live",
     ),
   );
 }
@@ -245,273 +247,268 @@ async function readAcpChatTranscriptRegion(args: {
 
 export async function readAcpChatWorkspaceRegions(args: {
   owner: ReturnType<typeof createAcpChatWorkspaceOwner>;
-  kinds: readonly Exclude<
-    AssistantWorkspacePublicationKind,
-    "owner-navigation" | "service-status" | "transcript"
-  >[];
+  kinds: readonly AssistantWorkspaceOwnerRegionKind[];
 }): Promise<Partial<AssistantWorkspacePublicationRuntimePayloadByKind>> {
-  const requested = new Set(args.kinds);
   const snapshot = getAcpChatWorkspaceReadModel(
     args.owner.backendId,
     args.owner.conversationId,
   );
-  const regions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind> =
-    {};
-  if (requested.has("message-counts")) {
-    const progress = getAcpChatExecutionProgress(
-      args.owner.backendId,
-      args.owner.conversationId,
-    );
-    regions["message-counts"] = {
-      counts: progress
-        ? {
-            scopeKey: progress.scopeKey,
-            executionKey: progress.executionKey,
-            active: progress.active,
-            current: { ...progress.current },
-            cumulative: { ...progress.cumulative },
-            revision: progress.revision,
-            completeness: progress.completeness,
-          }
-        : null,
-    };
-  }
-  if (requested.has("plan")) {
-    regions.plan = {
-      items: snapshot.planEntries.map((entry, index) => ({
-        itemId: `plan:${index}`,
-        content: String(entry.content || ""),
-        priority: entry.priority ? String(entry.priority) : null,
-        status: entry.status ? String(entry.status) : null,
-      })),
-    };
-  }
-  if (requested.has("permission")) {
-    regions.permission = {
-      request: projectAssistantWorkspacePermissionRequest(
-        snapshot.pendingPermissionRequest,
-      ),
-    };
-  }
-  if (requested.has("composer")) {
-    const connectionChanging = ["connecting", "disconnecting"].includes(
-      String(snapshot.status || ""),
-    );
-    const pendingPermission = Boolean(snapshot.pendingPermissionRequest);
-    const connected = snapshot.connected === true;
-    const modelConfigurationEditable = connected && !snapshot.busy;
-    const modelOptions = snapshot.displayModelOptions.length
-      ? snapshot.displayModelOptions
-      : snapshot.modelOptions;
-    regions.composer = {
-      reply: {
-        status:
-          snapshot.promptInterruptState === "requested"
-            ? "cancelling"
-            : snapshot.busy
-              ? "busy"
-              : !connectionChanging && !pendingPermission
-                ? "enabled"
-                : "disabled",
+  return readWorkspaceOwnerRegions({
+    kinds: args.kinds,
+    readers: {
+      "message-counts": () => {
+        const progress = getAcpChatExecutionProgress(
+          args.owner.backendId,
+          args.owner.conversationId,
+        );
+        return {
+          counts: progress
+            ? {
+                scopeKey: progress.scopeKey,
+                executionKey: progress.executionKey,
+                active: progress.active,
+                current: { ...progress.current },
+                cumulative: { ...progress.cumulative },
+                revision: progress.revision,
+                completeness: progress.completeness,
+              }
+            : null,
+        };
       },
-      runtimeOptions: {
-        mode: projectAssistantWorkspaceOptionGroup(
-          connected ? snapshot.modeOptions : [],
-          snapshot.currentMode?.id,
-          connected && snapshot.modeOptions.length > 0,
+      plan: () => ({
+        items: snapshot.planEntries.map((entry, index) => ({
+          itemId: `plan:${index}`,
+          content: String(entry.content || ""),
+          priority: entry.priority ? String(entry.priority) : null,
+          status: entry.status ? String(entry.status) : null,
+        })),
+      }),
+      permission: () => ({
+        request: projectAssistantWorkspacePermissionRequest(
+          snapshot.pendingPermissionRequest,
         ),
-        model: projectAssistantWorkspaceOptionGroup(
-          connected ? modelOptions : [],
-          snapshot.currentDisplayModel?.id || snapshot.currentModel?.id,
-          modelConfigurationEditable && modelOptions.length > 0,
-        ),
-        reasoningEffort: projectAssistantWorkspaceOptionGroup(
-          connected ? snapshot.reasoningEffortOptions : [],
-          snapshot.currentReasoningEffort?.id,
-          modelConfigurationEditable &&
-            snapshot.reasoningEffortOptions.length > 0,
-        ),
+      }),
+      composer: () => {
+        const connectionChanging = ["connecting", "disconnecting"].includes(
+          String(snapshot.status || ""),
+        );
+        const pendingPermission = Boolean(snapshot.pendingPermissionRequest);
+        const connected = snapshot.connected === true;
+        const modelConfigurationEditable = connected && !snapshot.busy;
+        const modelOptions = snapshot.displayModelOptions.length
+          ? snapshot.displayModelOptions
+          : snapshot.modelOptions;
+        return {
+          reply: {
+            status:
+              snapshot.promptInterruptState === "requested"
+                ? "cancelling"
+                : snapshot.busy
+                  ? "busy"
+                  : !connectionChanging && !pendingPermission
+                    ? "enabled"
+                    : "disabled",
+          },
+          runtimeOptions: {
+            mode: projectAssistantWorkspaceOptionGroup(
+              connected ? snapshot.modeOptions : [],
+              snapshot.currentMode?.id,
+              connected && snapshot.modeOptions.length > 0,
+            ),
+            model: projectAssistantWorkspaceOptionGroup(
+              connected ? modelOptions : [],
+              snapshot.currentDisplayModel?.id || snapshot.currentModel?.id,
+              modelConfigurationEditable && modelOptions.length > 0,
+            ),
+            reasoningEffort: projectAssistantWorkspaceOptionGroup(
+              connected ? snapshot.reasoningEffortOptions : [],
+              snapshot.currentReasoningEffort?.id,
+              modelConfigurationEditable &&
+                snapshot.reasoningEffortOptions.length > 0,
+            ),
+          },
+        };
       },
-    };
-  }
-  if (requested.has("owner-presentation")) {
-    const workspace =
-      snapshot.agentWorkspaceDir ||
-      snapshot.sessionCwd ||
-      snapshot.workspaceDir ||
-      snapshot.runtimeDir;
-    regions["owner-presentation"] = {
-      title: "",
-      subtitle: null,
-      description: null,
-      notice: null,
-      metadata: [
-        {
-          fieldId: "backend" as const,
-          value: snapshot.backendDisplayName || args.owner.backendId,
-        },
-        {
-          fieldId: "conversation" as const,
-          value: String(
-            snapshot.sessionTitle ||
-              (snapshot.connected ? snapshot.sessionId : ""),
-          ).trim(),
-        },
-        {
-          fieldId: "workspace" as const,
-          value: String(workspace || ""),
-        },
-      ].filter((entry) => entry.value),
-      usage: snapshot.usage
-        ? {
-            used: Math.max(0, Number(snapshot.usage.used) || 0),
-            limit: Math.max(0, Number(snapshot.usage.size) || 0),
-            costText: snapshot.usage.costText || null,
-          }
-        : null,
-    };
-  }
-  if (requested.has("owner-details")) {
-    const workspace =
-      snapshot.agentWorkspaceDir ||
-      snapshot.sessionCwd ||
-      snapshot.workspaceDir ||
-      snapshot.runtimeDir;
-    const section = <T extends "session" | "paths" | "diagnostics">(
-      sectionId: T,
-      collapsed: boolean,
-      items: Array<{
-        fieldId: AssistantWorkspaceDetailsFieldId;
-        value: string;
-        format: "text" | "path" | "code" | "json";
-      }>,
-    ) => ({
-      sectionId,
-      collapsed,
-      items: items.filter((item) => item.value),
-    });
-    regions["owner-details"] = {
-      status: "ready",
-      title:
-        String(snapshot.sessionTitle || snapshot.conversationTitle).trim() ||
-        args.owner.conversationId,
-      subtitle: args.owner.conversationId,
-      sections: [
-        section("session", false, [
-          {
-            fieldId: "target",
-            value: snapshot.backendDisplayName,
-            format: "text",
-          },
-          { fieldId: "agent", value: snapshot.agentLabel, format: "text" },
-          {
-            fieldId: "agent-version",
-            value: snapshot.agentVersion,
-            format: "text",
-          },
-          {
-            fieldId: "session",
-            value: snapshot.sessionId,
-            format: "text",
-          },
-          {
-            fieldId: "remote-session",
-            value: snapshot.remoteSessionId,
-            format: "text",
-          },
-          {
-            fieldId: "remote-restore",
-            value: snapshot.remoteSessionRestoreMessage,
-            format: "text",
-          },
-          {
-            fieldId: "stop-reason",
-            value: snapshot.lastStopReason,
-            format: "text",
-          },
-        ]),
-        section("paths", false, [
-          { fieldId: "workspace", value: workspace, format: "path" },
-          {
-            fieldId: "host-context",
-            value: boundedWorkspaceJson(snapshot.lastHostContext),
-            format: "json",
-          },
-        ]),
-        section("diagnostics", true, [
-          {
-            fieldId: "diagnostics",
-            value: boundedWorkspaceJson(snapshot.diagnostics),
-            format: "json",
-          },
-          {
-            fieldId: "command",
-            value: boundedWorkspaceText(snapshot.commandLine, 4_000),
-            format: "code",
-          },
-          {
-            fieldId: "stderr",
-            value: boundedWorkspaceText(snapshot.stderrTail),
-            format: "code",
-          },
-          {
-            fieldId: "last-error",
-            value: boundedWorkspaceText(snapshot.lastError),
-            format: "text",
-          },
-          {
-            fieldId: "prerequisite-error",
-            value: boundedWorkspaceText(snapshot.prerequisiteError),
-            format: "text",
-          },
-        ]),
-      ].filter((entry) => entry.items.length > 0),
-      actions: ["copy-diagnostics", "open-workspace"],
-      error: null,
-    };
-  }
-  if (requested.has("owner-control")) {
-    const connected = snapshot.connected === true;
-    const connectionChanging = ["connecting", "disconnecting"].includes(
-      String(snapshot.status || ""),
-    );
-    regions["owner-control"] = {
-      status: String(snapshot.status || "idle"),
-      busy: snapshot.busy === true,
-      hint: acpChatHint(snapshot),
-      interaction: null,
-      connection: {
-        status: String(snapshot.status || "idle"),
-        sessionAvailable: Boolean(
-          snapshot.sessionId || snapshot.remoteSessionId,
-        ),
-        connected,
-        canConnect: !snapshot.busy && !connected && !connectionChanging,
-        canDisconnect: connected && !snapshot.busy && !connectionChanging,
+      "owner-presentation": () => {
+        const workspace =
+          snapshot.agentWorkspaceDir ||
+          snapshot.sessionCwd ||
+          snapshot.workspaceDir ||
+          snapshot.runtimeDir;
+        return {
+          title: "",
+          subtitle: null,
+          description: null,
+          notice: null,
+          metadata: [
+            {
+              fieldId: "backend" as const,
+              value: snapshot.backendDisplayName || args.owner.backendId,
+            },
+            {
+              fieldId: "conversation" as const,
+              value: String(
+                snapshot.sessionTitle ||
+                  (snapshot.connected ? snapshot.sessionId : ""),
+              ).trim(),
+            },
+            {
+              fieldId: "workspace" as const,
+              value: String(workspace || ""),
+            },
+          ].filter((entry) => entry.value),
+          usage: snapshot.usage
+            ? {
+                used: Math.max(0, Number(snapshot.usage.used) || 0),
+                limit: Math.max(0, Number(snapshot.usage.size) || 0),
+                costText: snapshot.usage.costText || null,
+              }
+            : null,
+        };
       },
-      execution: {
-        canCancel: snapshot.busy === true,
-        canInterrupt: false,
+      "owner-details": () => {
+        const workspace =
+          snapshot.agentWorkspaceDir ||
+          snapshot.sessionCwd ||
+          snapshot.workspaceDir ||
+          snapshot.runtimeDir;
+        const section = <T extends "session" | "paths" | "diagnostics">(
+          sectionId: T,
+          collapsed: boolean,
+          items: Array<{
+            fieldId: AssistantWorkspaceDetailsFieldId;
+            value: string;
+            format: "text" | "path" | "code" | "json";
+          }>,
+        ) => ({
+          sectionId,
+          collapsed,
+          items: items.filter((item) => item.value),
+        });
+        return {
+          status: "ready",
+          title:
+            String(
+              snapshot.sessionTitle || snapshot.conversationTitle,
+            ).trim() || args.owner.conversationId,
+          subtitle: args.owner.conversationId,
+          sections: [
+            section("session", false, [
+              {
+                fieldId: "target",
+                value: snapshot.backendDisplayName,
+                format: "text",
+              },
+              { fieldId: "agent", value: snapshot.agentLabel, format: "text" },
+              {
+                fieldId: "agent-version",
+                value: snapshot.agentVersion,
+                format: "text",
+              },
+              {
+                fieldId: "session",
+                value: snapshot.sessionId,
+                format: "text",
+              },
+              {
+                fieldId: "remote-session",
+                value: snapshot.remoteSessionId,
+                format: "text",
+              },
+              {
+                fieldId: "remote-restore",
+                value: snapshot.remoteSessionRestoreMessage,
+                format: "text",
+              },
+              {
+                fieldId: "stop-reason",
+                value: snapshot.lastStopReason,
+                format: "text",
+              },
+            ]),
+            section("paths", false, [
+              { fieldId: "workspace", value: workspace, format: "path" },
+              {
+                fieldId: "host-context",
+                value: boundedWorkspaceJson(snapshot.lastHostContext),
+                format: "json",
+              },
+            ]),
+            section("diagnostics", true, [
+              {
+                fieldId: "diagnostics",
+                value: boundedWorkspaceJson(snapshot.diagnostics),
+                format: "json",
+              },
+              {
+                fieldId: "command",
+                value: boundedWorkspaceText(snapshot.commandLine, 4_000),
+                format: "code",
+              },
+              {
+                fieldId: "stderr",
+                value: boundedWorkspaceText(snapshot.stderrTail),
+                format: "code",
+              },
+              {
+                fieldId: "last-error",
+                value: boundedWorkspaceText(snapshot.lastError),
+                format: "text",
+              },
+              {
+                fieldId: "prerequisite-error",
+                value: boundedWorkspaceText(snapshot.prerequisiteError),
+                format: "text",
+              },
+            ]),
+          ].filter((entry) => entry.items.length > 0),
+          actions: ["copy-diagnostics", "open-workspace"],
+          error: null,
+        };
       },
-      authentication: {
-        required: snapshot.status === "auth-required",
-        canAuthenticate:
-          snapshot.status === "auth-required" &&
-          snapshot.authMethods.length > 0,
-        methodId: snapshot.authMethods[0]?.id || null,
+      "owner-control": () => {
+        const connected = snapshot.connected === true;
+        const connectionChanging = ["connecting", "disconnecting"].includes(
+          String(snapshot.status || ""),
+        );
+        return createWorkspaceOwnerControl({
+          status: String(snapshot.status || "idle"),
+          busy: snapshot.busy === true,
+          hint: acpChatHint(snapshot),
+          interaction: null,
+          connection: {
+            status: String(snapshot.status || "idle"),
+            sessionAvailable: Boolean(
+              snapshot.sessionId || snapshot.remoteSessionId,
+            ),
+            connected,
+            canConnect: !snapshot.busy && !connected && !connectionChanging,
+            canDisconnect: connected && !snapshot.busy && !connectionChanging,
+          },
+          execution: {
+            canCancel: snapshot.busy === true,
+            canInterrupt: false,
+          },
+          authentication: {
+            required: snapshot.status === "auth-required",
+            canAuthenticate:
+              snapshot.status === "auth-required" &&
+              snapshot.authMethods.length > 0,
+            methodId: snapshot.authMethods[0]?.id || null,
+          },
+          permissionPolicy: {
+            autoApprove: snapshot.autoApproveAcpPermissions,
+            canSetAutoApprove: true,
+          },
+          badges: null,
+        });
       },
-      permissionPolicy: {
-        autoApprove: snapshot.autoApproveAcpPermissions,
-        canSetAutoApprove: true,
-      },
-      badges: null,
-    };
-  }
-  return regions;
+    },
+  });
 }
 
 export const ACP_CHAT_WORKSPACE_ADAPTER =
-  defineAssistantWorkspacePublicationAdapter({
+  defineAssistantWorkspaceSurfaceAdapter({
     source: "acp-chat",
     supportedKinds: [
       "owner-navigation",

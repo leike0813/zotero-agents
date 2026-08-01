@@ -411,10 +411,15 @@ describe("Assistant Workspace ACP UI v1", function () {
     const domEnv = createSidebarDomEnvironment();
     const { document } = domEnv;
     const renderer = await loadPanelRenderer(domEnv);
-    const reply = document.createElement("div");
-    renderer.renderAssistantReply(reply, noUsagePanel);
+    const { root, regions } = createPanelManagedRegions(document);
+    chromePanelRenderer(renderer)(noUsagePanel, {
+      managed: true,
+      root,
+      regions,
+      onAction() {},
+    });
     assert.equal(
-      reply.querySelector(".assistant-panel-usage-label")?.textContent,
+      regions.reply.querySelector(".assistant-panel-usage-label")?.textContent,
       "N/A",
     );
   });
@@ -513,12 +518,17 @@ describe("Assistant Workspace ACP UI v1", function () {
       const domEnv = createSidebarDomEnvironment();
       const { document } = domEnv;
       const renderer = await loadPanelRenderer(domEnv);
-      const banner = document.createElement("div");
-      renderer.renderAssistantBanner(banner, panel, { onAction() {} });
+      const { root, regions } = createPanelManagedRegions(document);
+      chromePanelRenderer(renderer)(panel, {
+        managed: true,
+        root,
+        regions,
+        onAction() {},
+      });
       assert.deepEqual(
-        Array.from(banner.querySelectorAll(".assistant-panel-meta-pill")).map(
-          (entry) => entry.children[1].textContent,
-        ),
+        Array.from(
+          regions.banner.querySelectorAll(".assistant-panel-meta-pill"),
+        ).map((entry) => entry.children[1].textContent),
         panel.context.metadata.map(() => "-"),
       );
     });
@@ -1500,10 +1510,17 @@ describe("Assistant Workspace ACP UI v1", function () {
       const domEnv = createSidebarDomEnvironment();
       const { document } = domEnv;
       const renderer = await loadPanelRenderer(domEnv);
-      const reply = document.createElement("div");
-      renderer.renderAssistantReply(reply, panel);
+      const { root, regions } = createPanelManagedRegions(document);
+      chromePanelRenderer(renderer)(panel, {
+        managed: true,
+        root,
+        regions,
+        onAction() {},
+      });
       const selects = Array.from(
-        reply.querySelectorAll<HTMLSelectElement>(".assistant-panel-select"),
+        regions.reply.querySelectorAll<HTMLSelectElement>(
+          ".assistant-panel-select",
+        ),
       );
       assert.deepEqual(
         selects.map((entry) => entry.disabled),
@@ -2312,10 +2329,15 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(panel.drawers.labels.statusBackend, "后端状态");
     assert.equal(panel.drawers.labels.statusApply, "应用状态");
 
-    const drawer = document.createElement("div");
-    renderer.renderAssistantContextDrawer(drawer, panel, { onAction() {} });
+    const { root, regions } = createPanelManagedRegions(document);
+    chromePanelRenderer(renderer)(panel, {
+      managed: true,
+      root,
+      regions,
+      onAction() {},
+    });
     const axisLabels = Array.from(
-      drawer.querySelectorAll(
+      regions.drawer.querySelectorAll(
         ".assistant-workspace-drawer-task-status-axis-label",
       ),
     ).map((entry) => entry.textContent);
@@ -2510,15 +2532,17 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
     ];
     const render = (selectedTaskKey: string) => {
-      renderer.renderAssistantContextDrawer(drawer, {
-        exact: true,
-        drawers: {
-          layout: "workspace-task-drawer",
-          contextTitle: "Runs",
-          selectedTaskKey,
-          sections,
+      chromePanelRenderer(renderer)(
+        {
+          drawers: {
+            layout: "workspace-task-drawer",
+            contextTitle: "Runs",
+            selectedTaskKey,
+            sections,
+          },
         },
-      });
+        { managed: true, regions: { drawer }, onAction() {} },
+      );
       return drawer.querySelectorAll("[data-assistant-task-key]");
     };
     const first = render("task-a");
@@ -2534,7 +2558,7 @@ describe("Assistant Workspace ACP UI v1", function () {
     const { document } = domEnv;
     const renderer = await loadPanelRenderer(domEnv);
     const drawer = document.createElement("div");
-    const section: any = {
+    let section: any = {
       id: "sessions",
       title: "Sessions",
       hideTitle: false,
@@ -2554,30 +2578,39 @@ describe("Assistant Workspace ACP UI v1", function () {
         },
       ],
     };
+    // Publications deliver fresh objects, so structural changes are applied
+    // by replacing the section, not mutating it in place.
     const render = () =>
-      renderer.renderAssistantContextDrawer(drawer, {
-        exact: true,
-        drawers: {
-          layout: "workspace-task-drawer",
-          contextTitle: "Sessions",
-          selectedTaskKey: "conversation-a",
-          sections: [section],
+      chromePanelRenderer(renderer)(
+        {
+          drawers: {
+            layout: "workspace-task-drawer",
+            contextTitle: "Sessions",
+            selectedTaskKey: "conversation-a",
+            sections: [section],
+          },
         },
-      });
+        { managed: true, regions: { drawer }, onAction() {} },
+      );
 
     render();
     assert.lengthOf(
       drawer.querySelectorAll(".assistant-workspace-drawer-section-title"),
       1,
     );
-    section.hideTitle = true;
+    section = { ...section, hideTitle: true };
     render();
     assert.lengthOf(
       drawer.querySelectorAll(".assistant-workspace-drawer-section-title"),
       0,
     );
 
-    section.groups[0].backendDisplayName = "Backend A Renamed";
+    section = {
+      ...section,
+      groups: [
+        { ...section.groups[0], backendDisplayName: "Backend A Renamed" },
+      ],
+    };
     render();
     assert.equal(
       drawer.querySelector(".assistant-workspace-drawer-group-title")

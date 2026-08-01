@@ -18,12 +18,20 @@ import {
   createSkillRunnerWorkspaceOwner,
   projectAssistantWorkspacePermissionRequest,
 } from "./assistantWorkspacePublication";
-import {
-  defineAssistantWorkspacePublicationAdapter,
-  type AssistantWorkspacePublicationAdapter,
-  type AssistantWorkspacePublicationRuntimePayloadByKind,
+import type {
+  AssistantWorkspacePublicationAdapter,
+  AssistantWorkspacePublicationRuntimePayloadByKind,
 } from "./assistantWorkspacePublicationRuntime";
 import type { AssistantWorkspaceTranscriptRegion } from "./assistantWorkspaceTranscriptPublication";
+import {
+  createWorkspaceOwnerControl,
+  defineAssistantWorkspaceSurfaceAdapter,
+  listQueuedWorkspaceNavigationEntries,
+  mapWorkspaceChangeKindsToPublicationKinds,
+  readWorkspaceOwnerRegions,
+  type AssistantWorkspaceNavigationGroupAccumulator,
+  type AssistantWorkspaceOwnerRegionKind,
+} from "./assistantWorkspaceSurfaceSkeleton";
 import {
   ASSISTANT_INTERACTION_FILE_MAX_BYTES,
   ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
@@ -31,7 +39,6 @@ import {
   projectAssistantPendingInteraction,
   type AssistantPendingInteraction,
 } from "../shared/assistantInteractionContract";
-import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 
 /**
  * SkillRunner surface adapter for the Assistant Workspace publication plane
@@ -84,12 +91,9 @@ export const SKILLRUNNER_WORKSPACE_CHANGE_PUBLICATION_MAPPING = {
 export function mapSkillRunnerChangeToPublicationKinds(
   kinds: readonly SkillRunnerWorkspaceChangeKind[],
 ) {
-  return Array.from(
-    new Set(
-      kinds.flatMap(
-        (kind) => SKILLRUNNER_WORKSPACE_CHANGE_PUBLICATION_MAPPING[kind],
-      ),
-    ),
+  return mapWorkspaceChangeKindsToPublicationKinds(
+    SKILLRUNNER_WORKSPACE_CHANGE_PUBLICATION_MAPPING,
+    kinds,
   );
 }
 
@@ -291,99 +295,84 @@ function skillRunnerComposerStatus(
 }
 
 export async function readSkillRunnerWorkspaceRegions(args: {
-  kinds: readonly Exclude<
-    AssistantWorkspacePublicationKind,
-    "owner-navigation" | "service-status" | "transcript"
-  >[];
+  kinds: readonly AssistantWorkspaceOwnerRegionKind[];
 }): Promise<Partial<AssistantWorkspacePublicationRuntimePayloadByKind>> {
   const model = getSkillRunnerWorkspaceReadModel();
   if (!model) return {};
-  const requested = new Set(args.kinds);
-  const regions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind> =
-    {};
-  if (requested.has("message-counts")) {
-    regions["message-counts"] = { counts: model.messageCounts };
-  }
-  if (requested.has("composer")) {
-    regions.composer = {
-      reply: {
-        status: skillRunnerComposerStatus(model),
-      },
-      // SkillRunner has no mode/model/reasoning selectors; null keeps the
-      // child from rendering disabled placeholder dropdowns (legacy composer
-      // had no runtime option groups at all).
-      runtimeOptions: null,
-    };
-  }
-  if (requested.has("permission")) {
-    regions.permission = {
-      request: projectAssistantWorkspacePermissionRequest(
-        model.pendingPermission,
-      ),
-    };
-  }
-  if (requested.has("owner-presentation")) {
-    regions["owner-presentation"] = {
-      title: model.title,
-      subtitle:
-        model.requestId && model.requestId !== model.title
-          ? model.requestId
-          : null,
-      description: null,
-      notice: model.submitError
-        ? { tone: "danger" as const, text: model.submitError }
-        : model.error && !model.terminal
-          ? { tone: "warning" as const, text: model.error }
-          : null,
-      metadata: [
-        {
-          fieldId: "backend" as const,
-          value: model.backendDisplayName || model.backendId,
+  return readWorkspaceOwnerRegions({
+    kinds: args.kinds,
+    readers: {
+      "message-counts": () => ({ counts: model.messageCounts }),
+      composer: () => ({
+        reply: {
+          status: skillRunnerComposerStatus(model),
         },
-        { fieldId: "status" as const, value: model.status },
-      ].filter((entry) => entry.value),
-      usage: null,
-    };
-  }
-  if (requested.has("owner-details")) {
-    const details = readSkillRunnerWorkspaceOwnerDetails();
-    if (details) {
-      regions["owner-details"] = details;
-    }
-  }
-  if (requested.has("owner-control")) {
-    regions["owner-control"] = {
-      status: model.status,
-      busy: !model.terminal && !model.waiting && model.status !== "queued",
-      hint: skillRunnerWorkspaceHint(model),
-      interaction: skillRunnerWorkspaceInteraction(model),
-      connection: {
-        status: "idle",
-        sessionAvailable: false,
-        connected: false,
-        canConnect: false,
-        canDisconnect: false,
-      },
-      execution: {
-        canCancel: model.canCancel && !model.terminal,
-        canInterrupt: false,
-      },
-      authentication: {
-        required: model.authRequired,
-        canAuthenticate: false,
-        methodId: null,
-      },
-      permissionPolicy: {
-        autoApprove: false,
-        canSetAutoApprove: false,
-      },
-      badges: {
-        control: skillRunnerControlBadge(model),
-        autoReply: skillRunnerAutoReplyBadge(model),
-      },
-    };
-  }
-  return regions;
+        // SkillRunner has no mode/model/reasoning selectors; null keeps the
+        // child from rendering disabled placeholder dropdowns (legacy
+        // composer had no runtime option groups at all).
+        runtimeOptions: null,
+      }),
+      permission: () => ({
+        request: projectAssistantWorkspacePermissionRequest(
+          model.pendingPermission,
+        ),
+      }),
+      "owner-presentation": () => ({
+        title: model.title,
+        subtitle:
+          model.requestId && model.requestId !== model.title
+            ? model.requestId
+            : null,
+        description: null,
+        notice: model.submitError
+          ? { tone: "danger" as const, text: model.submitError }
+          : model.error && !model.terminal
+            ? { tone: "warning" as const, text: model.error }
+            : null,
+        metadata: [
+          {
+            fieldId: "backend" as const,
+            value: model.backendDisplayName || model.backendId,
+          },
+          { fieldId: "status" as const, value: model.status },
+        ].filter((entry) => entry.value),
+        usage: null,
+      }),
+      "owner-details": () =>
+        readSkillRunnerWorkspaceOwnerDetails() || undefined,
+      "owner-control": () =>
+        createWorkspaceOwnerControl({
+          status: model.status,
+          busy: !model.terminal && !model.waiting && model.status !== "queued",
+          hint: skillRunnerWorkspaceHint(model),
+          interaction: skillRunnerWorkspaceInteraction(model),
+          connection: {
+            status: "idle",
+            sessionAvailable: false,
+            connected: false,
+            canConnect: false,
+            canDisconnect: false,
+          },
+          execution: {
+            canCancel: model.canCancel && !model.terminal,
+            canInterrupt: false,
+          },
+          authentication: {
+            required: model.authRequired,
+            canAuthenticate: false,
+            methodId: null,
+          },
+          permissionPolicy: {
+            autoApprove: false,
+            canSetAutoApprove: false,
+          },
+          badges: {
+            control: skillRunnerControlBadge(model),
+            autoReply: skillRunnerAutoReplyBadge(model),
+          },
+        }),
+    },
+  });
 }
 
 function skillRunnerNavigationEntryAttention(task: {
@@ -410,15 +399,8 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
         runKey: selected.runKey,
       })
     : null;
-  const navigationGroups = new Map<
-    string,
-    {
-      groupId: string;
-      label: string;
-      status: string;
-      disabledReason: string | null;
-    }
-  >();
+  const navigationGroups: AssistantWorkspaceNavigationGroupAccumulator =
+    new Map();
   const entries: AssistantWorkspaceOwnerNavigation["entries"] = [];
   let selectedGroupId: string | null = null;
   for (const group of groups) {
@@ -472,30 +454,14 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
       });
     }
   }
-  const queuedEntries = workflowSubmissionQueue
-    .listQueued()
-    .filter((entry) => entry.backendType === "skillrunner")
-    .map((entry) => {
-      const groupId = String(entry.backendId || "").trim();
-      if (!navigationGroups.has(groupId)) {
-        navigationGroups.set(groupId, {
-          groupId,
-          label: groupId,
-          status: "queued",
-          disabledReason: null,
-        });
-      }
-      return {
-        queueId: entry.queueId,
-        groupId,
-        label: entry.taskName || entry.workflowLabel || entry.workflowId,
-        subtitle: entry.workflowLabel || null,
-        groupLabel:
-          navigationGroups.get(groupId)?.label || entry.backendId || null,
-        updatedAt: entry.createdAt || null,
-        canCancel: entry.canCancel,
-      };
-    });
+  const queuedEntries = listQueuedWorkspaceNavigationEntries({
+    backendType: "skillrunner",
+    groups: navigationGroups,
+    groupIdOf: (entry) => String(entry.backendId || "").trim(),
+    missingGroupLabel: (_entry, groupId) => groupId,
+    entryGroupLabel: (entry, groupId) =>
+      navigationGroups.get(groupId)?.label || entry.backendId || null,
+  });
   return {
     selectedOwner,
     selectedGroupId,
@@ -508,7 +474,7 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
 }
 
 export const SKILLRUNNER_WORKSPACE_ADAPTER =
-  defineAssistantWorkspacePublicationAdapter({
+  defineAssistantWorkspaceSurfaceAdapter({
     source: "skillrunner",
     supportedKinds: [
       "owner-navigation",

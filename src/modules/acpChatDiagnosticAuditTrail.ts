@@ -1,18 +1,9 @@
-import {
-  discardBufferedWriteKey,
-  discardBufferedWriteKeyAndWait,
-  enqueueBufferedWrite,
-  flushBufferedWriteKey,
-} from "./bufferedWriteCoordinator";
+import { createAcpAuditAppendCore } from "./acpAuditAppendCore";
 import type { AcpDiagnosticEvidenceRecord } from "./acpDiagnostics";
 import { isDebugModeEnabled } from "./debugMode";
 import { appendRuntimeLog } from "./runtimeLogManager";
-import { appendRuntimeTextFile } from "./runtimePersistence";
 
 const ACP_CHAT_DIAGNOSTIC_AUDIT_SCHEMA = "zotero-skills.acp-chat.diagnostic.v1";
-const AUDIT_MAX_PENDING_ENTRIES = 2048;
-const AUDIT_MAX_PENDING_BYTES = 2 * 1024 * 1024;
-const auditKeys = new Map<string, string>();
 const discardedOwners = new Set<string>();
 
 function normalizeString(value: unknown) {
@@ -74,6 +65,32 @@ function recordAuditWarning(args: {
   }
 }
 
+const auditCore = createAcpAuditAppendCore({
+  log: (event) => {
+    if (event.kind === "overflow") {
+      recordAuditWarning({
+        ownerKey: event.owner,
+        requestId: event.requestId,
+        stage: "audit-buffer-overflow",
+        message: "ACP Chat diagnostic audit buffer dropped pending evidence.",
+        details: {
+          droppedEntries: event.droppedEntries,
+          droppedBytes: event.droppedBytes,
+          overflowEpisode: event.overflowEpisode,
+        },
+      });
+      return;
+    }
+    recordAuditWarning({
+      ownerKey: event.owner,
+      requestId: event.requestId,
+      stage: "audit-batch-append-failed",
+      message: "ACP Chat diagnostic audit append failed.",
+      error: event.error,
+    });
+  },
+});
+
 export function appendAcpChatDiagnosticAudit(args: {
   ownerKey: string;
   path?: string;
@@ -92,8 +109,6 @@ export function appendAcpChatDiagnosticAudit(args: {
   ) {
     return;
   }
-  const key = auditKey(ownerKey, path);
-  auditKeys.set(key, ownerKey);
   const line = `${JSON.stringify({
     schema: ACP_CHAT_DIAGNOSTIC_AUDIT_SCHEMA,
     source: "acp-chat-diagnostic",
@@ -101,70 +116,38 @@ export function appendAcpChatDiagnosticAudit(args: {
     conversationId: normalizeString(args.conversationId) || undefined,
     ...args.entry,
   })}\n`;
-  enqueueBufferedWrite({
-    key,
-    owner: coordinatorOwner(ownerKey),
-    entry: line,
-    bytes: new TextEncoder().encode(line).length,
-    performanceProfileRequestId: args.requestId,
-    performanceChannel: "audit",
-    hardPendingLimit: {
-      maxEntries: AUDIT_MAX_PENDING_ENTRIES,
-      maxBytes: AUDIT_MAX_PENDING_BYTES,
-      overflow: "drop-oldest",
-      onOverflow: (event) => {
-        recordAuditWarning({
-          ownerKey,
-          requestId: args.requestId,
-          stage: "audit-buffer-overflow",
-          message: "ACP Chat diagnostic audit buffer dropped pending evidence.",
-          details: event,
-        });
-      },
-    },
-    sink: async (lines) => {
-      try {
-        await appendRuntimeTextFile(path, lines.join(""));
-      } catch (error) {
-        recordAuditWarning({
-          ownerKey,
-          requestId: args.requestId,
-          stage: "audit-batch-append-failed",
-          message: "ACP Chat diagnostic audit append failed.",
-          error,
-        });
-        throw error;
-      }
-    },
+  auditCore.append({
+    key: auditKey(ownerKey, path),
+    coordinatorOwner: coordinatorOwner(ownerKey),
+    owner: ownerKey,
+    path,
+    requestId: args.requestId,
+    line,
   });
 }
 
-function keysForOwner(ownerKey?: string) {
+function resolveCoreOwner(ownerKey?: string) {
   const normalizedOwner = normalizeString(ownerKey);
   if (typeof ownerKey !== "undefined" && !normalizedOwner) {
-    return [];
+    return null;
   }
-  return Array.from(auditKeys.entries())
-    .filter(
-      ([, entryOwner]) =>
-        typeof ownerKey === "undefined" || entryOwner === normalizedOwner,
-    )
-    .map(([key]) => key);
+  return typeof ownerKey === "undefined" ? undefined : normalizedOwner;
 }
 
 export async function flushAcpChatDiagnosticAudit(ownerKey?: string) {
-  await Promise.all(
-    keysForOwner(ownerKey).map((key) => flushBufferedWriteKey(key)),
-  );
+  const owner = resolveCoreOwner(ownerKey);
+  if (owner === null) {
+    return;
+  }
+  await auditCore.flush(owner);
 }
 
 export async function releaseAcpChatDiagnosticAudit(ownerKey?: string) {
-  const keys = keysForOwner(ownerKey);
-  await Promise.allSettled(keys.map((key) => flushBufferedWriteKey(key)));
-  for (const key of keys) {
-    discardBufferedWriteKey(key);
-    auditKeys.delete(key);
+  const owner = resolveCoreOwner(ownerKey);
+  if (owner === null) {
+    return;
   }
+  await auditCore.release(owner);
 }
 
 export async function discardAcpChatDiagnosticAudit(ownerKey: string) {
@@ -173,13 +156,7 @@ export async function discardAcpChatDiagnosticAudit(ownerKey: string) {
     return;
   }
   discardedOwners.add(normalizedOwner);
-  const keys = keysForOwner(normalizedOwner);
-  await Promise.allSettled(
-    keys.map((key) => discardBufferedWriteKeyAndWait(key)),
-  );
-  for (const key of keys) {
-    auditKeys.delete(key);
-  }
+  await auditCore.discardAndWait(normalizedOwner);
 }
 
 export async function resetAcpChatDiagnosticAuditForTests() {
@@ -188,9 +165,6 @@ export async function resetAcpChatDiagnosticAuditForTests() {
 }
 
 export function discardAllAcpChatDiagnosticAuditsForTests() {
-  for (const key of auditKeys.keys()) {
-    discardBufferedWriteKey(key);
-  }
-  auditKeys.clear();
+  auditCore.discardAll();
   discardedOwners.clear();
 }

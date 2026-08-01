@@ -407,3 +407,132 @@ to baseline and locked by new tests. Two perceptible changes are
 sanctioned (user-approved): owner-first run switching, and the
 permission "View details" sheet now opening (inert in the legacy UI).
 Manual Zotero 7/9 smoke remains a manual item before merge to `main`.
+
+## Phase 4 implementation notes (2026-08-01)
+
+**Status: implemented.** OpenSpec change:
+`openspec/changes/2026-08-01-assistant-workspace-data-plane-merge/`.
+Landed on `dev-assistant-ui` as one working tree (sub-deliverables were
+kept independently green but committed together — see deviation notes).
+
+### What landed
+
+- **Generic transcript mirror store** (`assistantTranscriptMirrorStore.ts`,
+  817 LOC) + two thin drivers (`acpChatTranscriptMirror.ts` 914,
+  `acpSkillRunTranscriptMirror.ts` 1496). All per-source variation is an
+  injected `AssistantTranscriptMirrorOwnerDescriptor`: owner key, pin
+  predicate, item-id allocation (random vs ordinal + hydrate recovery),
+  streaming segment tracking (dual assistant/thought vs single
+  `lastTextItem`), plan mode (`transcript-item` vs `external`), continuity
+  bookkeeping, cold-queue branch (`queueEventWhileMirrorCold` →
+  `"handled" | "continue"`), emit/persist callbacks. The one structural
+  divergence (plan handling) is an explicit mode, not a callback chain.
+  Mirror state hosting stays per-source; the store operates on a
+  `core(state)` projection handle and owns no global mirror map. The
+  Skills migration extended the descriptor with named hooks
+  (`prepareMirrorForEvent`, `resolveLoadedCounters`, `shouldReleaseOnEvict`,
+  hydrate lifecycle hooks) — each exercised by both drivers, judged
+  explicit coupling. `acpConversationTranscriptStore.ts` was **not**
+  folded (tests import the path directly; the two item unions are
+  genuinely distinct types) but its `as never` casts were replaced with
+  typed `as unknown as` casts.
+- **God-file splits** (domain / mirror / persistence / UI data-plane):
+  - `acpSessionManager.ts` 6136 → 4081 (+ `acpChatWorkspaceDataPlane.ts`
+    642, `acpChatSkillInjection.ts` 549, `acpChatWorkspaceEmissionFacade.ts`
+    55 cycle-breaker);
+  - `acpSkillRunStore.ts` 6513 → 3376 (+ `acpSkillRunPersistence.ts` 1220,
+    `acpSkillRunWorkspaceDataPlane.ts` 748);
+  - `assistantWorkspaceSidebar.ts` 4236 → 2181 (+
+    `assistantWorkspacePublicationHost.ts` 1313,
+    `assistantWorkspaceActionRouter.ts` 1094);
+  - `acpSkillRunnerOrchestrator.ts` 6091 → 2858 (+
+    `acpSkillRunRecovery.ts` 2177, `acpSkillRunExecutionSupport.ts` 1268).
+  All splits preserve their public export surface via barrel re-exports;
+  cross-layer emission moves through `configure*Host` injection
+  (facade pattern), keeping the runtime import graph acyclic.
+- **Shared action dispatch table** in `assistantWorkspaceActionRouter.ts`:
+  `ASSISTANT_WORKSPACE_HOST_ACTION_TABLE` keyed by action then source with
+  a uniform `(ctx) => Promise<void>` handler signature. Duplicated bodies
+  (`resolve-permission`, `copy-diagnostics`, `open-workspace`,
+  `set-mode/model/effort`, `cancel-queued-workflow-unit`,
+  `open-backend-manager`, `set-execution-display-mode`) exist once as
+  `*ForSource` implementations; `load-transcript-page` /
+  `request-owner-details` use a `Record<source, adapter>` lookup;
+  SkillRunner payload normalization is skillrunner-cell preprocessing.
+  The five `TODO(contract)` routes stay verbatim.
+- **Surface adapter skeleton** (`assistantWorkspaceSurfaceSkeleton.ts`,
+  170 LOC): change-kind mapper, region-read dispatcher, owner-control DTO
+  assembly, queued-entries navigation block, adapter literal factory.
+  Read models, hint projections, state machines, badges stay per-source.
+- **Permission/audit merges**: one `requestScopedPermission` in
+  `hostBridgePermissionManager.ts` parameterized by `{kind, ownerKey,
+  setRequest}` (pending state stays in the session snapshot / run record /
+  SkillRunner registry); shared `acpAuditAppendCore.ts` (140 LOC) owns the
+  buffered-NDJSON append lifecycle under both audit trails (Skills keeps
+  multi-file layout + sanitization, Chat keeps the discard latch).
+- **Dead chrome renderer cleanup**: `assistantPanelRenderer.js`
+  3051 → 141 LOC (`adoptPanelRegions`/`managedMount`/
+  `installOverlayDismiss`/`markRegion`/`shouldManageRegion` + verified
+  live dependencies). −2910 LOC.
+
+### Deviation notes
+
+- **≤ ~2k LOC target not met for the four split files** (4081 / 3376 /
+  2181 / 2858). The extractions followed the natural boundaries; the
+  remainders are cohesive domain cores (session lifecycle + skill
+  injection consumers; run-record domain + type block; shell host;
+  the ~2.3k-line `executeAcpSkillRunnerJob` family). Further splitting
+  would cut through cohesive logic — accepted as-is; Phase 5 may revisit.
+- **Test migrations (sanctioned, two files)**:
+  - `test/node/core/97-runtime-diagnostics-release-elision.test.ts`:
+    source-text timer-scheduling anchors re-pointed from
+    `acpSkillRunStore.ts` to `acpSkillRunPersistence.ts` /
+    `acpSkillRunWorkspaceDataPlane.ts` (assertions unchanged);
+  - `test/core/97-acp-ui-smoke.test.ts`: all six dead-renderer call
+    sites were **re-pointed** (none deleted — no publication-plane case
+    covered their semantics) to the Preact `chromePanelRenderer` seam
+    with assertion content unchanged. One substantive adjustment: the
+    drawer-structure case now feeds fresh objects instead of mutating
+    props in place, because the memoized `ContextDrawerRegion` compares
+    by signature — production always publishes fresh objects.
+- **Sidebar split kept three functions in the shell** (`postShellInit`,
+  `maybeShowAcpSkillWaitingToasts`, attention-indicator helpers) because
+  tests 95/138 anchor on their source text in
+  `assistantWorkspaceSidebar.ts`; `postShellInit` is injected into the
+  publication host.
+- **`inspectSyntheticAcpSkillRunReplayTimers` spans two owners** after
+  the store split (soft-persist half in persistence, change-emit half in
+  data-plane), composed with original warning/timer ordering.
+- **One yield-timing regression found and fixed during the adapter
+  skeleton extraction**: the region-read dispatcher initially `await`ed
+  every kind, adding microtask yields to the previously yield-free
+  SkillRunner read path; publications were byte-identical but test 97
+  lost 4 mount-preservation cases. Fixed by resolving synchronous readers
+  in the same tick. Lesson recorded for Phase 5: async restructuring of
+  publication read paths is timing-observable to the UI.
+- Sub-deliverable commits were not made; the phase landed as one
+  working tree. Each step was verified green before the next began, so
+  bisect granularity lives in the step sequence above rather than in git.
+
+### Quantitative outcome
+
+- Net diff: 32 files, +15100/−15604 (motion-heavy). Parallel
+  implementations single-sourced: mirror/LRU/streaming (~1.9k → 817
+  shared + thin driver diffs), action routing (3 copies → 1 table),
+  adapter skeleton, permission dispatch (3 → 1), audit append core
+  (2 → 1), dead chrome rendering (−2910). God files: 6136/6513/4236/
+  6091 → 4081/3376/2181/2858 with the extracted layers each ≤ ~2.2k.
+
+### Acceptance
+
+All gates green (recorded below).
+
+- Gates: `npm run build` green; `test:node:core` 2826 passing / 1
+  failing — the single failure was a 2s timeout flake in
+  `test/core/137-literature-search-ingest-workflow.test.ts` (unrelated to
+  this phase; 20/20 passing in isolation); `lint:check`,
+  `check:localization-governance`, `check:help-docs`,
+  `check:ssot-invariants`, `test:lite` (41 passed), and OpenSpec strict
+  validation all green. Change archived as
+  `openspec/changes/archive/2026-08-01-assistant-workspace-data-plane-merge/`.
+  Manual Zotero 7/9 smoke remains a manual item before merge to `main`.
