@@ -30,9 +30,14 @@ import {
   getFreshDefaultSynthesisClient,
 } from "./synthesisClient/defaultClient";
 import {
+  classifySynthesisWorkbenchGraphMutationResult,
+  createSynthesisWorkbenchGraphLayoutFailure,
+  resolveSynthesisWorkbenchGraphLayoutStatus,
+  selectSynthesisWorkbenchGraphLayoutFailure,
   toSynthesisUiSnapshotInput,
   toSynthesisWorkbenchPaperDigestReadRequest,
   toSynthesisWorkbenchReadState,
+  type SynthesisWorkbenchGraphLayoutFailure,
 } from "./synthesisClient/workbenchUiAdapter";
 import {
   buildSynthesisStoragePaths,
@@ -162,6 +167,7 @@ type SynthesisWorkbenchRuntime = {
   lastCompletedCommand?: SynthesisUiActionOperation;
   lastFailedCommand?: SynthesisUiActionOperation;
   actionWarnings: SynthesisUiActionOperation[];
+  graphLayoutFailure?: SynthesisWorkbenchGraphLayoutFailure;
   graphGeneration: number;
   graphWindow?: SynthesisCitationGraphWindow<
     SynthesisUiGraphNode,
@@ -533,10 +539,45 @@ function surfaceForTab(tab: SynthesisUiTab): SynthesisWorkbenchSurfaceName {
 }
 
 function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
+  const input = runtime.snapshotInput || buildDefaultSnapshotInput();
+  const graph = input.graph;
+  const graphLayoutFailure = selectSynthesisWorkbenchGraphLayoutFailure({
+    graphHash: graph?.graph_hash,
+    layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+    failure: runtime.graphLayoutFailure,
+  });
+  const graphDiagnostics = { ...(graph?.diagnostics || {}) };
+  delete graphDiagnostics.layout_failure;
+  if (graphLayoutFailure) {
+    graphDiagnostics.layout_failure = {
+      graph_hash: graphLayoutFailure.graphHash,
+      layout_algorithm: graphLayoutFailure.layoutAlgorithm,
+      code: graphLayoutFailure.code,
+      ...(graphLayoutFailure.mutationStatus
+        ? { mutation_status: graphLayoutFailure.mutationStatus }
+        : {}),
+      message: graphLayoutFailure.message,
+      occurred_at: graphLayoutFailure.occurredAt,
+    };
+  }
   return buildSynthesisUiSnapshot(
     {
-      ...(runtime.snapshotInput || buildDefaultSnapshotInput()),
+      ...input,
       actions: actionStatusInput(runtime),
+      ...(graph
+        ? {
+            graph: {
+              ...graph,
+              layoutStatus: resolveSynthesisWorkbenchGraphLayoutStatus({
+                graphHash: graph.graph_hash,
+                layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+                layoutStatus: graph.layoutStatus,
+                failure: runtime.graphLayoutFailure,
+              }),
+              diagnostics: graphDiagnostics,
+            },
+          }
+        : {}),
     },
     runtime.state,
   );
@@ -1116,14 +1157,7 @@ async function sendSnapshot(
   if (!runtime.snapshotInput) {
     runtime.snapshotInput = buildDefaultSnapshotInput();
   }
-  const snapshot = buildSynthesisUiSnapshot(
-    {
-      ...(runtime.snapshotInput || buildDefaultSnapshotInput()),
-      actions: actionStatusInput(runtime),
-    },
-    runtime.state,
-  );
-  postWorkbenchMessage(runtime, messageType, snapshot);
+  postWorkbenchMessage(runtime, messageType, snapshotForRuntime(runtime));
 }
 
 async function sendChrome(
@@ -1204,14 +1238,8 @@ function mergeGraphPageInput(
     return false;
   }
   runtime.graphWindow = merged.window;
-  graph.nodes = [
-    ...merged.window.nodes,
-    ...merged.window.hoverOnlyNodes,
-  ];
-  graph.edges = [
-    ...merged.window.edges,
-    ...merged.window.hoverOnlyEdges,
-  ];
+  graph.nodes = [...merged.window.nodes, ...merged.window.hoverOnlyNodes];
+  graph.edges = [...merged.window.edges, ...merged.window.hoverOnlyEdges];
   graph.hoverOnlyNodes = [...merged.window.hoverOnlyNodes];
   graph.hoverOnlyEdges = [...merged.window.hoverOnlyEdges];
   graph.page = {
@@ -1377,9 +1405,7 @@ async function expandGraphNeighborhood(
           : runtime.state.graph.topicId,
       nodeKinds: runtime.state.graph.nodeKinds,
       roles:
-        runtime.state.graph.role === "all"
-          ? []
-          : [runtime.state.graph.role],
+        runtime.state.graph.role === "all" ? [] : [runtime.state.graph.role],
       includeLowSignal: runtime.state.graph.showLowSignalReferences,
       search: runtime.state.graph.search,
     },
@@ -2408,6 +2434,46 @@ async function openZoteroItemFromCitationGraphNode(
   await selectZoteroItem(runtime, { libraryId, itemKey });
 }
 
+function currentGraphLayoutBasis(
+  runtime: SynthesisWorkbenchRuntime,
+  layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+):
+  | Pick<SynthesisWorkbenchGraphLayoutFailure, "graphHash" | "layoutAlgorithm">
+  | undefined {
+  const graphHash = String(
+    runtime.snapshotInput?.graph?.graph_hash || "",
+  ).trim();
+  return graphHash ? { graphHash, layoutAlgorithm } : undefined;
+}
+
+async function recomputeWorkbenchCitationGraphLayout(
+  runtime: SynthesisWorkbenchRuntime,
+  layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+  force = false,
+) {
+  const basis = currentGraphLayoutBasis(runtime, layoutAlgorithm);
+  try {
+    const client = await getDefaultSynthesisClient();
+    const result = classifySynthesisWorkbenchGraphMutationResult(
+      await client.graph.recomputeCitationGraphLayout({
+        algorithm: layoutAlgorithm,
+        ...(force ? { force: true } : {}),
+      }),
+    );
+    runtime.graphLayoutFailure = undefined;
+    return result;
+  } catch (error) {
+    if (basis) {
+      runtime.graphLayoutFailure = createSynthesisWorkbenchGraphLayoutFailure({
+        ...basis,
+        error,
+      });
+      await sendSurface(runtime, "graph", { refreshFromService: false });
+    }
+    throw error;
+  }
+}
+
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
   const hostWindow = resolveWorkflowHostWindow(win);
   if (!hostWindow) {
@@ -2502,11 +2568,7 @@ function handleAction(
       startedAt: new Date().toISOString(),
     };
     publishGraphPage(runtime, request);
-    void loadGraphContinuationPages(
-      runtime,
-      request,
-      runtime.graphGeneration,
-    );
+    void loadGraphContinuationPages(runtime, request, runtime.graphGeneration);
     return;
   }
   if (envelope.action === "openSynthesisSidecarDiagnostics") {
@@ -2536,8 +2598,7 @@ function handleAction(
   runtime.state = result.state;
   const graphQueryChanged =
     runtime.state.selectedTab === "graph" &&
-    ((envelope.action === "setFilters" &&
-      Boolean(envelope.payload?.graph)) ||
+    ((envelope.action === "setFilters" && Boolean(envelope.payload?.graph)) ||
       (envelope.action === "setGraphView" &&
         ["role", "topicId", "nodeKinds", "showLowSignalReferences"].some(
           (field) => field in (envelope.payload || {}),
@@ -2670,13 +2731,12 @@ function handleAction(
       runtime,
       "manualRecomputeLayout",
       { algorithm },
-      async () => {
-        const client = await getDefaultSynthesisClient();
-        return client.graph.recomputeCitationGraphLayout({
-          algorithm: algorithm as SynthesisUiLayoutAlgorithm,
-          force: true,
-        });
-      },
+      () =>
+        recomputeWorkbenchCitationGraphLayout(
+          runtime,
+          algorithm as SynthesisUiLayoutAlgorithm,
+          true,
+        ),
     );
     return;
   }
@@ -2687,7 +2747,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.graph.rebuildCitationGraphCacheNow();
+        return classifySynthesisWorkbenchGraphMutationResult(
+          await client.graph.rebuildCitationGraphCacheNow(),
+        );
       },
       { deferStart: true },
     );
@@ -2702,7 +2764,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.graph.refreshCitationGraphCacheIncrementalNow();
+        return classifySynthesisWorkbenchGraphMutationResult(
+          await client.graph.refreshCitationGraphCacheIncrementalNow(),
+        );
       },
       { deferStart: true },
     );
@@ -2715,7 +2779,9 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.graph.retryCitationGraphCacheRebuild();
+        return classifySynthesisWorkbenchGraphMutationResult(
+          await client.graph.retryCitationGraphCacheRebuild(),
+        );
       },
       { deferStart: true },
     );
@@ -3737,17 +3803,30 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
     return;
   }
   await sendSurface(runtime, "graph", { refreshFromService: true });
-  const status = runtime.snapshotInput?.graph?.layoutStatus || "missing";
-  if (status === "ready" || !runtime.snapshotInput?.graph?.graph_hash) {
+  const graph = runtime.snapshotInput?.graph;
+  const status = resolveSynthesisWorkbenchGraphLayoutStatus({
+    graphHash: graph?.graph_hash,
+    layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
+    layoutStatus: graph?.layoutStatus,
+    failure: runtime.graphLayoutFailure,
+  });
+  if (
+    status === "ready" ||
+    status === "failed" ||
+    !runtime.snapshotInput?.graph?.graph_hash
+  ) {
     return;
   }
-  const client = await getDefaultSynthesisClient();
-  await client.graph.recomputeCitationGraphLayout({
-    algorithm: runtime.state.graph.layoutAlgorithm,
-  });
-  await sendSurface(runtime, "graph", {
-    refreshFromService: true,
-  });
+  try {
+    await recomputeWorkbenchCitationGraphLayout(
+      runtime,
+      runtime.state.graph.layoutAlgorithm,
+    );
+  } finally {
+    await sendSurface(runtime, "graph", {
+      refreshFromService: true,
+    });
+  }
 }
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {

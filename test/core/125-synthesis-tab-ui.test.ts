@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -9,6 +10,12 @@ import {
 } from "../../src/modules/synthesis/uiModel";
 import { isSynthesisLibraryReadModelInvalidationEvent } from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
+import {
+  classifySynthesisWorkbenchGraphMutationResult,
+  createSynthesisWorkbenchGraphLayoutFailure,
+  resolveSynthesisWorkbenchGraphLayoutStatus,
+  selectSynthesisWorkbenchGraphLayoutFailure,
+} from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   continueSynthesisCitationGraphWindow,
   createSynthesisCitationGraphWindow,
@@ -92,16 +99,147 @@ describe("Synthesis tab UI model", function () {
     assert.fail(`Could not extract if (${condition})`);
   }
 
+  it("classifies Workbench Citation Graph mutation terminal results", function () {
+    const captureError = (run: () => unknown) => {
+      try {
+        run();
+      } catch (error) {
+        return error as Error & {
+          code?: string;
+          details?: Record<string, unknown>;
+        };
+      }
+      assert.fail("Expected Citation Graph mutation classification to fail");
+    };
+    for (const status of ["promoted", "unchanged"] as const) {
+      const result = { status, graphHash: "sha256:graph" };
+      assert.strictEqual(
+        classifySynthesisWorkbenchGraphMutationResult(result),
+        result,
+      );
+    }
+
+    for (const [status, code] of [
+      ["graph_application_busy", "storage_busy"],
+      ["worker_busy", "storage_busy"],
+      ["worker_failed", "internal"],
+      ["basis_mismatch", "conflict"],
+      ["invalid_request", "invalid_request"],
+      ["repair_required", "unavailable"],
+      ["stopping", "unavailable"],
+    ] as const) {
+      const error = captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({ status }),
+      );
+      assert.equal(error.code, code, status);
+      assert.equal(error.details?.status, status);
+    }
+
+    for (const legacySuccess of [
+      { processed: 1, completed: 1, failed: 0 },
+      { ok: true, status: "completed" },
+      { ok: true, status: "bootstrapped" },
+      { ok: true, status: "skipped" },
+      { ok: true, status: "superseded" },
+    ]) {
+      assert.strictEqual(
+        classifySynthesisWorkbenchGraphMutationResult(legacySuccess),
+        legacySuccess,
+      );
+    }
+    assert.equal(
+      captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({
+          processed: 1,
+          completed: 0,
+          failed: 1,
+        }),
+      ).code,
+      "internal",
+    );
+    assert.equal(
+      captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({
+          ok: false,
+          status: "failed",
+        }),
+      ).code,
+      "internal",
+    );
+  });
+
+  it("scopes Workbench Citation Graph layout failures to their basis", function () {
+    const failure = {
+      graphHash: "sha256:graph-a",
+      layoutAlgorithm: "force",
+      code: "invalid_request",
+      mutationStatus: "invalid_request",
+      message: "Layout failed.",
+      occurredAt: "2026-08-01T00:00:00.000Z",
+    };
+    for (const [layoutStatus, graphHash, layoutAlgorithm, expected] of [
+      ["missing", "sha256:graph-a", "force", "failed"],
+      ["stale", "sha256:graph-a", "force", "failed"],
+      ["ready", "sha256:graph-a", "force", "ready"],
+      ["missing", "sha256:graph-b", "force", "missing"],
+      ["stale", "sha256:graph-a", "radial", "stale"],
+    ] as const) {
+      assert.equal(
+        resolveSynthesisWorkbenchGraphLayoutStatus({
+          graphHash,
+          layoutAlgorithm,
+          layoutStatus,
+          failure,
+        }),
+        expected,
+      );
+    }
+    assert.strictEqual(
+      selectSynthesisWorkbenchGraphLayoutFailure({
+        graphHash: "sha256:graph-a",
+        layoutAlgorithm: "force",
+        failure,
+      }),
+      failure,
+    );
+    assert.isUndefined(
+      selectSynthesisWorkbenchGraphLayoutFailure({
+        graphHash: "sha256:graph-b",
+        layoutAlgorithm: "force",
+        failure,
+      }),
+    );
+  });
+
+  it("records bounded structured Workbench layout failure details", function () {
+    const failure = createSynthesisWorkbenchGraphLayoutFailure({
+      graphHash: " sha256:graph-a ",
+      layoutAlgorithm: " force ",
+      error: new SynthesisClientError(
+        "invalid_request",
+        "  Empty\nyear\u0000was rejected.  ",
+        { status: "invalid_request" },
+      ),
+      occurredAt: "2026-08-01T00:00:00.000Z",
+    });
+    assert.deepInclude(failure, {
+      graphHash: "sha256:graph-a",
+      layoutAlgorithm: "force",
+      code: "invalid_request",
+      mutationStatus: "invalid_request",
+      occurredAt: "2026-08-01T00:00:00.000Z",
+    });
+    assert.include(failure.message, "Empty year");
+    assert.notInclude(failure.message, "\u0000");
+  });
+
   it("merges Citation Graph pages by id and rejects stale generations", function () {
     const initial = createSynthesisCitationGraphWindow({ generation: 3 });
     const first = mergeSynthesisCitationGraphPage(initial, {
       generation: 3,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [
-        { id: "a" },
-        { id: "b" },
-      ],
+      nodes: [{ id: "a" }, { id: "b" }],
       edges: [{ id: "a-b", source: "a", target: "b" }],
       nextCursor: "cursor-1",
       hasMore: true,
@@ -113,10 +251,7 @@ describe("Synthesis tab UI model", function () {
       generation: 3,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [
-        { id: "b" },
-        { id: "c" },
-      ],
+      nodes: [{ id: "b" }, { id: "c" }],
       edges: [
         { id: "a-b", source: "a", target: "b" },
         { id: "b-c", source: "b", target: "c" },
@@ -161,10 +296,7 @@ describe("Synthesis tab UI model", function () {
       generation: 1,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [
-        { id: "a" },
-        { id: "b" },
-      ],
+      nodes: [{ id: "a" }, { id: "b" }],
       edges: [{ id: "a-b", source: "a", target: "b" }],
       nextCursor: "cursor-1",
       hasMore: true,
@@ -181,10 +313,7 @@ describe("Synthesis tab UI model", function () {
       generation: 1,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [
-        { id: "b" },
-        { id: "c" },
-      ],
+      nodes: [{ id: "b" }, { id: "c" }],
       edges: [{ id: "b-c", source: "b", target: "c" }],
     });
     assert.isTrue(sliced.accepted);
@@ -1991,6 +2120,7 @@ describe("Synthesis tab UI model", function () {
       "utf8",
     );
     const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const renderGraphBlock = extractFunctionBlock(appSource, "renderGraph");
 
     assert.include(tabSource, "recomputeCitationGraphLayout");
     assert.notInclude(tabSource, "runCitationGraphLayoutWorker");
@@ -2012,6 +2142,12 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(appSource, "maybeRequestGraphLayoutRefresh");
     assert.include(appSource, 'reason: "auto"');
+    assert.include(renderGraphBlock, "layoutFailed");
+    assert.include(renderGraphBlock, "synthesis-graph-layout-failed-body");
+    assert.include(renderGraphBlock, "makeGraphLayoutRecomputeButton");
+    assert.include(appSource, "graphLayoutFailure(snapshot)");
+    assert.include(appSource, "makeCitationGraphLayoutFailureDebugDetails");
+    assert.include(appSource, "mutation status");
   });
 
   it("routes Citation Graph commands through the callback-free Graph client", async function () {
@@ -2024,6 +2160,10 @@ describe("Synthesis tab UI model", function () {
       tabSource,
       "refreshGraphLayoutIfNeeded",
     );
+    const layoutMutationBlock = extractFunctionBlock(
+      tabSource,
+      "recomputeWorkbenchCitationGraphLayout",
+    );
     const cacheCommandRegion = handleActionBlock.slice(
       handleActionBlock.indexOf(
         'result.hostCommand?.command === "rebuildCitationGraphCacheNow"',
@@ -2035,7 +2175,20 @@ describe("Synthesis tab UI model", function () {
 
     assert.match(
       handleActionBlock,
-      /manualRecomputeLayout[\s\S]{0,420}client\.graph\s*\.recomputeCitationGraphLayout\(\{[\s\S]{0,120}force: true/,
+      /manualRecomputeLayout[\s\S]{0,500}recomputeWorkbenchCitationGraphLayout\([\s\S]{0,160}true/,
+    );
+    assert.include(
+      layoutMutationBlock,
+      "classifySynthesisWorkbenchGraphMutationResult",
+    );
+    assert.include(
+      layoutMutationBlock,
+      "createSynthesisWorkbenchGraphLayoutFailure",
+    );
+    assert.include(layoutMutationBlock, "refreshFromService: false");
+    assert.match(
+      layoutMutationBlock,
+      /client\.graph\.recomputeCitationGraphLayout\(\{[\s\S]{0,160}force: true/,
     );
     for (const [command, method] of [
       ["rebuildCitationGraphCacheNow", "rebuildCitationGraphCacheNow"],
@@ -2048,7 +2201,7 @@ describe("Synthesis tab UI model", function () {
       assert.match(
         handleActionBlock,
         new RegExp(
-          `${command}[\\s\\S]{0,420}client\\.graph\\s*\\.${method}\\(\\)[\\s\\S]{0,160}deferStart: true`,
+          `${command}[\\s\\S]{0,500}classifySynthesisWorkbenchGraphMutationResult\\([\\s\\S]{0,160}client\\.graph\\s*\\.${method}\\(\\)[\\s\\S]{0,180}deferStart: true`,
         ),
       );
     }
@@ -2060,9 +2213,10 @@ describe("Synthesis tab UI model", function () {
     );
     assert.match(
       automaticLayoutBlock,
-      /client\.graph\s*\.recomputeCitationGraphLayout/,
+      /recomputeWorkbenchCitationGraphLayout\(/,
     );
     assert.include(automaticLayoutBlock, 'status === "ready"');
+    assert.include(automaticLayoutBlock, 'status === "failed"');
     assert.include(
       automaticLayoutBlock,
       "!runtime.snapshotInput?.graph?.graph_hash",

@@ -23,6 +23,14 @@ pub(crate) struct NativeDiagnosticEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    mutation_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    algorithm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graph_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     request_bytes: Option<u64>,
@@ -50,6 +58,14 @@ pub(crate) struct NativeDiagnosticEvent {
     actual_json_nodes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit_json_nodes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_limit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edge_limit: Option<u64>,
 }
 
 impl NativeDiagnosticEvent {
@@ -65,6 +81,10 @@ impl NativeDiagnosticEvent {
             operation_id: None,
             correlation_id: crate::runtime_deadline::current_request_correlation_id(),
             code: None,
+            mutation_status: None,
+            worker_code: None,
+            algorithm: None,
+            graph_hash: None,
             duration_ms: None,
             request_bytes: None,
             response_bytes: None,
@@ -79,6 +99,10 @@ impl NativeDiagnosticEvent {
             limit_bytes: None,
             actual_json_nodes: None,
             limit_json_nodes: None,
+            node_count: None,
+            edge_count: None,
+            node_limit: None,
+            edge_limit: None,
         }
     }
 
@@ -104,6 +128,26 @@ impl NativeDiagnosticEvent {
 
     pub(crate) fn code(mut self, value: impl Into<String>) -> Self {
         self.code = Some(value.into());
+        self
+    }
+
+    pub(crate) fn mutation_status(mut self, value: impl Into<String>) -> Self {
+        self.mutation_status = Some(value.into());
+        self
+    }
+
+    pub(crate) fn worker_code(mut self, value: impl Into<String>) -> Self {
+        self.worker_code = Some(value.into());
+        self
+    }
+
+    pub(crate) fn algorithm(mut self, value: impl Into<String>) -> Self {
+        self.algorithm = Some(value.into());
+        self
+    }
+
+    pub(crate) fn graph_hash(mut self, value: impl Into<String>) -> Self {
+        self.graph_hash = Some(value.into());
         self
     }
 
@@ -176,6 +220,26 @@ impl NativeDiagnosticEvent {
         self.limit_json_nodes = Some(value as u64);
         self
     }
+
+    pub(crate) fn node_count(mut self, value: usize) -> Self {
+        self.node_count = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn edge_count(mut self, value: usize) -> Self {
+        self.edge_count = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn node_limit(mut self, value: usize) -> Self {
+        self.node_limit = Some(value as u64);
+        self
+    }
+
+    pub(crate) fn edge_limit(mut self, value: usize) -> Self {
+        self.edge_limit = Some(value as u64);
+        self
+    }
 }
 
 pub(crate) fn emit(event: NativeDiagnosticEvent) {
@@ -217,13 +281,21 @@ mod tests {
             .request_id("request-1")
             .operation_id("operation-1")
             .code("reverse_host_response_body_truncated")
+            .mutation_status("invalid_request")
+            .worker_code("invalid_request")
+            .algorithm("force")
+            .graph_hash(format!("sha256:{}", "a".repeat(64)))
             .duration_ms(4)
             .request_bytes(10)
             .response_bytes(20)
             .http_status(200)
             .returned(1)
             .total(2)
-            .page(0);
+            .page(0)
+            .node_count(7_432)
+            .edge_count(11_377)
+            .node_limit(20_000)
+            .edge_limit(80_000);
         let source = serde_json::to_string(&event).expect("diagnostic event");
         assert!(source.contains("synthesis-sidecar-native-diagnostic-event.v1"));
         for forbidden in ["payload", "authorization", "token", "locator", "paperRef"] {

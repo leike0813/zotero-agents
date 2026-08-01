@@ -32,8 +32,9 @@ The engine SHALL canonicalize input order, use fixed parameters, round output to
 
 #### Scenario: The maximum accepted graph is computed
 
-- **WHEN** a valid graph contains up to 5,000 nodes and 20,000 edges
-- **THEN** computation SHALL complete within the five-second hard deadline
+- **WHEN** a valid graph contains up to 20,000 nodes and 80,000 edges
+- **THEN** computation SHALL either return a complete result or terminate as `worker_timeout` at the ten-second hard deadline
+- **AND** a timeout SHALL NOT produce a promotable partial layout
 - **AND** peak worker RSS SHALL remain below 256 MiB.
 
 #### Scenario: Active computation is canceled

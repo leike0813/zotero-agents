@@ -25,6 +25,7 @@ import {
   SynthesisSidecarRpcError,
 } from "../../src/modules/synthesisSidecarRpcClient";
 import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "../../src/modules/synthesisProductionRpcPolicy";
+import { parseNativeDiagnosticEvent } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
 
 describe("Synthesis sidecar debug observability", function () {
   beforeEach(function () {
@@ -216,6 +217,73 @@ describe("Synthesis sidecar debug observability", function () {
       normalLogs.map((entry) => [entry.stage, entry.level]),
       [["request-failed", "error"]],
     );
+  });
+
+  it("retains bounded Citation Graph mutation and layout capacity metadata", function () {
+    recordSynthesisSidecarDiagnosticEvent({
+      component: "operation",
+      stage: "layout-worker-failed",
+      status: "failed",
+      capability: "client.recomputeCitationGraphLayout",
+      requestId: "request-layout",
+      correlationId: "request-layout",
+      code: "invalid_request",
+      mutationStatus: "invalid_request",
+      workerCode: "invalid_request",
+      algorithm: "force",
+      graphHash: `sha256:${"a".repeat(64)}`,
+      nodeCount: 7_432,
+      edgeCount: 11_377,
+      nodeLimit: 20_000,
+      edgeLimit: 80_000,
+    });
+
+    const event = listSynthesisSidecarDiagnosticEvents()[0];
+    assert.deepInclude(event, {
+      mutationStatus: "invalid_request",
+      workerCode: "invalid_request",
+      algorithm: "force",
+      nodeCount: 7_432,
+      edgeCount: 11_377,
+      nodeLimit: 20_000,
+      edgeLimit: 80_000,
+    });
+    assert.equal(event?.correlationId, "request-layout");
+    const serialized = JSON.stringify(event);
+    for (const forbidden of ["payload", "authorization", "token", "nodeIds"]) {
+      assert.notInclude(serialized, forbidden);
+    }
+  });
+
+  it("parses only allowlisted native Citation Graph diagnostic metadata", function () {
+    const event = parseNativeDiagnosticEvent(
+      JSON.stringify({
+        schema: "synthesis-sidecar-native-diagnostic-event.v1",
+        component: "operation",
+        stage: "layout-worker-failed",
+        status: "failed",
+        code: "invalid_request",
+        mutationStatus: "invalid_request",
+        workerCode: "invalid_request",
+        algorithm: "force",
+        graphHash: `sha256:${"b".repeat(64)}`,
+        nodeCount: 7_432,
+        edgeCount: 11_377,
+        nodeLimit: 20_000,
+        edgeLimit: 80_000,
+        payload: { title: "must not cross the stderr boundary" },
+      }),
+    );
+
+    assert.deepInclude(event, {
+      component: "operation",
+      stage: "layout-worker-failed",
+      status: "failed",
+      workerCode: "invalid_request",
+      nodeCount: 7_432,
+      edgeLimit: 80_000,
+    });
+    assert.notProperty(event || {}, "payload");
   });
 
   it("bounds the debug timeline and retains exact capacity evidence", function () {

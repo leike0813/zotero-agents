@@ -805,7 +805,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use synthesis_application::CitationGraphRepositoryPort;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-    use synthesis_repository::{Repository, RepositoryIdentity};
+    use synthesis_repository::{
+        CitationEdgeRecord, CitationGraphApplicationStateRecord, CitationGraphReplacement,
+        CitationNodeRecord, Repository, RepositoryIdentity,
+    };
 
     struct FakeHost {
         items: Mutex<Vec<ReferenceHostItem>>,
@@ -972,6 +975,85 @@ mod tests {
             .expect("persisted layout");
         assert_eq!(persisted.view_key, "workbench_overview");
         assert_eq!(persisted.preset, "radial");
+        drop(apps);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn layout_promotes_shared_external_node_without_a_year() {
+        let root = root();
+        let apps = applications(&root, Arc::new(FakeHost::new(Vec::new())));
+        let graph_hash = format!("sha256:{}", "a".repeat(64));
+        let node = |id: &str, library: bool, title: &str, year: &str| CitationNodeRecord {
+            literature_item_id: id.into(),
+            node_status: "active".into(),
+            has_zotero_binding: library,
+            title: title.into(),
+            year: year.into(),
+            summary_json: serde_json::json!({
+                "kind":if library {"library_paper"} else {"external_reference"},
+            })
+            .to_string(),
+            ..CitationNodeRecord::default()
+        };
+        let edge = |id: &str, source: &str| CitationEdgeRecord {
+            edge_id: id.into(),
+            source_literature_item_id: source.into(),
+            target_literature_item_id: "external:shared".into(),
+            edge_status: "unbound".into(),
+            ..CitationEdgeRecord::default()
+        };
+        assert!(
+            CitationGraphRepositoryPort::replace(
+                apps.repository.as_ref(),
+                None,
+                &CitationGraphReplacement {
+                    state: CitationGraphApplicationStateRecord {
+                        graph_hash: graph_hash.clone(),
+                        input_hash: format!("sha256:{}", "b".repeat(64)),
+                        node_count: 3,
+                        edge_count: 2,
+                        updated_at: now_string(),
+                        ..CitationGraphApplicationStateRecord::default()
+                    },
+                    nodes: vec![
+                        node("1:AAAA1111", true, "Paper A", "2024"),
+                        node("1:BBBB2222", true, "Paper B", "2025"),
+                        node("external:shared", false, " Shared external ", ""),
+                    ],
+                    edges: vec![
+                        edge("edge:a-shared", "1:AAAA1111"),
+                        edge("edge:b-shared", "1:BBBB2222"),
+                    ],
+                    ownership: Vec::new(),
+                    incoming_groups: Vec::new(),
+                    light_metrics: Vec::new(),
+                    complex_metrics: Vec::new(),
+                },
+            )
+            .expect("replace graph")
+        );
+
+        let result = dispatch(
+            &apps,
+            "client.recomputeCitationGraphLayout",
+            &[json!({"algorithm":"radial","force":true})],
+        )
+        .expect("layout mutation");
+        assert_eq!(result["status"], "promoted");
+        let persisted = apps
+            .citations
+            .read_layout("workbench_overview:radial")
+            .expect("layout read")
+            .expect("persisted layout");
+        let layout: Value = serde_json::from_str(&persisted.layout_json).expect("layout json");
+        let coordinates = layout["nodes"].as_object().expect("layout nodes");
+        assert_eq!(coordinates.len(), 3);
+        assert!(coordinates.values().all(|coordinate| {
+            coordinate["x"].as_f64().is_some_and(f64::is_finite)
+                && coordinate["y"].as_f64().is_some_and(f64::is_finite)
+        }));
+        assert_eq!(persisted.graph_hash, graph_hash);
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }

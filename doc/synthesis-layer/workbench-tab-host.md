@@ -54,6 +54,14 @@ type SynthesisWorkbenchRuntime = {
   lastCompletedCommand?: SynthesisUiActionOperation;
   lastFailedCommand?: SynthesisUiActionOperation;
   actionWarnings: SynthesisUiActionOperation[];
+  graphLayoutFailure?: {
+    graphHash: string;
+    layoutAlgorithm: string;
+    code: string;
+    mutationStatus?: string;
+    message: string;
+    occurredAt: string;
+  };
 };
 ```
 
@@ -209,7 +217,11 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 | Topic Artifact | 5 | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts` |
 | 其他 | 2 | `openPreferences`, `manualRecomputeLayout` |
 
-四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。
+四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。所有四个命令都通过 `classifySynthesisWorkbenchGraphMutationResult()` 判定终态，Promise 正常 resolve 本身不代表命令成功：原生 `promoted` / `unchanged` 才是成功终态，其余原生 mutation status 转成带稳定 code 和原始 status detail 的 `SynthesisClientError`。保留实现中，`ok: true` 搭配 `completed`、`bootstrapped`、`skipped` 或 `superseded` 继续成功；无 status 的计数结果在 `failed > 0` 时失败，`ok: false` 同样失败。
+
+Layout 请求在发出前捕获当前 `graph_hash + layoutAlgorithm`。失败记录同时保存稳定 code、原生 mutation status（若有）、清理并限长后的 message 与时间。runtime 先发送一次不读取服务的 Graph surface 快照，再进入常规刷新；若刷新也失败，surface error 恢复的仍是带失败信息的快照。只有同一 basis 的非 ready 布局投影成 `failed`；graph hash 或算法变化时沿用新 basis 的服务状态，不继承旧失败。`ready` 坐标继续优先显示，同时保留“最近重绘失败”的非阻塞警告。成功请求清除失败记录。当前 basis 没有坐标时，前端显示失败原因和现有“重绘布局”动作，不再显示“正在计算布局”；失败 basis 不触发自动重试。普通模式展示清理后的原因，debug 模式额外展开 code、mutation status、算法和 graph hash。
+
+Native Graph surface 与 layout worker 共享同一个确定性默认图投影：library 节点优先于 shared external，同层按稳定 ID 排序，single external 只进入 hover 层，默认布局最多包含 20,000 节点和 80,000 条端点闭合边。Workbench 只对 surface 返回的默认节点要求 ready 坐标；被投影排除或 hover-only 的节点不会把完整布局误判为缺失。
 
 四个 Reference Sidecar/advanced matching 维护命令动态解析默认 `SynthesisClient` 并调用 `client.references`。它们使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract；refresh 与 advanced matching 保留确认，三个长命令保留 deferred start，而 Reference Sidecar retry 保持立即启动。
 
@@ -242,6 +254,8 @@ Tag Vocabulary validation、projection rebuild、regulator export、canonical/st
 - `confirmWorkbenchAction(message, win)` — 调用 `window.confirm()` 弹确认框
 - `confirmProtectedRebuildCommand(command, win)` — 根据命令类型选不同的确认文案
 - `failOnDiagnostic(result)` — 只检查返回值的单数 `diagnostic` 字段，有则抛出异常；复数 `diagnostics` 保持为普通 domain result 数据
+- `classifySynthesisWorkbenchGraphMutationResult(result)` — 对四个 Graph mutation 的 resolved result 做终态分类，避免非成功原生状态被 `runWorkbenchCommandOnce()` 记为完成
+- `resolveSynthesisWorkbenchGraphLayoutStatus(args)` — 将服务布局状态与 basis-scoped failure 合成展示状态；`ready` 始终优先
 
 ## Command 执行管理
 
@@ -304,7 +318,7 @@ runtime.commandProgressTimer = setInterval(() => {
 
 ### 数据发送
 
-- **`snapshotForRuntime(runtime)`** — 从 `runtime.snapshotInput` + `actionStatusInput()` 构建 `SynthesisUiSnapshot`
+- **`snapshotForRuntime(runtime)`** — 从 `runtime.snapshotInput` + `actionStatusInput()` 构建 `SynthesisUiSnapshot`，并只在输出投影中合成 basis-scoped layout failure；服务返回的原始 layout status 保留在 snapshot input 中
 - **`sendChrome(runtime, options)`** — 刷新 chrome：通过 `SynthesisClient.workbench.readChrome()` 获取 ChromeInput（含 maintenance summary、background jobs 等），merge 到 snapshotInput，发送 `synthesis:chrome` 消息
 - **`refreshWorkbenchCommandProgress(runtime)`** — 通过 `SynthesisClient.workbench.readProgress()` 获取仅包含 maintenance progress 的 projection，merge 到现有 snapshotInput，只发送 `synthesis:chrome`
 - **`sendSurface(runtime, surface, options)`** — 刷新 surface：通过 `SynthesisClient.workbench.readSurface()` 获取 surface 输入数据，merge 到 snapshotInput，标记 surface loaded，发送 `synthesis:surface` 消息。失败时发送 `synthesis:surface-error`

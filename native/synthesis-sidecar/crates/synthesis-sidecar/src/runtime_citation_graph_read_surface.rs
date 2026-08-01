@@ -1,6 +1,7 @@
 use crate::runtime_production_ports::ProductionApplications;
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use synthesis_application::citation_graph::project_citation_graph_default;
 use synthesis_protocol::canonical_sha256;
 use synthesis_repository::{
     CacheBasisRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
@@ -60,9 +61,7 @@ struct ProjectedNode {
 struct CitationGraphProjection {
     graph_hash: String,
     main_nodes: Vec<ProjectedNode>,
-    hover_nodes: Vec<ProjectedNode>,
     main_edges: Vec<CitationEdgeRecord>,
-    hover_edges: Vec<CitationEdgeRecord>,
     complex_metrics: Vec<CitationComplexMetricsRecord>,
     layouts: Vec<CitationLayoutRecord>,
 }
@@ -130,84 +129,22 @@ fn read_snapshot(apps: &ProductionApplications) -> Result<CitationGraphReadSnaps
 }
 
 fn project(snapshot: CitationGraphReadSnapshot) -> CitationGraphProjection {
-    let mut nodes = snapshot
-        .nodes
-        .into_iter()
-        .filter(|node| node.node_status == "active")
-        .collect::<Vec<_>>();
-    nodes.sort_by(|left, right| left.literature_item_id.cmp(&right.literature_item_id));
-    let node_by_id = nodes
-        .iter()
-        .map(|node| (node.literature_item_id.clone(), node.clone()))
-        .collect::<HashMap<_, _>>();
-    let library_ids = nodes
-        .iter()
-        .filter(|node| node.has_zotero_binding)
-        .map(|node| node.literature_item_id.clone())
-        .collect::<BTreeSet<_>>();
-    let mut candidate_edges = snapshot
-        .edges
-        .into_iter()
-        .filter(|edge| {
-            library_ids.contains(&edge.source_literature_item_id)
-                && matches!(edge.edge_status.as_str(), "accepted" | "unbound")
-                && node_by_id.contains_key(&edge.target_literature_item_id)
-        })
-        .collect::<Vec<_>>();
-    candidate_edges.sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
-
-    let mut external_sources = HashMap::<String, BTreeSet<String>>::new();
-    for edge in &candidate_edges {
-        if node_by_id
-            .get(&edge.target_literature_item_id)
-            .is_some_and(|node| !node.has_zotero_binding)
-        {
-            external_sources
-                .entry(edge.target_literature_item_id.clone())
-                .or_default()
-                .insert(edge.source_literature_item_id.clone());
-        }
-    }
-    let mut main_ids = library_ids.clone();
-    let mut hover_ids = BTreeSet::new();
-    let mut main_edges = Vec::new();
-    let mut hover_edges = Vec::new();
-    for edge in candidate_edges {
-        let Some(target) = node_by_id.get(&edge.target_literature_item_id) else {
-            continue;
-        };
-        if target.has_zotero_binding {
-            if edge.edge_status == "accepted" {
-                main_ids.insert(target.literature_item_id.clone());
-                main_edges.push(edge);
-            }
-            continue;
-        }
-        let degree = external_sources
-            .get(&target.literature_item_id)
-            .map_or(0, BTreeSet::len);
-        if degree > 1 {
-            main_ids.insert(target.literature_item_id.clone());
-            main_edges.push(edge);
-        } else if degree == 1 {
-            hover_ids.insert(target.literature_item_id.clone());
-            hover_edges.push(edge);
-        }
-    }
+    let default = project_citation_graph_default(snapshot.nodes, snapshot.edges);
+    let external_degrees = default.external_degrees;
     let projected_node = |record: CitationNodeRecord, visibility, display_tier| ProjectedNode {
         external_degree: (!record.has_zotero_binding).then(|| {
-            external_sources
+            external_degrees
                 .get(&record.literature_item_id)
-                .map_or(0, BTreeSet::len)
+                .copied()
+                .unwrap_or_default()
         }),
         record,
         visibility,
         display_tier,
     };
-    let main_nodes = nodes
-        .iter()
-        .filter(|node| main_ids.contains(&node.literature_item_id))
-        .cloned()
+    let main_nodes = default
+        .nodes
+        .into_iter()
         .map(|node| {
             let tier = if node.has_zotero_binding {
                 "library"
@@ -217,20 +154,13 @@ fn project(snapshot: CitationGraphReadSnapshot) -> CitationGraphProjection {
             projected_node(node, "default", tier)
         })
         .collect();
-    let hover_nodes = nodes
-        .into_iter()
-        .filter(|node| hover_ids.contains(&node.literature_item_id))
-        .map(|node| projected_node(node, "hover_only", "single_external"))
-        .collect();
     CitationGraphProjection {
         graph_hash: snapshot
             .state
             .map(|state| state.graph_hash)
             .unwrap_or_default(),
         main_nodes,
-        hover_nodes,
-        main_edges,
-        hover_edges,
+        main_edges: default.edges,
         complex_metrics: snapshot.complex_metrics,
         layouts: snapshot.layouts,
     }
@@ -755,9 +685,29 @@ pub(crate) fn workbench_graph_surface(
         .rows
         .nodes
         .iter()
-        .chain(window.rows.hover_nodes.iter())
-        .chain(window.rows.endpoint_nodes.iter())
+        .chain(
+            window
+                .rows
+                .endpoint_nodes
+                .iter()
+                .filter(|node| node.visibility == "default"),
+        )
         .filter(|node| seen_node_ids.insert(node.record.literature_item_id.clone()))
+        .map(window_ui_node)
+        .collect::<Vec<_>>();
+    let mut seen_hover_node_ids = HashSet::new();
+    let hover_nodes = window
+        .rows
+        .hover_nodes
+        .iter()
+        .chain(
+            window
+                .rows
+                .endpoint_nodes
+                .iter()
+                .filter(|node| node.visibility == "hover_only"),
+        )
+        .filter(|node| seen_hover_node_ids.insert(node.record.literature_item_id.clone()))
         .map(window_ui_node)
         .collect::<Vec<_>>();
     let node_ids = nodes
@@ -782,30 +732,16 @@ pub(crate) fn workbench_graph_surface(
             node["y"] = layout["nodes"][&node_id]["y"].clone();
         }
     }
-    let hover_ids = window
-        .rows
-        .hover_nodes
-        .iter()
-        .chain(
-            window
-                .rows
-                .endpoint_nodes
-                .iter()
-                .filter(|node| node.visibility == "hover_only"),
-        )
-        .map(|node| node.record.literature_item_id.as_str())
-        .collect::<HashSet<_>>();
-    let hover_edge_ids = window
-        .rows
-        .hover_edges
-        .iter()
-        .map(|edge| edge.record.edge_id.as_str())
-        .collect::<HashSet<_>>();
     let edges = window
         .rows
         .edges
         .iter()
-        .chain(window.rows.hover_edges.iter())
+        .map(window_ui_edge)
+        .collect::<Vec<_>>();
+    let hover_edges = window
+        .rows
+        .hover_edges
+        .iter()
         .map(window_ui_edge)
         .collect::<Vec<_>>();
     let cache_status = window
@@ -832,8 +768,8 @@ pub(crate) fn workbench_graph_surface(
             "layout_source":"sqlite",
         },
         "topicScopes":window.topic_scopes,
-        "hoverOnlyNodes":nodes.iter().filter(|node| node["id"].as_str().is_some_and(|id| hover_ids.contains(id))).cloned().collect::<Vec<_>>(),
-        "hoverOnlyEdges":edges.iter().filter(|edge| edge["id"].as_str().is_some_and(|id| hover_edge_ids.contains(id))).cloned().collect::<Vec<_>>(),
+        "hoverOnlyNodes":hover_nodes,
+        "hoverOnlyEdges":hover_edges,
         "nodes":nodes,
         "edges":edges,
     });
@@ -952,28 +888,6 @@ fn bounded_overview(
         return Err("response_body_too_large".into());
     }
     Ok(result)
-}
-
-fn graph_rows(projection: &CitationGraphProjection) -> (Vec<Value>, Vec<Value>) {
-    (
-        projection
-            .main_nodes
-            .iter()
-            .chain(projection.hover_nodes.iter())
-            .map(public_node)
-            .collect(),
-        projection
-            .main_edges
-            .iter()
-            .map(|edge| public_edge(edge, "default"))
-            .chain(
-                projection
-                    .hover_edges
-                    .iter()
-                    .map(|edge| public_edge(edge, "hover_only")),
-            )
-            .collect(),
-    )
 }
 
 fn bounded_slice(
@@ -1095,7 +1009,16 @@ fn layout_result(projection: &CitationGraphProjection, request: &Map<String, Val
     let algorithm = string_field(request, &["preset", "algorithm"])
         .filter(|value| matches!(*value, "force" | "radial" | "components"))
         .unwrap_or("force");
-    let (nodes, edges) = graph_rows(projection);
+    let nodes = projection
+        .main_nodes
+        .iter()
+        .map(public_node)
+        .collect::<Vec<_>>();
+    let edges = projection
+        .main_edges
+        .iter()
+        .map(|edge| public_edge(edge, "default"))
+        .collect::<Vec<_>>();
     let node_ids = nodes
         .iter()
         .filter_map(|node| node["node_id"].as_str().map(str::to_owned))
@@ -1213,13 +1136,16 @@ mod tests {
     }
 
     #[test]
-    fn semantic_projection_keeps_shared_external_and_marks_single_external_hover_only() {
+    fn compute_projection_uses_default_layout_membership() {
         let projection = project(snapshot());
         assert_eq!(projection.main_nodes.len(), 3);
-        assert_eq!(projection.hover_nodes.len(), 1);
         assert_eq!(projection.main_edges.len(), 2);
-        assert_eq!(projection.hover_edges.len(), 1);
-        assert_eq!(projection.hover_nodes[0].display_tier, "single_external");
+        assert!(
+            projection
+                .main_nodes
+                .iter()
+                .all(|node| node.visibility == "default")
+        );
     }
 
     #[test]
@@ -1228,7 +1154,6 @@ mod tests {
         let ids = projection
             .main_nodes
             .iter()
-            .chain(projection.hover_nodes.iter())
             .map(|node| node.record.literature_item_id.clone())
             .collect::<Vec<_>>();
         let raw = CitationLayoutRecord {

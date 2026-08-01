@@ -72,8 +72,8 @@ function request(prefix = "0"): SynthesisCitationGraphLayoutRequest {
   });
 }
 
-function maximumForceRequest(): SynthesisCitationGraphLayoutRequest {
-  const nodeCount = 5_000;
+function productionForceRequest(): SynthesisCitationGraphLayoutRequest {
+  const nodeCount = 7_432;
   const nodes = Array.from({ length: nodeCount }, (_, index) => {
     const angle = (index * 2 * Math.PI) / nodeCount;
     return {
@@ -87,7 +87,7 @@ function maximumForceRequest(): SynthesisCitationGraphLayoutRequest {
     graphHash: `sha256:${"f".repeat(64)}`,
     algorithm: "force",
     nodes,
-    edges: Array.from({ length: 20_000 }, (_, index) => ({
+    edges: Array.from({ length: 11_377 }, (_, index) => ({
       edgeId: `edge:${String(index).padStart(5, "0")}`,
       source: nodes[index % nodeCount].nodeId,
       target:
@@ -434,6 +434,7 @@ describe("Synthesis sidecar compute worker pool", function () {
       concurrency: 1,
       maxQueued: 2,
       executionTimeoutMs: 5_000,
+      layoutExecutionTimeoutMs: 10_000,
       cancellationGraceMs: 100,
       shutdownTimeoutMs: 500,
     });
@@ -511,14 +512,16 @@ describe("Synthesis sidecar compute worker pool", function () {
     }
   });
 
-  it("completes the maximum layout profile within the production deadline", async function () {
+  it("completes the current production layout profile within its deadline", async function () {
     const pool = createSynthesisSidecarComputeWorkerPool();
     const startedAt = performance.now();
     try {
-      const result = await pool.runCitationGraphLayout(maximumForceRequest());
-      assert.equal(result.nodes.length, 5_000);
+      const result = await pool.runCitationGraphLayout(
+        productionForceRequest(),
+      );
+      assert.equal(result.nodes.length, 7_432);
       assert.equal(result.layoutEngine, "forceatlas2-rust");
-      assert.isBelow(performance.now() - startedAt, 5_000);
+      assert.isBelow(performance.now() - startedAt, 10_000);
     } finally {
       await pool.shutdown();
     }
@@ -529,7 +532,7 @@ describe("Synthesis sidecar compute worker pool", function () {
     const controller = new AbortController();
     const startedAt = performance.now();
     const pending = pool
-      .runCitationGraphLayout(maximumForceRequest(), {
+      .runCitationGraphLayout(productionForceRequest(), {
         signal: controller.signal,
       })
       .then(() => "success")

@@ -215,8 +215,8 @@ describe("Synthesis Citation Graph production sidecar route", function () {
         call.signal === controller.signal,
       ]),
       [
-        ["http://127.0.0.1:43121", "service-one", 5_000, true],
-        ["http://127.0.0.1:43122", "service-two", 5_000, true],
+        ["http://127.0.0.1:43121", "service-one", 10_000, true],
+        ["http://127.0.0.1:43122", "service-two", 10_000, true],
       ],
     );
   });

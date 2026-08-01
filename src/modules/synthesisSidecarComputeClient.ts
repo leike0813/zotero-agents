@@ -29,6 +29,8 @@ export type SynthesisSidecarComputeConnection = SynthesisSidecarRpcConnection;
 type FetchLike = typeof fetch;
 
 export const SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS = 5_000;
+export const SYNTHESIS_SIDECAR_LAYOUT_DEADLINE_MS = 10_000;
+export const SYNTHESIS_SIDECAR_METRICS_DEADLINE_MS = 5_000;
 
 export class SynthesisSidecarComputeClientError extends Error {
   readonly code: SynthesisSidecarErrorCode;

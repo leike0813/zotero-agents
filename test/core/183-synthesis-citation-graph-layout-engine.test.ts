@@ -97,8 +97,8 @@ describe("Synthesis Citation Graph layout engine", function () {
   });
 
   it("rejects non-JSON, invalid, duplicate, dangling, and oversized requests", function () {
-    assert.equal(SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX, 5000);
-    assert.equal(SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX, 20000);
+    assert.equal(SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX, 20_000);
+    assert.equal(SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX, 80_000);
     const request = sampleRequest();
     const invalid: unknown[] = [
       { ...request, ignored: () => undefined },

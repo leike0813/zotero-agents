@@ -128,7 +128,7 @@ At most one Citation Graph mutation SHALL be active globally. A competing mutati
 
 ### Requirement: Compute remains worker-owned and bounded
 
-Build, layout, and metrics kernels SHALL execute only through the existing global single-worker, two-item-queue compute service with its five-second deadline and fuse. Full rebuild SHALL enforce the existing 8 MiB request, 250,000 request-node, and 50,000 result-node admission limits and SHALL NOT automatically switch to packed or streaming transfer.
+Build, layout, and metrics kernels SHALL execute only through the existing global single-worker, two-item-queue compute service and shared fuse. Layout SHALL use its ten-second direct deadline; build and metrics SHALL retain five seconds. Full rebuild SHALL enforce the existing 8 MiB request, 250,000 request-node, and 50,000 result-node application admission limits and SHALL NOT automatically switch to packed or streaming transfer.
 
 #### Scenario: Worker and admission failures are stable
 - **WHEN** the worker is busy, times out, crashes, returns an invalid result, or the request exceeds monolithic admission

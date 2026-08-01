@@ -1135,7 +1135,7 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(
       sidecarCitationGraphLayoutAdapter,
-      "SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS",
+      "SYNTHESIS_SIDECAR_LAYOUT_DEADLINE_MS",
     );
     assert.notMatch(
       sidecarCitationGraphLayoutAdapter,
@@ -1156,7 +1156,7 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(
       sidecarCitationGraphMetricsAdapter,
-      "SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS",
+      "SYNTHESIS_SIDECAR_METRICS_DEADLINE_MS",
     );
     assert.notMatch(
       sidecarCitationGraphMetricsAdapter,

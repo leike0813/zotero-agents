@@ -24,6 +24,10 @@ export type SynthesisSidecarDiagnosticEventInput = {
   correlationId?: string;
   serviceInstanceId?: string;
   code?: string;
+  mutationStatus?: string;
+  workerCode?: string;
+  algorithm?: string;
+  graphHash?: string;
   durationMs?: number;
   requestBytes?: number;
   responseBytes?: number;
@@ -39,6 +43,10 @@ export type SynthesisSidecarDiagnosticEventInput = {
   actualBytes?: number;
   actualJsonNodes?: number;
   limitJsonNodes?: number;
+  nodeCount?: number;
+  edgeCount?: number;
+  nodeLimit?: number;
+  edgeLimit?: number;
 };
 
 export type SynthesisSidecarDiagnosticEvent =
@@ -124,6 +132,10 @@ function normalizeDiagnosticEvent(
     "correlationId",
     "serviceInstanceId",
     "code",
+    "mutationStatus",
+    "workerCode",
+    "algorithm",
+    "graphHash",
   ] as const;
   for (const field of textFields) {
     const value = boundedText(input[field]);
@@ -145,6 +157,10 @@ function normalizeDiagnosticEvent(
     "actualBytes",
     "actualJsonNodes",
     "limitJsonNodes",
+    "nodeCount",
+    "edgeCount",
+    "nodeLimit",
+    "edgeLimit",
   ] as const;
   for (const field of numberFields) {
     const value = boundedInteger(input[field]);

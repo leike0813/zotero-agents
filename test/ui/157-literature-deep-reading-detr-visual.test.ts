@@ -616,12 +616,15 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
   let browser: Browser;
   let tempRoot = "";
   let page: Page;
+  let debugPage: Page;
   const pageErrors: string[] = [];
 
   function lifecycleSnapshot(args?: {
     tab?: "overview" | "graph";
     selectedNodeId?: string;
     expanded?: boolean;
+    layoutFailure?: boolean;
+    withoutCoordinates?: boolean;
   }) {
     let uiState = createDefaultSynthesisUiState();
     uiState = applySynthesisUiAction(uiState, {
@@ -641,16 +644,16 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         id: "zotero:item:A",
         label: "Alpha",
         kind: "library_paper" as const,
-        x: -1,
-        y: 0,
+        x: args?.withoutCoordinates ? undefined : -1,
+        y: args?.withoutCoordinates ? undefined : 0,
       },
       {
         id: "ref:X",
         label: "Shared external",
         kind: "external_reference" as const,
         display_tier: "shared_external" as const,
-        x: 1,
-        y: 0,
+        x: args?.withoutCoordinates ? undefined : 1,
+        y: args?.withoutCoordinates ? undefined : 0,
       },
       ...(args?.expanded
         ? [
@@ -658,8 +661,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
               id: "zotero:item:B",
               label: "Beta",
               kind: "library_paper" as const,
-              x: 0,
-              y: 1,
+              x: args?.withoutCoordinates ? undefined : 0,
+              y: args?.withoutCoordinates ? undefined : 1,
             },
           ]
         : []),
@@ -689,7 +692,8 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         libraryId: 1,
         graph: {
           graph_hash: "sha256:stable-window",
-          layoutStatus: "ready",
+          layoutStatus:
+            args?.layoutFailure && args.withoutCoordinates ? "failed" : "ready",
           nodes,
           edges,
           page: {
@@ -713,6 +717,18 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
             library_node_count: args?.expanded ? 2 : 1,
             shared_external_count: 1,
             hover_only_external_count: 0,
+            ...(args?.layoutFailure
+              ? {
+                  layout_failure: {
+                    graph_hash: "sha256:stable-window",
+                    layout_algorithm: "force",
+                    code: "invalid_request",
+                    mutation_status: "invalid_request",
+                    message: "The optional year was rejected.",
+                    occurred_at: "2026-08-01T00:00:00.000Z",
+                  },
+                }
+              : {}),
           },
         },
       },
@@ -720,11 +736,31 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     );
   }
 
-  async function sendSnapshot(snapshot: unknown) {
-    await page.evaluate((payload) => {
+  async function sendSnapshot(snapshot: unknown, target = page) {
+    await target.evaluate((payload) => {
       window.postMessage({ type: "synthesis:snapshot", payload }, "*");
     }, snapshot);
-    await page.waitForTimeout(100);
+    await target.waitForTimeout(100);
+  }
+
+  async function sendSurface(
+    snapshot: unknown,
+    requestId: number,
+    target = page,
+  ) {
+    await target.evaluate(
+      ({ payload, id }) => {
+        window.postMessage(
+          {
+            type: "synthesis:surface",
+            payload: { surface: "graph", requestId: id, snapshot: payload },
+          },
+          "*",
+        );
+      },
+      { payload: snapshot, id: requestId },
+    );
+    await target.waitForTimeout(100);
   }
 
   async function sendGraphPage(snapshot: unknown) {
@@ -805,7 +841,9 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       path.join(os.tmpdir(), "zotero-agents-citation-graph-lifecycle-"),
     );
     const bundlePath = path.join(tempRoot, "app.js");
+    const debugBundlePath = path.join(tempRoot, "app-debug.js");
     const htmlPath = path.join(tempRoot, "index.html");
+    const debugHtmlPath = path.join(tempRoot, "index-debug.html");
     const esbuildBin = path.resolve("node_modules", ".bin", "esbuild");
     await execFileAsync(esbuildBin, [
       path.resolve("src", "synthesisWorkbenchApp.ts"),
@@ -815,23 +853,45 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       "--define:__debug_mode__=false",
       `--outfile=${bundlePath}`,
     ]);
+    await execFileAsync(esbuildBin, [
+      path.resolve("src", "synthesisWorkbenchApp.ts"),
+      "--bundle",
+      "--format=iife",
+      "--target=es2020",
+      "--define:__debug_mode__=true",
+      `--outfile=${debugBundlePath}`,
+    ]);
     const stylesheetUrl = pathToFileURL(
       path.resolve("addon", "content", "synthesis", "styles.css"),
     ).toString();
     const bundleUrl = pathToFileURL(bundlePath).toString();
+    const debugBundleUrl = pathToFileURL(debugBundlePath).toString();
     await fs.writeFile(
       htmlPath,
       `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"><style>html,body{width:100%;height:100%;margin:0}</style></head><body><div id="app" class="synthesis-root"></div><script src="${bundleUrl}"></script></body></html>`,
+      "utf8",
+    );
+    await fs.writeFile(
+      debugHtmlPath,
+      `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"></head><body><div id="app" class="synthesis-root"></div><script src="${debugBundleUrl}"></script></body></html>`,
       "utf8",
     );
     browser = await chromium.launch();
     page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(pathToFileURL(htmlPath).toString(), { waitUntil: "load" });
+    debugPage = await browser.newPage({
+      viewport: { width: 1200, height: 800 },
+    });
+    debugPage.on("pageerror", (error) => pageErrors.push(error.message));
+    await debugPage.goto(pathToFileURL(debugHtmlPath).toString(), {
+      waitUntil: "load",
+    });
   });
 
   after(async function () {
     await page?.close();
+    await debugPage?.close();
     await browser?.close();
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
@@ -839,9 +899,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
   });
 
   it("preserves canvas and WebGL context identity across routine updates", async function () {
-    await sendSnapshot(
-      lifecycleSnapshot({ selectedNodeId: "zotero:item:A" }),
-    );
+    await sendSnapshot(lifecycleSnapshot({ selectedNodeId: "zotero:item:A" }));
     assert.deepEqual(pageErrors, [], "initial graph render errors");
     await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
     const initial = await graphIdentity();
@@ -877,6 +935,51 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.isTrue(afterUpdates.sameCanvases);
     assert.isTrue(afterUpdates.sameContexts);
     assert.isFalse(afterUpdates.contextLost);
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("keeps layout failures visible with redraw and debug details", async function () {
+    await sendSurface(lifecycleSnapshot({ layoutFailure: true }), 100);
+    const warning = page.locator(".graph-layout-failure");
+    await warning.waitFor({ state: "visible" });
+    assert.include(await warning.textContent(), "optional year");
+    assert.isTrue(await warning.locator("button").isVisible());
+    assert.equal(await warning.locator("details").count(), 0);
+    assert.isAtLeast(await page.locator(".sigma-stage canvas").count(), 1);
+
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "synthesis:surface-error",
+          payload: {
+            surface: "graph",
+            requestId: 101,
+            code: "service_unavailable",
+            message: "Refresh failed.",
+          },
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(100);
+    assert.include(await warning.textContent(), "optional year");
+    assert.isAtLeast(await page.locator(".sigma-stage canvas").count(), 1);
+
+    await sendSnapshot(
+      lifecycleSnapshot({ layoutFailure: true, withoutCoordinates: true }),
+    );
+    const emptyFailure = page.locator(".graph-empty .empty-state-warning");
+    await emptyFailure.waitFor({ state: "visible" });
+    assert.include(await emptyFailure.textContent(), "optional year");
+    assert.isTrue(await emptyFailure.locator("button").isVisible());
+
+    await sendSnapshot(lifecycleSnapshot({ layoutFailure: true }), debugPage);
+    const debugDetails = debugPage.locator(".graph-layout-failure-details");
+    await debugDetails.waitFor({ state: "attached" });
+    const debugText = await debugDetails.textContent();
+    assert.include(debugText, "invalid_request");
+    assert.match(String(debugText), /force/i);
+    assert.include(debugText, "sha256:stable-window");
     assert.deepEqual(pageErrors, []);
   });
 });

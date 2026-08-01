@@ -621,6 +621,7 @@ export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   concurrency: 1,
   maxQueued: 2,
   executionTimeoutMs: 5_000,
+  layoutExecutionTimeoutMs: 10_000,
   cancellationGraceMs: 100,
   shutdownTimeoutMs: 500,
 });
@@ -800,6 +801,7 @@ export type SynthesisSidecarComputeWorkerPool = {
 
 type PoolOptions = {
   executionTimeoutMs?: number;
+  layoutExecutionTimeoutMs?: number;
   cancellationGraceMs?: number;
   shutdownTimeoutMs?: number;
   transferExecutionTimeoutMs?: number;
@@ -845,6 +847,10 @@ export function createSynthesisSidecarComputeWorkerPool(
   const executionTimeoutMs =
     options.executionTimeoutMs ??
     SYNTHESIS_SIDECAR_COMPUTE_LIMITS.executionTimeoutMs;
+  const layoutExecutionTimeoutMs =
+    options.layoutExecutionTimeoutMs ??
+    options.executionTimeoutMs ??
+    SYNTHESIS_SIDECAR_COMPUTE_LIMITS.layoutExecutionTimeoutMs;
   const cancellationGraceMs =
     options.cancellationGraceMs ??
     SYNTHESIS_SIDECAR_COMPUTE_LIMITS.cancellationGraceMs;
@@ -1834,7 +1840,10 @@ export function createSynthesisSidecarComputeWorkerPool(
         resolve: (result) => resolve(result as Result),
         reject,
         signal: runOptions.signal,
-        timeoutMs: executionTimeoutMs,
+        timeoutMs:
+          operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION
+            ? layoutExecutionTimeoutMs
+            : executionTimeoutMs,
         settled: false,
         terminating: false,
       };

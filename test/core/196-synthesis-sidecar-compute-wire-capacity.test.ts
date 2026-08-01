@@ -251,8 +251,8 @@ describe("Synthesis sidecar compute wire capacity", function () {
       computeRequestBodyBytes: 8 * 1024 * 1024,
       computeResponseBodyBytes: 8 * 1024 * 1024,
       jsonNodes: 50_000,
-      computeRequestJsonNodes: 250_000,
-      computeResponseJsonNodes: 50_000,
+      computeRequestJsonNodes: 1_000_000,
+      computeResponseJsonNodes: 200_000,
       jsonDepth: 32,
       stringLength: 64 * 1024,
     });

@@ -13400,6 +13400,101 @@ function graphDiagnosticSummary(
     .join("; ");
 }
 
+type GraphLayoutFailure = {
+  graphHash: string;
+  layoutAlgorithm: string;
+  code: string;
+  mutationStatus?: string;
+  message: string;
+  occurredAt: string;
+};
+
+function graphLayoutFailure(
+  snapshot: Snapshot,
+): GraphLayoutFailure | undefined {
+  const failure = snapshot.graph.diagnostics.layout_failure;
+  if (!isRecord(failure)) {
+    return undefined;
+  }
+  const graphHash = textValue(failure.graph_hash);
+  const layoutAlgorithm = textValue(failure.layout_algorithm);
+  if (
+    !graphHash ||
+    graphHash !== snapshot.graph.graph_hash ||
+    !layoutAlgorithm ||
+    layoutAlgorithm !== snapshot.graph.filters.layoutAlgorithm
+  ) {
+    return undefined;
+  }
+  return {
+    graphHash,
+    layoutAlgorithm,
+    code: textValue(failure.code, "internal"),
+    mutationStatus: textValue(failure.mutation_status) || undefined,
+    message: textValue(
+      failure.message,
+      t("synthesis-graph-layout-failed-body"),
+    ),
+    occurredAt: textValue(failure.occurred_at),
+  };
+}
+
+function makeCitationGraphLayoutFailureDebugDetails(
+  failure: GraphLayoutFailure,
+) {
+  if (!__debug_mode__) {
+    return undefined;
+  }
+  const details = document.createElement("details");
+  details.className = "graph-layout-failure-details";
+  details.appendChild(el("summary", "", t("synthesis-diagnostics")));
+  details.appendChild(
+    renderDetailList([
+      ["code", failure.code],
+      ["mutation status", failure.mutationStatus],
+      ["algorithm", failure.layoutAlgorithm],
+      ["graph hash", failure.graphHash],
+      ["occurred at", failure.occurredAt],
+    ]),
+  );
+  return details;
+}
+
+function graphLayoutFailureAction(
+  snapshot: Snapshot,
+  failure: GraphLayoutFailure,
+) {
+  const action = el("div", "graph-layout-failure-actions");
+  if (!state.standaloneExport) {
+    action.appendChild(makeGraphLayoutRecomputeButton(snapshot));
+  }
+  const details = makeCitationGraphLayoutFailureDebugDetails(failure);
+  if (details) {
+    action.appendChild(details);
+  }
+  return action.childElementCount ? action : undefined;
+}
+
+function makeCitationGraphLayoutFailureBanner(
+  snapshot: Snapshot,
+  failure: GraphLayoutFailure,
+) {
+  const banner = el("div", "graph-layout-banner graph-layout-failure");
+  banner.appendChild(el("strong", "", t("synthesis-layout-failed")));
+  banner.appendChild(
+    el(
+      "span",
+      "muted",
+      `${failure.message} ${t("synthesis-graph-layout-failed-body")}`,
+    ),
+  );
+  const action = graphLayoutFailureAction(snapshot, failure);
+  if (action) {
+    banner.appendChild(action);
+  }
+  return banner;
+}
+
 function renderCitationGraphLegend() {
   const legend = el(
     "div",
@@ -13602,6 +13697,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   const hasVisibleCoordinates = snapshot.graph.visibleNodes.some(
     (node) => typeof node.x === "number" && typeof node.y === "number",
   );
+  const layoutFailure = graphLayoutFailure(snapshot);
   if (!snapshot.graph.graph_hash || !hasGraphData) {
     const empty = el("div", "graph-empty");
     empty.appendChild(
@@ -13675,15 +13771,21 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     );
     stage.appendChild(banner);
   }
-  if (snapshot.graph.layoutStatus !== "ready") {
+  if (layoutFailure && hasVisibleCoordinates) {
+    stage.appendChild(
+      makeCitationGraphLayoutFailureBanner(snapshot, layoutFailure),
+    );
+  } else if (snapshot.graph.layoutStatus !== "ready" && !layoutFailure) {
     const banner = el("div", "graph-layout-banner");
     banner.appendChild(
       el(
         "strong",
         "",
-        snapshot.graph.layoutStatus === "refreshing"
-          ? t("synthesis-graph-drawing")
-          : t("synthesis-graph-refreshing-layout"),
+        snapshot.graph.layoutStatus === "failed"
+          ? t("synthesis-layout-failed")
+          : snapshot.graph.layoutStatus === "refreshing"
+            ? t("synthesis-graph-drawing")
+            : t("synthesis-graph-refreshing-layout"),
       ),
     );
     banner.appendChild(
@@ -13695,15 +13797,33 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
           : t("synthesis-graph-layout-refreshing-body"),
       ),
     );
+    if (
+      snapshot.graph.layoutStatus === "failed" &&
+      !state.standaloneExport &&
+      hasVisibleCoordinates
+    ) {
+      banner.appendChild(makeGraphLayoutRecomputeButton(snapshot));
+    }
     stage.appendChild(banner);
   }
   if (!hasVisibleCoordinates) {
+    const layoutFailed =
+      Boolean(layoutFailure) || snapshot.graph.layoutStatus === "failed";
     const pending = el("div", "graph-empty");
     pending.appendChild(
       renderEmptyState({
-        title: t("synthesis-graph-drawing"),
-        message: t("synthesis-graph-layout-computing"),
-        tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
+        title: layoutFailed
+          ? t("synthesis-layout-failed")
+          : t("synthesis-graph-drawing"),
+        message: layoutFailed
+          ? layoutFailure?.message || t("synthesis-graph-layout-failed-body")
+          : t("synthesis-graph-layout-computing"),
+        action: layoutFailure
+          ? graphLayoutFailureAction(snapshot, layoutFailure)
+          : layoutFailed && !state.standaloneExport
+            ? makeGraphLayoutRecomputeButton(snapshot)
+            : undefined,
+        tone: layoutFailed ? "warning" : "info",
       }),
     );
     stage.appendChild(pending);
@@ -13935,25 +14055,23 @@ function renderStandaloneGraphControls(snapshot: Snapshot) {
       "external_reference",
       "unresolved_reference",
     ] as GraphNodeKind[]
-  ).forEach(
-    (kind) => {
-      const label = el("label", "checkbox-label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
-      input.addEventListener("change", () => {
-        const next = new Set(snapshot.graph.filters.nodeKinds);
-        if (input.checked) next.add(kind);
-        else next.delete(kind);
-        sendAction("setGraphView", { nodeKinds: Array.from(next) });
-      });
-      label.appendChild(input);
-      label.appendChild(
-        document.createTextNode(enumLabel("graph-node-kind", kind)),
-      );
-      kindControls.push(label);
-    },
-  );
+  ).forEach((kind) => {
+    const label = el("label", "checkbox-label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
+    input.addEventListener("change", () => {
+      const next = new Set(snapshot.graph.filters.nodeKinds);
+      if (input.checked) next.add(kind);
+      else next.delete(kind);
+      sendAction("setGraphView", { nodeKinds: Array.from(next) });
+    });
+    label.appendChild(input);
+    label.appendChild(
+      document.createTextNode(enumLabel("graph-node-kind", kind)),
+    );
+    kindControls.push(label);
+  });
   const lowSignal = el("label", "checkbox-label");
   const lowSignalInput = document.createElement("input");
   lowSignalInput.type = "checkbox";
@@ -14064,21 +14182,7 @@ function renderGraphControls(snapshot: Snapshot) {
     false,
     graphCacheStatus === "refreshing",
   );
-  const redrawButton = makeButton(
-    t("synthesis-action-redraw-layout"),
-    "hostCommand",
-    {
-      command: "manualRecomputeLayout",
-      args: {
-        reason: "user",
-        algorithm: snapshot.graph.filters.layoutAlgorithm,
-      },
-    },
-    false,
-    graphCacheStatus !== "ready" ||
-      !snapshot.graph.graph_hash ||
-      snapshot.graph.layoutStatus === "refreshing",
-  );
+  const redrawButton = makeGraphLayoutRecomputeButton(snapshot);
   wrap.appendChild(
     graphControlGroup(t("synthesis-graph-control-cache"), [
       refreshButton,
@@ -14094,25 +14198,23 @@ function renderGraphControls(snapshot: Snapshot) {
       "external_reference",
       "unresolved_reference",
     ] as GraphNodeKind[]
-  ).forEach(
-    (kind) => {
-      const label = el("label", "checkbox-label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
-      input.addEventListener("change", () => {
-        const next = new Set(snapshot.graph.filters.nodeKinds);
-        if (input.checked) next.add(kind);
-        else next.delete(kind);
-        sendAction("setGraphView", { nodeKinds: Array.from(next) });
-      });
-      label.appendChild(input);
-      label.appendChild(
-        document.createTextNode(enumLabel("graph-node-kind", kind)),
-      );
-      kindControls.push(label);
-    },
-  );
+  ).forEach((kind) => {
+    const label = el("label", "checkbox-label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
+    input.addEventListener("change", () => {
+      const next = new Set(snapshot.graph.filters.nodeKinds);
+      if (input.checked) next.add(kind);
+      else next.delete(kind);
+      sendAction("setGraphView", { nodeKinds: Array.from(next) });
+    });
+    label.appendChild(input);
+    label.appendChild(
+      document.createTextNode(enumLabel("graph-node-kind", kind)),
+    );
+    kindControls.push(label);
+  });
   const lowSignal = el("label", "checkbox-label");
   const lowSignalInput = document.createElement("input");
   lowSignalInput.type = "checkbox";
@@ -14215,6 +14317,28 @@ function makeGraphIncrementalRefreshButton(snapshot: Snapshot) {
         : t("synthesis-graph-cache-no-scope");
   }
   return button;
+}
+
+function makeGraphLayoutRecomputeButton(snapshot: Snapshot) {
+  const graphCacheStatus = textValue(
+    snapshot.graph.diagnostics?.cache_status,
+    snapshot.graph.graph_hash ? "ready" : "missing",
+  );
+  return makeButton(
+    t("synthesis-action-redraw-layout"),
+    "hostCommand",
+    {
+      command: "manualRecomputeLayout",
+      args: {
+        reason: "user",
+        algorithm: snapshot.graph.filters.layoutAlgorithm,
+      },
+    },
+    false,
+    graphCacheStatus !== "ready" ||
+      !snapshot.graph.graph_hash ||
+      snapshot.graph.layoutStatus === "refreshing",
+  );
 }
 
 function isCurrentPaperGraphNode(node: GraphNode) {
@@ -14511,7 +14635,13 @@ function mergeSigmaGraphPage(snapshot: Snapshot) {
     if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
     const attributes = sigmaEdgeAttributes(edge);
     if (graph.hasEdge(edge.id)) graph.mergeEdgeAttributes(edge.id, attributes);
-    else graph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target, attributes);
+    else
+      graph.addDirectedEdgeWithKey(
+        edge.id,
+        edge.source,
+        edge.target,
+        attributes,
+      );
   }
   syncSelectedGraphHover(snapshot, graph);
 }

@@ -4356,6 +4356,10 @@
       appendDetailSummary("Stage", selected.stage);
       appendDetailSummary("Capability", selected.capability);
       appendDetailSummary("Code", selected.code);
+      appendDetailSummary("Mutation status", selected.mutationStatus);
+      appendDetailSummary("Worker code", selected.workerCode);
+      appendDetailSummary("Algorithm", selected.algorithm);
+      appendDetailSummary("Graph hash", selected.graphHash);
       appendDetailSummary(
         "Duration",
         typeof selected.durationMs === "number"
@@ -4378,6 +4382,18 @@
       appendDetailSummary("Attempt", selected.attemptId);
       appendDetailSummary("Batch", selected.batchOrdinal);
       appendDetailSummary("Sources", selected.sourceCount);
+      appendDetailSummary(
+        "Nodes",
+        typeof selected.nodeCount === "number"
+          ? `${selected.nodeCount}/${selected.nodeLimit || "-"}`
+          : undefined,
+      );
+      appendDetailSummary(
+        "Edges",
+        typeof selected.edgeCount === "number"
+          ? `${selected.edgeCount}/${selected.edgeLimit || "-"}`
+          : undefined,
+      );
       detail.appendChild(detailSummary);
 
       const jsonSection = el("section", "synthesis-sidecar-json-section");

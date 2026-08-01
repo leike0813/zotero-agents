@@ -19,7 +19,9 @@ use synthesis_protocol::{
 
 use crate::runtime_deadline::bounded_timeout;
 
+const WORKER_READY_DEADLINE: Duration = Duration::from_secs(5);
 const DIRECT_DEADLINE: Duration = Duration::from_secs(5);
+const LAYOUT_DEADLINE: Duration = Duration::from_secs(10);
 const TRANSFER_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +44,13 @@ pub(crate) enum WorkerOperation {
 }
 
 impl WorkerOperation {
+    fn direct_deadline(self) -> Duration {
+        match self {
+            Self::CitationGraphLayout => LAYOUT_DEADLINE,
+            _ => DIRECT_DEADLINE,
+        }
+    }
+
     pub(crate) fn from_protocol_name(value: &str) -> Result<Self, &'static str> {
         match value {
             CITATION_GRAPH_LAYOUT_OPERATION => Ok(Self::CitationGraphLayout),
@@ -153,7 +162,7 @@ impl WorkerChild {
             stdin,
             frames,
         };
-        let ready = worker.recv_frame(Instant::now() + DIRECT_DEADLINE, None, None)?;
+        let ready = worker.recv_frame(Instant::now() + WORKER_READY_DEADLINE, None, None)?;
         if ready["protocol"] != WORKER_PROTOCOL || ready["type"] != "ready" {
             worker.terminate();
             return Err("worker_result_invalid".to_owned());
@@ -356,7 +365,7 @@ impl NativeComputePool {
         }
         let accepted_request = request.clone();
         let task_id = self.task_id();
-        let deadline = Instant::now() + bounded_timeout(DIRECT_DEADLINE)?;
+        let deadline = Instant::now() + bounded_timeout(operation.direct_deadline())?;
         let result = self.with_worker(|worker| {
             worker.send(&json!({
                 "protocol":WORKER_PROTOCOL,
@@ -855,6 +864,22 @@ mod tests {
         let pool = NativeComputePool::new_with_executable(PathBuf::from("unused-worker"));
         assert_eq!(pool.child_id(), None);
         assert_eq!(pool.snapshot(false).expect("snapshot")["state"], "idle");
+    }
+
+    #[test]
+    fn layout_has_an_operation_specific_direct_deadline() {
+        assert_eq!(
+            WorkerOperation::CitationGraphLayout.direct_deadline(),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            WorkerOperation::CitationGraphMetrics.direct_deadline(),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            WorkerOperation::CitationGraphBuild.direct_deadline(),
+            Duration::from_secs(5)
+        );
     }
 
     #[test]

@@ -222,7 +222,7 @@ const DIAGNOSTIC_STATUSES = new Set<SynthesisSidecarDiagnosticEventStatus>([
   "failed",
 ]);
 
-function parseNativeDiagnosticEvent(
+export function parseNativeDiagnosticEvent(
   source: string,
 ): SynthesisSidecarDiagnosticEventInput | undefined {
   let value: unknown;
@@ -260,6 +260,10 @@ function parseNativeDiagnosticEvent(
     "operationId",
     "correlationId",
     "code",
+    "mutationStatus",
+    "workerCode",
+    "algorithm",
+    "graphHash",
   ] as const) {
     if (typeof record[field] === "string") {
       event[field] = record[field];
@@ -280,6 +284,10 @@ function parseNativeDiagnosticEvent(
     "limitBytes",
     "actualJsonNodes",
     "limitJsonNodes",
+    "nodeCount",
+    "edgeCount",
+    "nodeLimit",
+    "edgeLimit",
   ] as const) {
     if (typeof record[field] === "number") {
       event[field] = record[field];

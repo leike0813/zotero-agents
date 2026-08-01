@@ -2,14 +2,15 @@ use crate::runtime_file_system::sync_directory;
 use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
 };
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use synthesis_application::citation_graph::{
-    CitationBuildOutput, CitationGraphComputePort, CitationLayoutRequest, CitationMetricsOutput,
+    CITATION_GRAPH_LAYOUT_EDGE_MAX, CITATION_GRAPH_LAYOUT_NODE_MAX, CitationBuildOutput,
+    CitationGraphComputePort, CitationLayoutRequest, CitationMetricsOutput,
 };
 use synthesis_application::concept_kb::{ConceptIndexOutput, ConceptKbComputePort};
 use synthesis_application::reference_matching::{
@@ -41,6 +42,7 @@ use synthesis_repository::{
 };
 use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit, emit_debug};
 use crate::runtime_reference_canonical::{
     ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
     ReferenceHostPort,
@@ -440,6 +442,9 @@ struct NativeCitationGraphComputePort {
     compute: Arc<NativeComputePool>,
 }
 
+const CITATION_GRAPH_COMPUTE_TITLE_MAX_CHARS: usize = 500;
+const CITATION_GRAPH_COMPUTE_TEXT_MAX_UTF16: usize = 4_096;
+
 fn citation_node_kind(record: &CitationNodeRecord) -> &'static str {
     serde_json::from_str::<Value>(&record.summary_json)
         .ok()
@@ -482,8 +487,62 @@ fn citation_initial_coordinate(node_id: &str, axis: &str) -> Result<f64, String>
     Ok((f64::from(value) / f64::from(u32::MAX) - 0.5) * 100.0)
 }
 
-fn bounded_citation_title(value: &str) -> String {
-    value.chars().take(500).collect()
+fn bounded_citation_compute_text(
+    value: &str,
+    max_chars: usize,
+    max_utf16_units: usize,
+) -> Option<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+    let mut chars = 0;
+    let mut utf16_units = 0;
+    Some(
+        normalized
+            .chars()
+            .take_while(|character| {
+                if chars >= max_chars {
+                    return false;
+                }
+                let next = utf16_units + character.len_utf16();
+                if next > max_utf16_units {
+                    return false;
+                }
+                chars += 1;
+                utf16_units = next;
+                true
+            })
+            .collect(),
+    )
+}
+
+fn citation_compute_node(record: &CitationNodeRecord) -> Map<String, Value> {
+    let mut node = Map::from_iter([
+        (
+            "nodeId".into(),
+            Value::String(record.literature_item_id.clone()),
+        ),
+        (
+            "kind".into(),
+            Value::String(citation_node_kind(record).into()),
+        ),
+    ]);
+    if let Some(title) = bounded_citation_compute_text(
+        &record.title,
+        CITATION_GRAPH_COMPUTE_TITLE_MAX_CHARS,
+        CITATION_GRAPH_COMPUTE_TEXT_MAX_UTF16,
+    ) {
+        node.insert("title".into(), Value::String(title));
+    }
+    if let Some(year) = bounded_citation_compute_text(
+        &record.year,
+        usize::MAX,
+        CITATION_GRAPH_COMPUTE_TEXT_MAX_UTF16,
+    ) {
+        node.insert("year".into(), Value::String(year));
+    }
+    node
 }
 
 impl CitationGraphComputePort for NativeCitationGraphComputePort {
@@ -693,14 +752,14 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
             "graphHash":graph_hash,
             "nodes":nodes.iter().map(|node| {
                 let (library_id,item_key) = citation_paper_parts(&node.literature_item_id);
-                serde_json::json!({
-                    "nodeId":node.literature_item_id,
-                    "kind":citation_node_kind(node),
-                    "libraryId":library_id,
-                    "itemKey":item_key,
-                    "title":bounded_citation_title(&node.title),
-                    "year":node.year,
-                })
+                let mut projected = citation_compute_node(node);
+                if let Some(library_id) = library_id {
+                    projected.insert("libraryId".into(), Value::from(library_id));
+                }
+                if let Some(item_key) = item_key {
+                    projected.insert("itemKey".into(), Value::String(item_key));
+                }
+                Value::Object(projected)
             }).collect::<Vec<_>>(),
             "edges":edges.iter().map(|edge| serde_json::json!({
                 "edgeId":edge.edge_id,
@@ -779,27 +838,60 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
         edges: &[synthesis_repository::CitationEdgeRecord],
         _canceled: &Arc<AtomicBool>,
     ) -> Result<CitationLayoutRecord, String> {
+        let diagnostic = |stage: &'static str, status: &'static str| {
+            NativeDiagnosticEvent::new("operation", stage, status)
+                .capability("client.recomputeCitationGraphLayout")
+                .algorithm(request.preset.clone())
+                .graph_hash(request.expected_graph_hash.clone())
+                .node_count(nodes.len())
+                .edge_count(edges.len())
+                .node_limit(CITATION_GRAPH_LAYOUT_NODE_MAX)
+                .edge_limit(CITATION_GRAPH_LAYOUT_EDGE_MAX)
+        };
+        emit_debug(|| diagnostic("layout-worker-started", "started"));
+        let started_at = Instant::now();
         let worker_request = serde_json::json!({
             "graphHash":request.expected_graph_hash,
             "algorithm":request.preset,
-            "nodes":nodes.iter().map(|node| Ok(serde_json::json!({
-                "nodeId":node.literature_item_id,
-                "kind":citation_node_kind(node),
-                "title":bounded_citation_title(&node.title),
-                "year":node.year,
-                "initialX":citation_initial_coordinate(&node.literature_item_id,"x")?,
-                "initialY":citation_initial_coordinate(&node.literature_item_id,"y")?,
-            }))).collect::<Result<Vec<Value>,String>>()?,
+            "nodes":nodes.iter().map(|node| {
+                let mut projected = citation_compute_node(node);
+                projected.insert(
+                    "initialX".into(),
+                    Value::from(citation_initial_coordinate(&node.literature_item_id,"x")?),
+                );
+                projected.insert(
+                    "initialY".into(),
+                    Value::from(citation_initial_coordinate(&node.literature_item_id,"y")?),
+                );
+                Ok(Value::Object(projected))
+            }).collect::<Result<Vec<Value>,String>>()?,
             "edges":edges.iter().map(|edge| serde_json::json!({
                 "edgeId":edge.edge_id,
                 "source":edge.source_literature_item_id,
                 "target":edge.target_literature_item_id,
             })).collect::<Vec<_>>(),
         });
-        let result = self.compute.run_direct(
+        let result = match self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::CitationGraphLayout,
             worker_request,
-        )?;
+        ) {
+            Ok(result) => {
+                emit_debug(|| {
+                    diagnostic("layout-worker-completed", "succeeded")
+                        .duration_ms(started_at.elapsed().as_millis() as u64)
+                });
+                result
+            }
+            Err(error) => {
+                emit(
+                    diagnostic("layout-worker-failed", "failed")
+                        .code(error.clone())
+                        .worker_code(error.clone())
+                        .duration_ms(started_at.elapsed().as_millis() as u64),
+                );
+                return Err(error);
+            }
+        };
         let layout_nodes = result["nodes"]
             .as_array()
             .ok_or_else(|| "worker_result_invalid".to_owned())?
@@ -1371,6 +1463,43 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn citation_compute_nodes_omit_blank_optional_text_and_bound_nonblank_text() {
+        let projected = citation_compute_node(&CitationNodeRecord {
+            literature_item_id: "external:shared".into(),
+            title: "  Shared reference  ".into(),
+            year: " \n\t ".into(),
+            ..CitationNodeRecord::default()
+        });
+        assert_eq!(projected["title"], "Shared reference");
+        assert!(!projected.contains_key("year"));
+
+        let projected = citation_compute_node(&CitationNodeRecord {
+            literature_item_id: "external:long".into(),
+            title: format!(
+                "  {}  ",
+                "🦀".repeat(CITATION_GRAPH_COMPUTE_TITLE_MAX_CHARS + 20)
+            ),
+            year: format!(
+                "  {}  ",
+                "2".repeat(CITATION_GRAPH_COMPUTE_TEXT_MAX_UTF16 + 20)
+            ),
+            ..CitationNodeRecord::default()
+        });
+        assert_eq!(
+            projected["title"].as_str().expect("title").chars().count(),
+            CITATION_GRAPH_COMPUTE_TITLE_MAX_CHARS
+        );
+        assert_eq!(
+            projected["year"]
+                .as_str()
+                .expect("year")
+                .encode_utf16()
+                .count(),
+            CITATION_GRAPH_COMPUTE_TEXT_MAX_UTF16
+        );
+    }
 
     #[test]
     fn webdav_state_survives_store_reopen() {

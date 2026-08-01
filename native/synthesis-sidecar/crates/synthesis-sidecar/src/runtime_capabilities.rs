@@ -25,6 +25,9 @@ use crate::runtime_worker_pool::{NativeComputePool, WorkerOperation};
 
 const MAX_READ_BODY_BYTES: usize = 1024 * 1024;
 const MAX_READ_RESPONSE_BYTES: usize = 1024 * 1024;
+const MAX_JSON_NODES: usize = 50_000;
+const MAX_COMPUTE_REQUEST_JSON_NODES: usize = 1_000_000;
+const MAX_COMPUTE_RESPONSE_JSON_NODES: usize = 200_000;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -55,8 +58,8 @@ fn valid_bounded_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
 }
 
-fn json_within_bounds(value: &Value, depth: usize, nodes: &mut usize) -> bool {
-    if depth > 32 || *nodes >= 50_000 {
+fn json_within_bounds(value: &Value, depth: usize, nodes: &mut usize, max_nodes: usize) -> bool {
+    if depth > 32 || *nodes >= max_nodes {
         return false;
     }
     *nodes += 1;
@@ -64,9 +67,9 @@ fn json_within_bounds(value: &Value, depth: usize, nodes: &mut usize) -> bool {
         Value::String(value) => value.len() <= 64 * 1024,
         Value::Array(values) => values
             .iter()
-            .all(|value| json_within_bounds(value, depth + 1, nodes)),
+            .all(|value| json_within_bounds(value, depth + 1, nodes, max_nodes)),
         Value::Object(object) => object.iter().all(|(key, value)| {
-            key.len() <= 64 * 1024 && json_within_bounds(value, depth + 1, nodes)
+            key.len() <= 64 * 1024 && json_within_bounds(value, depth + 1, nodes, max_nodes)
         }),
         _ => true,
     }
@@ -217,11 +220,16 @@ pub(crate) fn handle_connection(
         Err(_) => return response(&mut stream, 400, error_response("invalid_request")),
     };
     let mut nodes = 0;
+    let max_json_nodes = if call.capability.starts_with("compute.") {
+        MAX_COMPUTE_REQUEST_JSON_NODES
+    } else {
+        MAX_JSON_NODES
+    };
     if call.protocol != "synthesis-sidecar.v1"
         || !valid_bounded_text(&call.request_id, 512)
         || !valid_bounded_text(&call.profile_id, 512)
         || !valid_bounded_text(&call.capability, 128)
-        || !json_within_bounds(&call.payload, 0, &mut nodes)
+        || !json_within_bounds(&call.payload, 0, &mut nodes, max_json_nodes)
     {
         return response(&mut stream, 400, error_response("invalid_request"));
     }
@@ -294,11 +302,20 @@ pub(crate) fn handle_connection(
                 thread::sleep(Duration::from_millis(delay.min(2_000)));
             }
             match state.compute_pool.run_direct(operation, call.payload) {
-                Ok(data) => response(
-                    &mut stream,
-                    200,
-                    call_response(&call.request_id, &state.service_instance_id, data),
-                ),
+                Ok(data) => {
+                    let value = call_response(&call.request_id, &state.service_instance_id, data);
+                    let mut response_nodes = 0;
+                    if !json_within_bounds(
+                        &value,
+                        0,
+                        &mut response_nodes,
+                        MAX_COMPUTE_RESPONSE_JSON_NODES,
+                    ) {
+                        response(&mut stream, 503, error_response("response_too_large"))
+                    } else {
+                        bounded_response(&mut stream, 200, value, MAX_READ_RESPONSE_BYTES * 8)
+                    }
+                }
                 Err(code) => response(
                     &mut stream,
                     if code == "invalid_request" { 400 } else { 503 },

@@ -49,6 +49,16 @@ artifact locators, paper references, note text, or WebDAV content.
 - **WHEN** debug mode is disabled and a sidecar operation fails
 - **THEN** one bounded failure summary remains available in runtime logs
 
+#### Scenario: Citation Graph mutation returns a non-success domain status
+- **WHEN** the HTTP request completes but the native Graph mutation result is not `promoted` or `unchanged`
+- **THEN** the native operation boundary records a failed semantic mutation event with the original request identity
+- **AND** a worker failure may add correlated algorithm, graph-hash, count, limit, and stable worker-code metadata without graph payload content
+
+#### Scenario: Workbench projects a layout failure
+- **WHEN** the selected Citation Graph layout mutation fails
+- **THEN** ordinary Graph UI retains a bounded sanitized reason and explicit redraw action for the matching graph hash and algorithm
+- **AND** debug UI additionally exposes stable code, mutation status, algorithm, and graph hash without graph payload content
+
 ### Requirement: Failed refresh preparation SHALL be retryable
 
 When reference refresh fails after creating a preparation but before promotion,

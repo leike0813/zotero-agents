@@ -36,6 +36,11 @@ boundary.
 - **THEN** Rust derives the active graph hash, view key, layout key, and worker DTO from durable graph state
 - **AND** metrics refresh does not read Host metadata
 
+#### Scenario: Layout input exceeds the default projection bounds
+- **WHEN** durable graph state contains more than 20,000 default-visible nodes or 80,000 endpoint-closed edges
+- **THEN** Rust selects library nodes before shared external nodes with stable ID ordering and excludes hover-only external nodes
+- **AND** the bounded worker DTO and public default read projection use the same selected node and edge set.
+
 ### Requirement: Citation Graph reads SHALL share one public projection
 
 The six native Citation Graph reads and the Workbench graph surface SHALL be

@@ -15,6 +15,150 @@ use synthesis_repository::{
 const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INPUT_NODES: usize = 250_000;
 const MAX_RESULT_NODES: usize = 50_000;
+pub const CITATION_GRAPH_LAYOUT_NODE_MAX: usize = 20_000;
+pub const CITATION_GRAPH_LAYOUT_EDGE_MAX: usize = 80_000;
+
+#[derive(Clone, Debug, Default)]
+pub struct CitationGraphDefaultProjection {
+    pub nodes: Vec<CitationNodeRecord>,
+    pub edges: Vec<CitationEdgeRecord>,
+    pub hover_nodes: Vec<CitationNodeRecord>,
+    pub hover_edges: Vec<CitationEdgeRecord>,
+    pub external_degrees: HashMap<String, usize>,
+}
+
+pub fn project_citation_graph_default(
+    nodes: Vec<CitationNodeRecord>,
+    edges: Vec<CitationEdgeRecord>,
+) -> CitationGraphDefaultProjection {
+    project_citation_graph_default_with_limits(
+        nodes,
+        edges,
+        CITATION_GRAPH_LAYOUT_NODE_MAX,
+        CITATION_GRAPH_LAYOUT_EDGE_MAX,
+    )
+}
+
+fn project_citation_graph_default_with_limits(
+    mut nodes: Vec<CitationNodeRecord>,
+    edges: Vec<CitationEdgeRecord>,
+    node_limit: usize,
+    edge_limit: usize,
+) -> CitationGraphDefaultProjection {
+    nodes.retain(|node| node.node_status == "active");
+    nodes.sort_by(|left, right| left.literature_item_id.cmp(&right.literature_item_id));
+    let node_by_id = nodes
+        .iter()
+        .map(|node| (node.literature_item_id.clone(), node.clone()))
+        .collect::<HashMap<_, _>>();
+    let library_ids = nodes
+        .iter()
+        .filter(|node| node.has_zotero_binding)
+        .map(|node| node.literature_item_id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut candidate_edges = edges
+        .into_iter()
+        .filter(|edge| {
+            library_ids.contains(&edge.source_literature_item_id)
+                && matches!(edge.edge_status.as_str(), "accepted" | "unbound")
+                && node_by_id.contains_key(&edge.target_literature_item_id)
+        })
+        .collect::<Vec<_>>();
+    candidate_edges.sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
+
+    let mut external_sources = HashMap::<String, BTreeSet<String>>::new();
+    for edge in &candidate_edges {
+        if node_by_id
+            .get(&edge.target_literature_item_id)
+            .is_some_and(|node| !node.has_zotero_binding)
+        {
+            external_sources
+                .entry(edge.target_literature_item_id.clone())
+                .or_default()
+                .insert(edge.source_literature_item_id.clone());
+        }
+    }
+    let external_degrees = external_sources
+        .iter()
+        .map(|(node_id, sources)| (node_id.clone(), sources.len()))
+        .collect::<HashMap<_, _>>();
+
+    let mut default_nodes = nodes
+        .iter()
+        .filter(|node| {
+            node.has_zotero_binding
+                || external_degrees
+                    .get(&node.literature_item_id)
+                    .is_some_and(|degree| *degree > 1)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    default_nodes.sort_by(|left, right| {
+        right
+            .has_zotero_binding
+            .cmp(&left.has_zotero_binding)
+            .then_with(|| left.literature_item_id.cmp(&right.literature_item_id))
+    });
+    default_nodes.truncate(node_limit);
+    let selected_ids = default_nodes
+        .iter()
+        .map(|node| node.literature_item_id.clone())
+        .collect::<HashSet<_>>();
+
+    let mut default_edges = candidate_edges
+        .iter()
+        .filter(|edge| {
+            if !selected_ids.contains(&edge.source_literature_item_id)
+                || !selected_ids.contains(&edge.target_literature_item_id)
+            {
+                return false;
+            }
+            node_by_id
+                .get(&edge.target_literature_item_id)
+                .is_some_and(|target| {
+                    if target.has_zotero_binding {
+                        edge.edge_status == "accepted"
+                    } else {
+                        external_degrees
+                            .get(&target.literature_item_id)
+                            .is_some_and(|degree| *degree > 1)
+                    }
+                })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    default_edges.truncate(edge_limit);
+
+    let hover_ids = candidate_edges
+        .iter()
+        .filter(|edge| selected_ids.contains(&edge.source_literature_item_id))
+        .filter(|edge| {
+            external_degrees
+                .get(&edge.target_literature_item_id)
+                .is_some_and(|degree| *degree == 1)
+        })
+        .map(|edge| edge.target_literature_item_id.clone())
+        .collect::<BTreeSet<_>>();
+    let hover_nodes = nodes
+        .into_iter()
+        .filter(|node| hover_ids.contains(&node.literature_item_id))
+        .collect::<Vec<_>>();
+    let hover_edges = candidate_edges
+        .into_iter()
+        .filter(|edge| {
+            selected_ids.contains(&edge.source_literature_item_id)
+                && hover_ids.contains(&edge.target_literature_item_id)
+        })
+        .collect::<Vec<_>>();
+
+    CitationGraphDefaultProjection {
+        nodes: default_nodes,
+        edges: default_edges,
+        hover_nodes,
+        hover_edges,
+        external_degrees,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -417,10 +561,15 @@ impl CitationGraphApplication {
             Ok(edges) => edges,
             Err(_) => return self.result(CitationMutationStatus::RepairRequired, Vec::new()),
         };
-        let mut layout = match self.compute.layout(&request, &nodes, &edges, &cancel) {
-            Ok(layout) => layout,
-            Err(error) => return self.result(worker_status(&error), Vec::new()),
-        };
+        let projection = project_citation_graph_default(nodes, edges);
+        let mut layout =
+            match self
+                .compute
+                .layout(&request, &projection.nodes, &projection.edges, &cancel)
+            {
+                Ok(layout) => layout,
+                Err(error) => return self.result(worker_status(&error), Vec::new()),
+            };
         layout.graph_hash = request.expected_graph_hash.clone();
         match self
             .repository
@@ -894,6 +1043,77 @@ mod tests {
                 .unwrap_or_default()
                 .as_nanos()
         ))
+    }
+
+    fn projection_node(id: &str, library: bool) -> CitationNodeRecord {
+        CitationNodeRecord {
+            literature_item_id: id.into(),
+            node_status: "active".into(),
+            has_zotero_binding: library,
+            ..CitationNodeRecord::default()
+        }
+    }
+
+    fn projection_edge(id: &str, source: &str, target: &str) -> CitationEdgeRecord {
+        CitationEdgeRecord {
+            edge_id: id.into(),
+            source_literature_item_id: source.into(),
+            target_literature_item_id: target.into(),
+            edge_status: "accepted".into(),
+            ..CitationEdgeRecord::default()
+        }
+    }
+
+    #[test]
+    fn default_projection_is_tiered_bounded_and_endpoint_closed() {
+        let nodes = vec![
+            projection_node("external:hover", false),
+            projection_node("library:b", true),
+            projection_node("external:shared", false),
+            projection_node("library:a", true),
+            CitationNodeRecord {
+                literature_item_id: "library:inactive".into(),
+                node_status: "inactive".into(),
+                has_zotero_binding: true,
+                ..CitationNodeRecord::default()
+            },
+        ];
+        let edges = vec![
+            projection_edge("edge:3", "library:a", "external:hover"),
+            projection_edge("edge:2", "library:b", "external:shared"),
+            projection_edge("edge:1", "library:a", "external:shared"),
+            projection_edge("edge:4", "library:b", "library:a"),
+        ];
+
+        let projection = project_citation_graph_default_with_limits(nodes, edges, 3, 2);
+        assert_eq!(
+            projection
+                .nodes
+                .iter()
+                .map(|node| node.literature_item_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["library:a", "library:b", "external:shared"]
+        );
+        assert_eq!(
+            projection
+                .edges
+                .iter()
+                .map(|edge| edge.edge_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["edge:1", "edge:2"]
+        );
+        assert_eq!(projection.hover_nodes.len(), 1);
+        assert_eq!(projection.hover_edges.len(), 1);
+        assert_eq!(projection.external_degrees["external:shared"], 2);
+        let selected = projection
+            .nodes
+            .iter()
+            .map(|node| node.literature_item_id.as_str())
+            .collect::<HashSet<_>>();
+        assert!(projection.edges.iter().all(|edge| {
+            selected.contains(edge.source_literature_item_id.as_str())
+                && selected.contains(edge.target_literature_item_id.as_str())
+        }));
     }
 
     #[test]

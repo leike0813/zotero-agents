@@ -46,6 +46,12 @@ Production SHALL invoke a bounded, sanitized failure recorder only from failed l
 - **THEN** one bounded causal failure summary for each distinct failed boundary remains available in runtime logs
 - **AND** the summary prefers a safe structured root reason over a generic outer error
 
+#### Scenario: Citation Graph mutation resolves with a non-success status
+- **WHEN** native Graph mutation dispatch returns HTTP success with `worker_busy`, `worker_failed`, `basis_mismatch`, `invalid_request`, `repair_required`, or `stopping`
+- **THEN** RPC transport diagnostics remain successful while a distinct failed operation event records the semantic mutation status
+- **AND** a layout worker failure records its safe worker code, algorithm, graph hash, node and edge counts, and configured limits under the same correlation identity
+- **AND** neither event contains graph rows, titles, identifiers, request payloads, or error prose.
+
 ### Requirement: Debug Dashboard SHALL present actionable correlated event detail
 
 The debug-only Synthesis Sidecar Dashboard SHALL render lifecycle and operation statuses with the shared semantic status badge system. A selected event SHALL expose a compact structured summary and the complete selected/related JSON payload, and JSON copy SHALL provide visible success or failure feedback.
@@ -54,6 +60,16 @@ The debug-only Synthesis Sidecar Dashboard SHALL render lifecycle and operation 
 - **WHEN** started, succeeded, and failed events are present
 - **THEN** their statuses use accent, success, and error badge tones respectively
 - **AND** the selected event summary exposes only available identifiers and capacity fields
+
+#### Scenario: Citation Graph layout failure is selected
+- **WHEN** a failed layout worker or mutation-result event is selected
+- **THEN** the detail summary exposes mutation status, worker code, algorithm, graph hash, and node/edge count-to-limit pairs when available
+- **AND** correlated raw-worker and semantic terminal events remain separately identifiable.
+
+#### Scenario: Workbench retains the latest layout failure
+- **WHEN** a Citation Graph layout mutation fails for the selected graph hash and algorithm
+- **THEN** the Graph projection retains a bounded sanitized reason for ordinary users independently of the runtime event timeline
+- **AND** debug builds may expose the stable code, mutation status, algorithm, and graph hash without titles, node identifiers, or graph payload rows.
 
 #### Scenario: JSON copy succeeds
 - **WHEN** the user copies selected and related event JSON
@@ -79,4 +95,3 @@ The sidecar SHALL record handler failure separately from HTTP response-write out
 #### Scenario: A cursor basis is stale
 - **WHEN** a Graph handler returns `basis_mismatch`
 - **THEN** diagnostics and the TypeScript client preserve `basis_mismatch` while independently recording whether the HTTP error response was written
-

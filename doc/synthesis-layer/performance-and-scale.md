@@ -128,7 +128,7 @@ strategy.
 | Citation graph cache incremental refresh | affected source refs | 1500 ms per slice | Source refs, rebuilt outgoing edges, affected nodes, and light metrics. |
 | Citation graph cache rebuild | full or source slice; build contract capped at 25,000 sources / 1,250,000 references / 750,000 external targets | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, ownership, incoming groups, and light metrics. Durable facts are captured under a short lock; Host reads and build-engine compute run outside it; promotion recaptures the basis. |
 | Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 5000 ms shared sidecar hard deadline | Fixed phases or metric rows. Authenticated sidecar PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
-| Citation graph layout rebuild | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 2000 ms pre-start soft check; 5000 ms sidecar hard deadline | Layout nodes for one existing graph hash. Authenticated sidecar compute runs outside the write lock; plugin promotion rechecks the hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
+| Citation graph layout rebuild | one deterministic default projection capped at 20,000 nodes / 80,000 endpoint-closed edges | 2000 ms pre-start soft check; 10000 ms sidecar hard deadline | Library nodes precede shared external nodes; hover-only external nodes are excluded. Authenticated sidecar compute runs outside the write lock; promotion rechecks the full graph hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
 | Tag vocabulary validation/index | <= 25,000 entries, <= 50,000 global aliases, <= 10,000 abbreviations, <= 256 facets; per-entry alias/abbrev lists <= 256 | 2000 ms explicit-operation budget | Validation rows or search rows. The synchronous engine is checkpoint-capable and performs no persistence or Host I/O; canonical mutation validation remains transaction-local. |
 | Concept KB index/query | <= 25,000 concepts, <= 100,000 senses, <= 250,000 aliases, <= 256 aliases per concept, <= 100 query labels | 2000 ms explicit-operation budget | Search rows, unambiguous overlay entries, or exact concept/alias matches. The asynchronous engine is checkpoint-capable and performs no persistence; projection promotion and public DTO assembly remain application-owned. |
 | Topic Graph index | <= 25,000 nodes, <= 100,000 edges | 2000 ms explicit-operation budget | Sorted root and unplaced topic identifiers. The asynchronous engine is checkpoint-capable and performs no persistence; complete projection assembly, diagnostics, and registry promotion remain application-owned. |
@@ -146,10 +146,10 @@ production readiness exceptions to slice cancellation. Wire-bounded Citation
 Graph build requests may exercise an authenticated internal canary, but no
 production rebuild calls it. Citation Graph layout and complex metrics use the
 same worker as production routes; layout retains its existing pre-start soft
-budget check. Those three monolithic operations use 8 MiB UTF-8
-request and response envelopes, at most 250,000 request and 50,000 response JSON
-structural nodes, one active task, two waiting tasks, a five-second hard
-deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
+budget check. Direct compute uses 8 MiB UTF-8 request and response envelopes,
+at most 1,000,000 request and 200,000 response JSON structural nodes, one active
+task, two waiting tasks, a ten-second layout deadline and five-second deadline
+for metrics and other direct operations, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
 and system requests retain the 1 MiB cap. Reverse-Host responses also retain
 that general limit except for `library.artifacts.read`, whose explicit policy
 allows 8 MiB and ten seconds. Reference Refresh preparation retains the
@@ -158,7 +158,7 @@ maximum artifact responses plus 64 KiB of envelope capacity and 501,024 JSON
 nodes, and split a measured multi-source overflow before projection. Its three
 production entry points use the manifest-owned sixty-second operation deadline;
 the plugin transport adds two seconds of grace. The byte envelope
-remains independent from the graph engines' 5,000-node/20,000-edge bounds, so
+remains independent from the layout engine's 20,000-node/80,000-edge and metrics engine's 5,000-node/20,000-edge bounds, so
 an engine-valid but wire-oversized DTO fails closed. Graph build's larger
 25,000-source /
 1,250,000-reference / 750,000-target contract therefore uses a separate bounded

@@ -77,7 +77,11 @@ native request, operation, and Reverse Host IDs remain distinct local
 identities. The Dashboard joins by `correlationId` first and falls back to ID
 equality for older events. Safe metadata includes duration, HTTP status, byte
 and JSON-node actual/limit pairs, batch ordinal, source and payload counts,
-page number, and aggregate counts. Credentials, authorization
+page number, and aggregate counts. Citation Graph layout worker events may also
+include stable mutation and worker codes, algorithm, graph hash, and node/edge
+count-to-limit pairs. An HTTP-success Graph mutation with a non-success domain
+status produces a distinct failed operation event, so RPC transport success does
+not hide the semantic failure. Credentials, authorization
 headers, payloads, artifact locators, paper references, note text, and WebDAV
 content are never event fields.
 

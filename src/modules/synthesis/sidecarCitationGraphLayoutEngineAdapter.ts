@@ -1,7 +1,7 @@
 import type { SynthesisCitationGraphLayoutEngine } from "../../../packages/synthesis-engine/src/index";
 import {
   createSynthesisSidecarComputeClient,
-  SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS,
+  SYNTHESIS_SIDECAR_LAYOUT_DEADLINE_MS,
   SynthesisSidecarComputeClientError,
   type SynthesisSidecarComputeConnection,
 } from "../synthesisSidecarComputeClient";
@@ -53,7 +53,7 @@ export function createSynthesisSidecarCitationGraphLayoutEngine(options?: {
         request,
         {
           signal: options?.signal,
-          deadlineMs: SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS,
+          deadlineMs: SYNTHESIS_SIDECAR_LAYOUT_DEADLINE_MS,
         },
       );
     },

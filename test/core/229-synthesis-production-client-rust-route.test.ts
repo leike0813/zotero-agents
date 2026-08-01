@@ -307,7 +307,7 @@ describe("Synthesis Rust production client route", function () {
                     title: smallReference
                       ? "Small expanded reference"
                       : `共享引用 ${"文献".repeat(400_000)}`,
-                    year: "2024",
+                    year: "   ",
                     authors: ["研究者"],
                   },
                 ],
@@ -520,6 +520,11 @@ describe("Synthesis Rust production client route", function () {
         200,
         JSON.stringify(recomputeLayout.body),
       );
+      assert.equal(
+        recomputeLayout.body.data.status,
+        "promoted",
+        JSON.stringify(recomputeLayout.body),
+      );
       const laidOutGraph = await call(
         port,
         "client.getSynthesisWorkbenchSurfaceInput",
@@ -592,6 +597,11 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(
         refreshMetrics.status,
         200,
+        JSON.stringify(refreshMetrics.body),
+      );
+      assert.equal(
+        refreshMetrics.body.data.status,
+        "promoted",
         JSON.stringify(refreshMetrics.body),
       );
       const metrics = await call(port, "client.getCitationGraphMetrics", {

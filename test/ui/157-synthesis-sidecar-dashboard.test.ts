@@ -43,12 +43,20 @@ function diagnosticSnapshot() {
           id: "event-failed",
           ts: "2026-07-31T01:00:02.000Z",
           status: "failed",
-          component: "reverse-host",
-          stage: "response-failed",
-          capability: "library.artifacts.read",
+          component: "operation",
+          stage: "layout-worker-failed",
+          capability: "client.recomputeCitationGraphLayout",
           correlationId: "correlation-1",
           requestId: "request-2",
-          code: "fixture_failure",
+          code: "invalid_request",
+          mutationStatus: "invalid_request",
+          workerCode: "invalid_request",
+          algorithm: "force",
+          graphHash: `sha256:${"a".repeat(64)}`,
+          nodeCount: 7432,
+          edgeCount: 11377,
+          nodeLimit: 20000,
+          edgeLimit: 80000,
           durationMs: 4,
           attemptedResponseBytes: 512,
           limitBytes: 1024,
@@ -140,6 +148,12 @@ describe("Synthesis Sidecar Dashboard", function () {
         "",
       "correlation-1",
     );
+    const summary =
+      (await page.locator(".synthesis-sidecar-detail-summary").textContent()) ||
+      "";
+    assert.include(summary, "invalid_request");
+    assert.include(summary, "7432/20000");
+    assert.include(summary, "11377/80000");
   });
 
   it("reports clipboard success and failure visibly", async function () {

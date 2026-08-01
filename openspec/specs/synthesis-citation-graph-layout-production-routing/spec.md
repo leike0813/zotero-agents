@@ -15,6 +15,12 @@ The production Synthesis composition SHALL execute Citation Graph layout through
 - **THEN** the strict v2 request SHALL be sent through `compute.citation_graph_layout`
 - **AND** the service SHALL schedule `citation_graph_layout.v2` on the shared Rust child.
 
+#### Scenario: Persisted optional node text is blank or oversized
+
+- **WHEN** the native production compute port projects Citation Graph nodes for layout or metrics
+- **THEN** blank title and year values SHALL be omitted rather than encoded as present empty strings
+- **AND** non-empty values SHALL be trimmed and truncated within the existing worker limits through one shared serialization rule.
+
 #### Scenario: Sidecar is not ready
 
 - **WHEN** production layout is requested without a current ready sidecar connection
@@ -57,7 +63,7 @@ request/runtime identity, and honor the owning composition's AbortSignal.
 ### Requirement: Existing budget and client contracts remain stable
 
 Production routing SHALL retain the dispatch-before soft budget, use the fixed
-five-second compute deadline, and leave the public `SynthesisClient` graph API
+ten-second layout compute deadline, and leave the public `SynthesisClient` graph API
 and DTOs unchanged.
 
 #### Scenario: Dispatch soft budget is exhausted
@@ -65,5 +71,5 @@ and DTOs unchanged.
 - **THEN** no sidecar request is made and existing budget diagnostics are retained
 
 #### Scenario: Dispatched compute exceeds its hard deadline
-- **WHEN** a sidecar compute request runs longer than five seconds
+- **WHEN** a sidecar layout compute request runs longer than ten seconds
 - **THEN** it is canceled as `worker_timeout` and cannot be promoted

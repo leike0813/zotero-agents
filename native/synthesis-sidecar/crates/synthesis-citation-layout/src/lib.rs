@@ -8,8 +8,8 @@ use synthesis_protocol::compare_utf16;
 
 pub const OPERATION: &str = "citation_graph_layout.v2";
 pub const LAYOUT_VERSION: u8 = 2;
-pub const NODE_MAX: usize = 5_000;
-pub const EDGE_MAX: usize = 20_000;
+pub const NODE_MAX: usize = 20_000;
+pub const EDGE_MAX: usize = 80_000;
 
 const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 const FORCE_ITERATIONS: usize = 700;

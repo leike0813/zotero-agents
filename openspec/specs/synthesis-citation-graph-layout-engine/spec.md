@@ -16,9 +16,16 @@ The Citation Graph layout engine SHALL accept and return canonical JSON-safe DTO
 - **THEN** the engine contract SHALL rebuild sorted canonical node and edge rows
 - **AND** it SHALL discard the unknown fields.
 
+#### Scenario: Production rows contain optional blank text
+
+- **WHEN** the native Citation Graph compute adapter serializes a node whose title or year is empty after trimming
+- **THEN** that optional field SHALL be omitted from the worker DTO
+- **AND** non-empty title and year values SHALL be trimmed and bounded before dispatch
+- **AND** layout and metrics SHALL use the same optional-text serialization rule.
+
 #### Scenario: Invalid input is rejected before computation
 
-- **WHEN** a request is non-JSON, exceeds 5,000 nodes or 20,000 edges, duplicates an identifier, references a missing endpoint, or uses an invalid hash or algorithm
+- **WHEN** a request is non-JSON, exceeds 20,000 nodes or 80,000 edges, duplicates an identifier, references a missing endpoint, or uses an invalid hash or algorithm
 - **THEN** canonical rebuilding SHALL reject the request before a layout kernel runs.
 
 #### Scenario: Result node set is invalid
@@ -74,8 +81,9 @@ The engine SHALL canonicalize input order, use fixed parameters, round output to
 
 #### Scenario: The maximum accepted graph is computed
 
-- **WHEN** a valid graph contains up to 5,000 nodes and 20,000 edges
-- **THEN** computation SHALL complete within the five-second hard deadline
+- **WHEN** a valid graph contains up to 20,000 nodes and 80,000 edges
+- **THEN** computation SHALL either return a complete result or terminate as `worker_timeout` at the ten-second hard deadline
+- **AND** a timeout SHALL NOT produce a promotable partial layout
 - **AND** peak worker RSS SHALL remain below 256 MiB.
 
 #### Scenario: Active computation is canceled
@@ -83,6 +91,23 @@ The engine SHALL canonicalize input order, use fixed parameters, round output to
 - **WHEN** cancellation is requested during iterative force computation
 - **THEN** the engine SHALL acknowledge cancellation within 500 ms
 - **AND** no result SHALL be eligible for promotion.
+
+### Requirement: Application layout projection SHALL be deterministic and bounded
+
+The application SHALL derive one default layout projection before worker dispatch. It SHALL select active library nodes before shared external nodes, order each tier by stable node ID, exclude single-source hover-only external nodes, and cap the result at 20,000 nodes. It SHALL retain only edges whose endpoints are both selected, order them by stable edge ID, and cap them at 80,000 edges.
+
+#### Scenario: Default graph exceeds the layout bounds
+
+- **WHEN** the active default graph contains more rows than the layout contract accepts
+- **THEN** repeated projection of the same graph SHALL select the same nodes and edges
+- **AND** every selected edge endpoint SHALL be present in the selected node set
+- **AND** the persisted graph cache and its full graph hash SHALL remain unchanged.
+
+#### Scenario: Read surface displays the default graph
+
+- **WHEN** Workbench pages through default-visible Citation Graph rows
+- **THEN** those rows SHALL use the same bounded default projection as layout computation
+- **AND** hover-only rows SHALL remain outside the layout node set.
 
 ### Requirement: Layout v2 SHALL satisfy graph quality invariants
 
