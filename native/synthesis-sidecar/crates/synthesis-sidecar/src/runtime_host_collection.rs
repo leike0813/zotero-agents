@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::sync::Arc;
+use synthesis_application::{
+    TopicLibraryItem, TopicLibraryItemsByRef, TopicLibraryPage, TopicLibraryQueryPort,
+};
 
 pub(crate) const HOST_PAGE_LIMIT: usize = 100;
 pub(crate) const MAX_HOST_PAGES: usize = 1_000;
@@ -66,6 +70,56 @@ pub(crate) trait HostItemCollectionPort: Send + Sync {
     -> Result<ReferenceHostItemsPage, String>;
 
     fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<ReferenceHostItemsByRef, String>;
+}
+
+pub(crate) struct TopicLibraryQueryAdapter {
+    host: Arc<dyn HostItemCollectionPort>,
+}
+
+impl TopicLibraryQueryAdapter {
+    pub(crate) fn new(host: Arc<dyn HostItemCollectionPort>) -> Self {
+        Self { host }
+    }
+}
+
+impl TopicLibraryQueryPort for TopicLibraryQueryAdapter {
+    fn list_items_page(&self, cursor: &str, limit: usize) -> Result<TopicLibraryPage, String> {
+        if limit == 0 || limit > HOST_PAGE_LIMIT {
+            return Err("invalid_request".into());
+        }
+        let page = self.host.list_items_page(cursor, limit)?;
+        validate_item_page(cursor, None, &page)?;
+        Ok(TopicLibraryPage {
+            items: page.items.into_iter().map(topic_library_item).collect(),
+            cursor: page.cursor,
+            next_cursor: page.next_cursor,
+            has_more: page.has_more,
+        })
+    }
+
+    fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<TopicLibraryItemsByRef, String> {
+        if paper_refs.is_empty() || paper_refs.len() > 250 {
+            return Err("invalid_request".into());
+        }
+        let result = self.host.get_items_by_ref(paper_refs)?;
+        Ok(TopicLibraryItemsByRef {
+            items: result.items.into_iter().map(topic_library_item).collect(),
+            missing_paper_refs: result.missing_paper_refs,
+        })
+    }
+}
+
+fn topic_library_item(item: ReferenceHostItem) -> TopicLibraryItem {
+    TopicLibraryItem {
+        paper_ref: item.paper_ref,
+        library_id: item.library_id,
+        item_key: item.item_key,
+        item_type: item.item_type,
+        title: item.title,
+        year: item.year,
+        tags: item.tags,
+        collections: item.collections,
+    }
 }
 
 pub(crate) fn validate_page_metadata(

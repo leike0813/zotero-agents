@@ -154,7 +154,7 @@ const GROUPED_INVOCATIONS: Record<
   "client.getTopicContext": (client) =>
     client.topics.getContext({ topicId: "topic:missing" }),
   "client.resolveResolver": (client) =>
-    client.topics.resolveResolver({ topicId: "topic:missing" }),
+    client.topics.resolveResolver({ paper_refs: ["1:SCENARIO1"] }),
   "client.queryCitationGraphCluster": (client) => client.graph.queryCluster({}),
   "client.queryCitationGraph": (client) => client.graph.getOverview({}),
   "client.getCitationGraphSlice": (client) =>
@@ -205,7 +205,7 @@ const GROUPED_INVOCATIONS: Record<
   "client.debugSynthesisCleanInstallReset": (client) =>
     client.debug.cleanInstallReset({ dryRun: true }),
   "client.listWorkflowTopicOptions": (client) =>
-    client.topics.listWorkflowOptions({ filter: "scenario" }),
+    client.topics.listWorkflowOptions({ filter: "all" }),
   "client.reconcileSynthesisRuntimeWorkStateOnStartup": (client) =>
     client.system.reconcileRuntimeWorkOnStartup(),
   "client.resetSynthesisDatabase": (client) =>

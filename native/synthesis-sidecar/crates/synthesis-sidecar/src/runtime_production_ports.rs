@@ -1,6 +1,7 @@
 use crate::runtime_file_system::sync_directory;
 use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+    TopicLibraryQueryAdapter,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -30,8 +31,8 @@ use synthesis_application::{
     CanonicalStorePort, CitationGraphApplication, ConceptKbApplication,
     DebugMaintenanceApplication, DurableBundleApplication, ReferenceMatchingApplication,
     ReferenceRefreshApplication, RepositoryPort, TagVocabularyApplication,
-    TagVocabularyRepositoryPort, TopicApplication, TopicGraphApplication, WebDavSyncApplication,
-    WorkbenchApplication,
+    TagVocabularyRepositoryPort, TopicApplication, TopicGraphApplication, TopicLibraryQueryPort,
+    WebDavSyncApplication, WorkbenchApplication,
 };
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_protocol::utc_now_iso8601;
@@ -71,6 +72,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) debug: DebugMaintenanceApplication,
     pub(crate) webdav: WebDavSyncApplication,
     pub(crate) host_items: Arc<dyn HostItemCollectionPort>,
+    pub(crate) topic_library: Arc<dyn TopicLibraryQueryPort>,
     config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
 }
@@ -89,10 +91,6 @@ impl ProductionApplications {
             .as_deref()
             .ok_or_else(|| "reverse_host_unavailable".to_owned())?;
         call_reverse_host(config, &self.service_instance_id, capability, payload)
-    }
-
-    pub(crate) fn apply_literature_digest(&self, payload: Value) -> Result<Value, String> {
-        self.reference_canonical.apply_literature_digest(payload)
     }
 
     pub(crate) fn consume_related_items_sync_echo(
@@ -191,32 +189,6 @@ impl ProductionApplications {
         serde_json::to_value(self.tags.save(expected_hash.as_deref(), &candidate))
             .map_err(|_| "serialization_failed".to_owned())
     }
-
-    pub(crate) fn update_topic_discovery_hint(
-        &self,
-        hint_id: &str,
-        status: &str,
-    ) -> Result<Value, String> {
-        let repository = self.repository.owner();
-        let hint = repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .update_topic_discovery_hint_status(hint_id, status, &utc_now_iso8601())?;
-        Ok(match hint {
-            Some(hint) => serde_json::json!({
-                "ok":true,
-                "status":status,
-                "hint":hint,
-                "diagnostics":[],
-            }),
-            None => serde_json::json!({
-                "ok":true,
-                "status":"not_found",
-                "hint":Value::Null,
-                "diagnostics":[],
-            }),
-        })
-    }
 }
 
 pub(crate) fn build_production_applications(
@@ -234,6 +206,9 @@ pub(crate) fn build_production_applications(
         config: config.clone(),
         service_instance_id: service_instance_id.clone(),
     });
+    let host_items: Arc<dyn HostItemCollectionPort> = host.clone();
+    let topic_library: Arc<dyn TopicLibraryQueryPort> =
+        Arc::new(TopicLibraryQueryAdapter::new(host_items.clone()));
     let topic_graph = Arc::new(TopicGraphApplication::new(
         repository.clone(),
         Arc::new(NativeTopicGraphComputePort {
@@ -311,7 +286,8 @@ pub(crate) fn build_production_applications(
         topic_graph,
         debug,
         webdav,
-        host_items: host,
+        host_items,
+        topic_library,
         config,
         service_instance_id,
     }

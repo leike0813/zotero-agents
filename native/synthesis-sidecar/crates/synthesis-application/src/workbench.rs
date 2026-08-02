@@ -1,8 +1,9 @@
 use crate::dto::{
     BackgroundJob, CacheReadiness, JobProgress, WorkbenchChrome, WorkbenchMaintenance,
+    WorkbenchProjection, WorkbenchSurface, WorkbenchSurfaceRequest,
 };
-use crate::ports::WorkbenchRepositoryPort;
-use serde_json::Value;
+use crate::ports::{WorkbenchRepositoryPort, WorkbenchSurfacePort};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use synthesis_repository::{CacheBasisRecord, OperationQuery, OperationRecord};
 
@@ -96,6 +97,150 @@ impl WorkbenchApplication {
 
     pub fn read_json(&self) -> Result<Value, String> {
         serde_json::to_value(self.read()?).map_err(|_| "workbench_projection_invalid".into())
+    }
+
+    pub fn read_public_chrome(&self) -> Result<WorkbenchProjection, String> {
+        let chrome = self.read()?;
+        let reference = chrome
+            .maintenance
+            .cache_readiness
+            .iter()
+            .find(|cache| cache.cache_key == "reference-sidecar:library");
+        let citation = chrome
+            .maintenance
+            .cache_readiness
+            .iter()
+            .find(|cache| cache.cache_key == "citation-graph:library");
+        let caches = [reference, citation];
+        let missing = cache_keys_with_status(&caches, "missing");
+        let stale = cache_keys_with_status(&caches, "stale");
+        let failed = cache_keys_with_status(&caches, "failed");
+        let active_jobs = chrome
+            .maintenance
+            .background_jobs
+            .iter()
+            .filter(|job| job.status != "failed")
+            .collect::<Vec<_>>();
+        let partial = if missing.len() == 1 {
+            missing.clone()
+        } else {
+            Vec::new()
+        };
+        let status = if !active_jobs.is_empty() {
+            "running"
+        } else if !failed.is_empty() {
+            "failed"
+        } else if missing.len() > 1 {
+            "missing"
+        } else if !partial.is_empty() {
+            "partial"
+        } else if !stale.is_empty() {
+            "stale"
+        } else {
+            "ready"
+        };
+        let mut recommended_commands = Vec::new();
+        if reference.is_some_and(rebuild_recommended) {
+            recommended_commands.push("refreshReferenceSidecarNow");
+        }
+        if citation.is_some_and(rebuild_recommended) {
+            recommended_commands.push("rebuildCitationGraphCache");
+        }
+        let latest_reference = latest_cache_timestamp(reference);
+        let latest_citation = latest_cache_timestamp(citation);
+        Ok(WorkbenchProjection(json!({
+            "maintenance":{
+                "summary":{
+                    "status":status,
+                    "latestUsable":{
+                        "referenceSidecar":latest_reference.map(|updated_at|json!({"updated_at":updated_at})),
+                        "citationGraph":latest_citation.map(|updated_at|json!({"updated_at":updated_at})),
+                    },
+                    "pendingDirtyCount":0,
+                    "activeWorkerCount":active_jobs.len(),
+                    "activeWorkerKind":active_jobs.first().map(|job|job.source.as_str()),
+                    "canonicalSyncPending":false,
+                    "canonicalEpoch":0,
+                    "stale":stale,
+                    "partial":partial,
+                    "missing":missing,
+                    "recommendedCommands":recommended_commands,
+                    "diagnostics":[],
+                },
+                "backgroundJobs":chrome.maintenance.background_jobs,
+            },
+        })))
+    }
+
+    pub fn background_jobs(&self) -> Result<Vec<BackgroundJob>, String> {
+        Ok(self.read()?.maintenance.background_jobs)
+    }
+
+    pub fn read_surface(
+        &self,
+        request: &WorkbenchSurfaceRequest,
+        surfaces: &dyn WorkbenchSurfacePort,
+    ) -> Result<WorkbenchProjection, String> {
+        let value = match request.surface {
+            WorkbenchSurface::Home => surfaces.home(&request.state),
+            WorkbenchSurface::Topics => surfaces.topics(&request.state),
+            WorkbenchSurface::Index => surfaces.index(&request.state),
+            WorkbenchSurface::Graph => surfaces.graph(&request.state),
+            WorkbenchSurface::Tags => surfaces.tags(&request.state),
+            WorkbenchSurface::Concepts => surfaces.concepts(&request.state),
+            WorkbenchSurface::Reader => surfaces.reader(&request.state),
+            WorkbenchSurface::Review => match active_review_tab(&request.state)? {
+                "reference_matching" => surfaces.reference_review(&request.state),
+                "topic_graph" => surfaces.topic_graph_review(&request.state),
+                "concepts" => surfaces.concept_review(&request.state),
+                _ => unreachable!("active_review_tab validates the closed tab set"),
+            },
+        }?;
+        Ok(WorkbenchProjection(value))
+    }
+}
+
+fn cache_keys_with_status(caches: &[Option<&CacheReadiness>], status: &str) -> Vec<String> {
+    caches
+        .iter()
+        .flatten()
+        .filter(|cache| cache.status == status)
+        .map(|cache| cache.cache_key.clone())
+        .collect()
+}
+
+fn rebuild_recommended(cache: &CacheReadiness) -> bool {
+    matches!(cache.status.as_str(), "missing" | "stale" | "failed")
+}
+
+fn latest_cache_timestamp(cache: Option<&CacheReadiness>) -> Option<&str> {
+    cache
+        .map(|cache| {
+            if cache.refreshed_at.is_empty() {
+                cache.updated_at.as_str()
+            } else {
+                cache.refreshed_at.as_str()
+            }
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn active_review_tab(state: &Value) -> Result<&str, String> {
+    let tab = state
+        .get("reviews")
+        .and_then(Value::as_object)
+        .and_then(|reviews| {
+            reviews
+                .get("activeTab")
+                .or_else(|| reviews.get("active_tab"))
+        })
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("reference_matching");
+    if matches!(tab, "reference_matching" | "topic_graph" | "concepts") {
+        Ok(tab)
+    } else {
+        Err("invalid_request".into())
     }
 }
 
@@ -238,6 +383,111 @@ mod tests {
             rows.truncate(query.limit);
             Ok(rows)
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingSurfaces {
+        calls: Mutex<Vec<&'static str>>,
+    }
+
+    impl RecordingSurfaces {
+        fn record(&self, name: &'static str) -> Result<Value, String> {
+            self.calls.lock().expect("calls").push(name);
+            Ok(json!({"surface":name}))
+        }
+    }
+
+    impl WorkbenchSurfacePort for RecordingSurfaces {
+        fn home(&self, _state: &Value) -> Result<Value, String> {
+            self.record("home")
+        }
+        fn topics(&self, _state: &Value) -> Result<Value, String> {
+            self.record("topics")
+        }
+        fn index(&self, _state: &Value) -> Result<Value, String> {
+            self.record("index")
+        }
+        fn reference_review(&self, _state: &Value) -> Result<Value, String> {
+            self.record("reference_review")
+        }
+        fn topic_graph_review(&self, _state: &Value) -> Result<Value, String> {
+            self.record("topic_graph_review")
+        }
+        fn concept_review(&self, _state: &Value) -> Result<Value, String> {
+            self.record("concept_review")
+        }
+        fn graph(&self, _state: &Value) -> Result<Value, String> {
+            self.record("graph")
+        }
+        fn tags(&self, _state: &Value) -> Result<Value, String> {
+            self.record("tags")
+        }
+        fn concepts(&self, _state: &Value) -> Result<Value, String> {
+            self.record("concepts")
+        }
+        fn reader(&self, _state: &Value) -> Result<Value, String> {
+            self.record("reader")
+        }
+    }
+
+    #[test]
+    fn surface_reads_call_only_the_selected_domain_and_active_review_tab() {
+        let application = WorkbenchApplication::new(Arc::new(FixtureRepository::default()));
+        let surfaces = RecordingSurfaces::default();
+
+        for (surface, expected) in [
+            (WorkbenchSurface::Home, "home"),
+            (WorkbenchSurface::Topics, "topics"),
+            (WorkbenchSurface::Index, "index"),
+            (WorkbenchSurface::Graph, "graph"),
+            (WorkbenchSurface::Tags, "tags"),
+            (WorkbenchSurface::Concepts, "concepts"),
+            (WorkbenchSurface::Reader, "reader"),
+        ] {
+            let projection = application
+                .read_surface(
+                    &WorkbenchSurfaceRequest {
+                        surface,
+                        state: json!({}),
+                    },
+                    &surfaces,
+                )
+                .expect(expected);
+            assert_eq!(projection.0, json!({"surface":expected}));
+            assert_eq!(*surfaces.calls.lock().expect("calls"), vec![expected]);
+            surfaces.calls.lock().expect("calls").clear();
+        }
+
+        for (tab, expected) in [
+            ("reference_matching", "reference_review"),
+            ("topic_graph", "topic_graph_review"),
+            ("concepts", "concept_review"),
+        ] {
+            let projection = application
+                .read_surface(
+                    &WorkbenchSurfaceRequest {
+                        surface: WorkbenchSurface::Review,
+                        state: json!({"reviews":{"activeTab":tab}}),
+                    },
+                    &surfaces,
+                )
+                .expect(expected);
+            assert_eq!(projection.0, json!({"surface":expected}));
+            assert_eq!(*surfaces.calls.lock().expect("calls"), vec![expected]);
+            surfaces.calls.lock().expect("calls").clear();
+        }
+
+        assert_eq!(
+            application.read_surface(
+                &WorkbenchSurfaceRequest {
+                    surface: WorkbenchSurface::Review,
+                    state: json!({"reviews":{"activeTab":"unknown"}}),
+                },
+                &surfaces,
+            ),
+            Err("invalid_request".into())
+        );
+        assert!(surfaces.calls.lock().expect("calls").is_empty());
     }
 
     #[test]

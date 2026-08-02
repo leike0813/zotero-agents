@@ -1102,7 +1102,7 @@ export async function checkSynthesisTypedApplicationParity(
     ok: errors.length === 0,
     corpus: corpus.schema,
     reportSchema: corpus.reportSchema,
-    tables: 52,
+    tables: 53,
     workbenchCases: corpus.coverage.workbench.length,
     topicCases: corpus.coverage.topic.length,
     implementations: {

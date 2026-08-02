@@ -107,6 +107,7 @@ describe("Synthesis native client composition", function () {
     assert.deepEqual(report.errors.dispatcherMissing, []);
     assert.deepEqual(report.errors.dispatcherUnknown, []);
     assert.deepEqual(report.errors.dispatcherDuplicates, []);
+    assert.deepEqual(report.errors.typedTopicWorkbenchOwnership, []);
   });
 
   it("fails closed for corrupted durable corpus, dispatcher, and ready-roster evidence", function () {

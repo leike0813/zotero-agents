@@ -45,10 +45,10 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.schemaCount, 6);
     assert.equal(result.definitionCount, 115);
     assert.equal(result.positiveCaseCount, 14);
-    assert.equal(result.negativeCaseCount, 11);
+    assert.equal(result.negativeCaseCount, 15);
     assert.equal(
       result.fingerprint,
-      "sha256:45b1d784963d57cd754f243d829da63b1396a8beb4228ffe9a3e9c2ffab02508",
+      "sha256:00938b41f125171ca1a78f39473681dc58e709b6d5abae1043e99b1b8c689904",
     );
   });
 
@@ -106,7 +106,6 @@ describe("Synthesis cross-language sidecar contract", function () {
         profileId: "p1",
         capability: "system.handshake",
         payload: {},
-        unknown: true,
       }),
       {
         protocol: "synthesis-sidecar.v1",
@@ -115,6 +114,16 @@ describe("Synthesis cross-language sidecar contract", function () {
         capability: "system.handshake",
         payload: {},
       },
+    );
+    assert.throws(() =>
+      rebuildSynthesisSidecarCallRequest({
+        protocol: "synthesis-sidecar.v1",
+        requestId: "r1",
+        profileId: "p1",
+        capability: "system.handshake",
+        payload: {},
+        unknown: true,
+      }),
     );
     assert.throws(() =>
       rebuildSynthesisSidecarCallRequest({
@@ -139,8 +148,8 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.isTrue(result.ok);
     assert.equal(result.corpus, "synthesis-durable-foundation-corpus.v1");
     assert.equal(result.nodeOracleFiles, 15);
-    assert.equal(result.tables, 51);
-    assert.equal(result.indexes, 40);
+    assert.equal(result.tables, 53);
+    assert.equal(result.indexes, 42);
     assert.equal(result.faultPoints, 7);
     assert.equal(result.canaries, 2);
     assert.equal(result.implementations.node.role, "oracle");
@@ -169,7 +178,7 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.reportSchema,
       "synthesis-typed-application-parity-report.v1",
     );
-    assert.equal(result.tables, 51);
+    assert.equal(result.tables, 53);
     assert.equal(result.workbenchCases, 7);
     assert.equal(result.topicCases, 24);
     assert.equal(result.implementations.node.role, "oracle");
@@ -197,8 +206,8 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.reportSchema,
       "synthesis-citation-reference-application-parity-report.v1",
     );
-    assert.equal(result.tables, 51);
-    assert.equal(result.comparedTables, 51);
+    assert.equal(result.tables, 53);
+    assert.equal(result.comparedTables, 53);
     assert.equal(result.applicationFamilies, 3);
     assert.equal(result.implementations.node.role, "oracle");
     assert.equal(result.implementations.rust.role, "candidate");
@@ -232,8 +241,8 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.reportSchema,
       "synthesis-tag-concept-topic-graph-application-parity-report.v1",
     );
-    assert.equal(result.tables, 51);
-    assert.equal(result.comparedTables, 51);
+    assert.equal(result.tables, 53);
+    assert.equal(result.comparedTables, 53);
     assert.equal(result.applicationFamilies, 3);
     assert.equal(result.implementations.node.role, "oracle");
     assert.equal(result.implementations.rust.role, "candidate");
@@ -253,8 +262,8 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.reportSchema,
       "synthesis-checkpoint-bundle-webdav-debug-application-parity-report.v1",
     );
-    assert.equal(result.tables, 51);
-    assert.equal(result.comparedTables, 51);
+    assert.equal(result.tables, 53);
+    assert.equal(result.comparedTables, 53);
     assert.equal(result.applicationFamilies, 4);
     assert.equal(result.implementations.node.role, "oracle");
     assert.equal(result.implementations.rust.role, "candidate");

@@ -695,7 +695,7 @@ function compareReports(
   }
   const nodeTables = Object.keys(node.tables).sort();
   const rustTables = Object.keys(rust.tables).sort();
-  if (!equal(nodeTables, rustTables) || nodeTables.length !== 52) {
+  if (!equal(nodeTables, rustTables) || nodeTables.length !== 53) {
     errors.push("table_inventory_mismatch");
     return;
   }
@@ -807,7 +807,7 @@ export async function checkSynthesisCitationReferenceApplicationParity(): Promis
     ok: errors.length === 0,
     corpus: corpus.schema,
     reportSchema: corpus.reportSchema,
-    tables: 52,
+    tables: 53,
     applicationFamilies: 3,
     comparedTables:
       nodeReport && rustReport ? Object.keys(nodeReport.tables).length : 0,

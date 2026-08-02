@@ -1527,6 +1527,113 @@ impl Repository {
         ))
     }
 
+    pub fn find_topic_application_records_by_paper_refs(
+        &self,
+        paper_refs: &[String],
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        if paper_refs.is_empty()
+            || paper_refs.len() > 100
+            || paper_refs
+                .iter()
+                .any(|paper_ref| paper_ref.trim().is_empty())
+        {
+            return Err("invalid_request".into());
+        }
+        let limit = limit.clamp(1, 250);
+        let placeholders = (1..=paper_refs.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let predicate = format!(
+            "EXISTS (
+               SELECT 1
+               FROM json_each(state.resolved_paper_set_json, '$.papers') AS paper
+               WHERE json_extract(paper.value, '$.paper_ref') IN ({placeholders})
+             )"
+        );
+        let parameters = paper_refs
+            .iter()
+            .map(|paper_ref| json!(paper_ref))
+            .collect::<Vec<_>>();
+        let total = self
+            .query(
+                &format!(
+                    "SELECT COUNT(*) AS total
+                     FROM synt_topic_application_state AS state
+                     WHERE {predicate}"
+                ),
+                &parameters,
+            )?
+            .first()
+            .and_then(|row| row["total"].as_i64())
+            .unwrap_or_default()
+            .max(0) as usize;
+        let mut page_parameters = parameters;
+        page_parameters.push(json!(limit));
+        let rows = self.query(
+            &format!(
+                "SELECT state.*,
+                        projection.topic_id AS projection_topic_id,
+                        projection.topic_graph_json AS projection_topic_graph_json,
+                        projection.concepts_json AS projection_concepts_json,
+                        projection.interest_metadata_json AS projection_interest_metadata_json,
+                        projection.discovery_json AS projection_discovery_json,
+                        projection.updated_at AS projection_updated_at
+                 FROM synt_topic_application_state AS state
+                 LEFT JOIN synt_topic_application_projection AS projection
+                   ON projection.topic_id=state.topic_id
+                 WHERE {predicate}
+                 ORDER BY state.title COLLATE NOCASE ASC,state.topic_id ASC
+                 LIMIT ?{}",
+                page_parameters.len()
+            ),
+            &page_parameters,
+        )?;
+        Ok((
+            rows.into_iter()
+                .map(topic_joined_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            total,
+        ))
+    }
+
+    pub fn list_topic_workflow_option_records(
+        &self,
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        let limit = limit.clamp(1, 250);
+        let total = self
+            .query(
+                "SELECT COUNT(*) AS total FROM synt_topic_application_state",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row["total"].as_i64())
+            .unwrap_or_default()
+            .max(0) as usize;
+        let rows = self.query(
+            "SELECT state.*,
+                    projection.topic_id AS projection_topic_id,
+                    projection.topic_graph_json AS projection_topic_graph_json,
+                    projection.concepts_json AS projection_concepts_json,
+                    projection.interest_metadata_json AS projection_interest_metadata_json,
+                    projection.discovery_json AS projection_discovery_json,
+                    projection.updated_at AS projection_updated_at
+             FROM synt_topic_application_state AS state
+             LEFT JOIN synt_topic_application_projection AS projection
+               ON projection.topic_id=state.topic_id
+             ORDER BY state.title COLLATE NOCASE ASC,state.topic_id ASC LIMIT ?1",
+            &[json!(limit)],
+        )?;
+        Ok((
+            rows.into_iter()
+                .map(topic_joined_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            total,
+        ))
+    }
+
     pub fn upsert_topic_application_state(
         &self,
         record: &TopicApplicationStateRecord,

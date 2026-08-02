@@ -276,9 +276,10 @@ impl ReferenceCanonicalApplication {
         }
     }
 
-    pub(crate) fn apply_literature_digest(&self, payload: Value) -> Result<Value, String> {
-        let request: LiteratureDigestApplyRequest =
-            serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+    pub(crate) fn apply_literature_digest(
+        &self,
+        request: LiteratureDigestApplyRequest,
+    ) -> Result<Value, String> {
         validate_literature_digest_request(&request)?;
         let source_hash = canonical_json_hash(
             &serde_json::to_value(&request).map_err(|_| "invalid_request".to_owned())?,

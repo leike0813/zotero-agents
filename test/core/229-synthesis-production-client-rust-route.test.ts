@@ -275,6 +275,7 @@ describe("Synthesis Rust production client route", function () {
     assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
       ok: true,
       operations: 18,
+      observables: 18,
       errors: [],
     });
   });
@@ -288,7 +289,7 @@ describe("Synthesis Rust production client route", function () {
     const cases = BASELINE_PRODUCTION_OBSERVABLES.surfaces
       .flatMap((surface) => surface.cases)
       .filter((entry) => entry.access === "read");
-    assert.lengthOf(cases, 7);
+    assert.lengthOf(cases, 17);
     assert.isTrue(
       cases.every(
         (entry) =>
@@ -330,6 +331,11 @@ describe("Synthesis Rust production client route", function () {
                   limit,
                   snapshotRevision: "fixture-baseline-observables",
                 }
+              : capability === "library.items.get_by_ref"
+                ? {
+                    items: [],
+                    missingPaperRefs: ["1:MISSING1"],
+                  }
               : capability === "library.artifacts.scan_page"
                 ? {
                     artifacts: [],
@@ -387,11 +393,19 @@ describe("Synthesis Rust production client route", function () {
         assert.equal(response.status, 200, entry.id);
         assert.isAbove(response.metrics.requestBytes, 0, entry.id);
         assert.isAbove(response.metrics.responseBytes, 0, entry.id);
-        assert.deepInclude(
-          response.body.data,
-          entry.expected.projection,
-          entry.id,
-        );
+        if (Array.isArray(entry.expected.projection)) {
+          assert.deepEqual(
+            response.body.data,
+            entry.expected.projection,
+            entry.id,
+          );
+        } else {
+          assert.deepInclude(
+            response.body.data,
+            entry.expected.projection,
+            entry.id,
+          );
+        }
         assert.deepEqual(captureDurableState(root), before, entry.id);
         observed.push(entry.id);
       }
@@ -602,6 +616,15 @@ describe("Synthesis Rust production client route", function () {
         handle({ capability, payload }) {
           if (capability === "library.items.list_page") {
             return dataset.listItemsPage(payload);
+          }
+          if (capability === "library.items.get_by_ref") {
+            const paperRefs = Array.isArray(payload.paperRefs)
+              ? payload.paperRefs.filter(
+                  (paperRef): paperRef is string =>
+                    typeof paperRef === "string",
+                )
+              : [];
+            return { items: [], missingPaperRefs: paperRefs };
           }
           if (capability === "library.artifacts.scan_page") {
             return dataset.scanArtifactsPage(payload);

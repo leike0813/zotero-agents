@@ -92,6 +92,28 @@ const RUST_COMPAT_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_compat.rs",
 );
+const RUST_TOPIC_WORKBENCH_DISPATCH_PATH = path.join(
+  ROOT,
+  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs",
+);
+const TOPIC_WORKBENCH_TYPED_CAPABILITIES = [
+  "client.listTopics",
+  "client.findTopicsByPaperRef",
+  "client.readTopicDetail",
+  "client.listWorkflowTopicOptions",
+  "client.getSynthesisWorkbenchChromeInput",
+  "client.getSynthesisWorkbenchSurfaceInput",
+  "client.getSynthesisBackgroundJobRows",
+  "client.applyTopicSynthesisResult",
+  "client.getTopicContext",
+  "client.resolveResolver",
+  "client.getTopicReport",
+  "client.applyLiteratureDigestSidecar",
+  "client.deleteTopicArtifact",
+  "client.purgeDeletedTopicArtifacts",
+  "client.rejectTopicDiscoveryHint",
+  "client.restoreTopicDiscoveryHint",
+] as const;
 function sorted(values: readonly string[]) {
   return [...values].sort();
 }
@@ -220,6 +242,11 @@ export function inspectSynthesisProductionCapabilities(
     RUST_COMPAT_DISPATCH_PATH,
     "utf8",
   );
+  const rustTopicWorkbenchDispatchSource = fs.existsSync(
+    RUST_TOPIC_WORKBENCH_DISPATCH_PATH,
+  )
+    ? fs.readFileSync(RUST_TOPIC_WORKBENCH_DISPATCH_PATH, "utf8")
+    : "";
   const surfaceCorpora =
     options.surfaceCorpora ?? readSynthesisProductionSurfaceCorpora(ROOT);
   const rustReadyBlock =
@@ -245,7 +272,14 @@ export function inspectSynthesisProductionCapabilities(
   });
   const rustDispatcherCapabilities =
     options.rustDispatcherCapabilities ??
+    [
+      ...extractRustDispatcherCapabilities(rustCompatDispatchSource),
+      ...extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource),
+    ];
+  const rustCompatDispatcherCapabilities =
     extractRustDispatcherCapabilities(rustCompatDispatchSource);
+  const rustTopicWorkbenchDispatcherCapabilities =
+    extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource);
   const dispatcherCapabilities = [...new Set(rustDispatcherCapabilities)];
 
   return {
@@ -308,6 +342,21 @@ export function inspectSynthesisProductionCapabilities(
         manifestCapabilities,
       ),
       dispatcherDuplicates: duplicateValues(rustDispatcherCapabilities),
+      typedTopicWorkbenchOwnership: [
+        ...difference(
+          TOPIC_WORKBENCH_TYPED_CAPABILITIES,
+          rustTopicWorkbenchDispatcherCapabilities,
+        ).map((capability) => `typed owner missing: ${capability}`),
+        ...difference(
+          rustTopicWorkbenchDispatcherCapabilities,
+          TOPIC_WORKBENCH_TYPED_CAPABILITIES,
+        ).map((capability) => `typed owner unknown: ${capability}`),
+        ...rustCompatDispatcherCapabilities
+          .filter((capability) =>
+            TOPIC_WORKBENCH_TYPED_CAPABILITIES.includes(capability as never),
+          )
+          .map((capability) => `compat owner retained: ${capability}`),
+      ],
       surfaceCorpusIdentity: surfaceCorpora.flatMap(
         ({ id, schema, operations, operationFingerprint, corpus }) =>
           corpus.schema === schema &&

@@ -157,6 +157,17 @@ export function readSynthesisProductionSurfaceCorpora(root = process.cwd()) {
   }));
 }
 
+export function readSynthesisProductionBaselineFixture(
+  root = process.cwd(),
+): SynthesisProductionBaselineFixture {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(root, SYNTHESIS_PRODUCTION_BASELINE_FIXTURE),
+      "utf8",
+    ),
+  ) as SynthesisProductionBaselineFixture;
+}
+
 export function inspectSynthesisProductionBaselineEvidence(
   surfaceCorpora: ReturnType<typeof readSynthesisProductionSurfaceCorpora>,
   root = process.cwd(),
@@ -176,12 +187,7 @@ export function inspectSynthesisProductionBaselineEvidence(
 
   const fixture =
     fixtureOverride ??
-    (JSON.parse(
-      fs.readFileSync(
-        path.join(root, SYNTHESIS_PRODUCTION_BASELINE_FIXTURE),
-        "utf8",
-      ),
-    ) as SynthesisProductionBaselineFixture);
+    readSynthesisProductionBaselineFixture(root);
   const inventory = parseYaml(
     fs.readFileSync(
       path.join(

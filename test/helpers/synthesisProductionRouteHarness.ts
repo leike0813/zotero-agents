@@ -196,6 +196,14 @@ function defaultHostResult(
       snapshotRevision: "fixture-production-route",
     };
   }
+  if (capability === "library.items.get_by_ref") {
+    const paperRefs = Array.isArray(payload.paperRefs)
+      ? payload.paperRefs.filter(
+          (paperRef): paperRef is string => typeof paperRef === "string",
+        )
+      : [];
+    return { items: [], missingPaperRefs: paperRefs };
+  }
   if (capability === "library.artifacts.scan_page") {
     return {
       artifacts: [],

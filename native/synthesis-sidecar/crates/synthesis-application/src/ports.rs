@@ -1,7 +1,7 @@
 use crate::debug_maintenance::{
     DebugCanonicalPort, DebugMaintenanceRepositoryPort, DebugTopicInspection,
 };
-use crate::dto::PatchOutput;
+use crate::dto::{PatchOutput, TopicLibraryItemsByRef, TopicLibraryPage};
 use crate::durable_bundle::{
     DurableBundleRepositoryPort, DurableCanonicalCapture, DurableCanonicalImportPort,
     DurableCanonicalPreparation, DurableCanonicalSourcePort, DurableEnvelope,
@@ -263,6 +263,24 @@ pub trait WorkbenchRepositoryPort: Send + Sync {
     fn list_operations(&self, query: &OperationQuery) -> Result<Vec<OperationRecord>, String>;
 }
 
+pub trait WorkbenchSurfacePort: Send + Sync {
+    fn home(&self, state: &Value) -> Result<Value, String>;
+    fn topics(&self, state: &Value) -> Result<Value, String>;
+    fn index(&self, state: &Value) -> Result<Value, String>;
+    fn reference_review(&self, state: &Value) -> Result<Value, String>;
+    fn topic_graph_review(&self, state: &Value) -> Result<Value, String>;
+    fn concept_review(&self, state: &Value) -> Result<Value, String>;
+    fn graph(&self, state: &Value) -> Result<Value, String>;
+    fn tags(&self, state: &Value) -> Result<Value, String>;
+    fn concepts(&self, state: &Value) -> Result<Value, String>;
+    fn reader(&self, state: &Value) -> Result<Value, String>;
+}
+
+pub trait TopicLibraryQueryPort: Send + Sync {
+    fn list_items_page(&self, cursor: &str, limit: usize) -> Result<TopicLibraryPage, String>;
+    fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<TopicLibraryItemsByRef, String>;
+}
+
 pub trait TopicRepositoryPort: Send + Sync {
     fn get_state(&self, topic_id: &str) -> Result<Option<TopicApplicationStateRecord>, String>;
     fn list_states(
@@ -285,6 +303,20 @@ pub trait TopicRepositoryPort: Send + Sync {
             .collect::<Result<Vec<_>, String>>()?;
         Ok((records, total))
     }
+    fn find_records_by_paper_refs(
+        &self,
+        paper_refs: &[String],
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        let _ = (paper_refs, limit);
+        Err("topic_query_unavailable".into())
+    }
+    fn list_workflow_option_records(
+        &self,
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        self.list_records(0, limit)
+    }
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String>;
     fn get_projection(
         &self,
@@ -299,6 +331,15 @@ pub trait TopicRepositoryPort: Send + Sync {
     ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String>;
     fn soft_delete(&self, record: &DeletedTopicArtifactRecord) -> Result<(), String>;
     fn purge_deleted(&self, records: &[DeletedTopicArtifactRecord]) -> Result<usize, String>;
+    fn update_discovery_hint(
+        &self,
+        hint_id: &str,
+        status: &str,
+        updated_at: &str,
+    ) -> Result<Option<Value>, String> {
+        let _ = (hint_id, status, updated_at);
+        Err("topic_discovery_hint_unavailable".into())
+    }
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
     fn update_operation(
         &self,
@@ -1009,6 +1050,27 @@ impl TopicRepositoryPort for RepositoryPort {
             .list_topic_application_records(offset, limit)
     }
 
+    fn find_records_by_paper_refs(
+        &self,
+        paper_refs: &[String],
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .find_topic_application_records_by_paper_refs(paper_refs, limit)
+    }
+
+    fn list_workflow_option_records(
+        &self,
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_topic_workflow_option_records(limit)
+    }
+
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String> {
         self.repository
             .lock()
@@ -1063,6 +1125,18 @@ impl TopicRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .purge_deleted_topic_artifacts(records)
+    }
+
+    fn update_discovery_hint(
+        &self,
+        hint_id: &str,
+        status: &str,
+        updated_at: &str,
+    ) -> Result<Option<Value>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .update_topic_discovery_hint_status(hint_id, status, updated_at)
     }
 
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {

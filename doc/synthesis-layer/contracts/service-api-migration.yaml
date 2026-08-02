@@ -59,6 +59,7 @@ production_native_route:
     baseline_observables: test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json
     route_harness: test/helpers/synthesisProductionRouteHarness.ts
     scale_gate: scripts/check-synthesis-production-route-performance.ts
+    topic_workbench_parity: scripts/check-synthesis-topic-workbench-surface-parity.ts
   observations:
     sql_queries: synthesis-sidecar-observation.v2:sqlQueryCount
     sql_writes: synthesis-sidecar-observation.v2:sqlWriteCount
@@ -341,6 +342,9 @@ method_groups:
     target_capability: workflow_apply
     disposition: client_capability
     consumer_groups: [workflow, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs
+    application_owner: synthesis_application
+    production_evidence: production_native_route.evidence
     methods:
       - applyLiteratureDigestSidecar
       - name: applyReferenceMatchingSidecar
@@ -353,6 +357,9 @@ method_groups:
     target_capability: workbench
     disposition: client_capability
     consumer_groups: [workbench]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs
+    application_owner: synthesis_application
+    production_evidence: production_native_route.evidence
     methods:
       - getSynthesisBackgroundJobRows
       - getSynthesisWorkbenchChromeInput
@@ -391,6 +398,9 @@ method_groups:
     target_capability: topics
     disposition: client_capability
     consumer_groups: [workbench, workflow, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs
+    application_owner: synthesis_application
+    production_evidence: production_native_route.evidence
     methods:
       - name: listDeletedTopicArtifacts
         migration: merged
@@ -411,6 +421,9 @@ method_groups:
     target_capability: topics
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs
+    application_owner: synthesis_application
+    production_evidence: production_native_route.evidence
     methods:
       - deleteTopicArtifact
       - purgeDeletedTopicArtifacts

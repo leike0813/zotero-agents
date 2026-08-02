@@ -3,7 +3,10 @@ import { fileURLToPath } from "node:url";
 import {
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../packages/synthesis-contracts/src/sidecarSystem";
-import { readSynthesisProductionSurfaceCorpora } from "./synthesisProductionSurfaceCorpora";
+import {
+  readSynthesisProductionBaselineFixture,
+  readSynthesisProductionSurfaceCorpora,
+} from "./synthesisProductionSurfaceCorpora";
 
 type Corpus = {
   schema: string;
@@ -20,6 +23,14 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     (surface) => surface.id === "topic-workbench",
   )!.corpus as Corpus;
   const ids = corpus.operations.map((operation) => operation.id);
+  const baseline = readSynthesisProductionBaselineFixture(root);
+  const observables = baseline.surfaces.find(
+    (surface) => surface.id === "topic-workbench",
+  )?.cases ?? [];
+  const observableIds = observables.map((observable) => observable.operation);
+  const observableAccess = new Map(
+    observables.map((observable) => [observable.operation, observable.access]),
+  );
   const requiredCases = ["invalid_args", "oversized", "expired"];
   const errors = [
     ...(corpus.schema === "synthesis-topic-workbench-surface-parity.v1" &&
@@ -35,6 +46,17 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     ...(ids.length === 18 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
+    ...ids
+      .filter((id) => !observableIds.includes(id))
+      .map((id) => `missing baseline observable: ${id}`),
+    ...observableIds
+      .filter((id) => !ids.includes(id))
+      .map((id) => `unknown baseline observable: ${id}`),
+    ...corpus.operations
+      .filter(
+        (operation) => observableAccess.get(operation.id) !== operation.access,
+      )
+      .map((operation) => `baseline access mismatch: ${operation.id}`),
     ...corpus.operations
       .filter((operation) => requiredCases.some((name) => !operation.cases.includes(name)))
       .map((operation) => `missing boundary cases: ${operation.id}`),
@@ -54,7 +76,12 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
       )
       .map((id) => `not ready: ${id}`),
   ];
-  return { ok: errors.length === 0, operations: ids.length, errors };
+  return {
+    ok: errors.length === 0,
+    operations: ids.length,
+    observables: observableIds.length,
+    errors,
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

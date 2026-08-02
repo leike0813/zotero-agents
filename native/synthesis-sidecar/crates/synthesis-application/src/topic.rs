@@ -1,12 +1,18 @@
 use crate::dto::{
-    TopicApplyRequest, TopicApplyResult, TopicApplyStatus, TopicDeleteRequest, TopicDeleteResult,
-    TopicDeleteStatus, TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult,
-    TopicPurgeResult, TopicRecord,
+    TopicApplyRequest, TopicApplyResult, TopicApplyStatus, TopicContextRequest, TopicContextResult,
+    TopicContextView, TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailRequest,
+    TopicDetailResult, TopicDiscoveryHintRequest, TopicDiscoveryHintResult, TopicFindDiagnostics,
+    TopicFindRequest, TopicFindResult, TopicFindRow, TopicListRequest, TopicListResult,
+    TopicPurgeResult, TopicRecord, TopicReportRequest, TopicReportResult, TopicResolverCombine,
+    TopicResolverPaper, TopicResolverRequest, TopicResolverResult, TopicWorkflowFilter,
+    TopicWorkflowOption, TopicWorkflowOptionsResult,
 };
-use crate::ports::{StructuredArtifactPort, TopicCanonicalPort, TopicRepositoryPort};
+use crate::ports::{
+    StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
+};
 use crate::topic_graph::TopicGraphApplication;
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -25,6 +31,8 @@ const MAX_ASSETS: usize = 256;
 const MAX_ASSET_BYTES: usize = 5 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES: usize = 50 * 1024 * 1024;
 const MAX_LIST: usize = 250;
+const MAX_RESOLVER_CANDIDATES: usize = 10_000;
+const RESOLVER_PAGE_LIMIT: usize = 100;
 const BUNDLE_FIELDS: &[&str] = &[
     "kind",
     "operation",
@@ -191,6 +199,438 @@ impl TopicApplication {
                 })
             }
         }
+    }
+
+    pub fn find_by_paper_refs(&self, request: TopicFindRequest) -> Result<TopicFindResult, String> {
+        let mut paper_refs = request
+            .paper_refs
+            .into_iter()
+            .map(|paper_ref| paper_ref.trim().to_owned())
+            .filter(|paper_ref| !paper_ref.is_empty())
+            .collect::<Vec<_>>();
+        paper_refs.sort();
+        paper_refs.dedup();
+        if paper_refs.is_empty() || paper_refs.len() > 100 {
+            return Ok(TopicFindResult {
+                ok: false,
+                status: "invalid_request".into(),
+                topics: Vec::new(),
+                diagnostics: TopicFindDiagnostics {
+                    requested_count: paper_refs.len(),
+                    matched_topic_count: 0,
+                    unmatched_paper_refs: paper_refs.clone(),
+                    source: "artifact_state".into(),
+                    errors: vec!["paper_ref or paper_refs is required".into()],
+                },
+                paper_refs,
+            });
+        }
+        let (rows, _) = self
+            .repository
+            .find_records_by_paper_refs(&paper_refs, MAX_LIST)?;
+        let requested = paper_refs.iter().cloned().collect::<HashSet<_>>();
+        let mut matched_refs = HashSet::new();
+        let mut topics = rows
+            .into_iter()
+            .map(|(state, projection)| project_record(state, projection))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|topic| {
+                let mut matched = resolved_paper_refs(&topic.resolved_paper_set)
+                    .into_iter()
+                    .filter(|paper_ref| requested.contains(paper_ref))
+                    .collect::<Vec<_>>();
+                matched.sort();
+                matched.dedup();
+                if matched.is_empty() {
+                    return None;
+                }
+                matched_refs.extend(matched.iter().cloned());
+                Some(TopicFindRow {
+                    topic_id: topic.topic_id,
+                    title: topic.title,
+                    status: topic.operation,
+                    updated_at: topic.updated_at,
+                    matched_paper_refs: matched,
+                    match_sources: vec!["current_dependencies".into()],
+                    freshness: topic
+                        .projection
+                        .get("freshness")
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                    source_materials_status: topic
+                        .projection
+                        .get("source_materials_status")
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                })
+            })
+            .collect::<Vec<_>>();
+        topics.sort_by(|left, right| {
+            left.title
+                .to_lowercase()
+                .cmp(&right.title.to_lowercase())
+                .then_with(|| left.topic_id.cmp(&right.topic_id))
+        });
+        let unmatched = paper_refs
+            .iter()
+            .filter(|paper_ref| !matched_refs.contains(*paper_ref))
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(TopicFindResult {
+            ok: true,
+            status: "ok".into(),
+            diagnostics: TopicFindDiagnostics {
+                requested_count: paper_refs.len(),
+                matched_topic_count: topics.len(),
+                unmatched_paper_refs: unmatched,
+                source: "artifact_state".into(),
+                errors: Vec::new(),
+            },
+            paper_refs,
+            topics,
+        })
+    }
+
+    pub fn workflow_options(
+        &self,
+        filter: TopicWorkflowFilter,
+    ) -> Result<TopicWorkflowOptionsResult, String> {
+        let (rows, _) = self.repository.list_workflow_option_records(MAX_LIST)?;
+        let mut options = rows
+            .into_iter()
+            .map(|(state, projection)| project_record(state, projection))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|topic| {
+                filter == TopicWorkflowFilter::All || !topic_update_blocked(&topic.projection)
+            })
+            .map(|topic| {
+                let title = if topic.title.trim().is_empty() {
+                    topic.topic_id.clone()
+                } else {
+                    topic.title.clone()
+                };
+                match filter {
+                    TopicWorkflowFilter::All => TopicWorkflowOption {
+                        value: topic.topic_id.clone(),
+                        label: title.clone(),
+                        description: [
+                            (!topic.operation.is_empty())
+                                .then(|| format!("status {}", topic.operation)),
+                            (!topic.updated_at.is_empty())
+                                .then(|| format!("updated {}", topic.updated_at)),
+                            Some(topic.topic_id.clone()),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" · "),
+                        meta: json!({
+                            "kind":"synthesis.topic",
+                            "topicId":topic.topic_id,
+                            "title":title,
+                            "status":topic.operation,
+                            "updatedAt":topic.updated_at,
+                        }),
+                    },
+                    TopicWorkflowFilter::Updatable => {
+                        let update = topic_update_projection(&topic.projection);
+                        let action = update
+                            .get("actionLabel")
+                            .or_else(|| update.get("action_label"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("Update");
+                        let freshness = update
+                            .get("freshness")
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown");
+                        let source_status = update
+                            .get("sourceMaterialsStatus")
+                            .or_else(|| update.get("source_materials_status"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("missing");
+                        TopicWorkflowOption {
+                            value: topic.topic_id.clone(),
+                            label: title.clone(),
+                            description: format!(
+                                "{action} · freshness {freshness} · source materials {source_status} · {}",
+                                topic.topic_id
+                            ),
+                            meta: json!({
+                                "kind":"synthesis.topic",
+                                "topicId":topic.topic_id,
+                                "title":title,
+                                "actionLabel":action,
+                                "freshness":freshness,
+                                "sourceMaterialsStatus":source_status,
+                            }),
+                        }
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        options.sort_by(|left, right| {
+            left.label
+                .to_lowercase()
+                .cmp(&right.label.to_lowercase())
+                .then_with(|| left.value.cmp(&right.value))
+        });
+        Ok(TopicWorkflowOptionsResult {
+            options,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    pub fn context(&self, request: TopicContextRequest) -> Result<TopicContextResult, String> {
+        let topic_id = request.topic_id.clone();
+        let result = match self.detail(TopicDetailRequest {
+            topic_id: topic_id.clone(),
+        })? {
+            TopicDetailResult::Absent { diagnostics, .. } => json!({
+                "schema_id":"synthesis.topic_context",
+                "schema_version":"2.0.0",
+                "topic_id":topic_id,
+                "status":"not_found",
+                "diagnostics":diagnostics,
+            }),
+            TopicDetailResult::Invalid { diagnostics, .. } => json!({
+                "schema_id":"synthesis.topic_context",
+                "schema_version":"2.0.0",
+                "topic_id":topic_id,
+                "status":"invalid",
+                "diagnostics":diagnostics,
+            }),
+            TopicDetailResult::Ready {
+                topic, snapshot, ..
+            } => {
+                let digest = json!({
+                    "topic_id":topic.topic_id,
+                    "title":topic.title,
+                    "definition":topic.definition,
+                    "language":topic.language,
+                    "markdown":snapshot.markdown,
+                });
+                let semantic = json!({
+                    "topic_definition":topic.topic_definition,
+                    "topic_resolver":topic.topic_resolver,
+                    "resolved_paper_set":topic.resolved_paper_set,
+                });
+                let audit = json!({
+                    "manifest":snapshot.manifest,
+                    "metadata":snapshot.metadata,
+                    "artifact":snapshot.artifact,
+                    "projection":topic.projection,
+                });
+                match request.view {
+                    TopicContextView::Digest => json!({
+                        "schema_id":"synthesis.topic_context","schema_version":"2.0.0",
+                        "topic_id":topic_id,"view":"digest","digest":digest,
+                    }),
+                    TopicContextView::Semantic => json!({
+                        "schema_id":"synthesis.topic_context","schema_version":"2.0.0",
+                        "topic_id":topic_id,"view":"semantic","semantic":semantic,
+                    }),
+                    TopicContextView::Audit => json!({
+                        "schema_id":"synthesis.topic_context","schema_version":"2.0.0",
+                        "topic_id":topic_id,"view":"audit","audit":audit,
+                    }),
+                    TopicContextView::Full => json!({
+                        "schema_id":"synthesis.topic_context","schema_version":"2.0.0",
+                        "topic_id":topic_id,"view":"full","digest":digest,"semantic":semantic,"audit":audit,
+                    }),
+                }
+            }
+        };
+        Ok(TopicContextResult(result))
+    }
+
+    pub fn report(&self, request: TopicReportRequest) -> Result<TopicReportResult, String> {
+        let topic_id = request.topic_id;
+        let TopicDetailResult::Ready {
+            topic, snapshot, ..
+        } = self.detail(TopicDetailRequest {
+            topic_id: topic_id.clone(),
+        })?
+        else {
+            return Ok(TopicReportResult {
+                ok: false,
+                status: "not_found".into(),
+                topic_id,
+                title: String::new(),
+                format: "markdown".into(),
+                markdown: String::new(),
+                source: None,
+                metadata: None,
+                diagnostics: vec!["topic_report_unavailable".into()],
+            });
+        };
+        let report = snapshot
+            .artifact
+            .get("synthesis_report")
+            .or_else(|| snapshot.artifact.get("synthesisReport"))
+            .and_then(Value::as_object);
+        let markdown = report
+            .and_then(|value| value.get("body").or_else(|| value.get("markdown")))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let available = !markdown.is_empty();
+        Ok(TopicReportResult {
+            ok: available,
+            status: if available {
+                "available"
+            } else {
+                "unavailable"
+            }
+            .into(),
+            topic_id: topic.topic_id.clone(),
+            title: report
+                .and_then(|value| value.get("title"))
+                .and_then(Value::as_str)
+                .unwrap_or(&topic.title)
+                .to_owned(),
+            format: "markdown".into(),
+            markdown,
+            source: Some(json!({
+                "path":format!("topics/{}/current/artifact.json", topic.path_id),
+                "field":"synthesis_report.body",
+                "ssot":"runtime.synthesis_report.body",
+            })),
+            metadata: Some(json!({
+                "language":topic.language,
+                "updated_at":topic.updated_at,
+                "artifact_hash":topic.artifact_hash,
+                "manifest_hash":topic.manifest_hash,
+                "metadata_hash":topic.metadata_hash,
+            })),
+            diagnostics: if available {
+                Vec::new()
+            } else {
+                vec!["synthesis_report_body_unavailable".into()]
+            },
+        })
+    }
+
+    pub fn resolve(
+        &self,
+        library: &dyn TopicLibraryQueryPort,
+        request: TopicResolverRequest,
+    ) -> Result<TopicResolverResult, String> {
+        if request.limit == 0 || request.limit > MAX_LIST {
+            return Err("invalid_request".into());
+        }
+        let requires_scan = request.tag.is_some() || !request.collection_keys.is_empty();
+        let items = if requires_scan {
+            collect_library_candidates(library)?
+        } else {
+            library.get_items_by_ref(&request.paper_refs)?.items
+        };
+        let collection_keys = request
+            .collection_keys
+            .iter()
+            .map(|value| value.to_lowercase())
+            .collect::<HashSet<_>>();
+        let paper_refs = request.paper_refs.iter().cloned().collect::<HashSet<_>>();
+        let selector_count = usize::from(request.tag.is_some())
+            + usize::from(!collection_keys.is_empty())
+            + usize::from(!paper_refs.is_empty());
+        let mut papers = items
+            .iter()
+            .filter_map(|item| {
+                let mut reasons = Vec::new();
+                if request
+                    .tag
+                    .as_ref()
+                    .is_some_and(|query| tag_query_matches(&item.tags, query))
+                {
+                    reasons.push("tag".into());
+                }
+                if !collection_keys.is_empty()
+                    && item
+                        .collections
+                        .iter()
+                        .any(|value| collection_keys.contains(&value.to_lowercase()))
+                {
+                    reasons.push("collection_key".into());
+                }
+                if paper_refs.contains(&item.paper_ref) {
+                    reasons.push("paper_refs".into());
+                }
+                let matched = match request.combine {
+                    TopicResolverCombine::Union => !reasons.is_empty(),
+                    TopicResolverCombine::Intersection => reasons.len() == selector_count,
+                };
+                matched.then(|| {
+                    reasons.sort();
+                    TopicResolverPaper {
+                        paper_ref: item.paper_ref.clone(),
+                        item_key: item.item_key.clone(),
+                        title: item.title.clone(),
+                        year: item.year.clone(),
+                        match_reasons: reasons,
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        papers.sort_by(|left, right| left.paper_ref.cmp(&right.paper_ref));
+        let total = papers.len();
+        if request.cursor > total {
+            return Err("invalid_request".into());
+        }
+        let end = total.min(request.cursor.saturating_add(request.limit));
+        let page = papers[request.cursor..end].to_vec();
+        let has_more = end < total;
+        Ok(TopicResolverResult {
+            ok: total > 0,
+            errors: if total == 0 {
+                vec!["resolver matched no papers".into()]
+            } else {
+                Vec::new()
+            },
+            papers: page,
+            normalized_resolver: request.normalized,
+            cursor: request.cursor.to_string(),
+            next_cursor: if has_more {
+                end.to_string()
+            } else {
+                String::new()
+            },
+            has_more,
+            returned: end - request.cursor,
+            total,
+            limit: request.limit,
+            diagnostics: json!({
+                "final_count":total,
+                "total_candidates":items.len(),
+                "rejected":false,
+            }),
+        })
+    }
+
+    pub fn update_discovery_hint(
+        &self,
+        request: TopicDiscoveryHintRequest,
+    ) -> Result<TopicDiscoveryHintResult, String> {
+        if request.hint_id.trim().is_empty()
+            || !matches!(request.status.as_str(), "open" | "rejected")
+        {
+            return Err("invalid_request".into());
+        }
+        let status = request.status;
+        let hint =
+            self.repository
+                .update_discovery_hint(&request.hint_id, &status, &(self.now)())?;
+        Ok(TopicDiscoveryHintResult {
+            ok: true,
+            status: if hint.is_some() {
+                status
+            } else {
+                "not_found".into()
+            },
+            hint,
+            diagnostics: Vec::new(),
+        })
     }
 
     pub fn list_deleted(
@@ -1170,6 +1610,107 @@ fn parse_object(text: &str) -> Result<Value, String> {
     }
 }
 
+fn resolved_paper_refs(value: &Value) -> Vec<String> {
+    value
+        .get("papers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|paper| {
+            paper
+                .get("paper_ref")
+                .or_else(|| paper.get("paperRef"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+fn topic_update_projection(projection: &Value) -> &serde_json::Map<String, Value> {
+    projection
+        .get("recommendedUpdate")
+        .or_else(|| projection.get("recommended_update"))
+        .or_else(|| {
+            projection
+                .get("discovery")
+                .and_then(|value| value.get("recommended_update"))
+        })
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            static EMPTY: std::sync::OnceLock<serde_json::Map<String, Value>> =
+                std::sync::OnceLock::new();
+            EMPTY.get_or_init(serde_json::Map::new)
+        })
+}
+
+fn topic_update_blocked(projection: &Value) -> bool {
+    topic_update_projection(projection)
+        .get("blocked")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn resolver_strings(value: &Value) -> Vec<String> {
+    match value {
+        Value::String(value) => vec![value.to_owned()],
+        Value::Array(values) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn tag_query_matches(item_tags: &[String], query: &Value) -> bool {
+    let tags = item_tags
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect::<HashSet<_>>();
+    let contains = |value: &str| tags.contains(&value.to_lowercase());
+    match query {
+        Value::String(value) => contains(value),
+        Value::Array(_) => resolver_strings(query).iter().all(|value| contains(value)),
+        Value::Object(object) => {
+            let and_values = object.get("and").map(resolver_strings).unwrap_or_default();
+            let or_values = object.get("or").map(resolver_strings).unwrap_or_default();
+            let not_values = object.get("not").map(resolver_strings).unwrap_or_default();
+            and_values.iter().all(|value| contains(value))
+                && (or_values.is_empty() || or_values.iter().any(|value| contains(value)))
+                && !not_values.iter().any(|value| contains(value))
+        }
+        _ => false,
+    }
+}
+
+fn collect_library_candidates(
+    library: &dyn TopicLibraryQueryPort,
+) -> Result<Vec<crate::dto::TopicLibraryItem>, String> {
+    let mut cursor = String::new();
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    loop {
+        let page = library.list_items_page(&cursor, RESOLVER_PAGE_LIMIT)?;
+        if page.cursor != cursor
+            || !seen.insert(page.cursor.clone())
+            || (page.has_more && (page.next_cursor.is_empty() || page.next_cursor == cursor))
+            || (!page.has_more && !page.next_cursor.is_empty())
+        {
+            return Err("topic_library_page_invalid".into());
+        }
+        items.extend(page.items);
+        if items.len() > MAX_RESOLVER_CANDIDATES {
+            return Err("resolver_candidate_limit_exceeded".into());
+        }
+        if !page.has_more {
+            items.sort_by(|left, right| left.paper_ref.cmp(&right.paper_ref));
+            items.dedup_by(|left, right| left.paper_ref == right.paper_ref);
+            return Ok(items);
+        }
+        cursor = page.next_cursor;
+    }
+}
+
 fn project_record(
     state: TopicApplicationStateRecord,
     projection: Option<TopicApplicationProjectionRecord>,
@@ -1237,11 +1778,14 @@ fn failed_from_error(error: String, topic_id: &str, operation_id: &str) -> Topic
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dto::{PatchOutput, TopicAsset};
+    use crate::dto::{
+        PatchOutput, TopicAsset, TopicLibraryItem, TopicLibraryItemsByRef, TopicLibraryPage,
+    };
     use crate::ports::{CanonicalStorePort, RepositoryPort};
     use crate::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::Mutex as TestMutex;
     use std::sync::atomic::AtomicUsize;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{
@@ -1254,6 +1798,45 @@ mod tests {
         list_states: AtomicUsize,
         list_records: AtomicUsize,
         get_projection: AtomicUsize,
+    }
+
+    struct FixtureLibrary {
+        items: Vec<TopicLibraryItem>,
+        page_reads: TestMutex<usize>,
+        keyed_reads: TestMutex<usize>,
+    }
+
+    impl TopicLibraryQueryPort for FixtureLibrary {
+        fn list_items_page(&self, cursor: &str, _limit: usize) -> Result<TopicLibraryPage, String> {
+            *self.page_reads.lock().expect("page reads") += 1;
+            if !cursor.is_empty() {
+                return Err("unexpected_cursor".into());
+            }
+            Ok(TopicLibraryPage {
+                items: self.items.clone(),
+                cursor: String::new(),
+                next_cursor: String::new(),
+                has_more: false,
+            })
+        }
+
+        fn get_items_by_ref(
+            &self,
+            paper_refs: &[String],
+        ) -> Result<TopicLibraryItemsByRef, String> {
+            *self.keyed_reads.lock().expect("keyed reads") += 1;
+            let requested = paper_refs.iter().collect::<HashSet<_>>();
+            let items = self
+                .items
+                .iter()
+                .filter(|item| requested.contains(&item.paper_ref))
+                .cloned()
+                .collect::<Vec<_>>();
+            Ok(TopicLibraryItemsByRef {
+                items,
+                missing_paper_refs: Vec::new(),
+            })
+        }
     }
 
     impl TopicRepositoryPort for CountingTopicRepository {
@@ -1820,6 +2403,141 @@ mod tests {
             panic!("ready");
         };
         assert!(snapshot.sections.contains_key("source_papers"));
+        drop(application);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn topic_queries_preserve_fixed_filters_context_views_and_explicit_report_source() {
+        let root = root("query-surface");
+        let application = make_application(&root);
+        assert!(application.apply(request("topic-alpha", "create")).ok);
+
+        let found = application
+            .find_by_paper_refs(TopicFindRequest {
+                paper_refs: vec!["1:MISSING".into(), "1:AAAA".into(), "1:AAAA".into()],
+            })
+            .expect("find topics");
+        assert!(found.ok);
+        assert_eq!(found.paper_refs, vec!["1:AAAA", "1:MISSING"]);
+        assert_eq!(found.topics.len(), 1);
+        assert_eq!(found.topics[0].topic_id, "topic-alpha");
+        assert_eq!(found.topics[0].matched_paper_refs, vec!["1:AAAA"]);
+        assert_eq!(found.diagnostics.unmatched_paper_refs, vec!["1:MISSING"]);
+
+        for filter in [TopicWorkflowFilter::All, TopicWorkflowFilter::Updatable] {
+            let options = application
+                .workflow_options(filter)
+                .expect("workflow options");
+            assert_eq!(options.options.len(), 1);
+            assert_eq!(options.options[0].value, "topic-alpha");
+        }
+
+        for (view, expected) in [
+            (TopicContextView::Digest, "digest"),
+            (TopicContextView::Semantic, "semantic"),
+            (TopicContextView::Audit, "audit"),
+            (TopicContextView::Full, "full"),
+        ] {
+            let context = application
+                .context(TopicContextRequest {
+                    topic_id: "topic-alpha".into(),
+                    view,
+                })
+                .expect("topic context");
+            assert_eq!(context.0["view"], expected);
+        }
+
+        let report = application
+            .report(TopicReportRequest {
+                topic_id: "topic-alpha".into(),
+            })
+            .expect("topic report");
+        assert!(!report.ok);
+        assert_eq!(report.status, "unavailable");
+        assert!(report.markdown.is_empty());
+        assert_eq!(
+            report.diagnostics,
+            vec!["synthesis_report_body_unavailable"]
+        );
+
+        drop(application);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolver_uses_keyed_reads_when_possible_and_bounded_scan_for_composite_selectors() {
+        let root = root("resolver");
+        let application = make_application(&root);
+        let library = FixtureLibrary {
+            items: vec![
+                TopicLibraryItem {
+                    paper_ref: "1:AAAA".into(),
+                    library_id: 1,
+                    item_key: "AAAA".into(),
+                    item_type: "journalArticle".into(),
+                    title: "Alpha".into(),
+                    year: "2024".into(),
+                    tags: vec!["topic:alpha".into()],
+                    collections: vec!["COLLECTION-A".into()],
+                },
+                TopicLibraryItem {
+                    paper_ref: "1:BBBB".into(),
+                    library_id: 1,
+                    item_key: "BBBB".into(),
+                    item_type: "journalArticle".into(),
+                    title: "Beta".into(),
+                    year: "2025".into(),
+                    tags: vec!["topic:beta".into()],
+                    collections: vec!["COLLECTION-A".into()],
+                },
+            ],
+            page_reads: TestMutex::new(0),
+            keyed_reads: TestMutex::new(0),
+        };
+
+        let keyed = application
+            .resolve(
+                &library,
+                TopicResolverRequest {
+                    tag: None,
+                    collection_keys: Vec::new(),
+                    paper_refs: vec!["1:BBBB".into()],
+                    combine: TopicResolverCombine::Union,
+                    cursor: 0,
+                    limit: 50,
+                    normalized: json!({"paper_refs":["1:BBBB"]}),
+                },
+            )
+            .expect("keyed resolver");
+        assert_eq!(keyed.total, 1);
+        assert_eq!(keyed.papers[0].paper_ref, "1:BBBB");
+        assert_eq!(*library.keyed_reads.lock().expect("keyed reads"), 1);
+        assert_eq!(*library.page_reads.lock().expect("page reads"), 0);
+
+        let composite = application
+            .resolve(
+                &library,
+                TopicResolverRequest {
+                    tag: Some(json!({"and":["topic:alpha"]})),
+                    collection_keys: vec!["collection-a".into()],
+                    paper_refs: vec!["1:AAAA".into()],
+                    combine: TopicResolverCombine::Intersection,
+                    cursor: 0,
+                    limit: 1,
+                    normalized: json!({"combine":"intersection"}),
+                },
+            )
+            .expect("composite resolver");
+        assert_eq!(composite.total, 1);
+        assert_eq!(composite.returned, 1);
+        assert!(!composite.has_more);
+        assert_eq!(
+            composite.papers[0].match_reasons,
+            vec!["collection_key", "paper_refs", "tag"]
+        );
+        assert_eq!(*library.page_reads.lock().expect("page reads"), 1);
+
         drop(application);
         fs::remove_dir_all(root).expect("cleanup");
     }

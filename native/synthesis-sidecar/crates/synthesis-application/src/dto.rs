@@ -173,6 +173,216 @@ pub struct TopicListResult {
     pub limit: usize,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicFindRequest {
+    pub paper_refs: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TopicFindRow {
+    pub topic_id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub status: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub updated_at: String,
+    pub matched_paper_refs: Vec<String>,
+    pub match_sources: Vec<String>,
+    pub freshness: Value,
+    pub source_materials_status: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TopicFindDiagnostics {
+    pub requested_count: usize,
+    pub matched_topic_count: usize,
+    pub unmatched_paper_refs: Vec<String>,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TopicFindResult {
+    pub ok: bool,
+    pub status: String,
+    pub paper_refs: Vec<String>,
+    pub topics: Vec<TopicFindRow>,
+    pub diagnostics: TopicFindDiagnostics,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TopicWorkflowFilter {
+    All,
+    Updatable,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TopicWorkflowOption {
+    pub value: String,
+    pub label: String,
+    pub description: String,
+    pub meta: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TopicWorkflowOptionsResult {
+    pub options: Vec<TopicWorkflowOption>,
+    pub diagnostics: Vec<Value>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TopicContextView {
+    Digest,
+    Semantic,
+    Audit,
+    Full,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicContextRequest {
+    pub topic_id: String,
+    pub view: TopicContextView,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct TopicContextResult(pub Value);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicReportRequest {
+    pub topic_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TopicReportResult {
+    pub ok: bool,
+    pub status: String,
+    pub topic_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    pub format: String,
+    pub markdown: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TopicResolverCombine {
+    Union,
+    Intersection,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopicResolverRequest {
+    pub tag: Option<Value>,
+    pub collection_keys: Vec<String>,
+    pub paper_refs: Vec<String>,
+    pub combine: TopicResolverCombine,
+    pub cursor: usize,
+    pub limit: usize,
+    pub normalized: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TopicLibraryItem {
+    pub paper_ref: String,
+    pub library_id: i64,
+    pub item_key: String,
+    #[serde(default)]
+    pub item_type: String,
+    pub title: String,
+    #[serde(default)]
+    pub year: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub collections: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicLibraryPage {
+    pub items: Vec<TopicLibraryItem>,
+    pub cursor: String,
+    pub next_cursor: String,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicLibraryItemsByRef {
+    pub items: Vec<TopicLibraryItem>,
+    pub missing_paper_refs: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TopicResolverPaper {
+    pub paper_ref: String,
+    pub item_key: String,
+    pub title: String,
+    pub year: String,
+    pub match_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TopicResolverResult {
+    pub ok: bool,
+    pub errors: Vec<String>,
+    pub papers: Vec<TopicResolverPaper>,
+    pub normalized_resolver: Value,
+    pub cursor: String,
+    pub next_cursor: String,
+    pub has_more: bool,
+    pub returned: usize,
+    pub total: usize,
+    pub limit: usize,
+    pub diagnostics: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicDiscoveryHintRequest {
+    pub hint_id: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TopicDiscoveryHintResult {
+    pub ok: bool,
+    pub status: String,
+    pub hint: Option<Value>,
+    pub diagnostics: Vec<Value>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkbenchSurface {
+    Home,
+    Topics,
+    Index,
+    Review,
+    Graph,
+    Tags,
+    Concepts,
+    Reader,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorkbenchSurfaceRequest {
+    pub surface: WorkbenchSurface,
+    pub state: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct WorkbenchProjection(pub Value);
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum TopicDetailResult {
