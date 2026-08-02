@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -42,6 +43,30 @@ const RECEIPT_PRODUCTION_OPERATIONS = new Set(
     .filter(([, policy]) => policy.receipt === "public-maintenance-operation")
     .map(([capability]) => capability),
 );
+const BASELINE_PRODUCTION_OBSERVABLES = JSON.parse(
+  fs.readFileSync(
+    path.join(
+      ROOT,
+      "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
+    ),
+    "utf8",
+  ),
+) as {
+  baseline: { commit: string };
+  surfaces: Array<{
+    id: string;
+    cases: Array<{
+      id: string;
+      operation: string;
+      access: "read" | "mutation";
+      expected: {
+        dtoSemantics: string[];
+        hostEffects: string[];
+        writeExpectation: "zero" | "mutation";
+      };
+    }>;
+  }>;
+};
 const TOPIC_WORKBENCH_OPERATIONS = [
   "client.applyLiteratureDigestSidecar",
   "client.applyTopicSynthesisResult",
@@ -145,37 +170,139 @@ async function call(
   payload: unknown,
   trace?: SynthesisSidecarTraceContext,
 ) {
+  const requestBody = JSON.stringify({
+    protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+    requestId: `test:${capability}`,
+    profileId: "1".repeat(64),
+    capability,
+    payload,
+    ...(trace ? { trace } : {}),
+  });
+  const startedAt = performance.now();
   const response = await fetch(`http://127.0.0.1:${port}/synthesis/v1/call`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${CLIENT_TOKEN}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-      requestId: `test:${capability}`,
-      profileId: "1".repeat(64),
-      capability,
-      payload,
-      ...(trace ? { trace } : {}),
-    }),
+    body: requestBody,
   });
+  const responseBody = await response.text();
   return {
     status: response.status,
-    body: (await response.json()) as Record<string, any>,
+    body: JSON.parse(responseBody) as Record<string, any>,
+    metrics: {
+      durationMs: performance.now() - startedAt,
+      requestBytes: Buffer.byteLength(requestBody),
+      responseBytes: Buffer.byteLength(responseBody),
+    },
   };
 }
 
-async function waitForMaintenanceOperation(
-  port: number,
-  operationId: string,
-) {
+function hashFiles(root: string, relativePaths: string[]) {
+  const hash = createHash("sha256");
+  for (const relativePath of relativePaths.sort()) {
+    const absolutePath = path.join(root, relativePath);
+    hash.update(relativePath);
+    hash.update("\0");
+    hash.update(fs.readFileSync(absolutePath));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function listFiles(root: string, relativeRoot = ""): string[] {
+  const absoluteRoot = path.join(root, relativeRoot);
+  if (!fs.existsSync(absoluteRoot)) return [];
+  return fs
+    .readdirSync(absoluteRoot, { withFileTypes: true })
+    .flatMap((entry) => {
+      const relativePath = path.join(relativeRoot, entry.name);
+      return entry.isDirectory()
+        ? listFiles(root, relativePath)
+        : [relativePath];
+    });
+}
+
+function captureDurableState(root: string) {
+  const relativePaths = [
+    "state/synthesis.db",
+    "state/synthesis.db-wal",
+    ...listFiles(root, "data/synthesis"),
+  ].filter((relativePath) => fs.existsSync(path.join(root, relativePath)));
+  return {
+    files: relativePaths.sort(),
+    sha256: hashFiles(root, relativePaths),
+  };
+}
+
+function assertBaselineDtoSemantics(caseId: string, data: Record<string, any>) {
+  switch (caseId) {
+    case "case:topic-empty-page":
+      assert.deepInclude(data, {
+        topics: [],
+        returned: 0,
+        total: 0,
+        has_more: false,
+      });
+      break;
+    case "case:citation-empty-window":
+      assert.deepInclude(data, {
+        nodes: [],
+        edges: [],
+      });
+      assert.equal(data.diagnostics?.bounded, true);
+      break;
+    case "case:reference-empty-index":
+      assert.deepInclude(data, {
+        rows: [],
+        returned: 0,
+        total: 0,
+        has_more: false,
+      });
+      break;
+    case "case:tag-empty-vocabulary":
+      assert.deepInclude(data, {
+        entryCount: 0,
+        stagedCount: 0,
+        entries: [],
+        staged: [],
+        effects: [],
+      });
+      break;
+    case "case:concept-empty-query":
+      assert.deepInclude(data, {
+        ok: true,
+        labels: [],
+        matches: [],
+        truncated: false,
+      });
+      break;
+    case "case:library-empty-index":
+      assert.deepInclude(data, {
+        papers: [],
+        returned: 0,
+        total_papers: 0,
+        has_more: false,
+      });
+      break;
+    case "case:maintenance-operation-absent":
+      assert.deepInclude(data, {
+        schema: "synthesis.maintenance_operation.v1",
+        operation_id: "baseline:missing",
+        status: "not_found",
+      });
+      break;
+    default:
+      assert.fail(`missing production DTO assertion for ${caseId}`);
+  }
+}
+
+async function waitForMaintenanceOperation(port: number, operationId: string) {
   for (let attempt = 0; attempt < 200; attempt += 1) {
-    const response = await call(
-      port,
-      "client.getPublicMaintenanceOperation",
-      { args: [{ operation_id: operationId }] },
-    );
+    const response = await call(port, "client.getPublicMaintenanceOperation", {
+      args: [{ operation_id: operationId }],
+    });
     assert.equal(response.status, 200, JSON.stringify(response.body));
     if (
       ["completed", "failed", "canceled", "timed_out"].includes(
@@ -382,9 +509,152 @@ describe("Synthesis Rust production client route", function () {
     });
   });
 
+  it("replays every fixed-baseline read observable through the real production route", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    assert.equal(
+      BASELINE_PRODUCTION_OBSERVABLES.baseline.commit,
+      "e210997a11e0054a3cb4ae0656e5cfb96102a09c",
+    );
+    const cases = BASELINE_PRODUCTION_OBSERVABLES.surfaces.flatMap(
+      (surface) => surface.cases,
+    );
+    assert.lengthOf(cases, 7);
+    assert.isTrue(
+      cases.every(
+        (entry) =>
+          entry.access === "read" &&
+          entry.expected.writeExpectation === "zero" &&
+          entry.expected.hostEffects.length === 0,
+      ),
+    );
+
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-baseline-observables-"),
+    );
+    const reverseHostCalls: string[] = [];
+    const reverseHost = http.createServer((request, response) => {
+      let requestBody = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        requestBody += chunk;
+      });
+      request.on("end", () => {
+        const hostCall = JSON.parse(requestBody || "{}") as {
+          capability?: string;
+          payload?: { cursor?: string; limit?: number };
+        };
+        const capability = String(hostCall.capability || "");
+        reverseHostCalls.push(capability);
+        const cursor = hostCall.payload?.cursor || "";
+        const limit = hostCall.payload?.limit || 100;
+        const result =
+          capability === "webdav.describe"
+            ? { configured: false }
+            : capability === "library.items.list_page"
+              ? {
+                  items: [],
+                  cursor,
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 0,
+                  limit,
+                  snapshotRevision: "fixture-baseline-observables",
+                }
+              : capability === "library.artifacts.scan_page"
+                ? {
+                    artifacts: [],
+                    cursor,
+                    nextCursor: "",
+                    hasMore: false,
+                    returned: 0,
+                    limit,
+                    snapshotRevision: "fixture-baseline-observables",
+                  }
+                : { status: "unavailable", diagnostics: [] };
+        const body = JSON.stringify({ ok: true, result });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "baseline");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-baseline-observables",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    const sidecar = start(configPath);
+    try {
+      const { port } = await sidecar.listening;
+      const warmup = await call(
+        port,
+        "client.getSynthesisWorkbenchChromeInput",
+        { args: [{}] },
+      );
+      assert.equal(warmup.status, 200, JSON.stringify(warmup.body));
+
+      const requests: Record<string, unknown> = {
+        "case:topic-empty-page": { args: [{}] },
+        "case:citation-empty-window": { args: [{}] },
+        "case:reference-empty-index": { args: [{}] },
+        "case:tag-empty-vocabulary": { args: [] },
+        "case:concept-empty-query": { args: [{}] },
+        "case:library-empty-index": { args: [{}] },
+        "case:maintenance-operation-absent": {
+          args: [{ operation_id: "baseline:missing" }],
+        },
+      };
+      const observed: string[] = [];
+      for (const entry of cases) {
+        const before = captureDurableState(root);
+        const response = await call(port, entry.operation, requests[entry.id]);
+        assert.equal(response.status, 200, entry.id);
+        assert.isAbove(response.metrics.requestBytes, 0, entry.id);
+        assert.isAbove(response.metrics.responseBytes, 0, entry.id);
+        assertBaselineDtoSemantics(entry.id, response.body.data);
+        assert.deepEqual(captureDurableState(root), before, entry.id);
+        observed.push(entry.id);
+      }
+      assert.deepEqual(
+        observed,
+        cases.map((entry) => entry.id),
+      );
+      assert.isFalse(
+        reverseHostCalls.some((capability) =>
+          capability.startsWith("effects."),
+        ),
+      );
+    } finally {
+      if (sidecar.child.exitCode === null) {
+        await stop(sidecar.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("moves large Topic and artifact content outside the production control envelope", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-content-route-"));
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-content-route-"),
+    );
     const hostCalls: string[] = [];
     const reverseHost = http.createServer((request, response) => {
       let source = "";
@@ -509,9 +779,10 @@ describe("Synthesis Rust production client route", function () {
         mediaType: "text/plain",
         text: "p".repeat(900_000),
       });
-      const applied = await composition.client.workflowApply.applyTopicSynthesisResult(
-        applyRequest,
-      );
+      const applied =
+        await composition.client.workflowApply.applyTopicSynthesisResult(
+          applyRequest,
+        );
       assert.equal(applied.status, "persisted");
 
       const artifacts = await composition.client.artifacts.readPaperArtifacts({
@@ -888,6 +1159,9 @@ describe("Synthesis Rust production client route", function () {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-rust-reference-route-"),
     );
+    const reverseHostCalls: string[] = [];
+    let activeArtifactReads = 0;
+    let maxActiveArtifactReads = 0;
     const reverseHost = http.createServer((request, response) => {
       let requestBody = "";
       request.setEncoding("utf8");
@@ -903,6 +1177,14 @@ describe("Synthesis Rust production client route", function () {
             expectedHash?: string;
           };
         };
+        reverseHostCalls.push(call.capability);
+        if (call.capability === "library.artifacts.read") {
+          activeArtifactReads += 1;
+          maxActiveArtifactReads = Math.max(
+            maxActiveArtifactReads,
+            activeArtifactReads,
+          );
+        }
         const cursor = call.payload.cursor || "";
         const limit = call.payload.limit || 100;
         let result: Record<string, unknown>;
@@ -1065,6 +1347,9 @@ describe("Synthesis Rust production client route", function () {
             "content-length": Buffer.byteLength(body),
           });
           response.end(body);
+          if (call.capability === "library.artifacts.read") {
+            activeArtifactReads -= 1;
+          }
         };
         if (call.capability === "library.artifacts.scan_page") {
           setTimeout(send, 2_100);
@@ -1122,6 +1407,9 @@ describe("Synthesis Rust production client route", function () {
         initialIndexSurface.body.data.registry.rows[0].artifactCoverage,
         "missing",
       );
+      reverseHostCalls.length = 0;
+      activeArtifactReads = 0;
+      maxActiveArtifactReads = 0;
 
       const refreshTrace = {
         schema: "synthesis-sidecar-observation.v2",
@@ -1148,6 +1436,25 @@ describe("Synthesis Rust production client route", function () {
       );
       assert.equal(refreshCompleted.status, "completed");
       assert.equal(refreshCompleted.receipt.ok, true);
+      assert.equal(
+        reverseHostCalls.filter(
+          (capability) => capability === "library.items.list_page",
+        ).length,
+        1,
+        "one refresh must capture the Host item snapshot once",
+      );
+      assert.equal(
+        reverseHostCalls.filter(
+          (capability) => capability === "library.artifacts.scan_page",
+        ).length,
+        1,
+        "one refresh must capture the Host artifact snapshot once",
+      );
+      assert.isAtMost(
+        maxActiveArtifactReads,
+        2,
+        "artifact reads must keep the approved two-call concurrency bound",
+      );
 
       const matching = await call(
         port,
@@ -1720,11 +2027,9 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(completed.status, "completed");
       assert.equal(completed.receipt.ok, true);
 
-      const missing = await call(
-        port,
-        "client.getPublicMaintenanceOperation",
-        { args: [{ operation_id: "maintenance:missing" }] },
-      );
+      const missing = await call(port, "client.getPublicMaintenanceOperation", {
+        args: [{ operation_id: "maintenance:missing" }],
+      });
       assert.equal(missing.status, 200, JSON.stringify(missing.body));
       assert.deepEqual(missing.body.data, {
         schema: "synthesis.maintenance_operation.v1",

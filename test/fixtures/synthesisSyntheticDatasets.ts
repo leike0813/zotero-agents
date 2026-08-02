@@ -7,7 +7,7 @@ import type {
   SynthesisCitationNodeRecord,
 } from "../../src/modules/synthesis/repository";
 
-export type SyntheticSynthesisBenchmarkDatasetName = "1k" | "10k";
+export type SyntheticSynthesisBenchmarkDatasetName = "2k" | "10k" | "25k";
 
 export type SyntheticSynthesisBenchmarkDataset = {
   name: SyntheticSynthesisBenchmarkDatasetName;
@@ -21,8 +21,9 @@ export type SyntheticSynthesisBenchmarkRepositoryState = {
 };
 
 const DATASET_SIZES: Record<SyntheticSynthesisBenchmarkDatasetName, number> = {
-  "1k": 1000,
+  "2k": 2000,
   "10k": 10000,
+  "25k": 25000,
 };
 
 const TOPIC_TAGS = [

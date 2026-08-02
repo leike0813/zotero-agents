@@ -6,16 +6,23 @@ import {
 } from "../fixtures/synthesisSyntheticDatasets";
 
 describe("Synthesis benchmark datasets", function () {
-  it("creates deterministic named 1k and 10k paper datasets", function () {
-    const oneThousand = createSyntheticSynthesisBenchmarkDataset("1k");
+  it("creates the governed deterministic 2k, 10k, and 25k datasets", function () {
+    const twoThousand = createSyntheticSynthesisBenchmarkDataset("2k");
     const tenThousand = createSyntheticSynthesisBenchmarkDataset("10k");
+    const twentyFiveThousand = createSyntheticSynthesisBenchmarkDataset("25k");
 
-    assert.equal(oneThousand.paperCount, 1000);
-    assert.equal(oneThousand.registryInputs.length, 1000);
+    assert.equal(twoThousand.paperCount, 2000);
+    assert.equal(twoThousand.registryInputs.length, 2000);
     assert.equal(tenThousand.paperCount, 10000);
     assert.equal(tenThousand.registryInputs.length, 10000);
-    assert.equal(oneThousand.registryInputs[0].itemKey, "SYN0000001");
+    assert.equal(twentyFiveThousand.paperCount, 25000);
+    assert.equal(twentyFiveThousand.registryInputs.length, 25000);
+    assert.equal(twoThousand.registryInputs[0].itemKey, "SYN0000001");
     assert.equal(tenThousand.registryInputs[9999].itemKey, "SYN0010000");
+    assert.equal(
+      twentyFiveThousand.registryInputs[24999].itemKey,
+      "SYN0025000",
+    );
     assert.equal(
       new Set(tenThousand.registryInputs.map((input) => input.itemKey)).size,
       10000,
