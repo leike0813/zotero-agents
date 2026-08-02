@@ -88,7 +88,7 @@ const RUST_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_client.rs",
 );
-const RUST_COMPAT_DISPATCH_PATH = path.join(
+const RUST_LEGACY_COMPAT_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_compat.rs",
 );
@@ -268,9 +268,8 @@ export function inspectSynthesisProductionCapabilities(
     .digest("hex");
   const rustSource = fs.readFileSync(RUST_PATH, "utf8");
   const rustDispatchSource = fs.readFileSync(RUST_DISPATCH_PATH, "utf8");
-  const rustCompatDispatchSource = fs.readFileSync(
-    RUST_COMPAT_DISPATCH_PATH,
-    "utf8",
+  const legacyCompatModulePresent = fs.existsSync(
+    RUST_LEGACY_COMPAT_DISPATCH_PATH,
   );
   const rustTopicWorkbenchDispatchSource = fs.existsSync(
     RUST_TOPIC_WORKBENCH_DISPATCH_PATH,
@@ -343,7 +342,6 @@ export function inspectSynthesisProductionCapabilities(
       .filter((capability) => !source.includes(`"${capability}"`));
   });
   const rustDispatcherCapabilities = options.rustDispatcherCapabilities ?? [
-    ...extractRustDispatcherCapabilities(rustCompatDispatchSource),
     ...extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource),
     ...extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource),
     ...extractRustDispatcherCapabilities(rustTagDispatchSource),
@@ -353,9 +351,6 @@ export function inspectSynthesisProductionCapabilities(
     ),
     ...extractRustDispatcherCapabilities(rustWebDavMaintenanceDispatchSource),
   ];
-  const rustCompatDispatcherCapabilities = extractRustDispatcherCapabilities(
-    rustCompatDispatchSource,
-  );
   const rustTopicWorkbenchDispatcherCapabilities =
     extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource);
   const rustReferenceCitationDispatcherCapabilities =
@@ -418,10 +413,13 @@ export function inspectSynthesisProductionCapabilities(
           "production_client_operations\n        .get(capability)",
         ) &&
         rustDispatchSource.includes(
-          "dispatch_legacy_client(&state.applications, capability",
+          "dispatch_typed_client(&state.applications, capability",
         )
           ? []
           : ["Rust dispatcher is not bound to the closed operation registry"],
+      legacyCompatModule: legacyCompatModulePresent
+        ? ["legacy Rust production compatibility dispatcher is retained"]
+        : [],
       dispatcherMissing: difference(
         manifestCapabilities,
         dispatcherCapabilities,
@@ -440,11 +438,6 @@ export function inspectSynthesisProductionCapabilities(
           rustTopicWorkbenchDispatcherCapabilities,
           TOPIC_WORKBENCH_TYPED_CAPABILITIES,
         ).map((capability) => `typed owner unknown: ${capability}`),
-        ...rustCompatDispatcherCapabilities
-          .filter((capability) =>
-            TOPIC_WORKBENCH_TYPED_CAPABILITIES.includes(capability as never),
-          )
-          .map((capability) => `compat owner retained: ${capability}`),
       ],
       typedReferenceCitationOwnership: [
         ...difference(
@@ -455,11 +448,6 @@ export function inspectSynthesisProductionCapabilities(
           rustReferenceCitationDispatcherCapabilities,
           referenceCitationTypedCapabilities,
         ).map((capability) => `typed owner unknown: ${capability}`),
-        ...rustCompatDispatcherCapabilities
-          .filter((capability) =>
-            referenceCitationTypedCapabilities.includes(capability),
-          )
-          .map((capability) => `compat owner retained: ${capability}`),
       ],
       typedTagOwnership: [
         ...difference(tagTypedCapabilities, rustTagDispatcherCapabilities).map(
@@ -468,9 +456,6 @@ export function inspectSynthesisProductionCapabilities(
         ...difference(rustTagDispatcherCapabilities, tagTypedCapabilities).map(
           (capability) => `typed owner unknown: ${capability}`,
         ),
-        ...rustCompatDispatcherCapabilities
-          .filter((capability) => tagTypedCapabilities.includes(capability))
-          .map((capability) => `compat owner retained: ${capability}`),
       ],
       typedConceptTopicGraphOwnership: [
         ...difference(
@@ -481,11 +466,6 @@ export function inspectSynthesisProductionCapabilities(
           rustConceptTopicGraphDispatcherCapabilities,
           conceptTopicGraphTypedCapabilities,
         ).map((capability) => `typed owner unknown: ${capability}`),
-        ...rustCompatDispatcherCapabilities
-          .filter((capability) =>
-            conceptTopicGraphTypedCapabilities.includes(capability),
-          )
-          .map((capability) => `compat owner retained: ${capability}`),
       ],
       typedArtifactLibraryDebugOwnership: [
         ...difference(
@@ -496,11 +476,6 @@ export function inspectSynthesisProductionCapabilities(
           rustArtifactLibraryDebugDispatcherCapabilities,
           artifactLibraryDebugTypedCapabilities,
         ).map((capability) => `typed owner unknown: ${capability}`),
-        ...rustCompatDispatcherCapabilities
-          .filter((capability) =>
-            artifactLibraryDebugTypedCapabilities.includes(capability),
-          )
-          .map((capability) => `compat owner retained: ${capability}`),
       ],
       typedWebDavMaintenanceOwnership: [
         ...difference(
@@ -511,11 +486,6 @@ export function inspectSynthesisProductionCapabilities(
           rustWebDavMaintenanceDispatcherCapabilities,
           webDavMaintenanceTypedCapabilities,
         ).map((capability) => `typed owner unknown: ${capability}`),
-        ...rustCompatDispatcherCapabilities
-          .filter((capability) =>
-            webDavMaintenanceTypedCapabilities.includes(capability),
-          )
-          .map((capability) => `compat owner retained: ${capability}`),
       ],
       surfaceCorpusIdentity: surfaceCorpora.flatMap(
         ({ id, schema, operations, operationFingerprint, corpus }) =>
