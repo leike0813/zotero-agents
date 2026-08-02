@@ -19,43 +19,69 @@ const MAX_TEXT_BYTES: usize = 4_096;
 /// The single public adapter for the Concept KB and Topic Graph operations.
 /// The dispatcher only selects this domain surface; this module owns public
 /// aliases, captured CAS bases, and the domain-specific typed commands.
+type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
+
+struct RegisteredProductionClientHandler {
+    capability: &'static str,
+    dispatch: ProductionClientHandler,
+}
+
+macro_rules! register_production_client_handlers {
+    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
+        const CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
+            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
+        ];
+    };
+}
+
+register_production_client_handlers!(
+    ("client.queryConceptKb", query),
+    ("client.rebuildConceptKbIndex", |apps, args| {
+        no_args(args)?;
+        let basis = concept_basis(apps)?;
+        let checkpoint = || promotion_checkpoint(apps);
+        wire(
+            apps.concepts
+                .rebuild_index_with_checkpoint(&basis, &checkpoint),
+        )
+    }),
+    ("client.updateConceptDisplayText", update_display_text),
+    ("client.applyConceptReviewAction", review_concept),
+    ("client.deleteConceptEntries", delete_concepts),
+    ("client.rebuildTopicGraphIndex", |apps, args| {
+        no_args(args)?;
+        let basis = topic_graph_basis(apps)?;
+        let checkpoint = || promotion_checkpoint(apps);
+        wire(
+            apps.topic_graph
+                .rebuild_index_with_checkpoint(&basis, &checkpoint),
+        )
+    }),
+    ("client.acceptTopicGraphRelation", |apps, args| {
+        decide_relation(apps, args, TopicGraphRelationStatus::Confirmed)
+    }),
+    ("client.rejectTopicGraphRelation", |apps, args| {
+        decide_relation(apps, args, TopicGraphRelationStatus::Rejected)
+    }),
+    ("client.applyTopicGraphReviewAction", review_topic_graph),
+);
+
 pub(crate) fn dispatch(
     apps: &ProductionApplications,
-    operation: &str,
+    capability: &str,
     args: &[Value],
-) -> Result<Value, String> {
-    match operation {
-        "client.queryConceptKb" => query(apps, args),
-        "client.rebuildConceptKbIndex" => {
-            no_args(args)?;
-            let basis = concept_basis(apps)?;
-            let checkpoint = || promotion_checkpoint(apps);
-            wire(
-                apps.concepts
-                    .rebuild_index_with_checkpoint(&basis, &checkpoint),
-            )
-        }
-        "client.updateConceptDisplayText" => update_display_text(apps, args),
-        "client.applyConceptReviewAction" => review_concept(apps, args),
-        "client.deleteConceptEntries" => delete_concepts(apps, args),
-        "client.rebuildTopicGraphIndex" => {
-            no_args(args)?;
-            let basis = topic_graph_basis(apps)?;
-            let checkpoint = || promotion_checkpoint(apps);
-            wire(
-                apps.topic_graph
-                    .rebuild_index_with_checkpoint(&basis, &checkpoint),
-            )
-        }
-        "client.acceptTopicGraphRelation" => {
-            decide_relation(apps, args, TopicGraphRelationStatus::Confirmed)
-        }
-        "client.rejectTopicGraphRelation" => {
-            decide_relation(apps, args, TopicGraphRelationStatus::Rejected)
-        }
-        "client.applyTopicGraphReviewAction" => review_topic_graph(apps, args),
-        _ => Err("unknown_operation".into()),
-    }
+) -> Option<Result<Value, String>> {
+    CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS
+        .iter()
+        .find(|handler| handler.capability == capability)
+        .map(|handler| (handler.dispatch)(apps, args))
+}
+
+#[cfg(test)]
+pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
+    CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS
+        .iter()
+        .map(|handler| handler.capability)
 }
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
@@ -329,4 +355,19 @@ fn review_topic_graph(apps: &ProductionApplications, args: &[Value]) -> Result<V
         review_id: required(&request, "reviewId")?,
         action,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adapter_has_the_closed_nine_operation_slice() {
+        assert_eq!(CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS.len(), 9);
+        let capabilities = CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS
+            .iter()
+            .map(|handler| handler.capability)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(capabilities.len(), 9);
+    }
 }

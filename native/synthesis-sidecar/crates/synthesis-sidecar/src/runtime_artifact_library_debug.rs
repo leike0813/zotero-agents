@@ -11,26 +11,53 @@ const PAGE_DEFAULT: usize = 50;
 const PAGE_MAX: usize = 100;
 const COLLECT_MAX: usize = 1_000;
 
+type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
+
+struct RegisteredProductionClientHandler {
+    capability: &'static str,
+    dispatch: ProductionClientHandler,
+}
+
+macro_rules! register_production_client_handlers {
+    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
+        const ARTIFACT_LIBRARY_DEBUG_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
+            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
+        ];
+    };
+}
+
+register_production_client_handlers!(
+    ("client.getSchemas", |_, args| schemas(args)),
+    ("client.readPaperArtifacts", read_artifacts),
+    ("client.getPaperArtifactManifest", manifest),
+    ("client.exportFilteredPaperArtifacts", export),
+    ("client.resolveTopicPaperDigest", resolve_topic_paper_digest),
+    ("client.getLibraryIndex", library_index),
+    ("client.debugSynthesisSnapshot", debug_snapshot),
+    ("client.debugSynthesisCacheList", debug_cache_list),
+    ("client.debugSynthesisOperationsList", debug_operations_list),
+    ("client.debugSynthesisProfilerList", debug_profiler),
+    ("client.debugSynthesisPaperInspect", debug_paper),
+    ("client.debugSynthesisTopicInspect", debug_topic),
+    ("client.debugSynthesisDiff", debug_diff),
+);
+
 pub(crate) fn dispatch(
     apps: &ProductionApplications,
     capability: &str,
     args: &[Value],
-) -> Result<Value, String> {
-    match capability {
-        "client.getSchemas" => schemas(args),
-        "client.readPaperArtifacts" => read_artifacts(apps, args),
-        "client.getPaperArtifactManifest" => manifest(apps, args),
-        "client.exportFilteredPaperArtifacts" => export(apps, args),
-        "client.getLibraryIndex" => library_index(apps, args),
-        "client.debugSynthesisSnapshot" => debug_snapshot(apps, args),
-        "client.debugSynthesisCacheList" => debug_cache_list(apps, args),
-        "client.debugSynthesisOperationsList" => debug_operations_list(apps, args),
-        "client.debugSynthesisProfilerList" => debug_profiler(apps, args),
-        "client.debugSynthesisPaperInspect" => debug_paper(apps, args),
-        "client.debugSynthesisTopicInspect" => debug_topic(apps, args),
-        "client.debugSynthesisDiff" => debug_diff(apps, args),
-        _ => Err("operation_unavailable".into()),
-    }
+) -> Option<Result<Value, String>> {
+    ARTIFACT_LIBRARY_DEBUG_CLIENT_HANDLERS
+        .iter()
+        .find(|handler| handler.capability == capability)
+        .map(|handler| (handler.dispatch)(apps, args))
+}
+
+#[cfg(test)]
+pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
+    ARTIFACT_LIBRARY_DEBUG_CLIENT_HANDLERS
+        .iter()
+        .map(|handler| handler.capability)
 }
 
 fn one_object(args: &[Value]) -> Result<Value, String> {
@@ -39,6 +66,65 @@ fn one_object(args: &[Value]) -> Result<Value, String> {
         [value] if value.is_object() => Ok(value.clone()),
         _ => Err("invalid_request".into()),
     }
+}
+
+fn required_object(args: &[Value]) -> Result<Value, String> {
+    match args {
+        [value] if value.is_object() => Ok(value.clone()),
+        _ => Err("invalid_request".into()),
+    }
+}
+
+fn optional_string_field<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names
+        .iter()
+        .find_map(|name| value.get(*name).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+}
+
+fn resolve_topic_paper_digest(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    let request = required_object(args)?;
+    let paper_ref = optional_string_field(&request, &["paper_ref", "paperRef"]).unwrap_or_default();
+    let Some(locator) = request.get("locator") else {
+        return Ok(json!({
+            "ok":false,
+            "status":"unavailable",
+            "paper_ref":paper_ref,
+            "digest_markdown":"",
+            "recorded_hash":"",
+            "current_hash":"",
+            "source_changed":false,
+            "diagnostics":["digest_unavailable"],
+        }));
+    };
+    let expected_hash = request
+        .get("expectedHash")
+        .or_else(|| request.get("expected_hash"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    let result = apps.call_host(
+        "library.artifacts.read",
+        json!({"locator":locator,"expectedHash":expected_hash}),
+    )?;
+    let markdown = result
+        .get("text")
+        .or_else(|| result.get("markdown"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Ok(json!({
+        "ok":!markdown.is_empty(),
+        "status":if markdown.is_empty() { "unavailable" } else { "available" },
+        "paper_ref":paper_ref,
+        "digest_markdown":markdown,
+        "recorded_hash":"",
+        "current_hash":expected_hash,
+        "source_changed":false,
+        "diagnostics":result.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+    }))
 }
 
 fn string_list(request: &Value, names: &[&str]) -> Result<Vec<String>, String> {
@@ -592,4 +678,19 @@ fn debug_diff(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     let request = one_object(args)?;
     let _ = limit(&request, PAGE_DEFAULT)?;
     Ok(json!({"status":"unavailable","diagnostics":[]}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adapter_has_the_closed_thirteen_operation_slice() {
+        assert_eq!(ARTIFACT_LIBRARY_DEBUG_CLIENT_HANDLERS.len(), 13);
+        let capabilities = ARTIFACT_LIBRARY_DEBUG_CLIENT_HANDLERS
+            .iter()
+            .map(|handler| handler.capability)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(capabilities.len(), 13);
+    }
 }

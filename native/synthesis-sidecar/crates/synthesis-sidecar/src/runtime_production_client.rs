@@ -161,7 +161,8 @@ fn dispatch_public_maintenance_control(
         state.applications.as_ref(),
         capability,
         operation_args,
-    )?;
+    )
+    .ok_or_else(|| "operation_unavailable".to_owned())??;
     let action = operation_args
         .first()
         .and_then(|value| value.get("action"))

@@ -1,407 +1,16 @@
-use serde::Deserialize;
-use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
-use synthesis_repository::{TagStagedSuggestionRecord, TagVocabularyReplacement};
+use serde_json::Value;
 
-use crate::runtime_artifact_library_debug;
 use crate::runtime_production_ports::ProductionApplications;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RelatedItemsEchoRequest {
-    library_id: i64,
-    item_key: String,
-    #[serde(default)]
-    related_item_key: Option<String>,
-}
-
-fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
-    match args {
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
-        _ => Err("invalid_request".into()),
-    }
-}
-
-fn object_arg(args: &[Value]) -> Result<Value, String> {
-    let value = one::<Value>(args)?;
-    if value.is_object() {
-        Ok(value)
-    } else {
-        Err("invalid_request".into())
-    }
-}
-
-fn optional_string_field<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
-    names
-        .iter()
-        .find_map(|name| value.get(*name).and_then(Value::as_str))
-        .filter(|value| !value.is_empty())
-}
-
-fn digest_resolution_from_compat(
-    apps: &ProductionApplications,
-    args: &[Value],
-) -> Result<Value, String> {
-    let request = object_arg(args)?;
-    let paper_ref = optional_string_field(&request, &["paper_ref", "paperRef"]).unwrap_or_default();
-    let Some(locator) = request.get("locator") else {
-        return Ok(json!({
-            "ok":false,
-            "status":"unavailable",
-            "paper_ref":paper_ref,
-            "digest_markdown":"",
-            "recorded_hash":"",
-            "current_hash":"",
-            "source_changed":false,
-            "diagnostics":["digest_unavailable"],
-        }));
-    };
-    let expected_hash = request
-        .get("expectedHash")
-        .or_else(|| request.get("expected_hash"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let result = apps.call_host(
-        "library.artifacts.read",
-        json!({"locator":locator,"expectedHash":expected_hash}),
-    )?;
-    let markdown = result
-        .get("text")
-        .or_else(|| result.get("markdown"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    Ok(json!({
-        "ok":!markdown.is_empty(),
-        "status":if markdown.is_empty() { "unavailable" } else { "available" },
-        "paper_ref":paper_ref,
-        "digest_markdown":markdown,
-        "recorded_hash":"",
-        "current_hash":expected_hash,
-        "source_changed":false,
-        "diagnostics":result.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
-    }))
-}
-
-#[allow(dead_code)]
-fn tag_candidate_request(
-    args: &[Value],
-) -> Result<(Option<String>, TagVocabularyReplacement), String> {
-    match args {
-        [candidate] => {
-            let expected = optional_string_field(
-                candidate,
-                &["expectedVocabularyHash", "expected_vocabulary_hash"],
-            )
-            .map(str::to_owned);
-            let candidate = candidate
-                .get("candidate")
-                .or_else(|| candidate.get("replacement"))
-                .cloned()
-                .unwrap_or_else(|| candidate.clone());
-            serde_json::from_value(candidate)
-                .map(|candidate| (expected, candidate))
-                .map_err(|_| "invalid_request".into())
-        }
-        [expected, candidate] => {
-            let expected = expected.as_str().map(str::to_owned);
-            serde_json::from_value(candidate.clone())
-                .map(|candidate| (expected, candidate))
-                .map_err(|_| "invalid_request".into())
-        }
-        _ => Err("invalid_request".into()),
-    }
-}
-
-#[allow(dead_code)]
-fn staged_request(args: &[Value]) -> Result<(i64, Vec<TagStagedSuggestionRecord>), String> {
-    match args {
-        [request] => {
-            let revision = request
-                .get("expectedRevision")
-                .or_else(|| request.get("expected_revision"))
-                .and_then(Value::as_i64)
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            let staged = request
-                .get("staged")
-                .or_else(|| request.get("suggestions"))
-                .or_else(|| request.get("retained"))
-                .cloned()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            serde_json::from_value(staged)
-                .map(|staged| (revision, staged))
-                .map_err(|_| "invalid_request".into())
-        }
-        [revision, staged] => {
-            let revision = revision
-                .as_i64()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            serde_json::from_value(staged.clone())
-                .map(|staged| (revision, staged))
-                .map_err(|_| "invalid_request".into())
-        }
-        _ => Err("invalid_request".into()),
-    }
-}
-
-#[allow(dead_code)]
-fn tag_vocabulary_hash(apps: &ProductionApplications) -> Result<String, String> {
-    apps.tags
-        .inspect()?
-        .vocabulary_hash
-        .ok_or_else(|| "tag_vocabulary_not_initialized".to_owned())
-}
-
-type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
-
-struct RegisteredProductionClientHandler {
-    capability: &'static str,
-    dispatch: ProductionClientHandler,
-}
-
-macro_rules! register_production_client_handlers {
-    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
-        const PRODUCTION_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
-            $(RegisteredProductionClientHandler {
-                capability: $capability,
-                dispatch: $handler,
-            }),+
-        ];
-    };
-}
-
-register_production_client_handlers!(
-    ("client.getSchemas", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.getSchemas", args)
-    }),
-    ("client.isBuiltinTagPolicyInitialized", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.isBuiltinTagPolicyInitialized", args)
-    }),
-    ("client.loadTagVocabulary", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.loadTagVocabulary", args)
-    }),
-    ("client.exportTagVocabularyForRegulator", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.exportTagVocabularyForRegulator", args)
-    }),
-    ("client.listStagedTagSuggestions", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.listStagedTagSuggestions", args)
-    }),
-    ("client.clearTagAuditRecord", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.clearTagAuditRecord", args)
-    }),
-    ("client.debugSynthesisSnapshot", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisSnapshot", args)
-    }),
-    ("client.debugSynthesisCacheList", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisCacheList", args)
-    }),
-    ("client.debugSynthesisOperationsList", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisOperationsList", args)
-    }),
-    ("client.debugSynthesisTopicInspect", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisTopicInspect", args)
-    }),
-    ("client.consumeRelatedItemsSyncEcho", |apps, args| {
-        let request = one::<RelatedItemsEchoRequest>(args)?;
-        apps.consume_related_items_sync_echo(
-            request.library_id,
-            &request.item_key,
-            request.related_item_key.as_deref(),
-        )
-    }),
-    ("client.readPaperArtifacts", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.readPaperArtifacts", args)
-    }),
-    ("client.getPaperArtifactManifest", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.getPaperArtifactManifest", args)
-    }),
-    ("client.exportFilteredPaperArtifacts", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.exportFilteredPaperArtifacts", args)
-    }),
-    (
-        "client.resolveTopicPaperDigest",
-        digest_resolution_from_compat
-    ),
-    ("client.queryConceptKb", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(apps, "client.queryConceptKb", args)
-    }),
-    ("client.rebuildConceptKbIndex", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.rebuildConceptKbIndex",
-            args,
-        )
-    }),
-    ("client.updateConceptDisplayText", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.updateConceptDisplayText",
-            args,
-        )
-    }),
-    ("client.applyConceptReviewAction", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.applyConceptReviewAction",
-            args,
-        )
-    }),
-    ("client.deleteConceptEntries", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.deleteConceptEntries",
-            args,
-        )
-    }),
-    ("client.rebuildTopicGraphIndex", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.rebuildTopicGraphIndex",
-            args,
-        )
-    }),
-    ("client.acceptTopicGraphRelation", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.acceptTopicGraphRelation",
-            args,
-        )
-    }),
-    ("client.rejectTopicGraphRelation", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.rejectTopicGraphRelation",
-            args,
-        )
-    }),
-    ("client.applyTopicGraphReviewAction", |apps, args| {
-        crate::runtime_concept_topic_graph_surface::dispatch(
-            apps,
-            "client.applyTopicGraphReviewAction",
-            args,
-        )
-    }),
-    ("client.saveTagVocabulary", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.saveTagVocabulary", args)
-    }),
-    ("client.validateTagVocabulary", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.validateTagVocabulary", args)
-    }),
-    ("client.rebuildTagVocabularyIndex", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.rebuildTagVocabularyIndex", args)
-    }),
-    ("client.stageTagSuggestions", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.stageTagSuggestions", args)
-    }),
-    ("client.updateStagedTagSuggestion", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.updateStagedTagSuggestion", args)
-    }),
-    ("client.updateTagVocabularyEntry", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.updateTagVocabularyEntry", args)
-    }),
-    ("client.deleteTagVocabularyEntry", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.deleteTagVocabularyEntry", args)
-    }),
-    ("client.promoteStagedTagSuggestions", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.promoteStagedTagSuggestions", args)
-    }),
-    ("client.discardStagedTagSuggestions", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.discardStagedTagSuggestions", args)
-    }),
-    ("client.clearStagedTagSuggestions", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.clearStagedTagSuggestions", args)
-    }),
-    ("client.previewTagVocabularyImport", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.previewTagVocabularyImport", args)
-    }),
-    ("client.applyTagVocabularyImport", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.applyTagVocabularyImport", args)
-    }),
-    ("client.replaceTagAuditRecords", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.replaceTagAuditRecords", args)
-    }),
-    ("client.initializeBuiltinTagPolicy", |apps, args| {
-        crate::runtime_tag_surface::dispatch(apps, "client.initializeBuiltinTagPolicy", args)
-    }),
-    ("client.getPublicMaintenanceOperation", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(
-            apps,
-            "client.getPublicMaintenanceOperation",
-            args,
-        )
-    }),
-    ("client.getLibraryIndex", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.getLibraryIndex", args)
-    }),
-    ("client.debugSynthesisProfilerList", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisProfilerList", args)
-    }),
-    ("client.debugSynthesisPaperInspect", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisPaperInspect", args)
-    }),
-    ("client.debugSynthesisDiff", |apps, args| {
-        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisDiff", args)
-    }),
-    ("client.debugSynthesisCleanInstallReset", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(
-            apps,
-            "client.debugSynthesisCleanInstallReset",
-            args,
-        )
-    }),
-    (
-        "client.reconcileSynthesisRuntimeWorkStateOnStartup",
-        |apps, args| {
-            crate::runtime_webdav_maintenance_surface::dispatch(
-                apps,
-                "client.reconcileSynthesisRuntimeWorkStateOnStartup",
-                args,
-            )
-        }
-    ),
-    ("client.resetSynthesisDatabase", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(
-            apps,
-            "client.resetSynthesisDatabase",
-            args,
-        )
-    }),
-    ("client.syncWebDavNow", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.syncWebDavNow", args)
-    }),
-    ("client.pauseWebDavSync", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.pauseWebDavSync", args)
-    }),
-    ("client.resumeWebDavSync", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.resumeWebDavSync", args)
-    }),
-    ("client.retryWebDavSync", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.retryWebDavSync", args)
-    }),
-    ("client.resolveWebDavSyncConflict", |apps, args| {
-        crate::runtime_webdav_maintenance_surface::dispatch(
-            apps,
-            "client.resolveWebDavSyncConflict",
-            args,
-        )
-    }),
-);
 
 #[cfg(test)]
 fn dispatched_production_client_capabilities() -> impl Iterator<Item = &'static str> {
-    PRODUCTION_CLIENT_HANDLERS
-        .iter()
-        .map(|handler| handler.capability)
-        .chain(crate::runtime_topic_workbench_surface::dispatched_capabilities())
+    crate::runtime_topic_workbench_surface::dispatched_capabilities()
         .chain(crate::runtime_reference_citation_surface::dispatched_capabilities())
+        .chain(crate::runtime_tag_surface::dispatched_capabilities())
+        .chain(crate::runtime_concept_topic_graph_surface::dispatched_capabilities())
+        .chain(crate::runtime_artifact_library_debug::dispatched_capabilities())
+        .chain(crate::runtime_webdav_maintenance_surface::dispatched_capabilities())
 }
-
-// The control receipt endpoint is deliberately handled by the production
-// transport before legacy dispatch.  Keep it visible to the roster tests so a
-// wire-only extension cannot be mistaken for an unimplemented capability.
-#[cfg(test)]
-const DIRECT_PRODUCTION_CLIENT_CAPABILITIES: &[&str] =
-    &["client.controlPublicMaintenanceOperation"];
 
 pub(crate) fn dispatch_legacy_client(
     apps: &ProductionApplications,
@@ -416,13 +25,24 @@ pub(crate) fn dispatch_legacy_client(
     {
         return result;
     }
-    PRODUCTION_CLIENT_HANDLERS
-        .iter()
-        .find(|handler| handler.capability == capability)
-        .ok_or_else(|| "operation_unavailable".to_owned())
-        .and_then(|handler| (handler.dispatch)(apps, args))
+    if let Some(result) = crate::runtime_tag_surface::dispatch(apps, capability, args) {
+        return result;
+    }
+    if let Some(result) =
+        crate::runtime_concept_topic_graph_surface::dispatch(apps, capability, args)
+    {
+        return result;
+    }
+    if let Some(result) = crate::runtime_artifact_library_debug::dispatch(apps, capability, args) {
+        return result;
+    }
+    if let Some(result) =
+        crate::runtime_webdav_maintenance_surface::dispatch(apps, capability, args)
+    {
+        return result;
+    }
+    Err("operation_unavailable".into())
 }
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -431,6 +51,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+    use serde_json::json;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{CacheBasisRecord, Repository, RepositoryIdentity};
     use synthesis_sidecar::production_capabilities::{
@@ -553,16 +174,9 @@ mod tests {
             .into_iter()
             .collect::<BTreeSet<_>>();
         let registered = dispatched_production_client_capabilities()
-            .chain(DIRECT_PRODUCTION_CLIENT_CAPABILITIES.iter().copied())
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
-        assert_eq!(
-            registered.len(),
-            PRODUCTION_CLIENT_HANDLERS.len()
-                + 16
-                + 28
-                + DIRECT_PRODUCTION_CLIENT_CAPABILITIES.len()
-        );
+        assert_eq!(registered.len(), 96);
         assert!(registered.is_subset(&declared));
     }
 
@@ -573,7 +187,6 @@ mod tests {
             .into_iter()
             .collect::<BTreeSet<_>>();
         let registered = dispatched_production_client_capabilities()
-            .chain(DIRECT_PRODUCTION_CLIENT_CAPABILITIES.iter().copied())
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
         assert_eq!(registered, declared);
@@ -586,7 +199,6 @@ mod tests {
             .map(|capability| (*capability).to_owned())
             .collect::<BTreeSet<_>>();
         let registered = dispatched_production_client_capabilities()
-            .chain(DIRECT_PRODUCTION_CLIENT_CAPABILITIES.iter().copied())
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
         assert!(ready.is_subset(&registered));

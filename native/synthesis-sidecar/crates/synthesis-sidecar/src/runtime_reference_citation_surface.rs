@@ -11,6 +11,15 @@ use crate::runtime_reference_canonical::{
     CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest,
 };
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RelatedItemsEchoRequest {
+    library_id: i64,
+    item_key: String,
+    #[serde(default)]
+    related_item_key: Option<String>,
+}
+
 fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
     match args {
         [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
@@ -160,6 +169,14 @@ macro_rules! register_production_client_handlers {
 }
 
 register_production_client_handlers!(
+    ("client.consumeRelatedItemsSyncEcho", |apps, args| {
+        let request = one::<RelatedItemsEchoRequest>(args)?;
+        apps.consume_related_items_sync_echo(
+            request.library_id,
+            &request.item_key,
+            request.related_item_key.as_deref(),
+        )
+    }),
     ("client.getReferenceSidecarIndex", |apps, args| {
         apps.reference_canonical
             .sidecar_index(&optional_one::<Value>(args)?)
@@ -404,15 +421,15 @@ mod tests {
     }
 
     #[test]
-    fn adapter_has_the_closed_twenty_eight_operation_slice() {
-        assert_eq!(REFERENCE_CITATION_CLIENT_HANDLERS.len(), 28);
+    fn adapter_has_the_closed_twenty_nine_operation_slice() {
+        assert_eq!(REFERENCE_CITATION_CLIENT_HANDLERS.len(), 29);
         let mut capabilities = REFERENCE_CITATION_CLIENT_HANDLERS
             .iter()
             .map(|handler| handler.capability)
             .collect::<Vec<_>>();
         capabilities.sort_unstable();
         capabilities.dedup();
-        assert_eq!(capabilities.len(), 28);
+        assert_eq!(capabilities.len(), 29);
     }
 
     #[test]

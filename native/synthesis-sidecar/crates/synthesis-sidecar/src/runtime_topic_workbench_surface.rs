@@ -467,9 +467,11 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 
     fn tags(&self, _state: &Value) -> Result<Value, String> {
+        let tags = crate::runtime_tag_surface::dispatch(self.apps, "client.loadTagVocabulary", &[])
+            .ok_or_else(|| "operation_unavailable".to_owned())??;
         Ok(json!({
             "libraryId":self.apps.library_id(),
-            "tags":crate::runtime_tag_surface::dispatch(self.apps, "client.loadTagVocabulary", &[])?,
+            "tags":tags,
         }))
     }
 

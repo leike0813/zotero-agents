@@ -12,41 +12,73 @@ use crate::runtime_public_maintenance_operation::{
 ///
 /// It deliberately keeps public request validation here: callers never need
 /// to know the internal WebDAV state representation or debug-maintenance port.
+type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
+
+struct RegisteredProductionClientHandler {
+    capability: &'static str,
+    dispatch: ProductionClientHandler,
+}
+
+macro_rules! register_production_client_handlers {
+    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
+        const WEBDAV_MAINTENANCE_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
+            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
+        ];
+    };
+}
+
+register_production_client_handlers!(
+    ("client.syncWebDavNow", |apps, args| {
+        no_args(args)?;
+        let checkpoint = || promotion_checkpoint(apps);
+        wire(
+            apps.webdav
+                .trigger_webdav_sync_with_checkpoint(&checkpoint)?,
+        )
+    }),
+    ("client.pauseWebDavSync", |apps, args| {
+        no_args(args)?;
+        wire(apps.webdav.pause_webdav_sync()?)
+    }),
+    ("client.resumeWebDavSync", |apps, args| {
+        no_args(args)?;
+        wire(apps.webdav.resume_webdav_sync()?)
+    }),
+    ("client.retryWebDavSync", |apps, args| {
+        no_args(args)?;
+        let checkpoint = || promotion_checkpoint(apps);
+        wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
+    }),
+    ("client.resolveWebDavSyncConflict", resolve_conflict),
+    ("client.getPublicMaintenanceOperation", public_maintenance),
+    (
+        "client.controlPublicMaintenanceOperation",
+        control_public_maintenance
+    ),
+    (
+        "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+        reconcile_startup
+    ),
+    ("client.resetSynthesisDatabase", reset),
+    ("client.debugSynthesisCleanInstallReset", reset),
+);
+
 pub(crate) fn dispatch(
     apps: &ProductionApplications,
-    operation: &str,
+    capability: &str,
     args: &[Value],
-) -> Result<Value, String> {
-    match operation {
-        "client.syncWebDavNow" => {
-            no_args(args)?;
-            let checkpoint = || promotion_checkpoint(apps);
-            wire(
-                apps.webdav
-                    .trigger_webdav_sync_with_checkpoint(&checkpoint)?,
-            )
-        }
-        "client.pauseWebDavSync" => {
-            no_args(args)?;
-            wire(apps.webdav.pause_webdav_sync()?)
-        }
-        "client.resumeWebDavSync" => {
-            no_args(args)?;
-            wire(apps.webdav.resume_webdav_sync()?)
-        }
-        "client.retryWebDavSync" => {
-            no_args(args)?;
-            let checkpoint = || promotion_checkpoint(apps);
-            wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
-        }
-        "client.resolveWebDavSyncConflict" => resolve_conflict(apps, args),
-        "client.getPublicMaintenanceOperation" => public_maintenance(apps, args),
-        "client.controlPublicMaintenanceOperation" => control_public_maintenance(apps, args),
-        "client.reconcileSynthesisRuntimeWorkStateOnStartup" => reconcile_startup(apps, args),
-        "client.resetSynthesisDatabase" => reset(apps, args),
-        "client.debugSynthesisCleanInstallReset" => reset(apps, args),
-        _ => Err("unknown_operation".into()),
-    }
+) -> Option<Result<Value, String>> {
+    WEBDAV_MAINTENANCE_CLIENT_HANDLERS
+        .iter()
+        .find(|handler| handler.capability == capability)
+        .map(|handler| (handler.dispatch)(apps, args))
+}
+
+#[cfg(test)]
+pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
+    WEBDAV_MAINTENANCE_CLIENT_HANDLERS
+        .iter()
+        .map(|handler| handler.capability)
 }
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
@@ -382,6 +414,16 @@ fn reset(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapter_has_the_closed_ten_operation_slice() {
+        assert_eq!(WEBDAV_MAINTENANCE_CLIENT_HANDLERS.len(), 10);
+        let capabilities = WEBDAV_MAINTENANCE_CLIENT_HANDLERS
+            .iter()
+            .map(|handler| handler.capability)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(capabilities.len(), 10);
+    }
 
     #[test]
     fn validates_public_webdav_requests_before_effects() {

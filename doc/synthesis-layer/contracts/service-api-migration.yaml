@@ -318,6 +318,9 @@ method_groups:
     target_capability: debug
     disposition: client_capability
     consumer_groups: [host_bridge, mcp]
+    production_adapter_owner: [native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs, native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs]
+    application_owner: synthesis_application::DebugMaintenanceApplication
+    production_evidence: production_native_route.evidence
     methods:
       - resetSynthesisDatabase
       - debugSynthesisSnapshot
@@ -337,6 +340,9 @@ method_groups:
     target_capability: operations
     disposition: client_capability
     consumer_groups: [lifecycle, workbench, host_bridge]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs
+    application_owner: runtime_public_maintenance_operation
+    production_evidence: production_native_route.evidence
     methods:
       - reconcileSynthesisRuntimeWorkStateOnStartup
 
@@ -373,6 +379,9 @@ method_groups:
     target_capability: debug
     disposition: client_capability
     consumer_groups: [workbench]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs
+    application_owner: synthesis_application::DebugMaintenanceApplication
+    production_evidence: production_native_route.evidence
     methods:
       - name: getSynthesisSnapshot
         migration: merged
@@ -383,6 +392,9 @@ method_groups:
     target_capability: notifications.related_items
     disposition: client_capability
     consumer_groups: [observer]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
+    application_owner: runtime_production_ports::ProductionApplications
+    production_evidence: production_native_route.evidence
     methods:
       - consumeRelatedItemsSyncEcho
 
@@ -484,6 +496,9 @@ method_groups:
     target_capability: artifacts
     disposition: client_capability
     consumer_groups: [workbench, workflow, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs
+    application_owner: reverse_host::library.artifacts
+    production_evidence: production_native_route.evidence
     methods:
       - getPaperArtifactManifest
       - readPaperArtifacts
@@ -494,6 +509,9 @@ method_groups:
     target_capability: artifacts
     disposition: client_capability
     consumer_groups: [workflow, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs
+    application_owner: reverse_host::delivery.export
+    production_evidence: production_native_route.evidence
     methods:
       - exportFilteredPaperArtifacts
 
@@ -502,6 +520,9 @@ method_groups:
     target_capability: library_index
     disposition: client_capability
     consumer_groups: [host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs
+    application_owner: reverse_host::library.items
+    production_evidence: production_native_route.evidence
     methods:
       - getLibraryIndex
 
@@ -548,6 +569,9 @@ method_groups:
     target_capability: knowledge.tags
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_tag_surface.rs
+    application_owner: synthesis_application::TagVocabularyApplication
+    production_evidence: production_native_route.evidence
     methods:
       - loadTagVocabulary
       - isBuiltinTagPolicyInitialized
@@ -559,6 +583,9 @@ method_groups:
     target_capability: knowledge.tags
     disposition: client_capability
     consumer_groups: [workbench, workflow, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_tag_surface.rs
+    application_owner: synthesis_application::TagVocabularyApplication
+    production_evidence: production_native_route.evidence
     methods:
       - saveTagVocabulary
       - initializeBuiltinTagPolicy
@@ -587,6 +614,9 @@ method_groups:
     target_capability: knowledge.concepts
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_concept_topic_graph_surface.rs
+    application_owner: synthesis_application::ConceptKbApplication
+    production_evidence: production_native_route.evidence
     methods:
       - queryConceptKb
       - name: loadConceptKb
@@ -598,6 +628,9 @@ method_groups:
     target_capability: knowledge.concepts
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_concept_topic_graph_surface.rs
+    application_owner: synthesis_application::ConceptKbApplication
+    production_evidence: production_native_route.evidence
     methods:
       - updateConceptDisplayText
       - applyConceptReviewAction
@@ -612,6 +645,9 @@ method_groups:
     target_capability: knowledge.topic_graph
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_concept_topic_graph_surface.rs
+    application_owner: synthesis_application::TopicGraphApplication
+    production_evidence: production_native_route.evidence
     methods:
       - name: loadTopicGraph
         migration: merged
@@ -622,6 +658,9 @@ method_groups:
     target_capability: knowledge.topic_graph
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_concept_topic_graph_surface.rs
+    application_owner: synthesis_application::TopicGraphApplication
+    production_evidence: production_native_route.evidence
     methods:
       - name: exportTopicGraphCheckpoint
         migration: retired
@@ -636,6 +675,9 @@ method_groups:
     target_capability: maintenance
     disposition: client_capability
     consumer_groups: [host_bridge, mcp]
+    production_adapter_owner: [native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs, native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs]
+    application_owner: [synthesis_application::DebugMaintenanceApplication, runtime_public_maintenance_operation]
+    production_evidence: production_native_route.evidence
     methods:
       - getSchemas
       - getPublicMaintenanceOperation
@@ -645,6 +687,9 @@ method_groups:
     target_capability: maintenance
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs
+    application_owner: synthesis_application::DebugMaintenanceApplication
+    production_evidence: production_native_route.evidence
     methods:
       - name: previewSynthesisJsonImport
         migration: retired
@@ -664,6 +709,9 @@ method_groups:
     target_capability: sync.webdav
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs
+    application_owner: synthesis_application::WebDavSyncApplication
+    production_evidence: production_native_route.evidence
     methods:
       - name: loadWebDavSyncState
         migration: merged
@@ -674,6 +722,9 @@ method_groups:
     target_capability: sync.webdav
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs
+    application_owner: synthesis_application::WebDavSyncApplication
+    production_evidence: production_native_route.evidence
     methods:
       - syncWebDavNow
       - pauseWebDavSync

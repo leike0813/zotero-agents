@@ -100,6 +100,22 @@ const RUST_REFERENCE_CITATION_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs",
 );
+const RUST_TAG_DISPATCH_PATH = path.join(
+  ROOT,
+  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_tag_surface.rs",
+);
+const RUST_CONCEPT_TOPIC_GRAPH_DISPATCH_PATH = path.join(
+  ROOT,
+  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_concept_topic_graph_surface.rs",
+);
+const RUST_ARTIFACT_LIBRARY_DEBUG_DISPATCH_PATH = path.join(
+  ROOT,
+  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs",
+);
+const RUST_WEBDAV_MAINTENANCE_DISPATCH_PATH = path.join(
+  ROOT,
+  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs",
+);
 const TOPIC_WORKBENCH_TYPED_CAPABILITIES = [
   "client.listTopics",
   "client.findTopicsByPaperRef",
@@ -122,6 +138,12 @@ const REFERENCE_CITATION_TYPED_SURFACES = new Set([
   "reference-canonical",
   "citation-graph",
 ]);
+const REFERENCE_CITATION_TYPED_EXTENSIONS = [
+  "client.consumeRelatedItemsSyncEcho",
+] as const;
+const ARTIFACT_LIBRARY_DEBUG_TYPED_EXTENSIONS = [
+  "client.resolveTopicPaperDigest",
+] as const;
 function sorted(values: readonly string[]) {
   return [...values].sort();
 }
@@ -260,13 +282,45 @@ export function inspectSynthesisProductionCapabilities(
   )
     ? fs.readFileSync(RUST_REFERENCE_CITATION_DISPATCH_PATH, "utf8")
     : "";
+  const rustTagDispatchSource = fs.existsSync(RUST_TAG_DISPATCH_PATH)
+    ? fs.readFileSync(RUST_TAG_DISPATCH_PATH, "utf8")
+    : "";
+  const rustConceptTopicGraphDispatchSource = fs.existsSync(
+    RUST_CONCEPT_TOPIC_GRAPH_DISPATCH_PATH,
+  )
+    ? fs.readFileSync(RUST_CONCEPT_TOPIC_GRAPH_DISPATCH_PATH, "utf8")
+    : "";
+  const rustArtifactLibraryDebugDispatchSource = fs.existsSync(
+    RUST_ARTIFACT_LIBRARY_DEBUG_DISPATCH_PATH,
+  )
+    ? fs.readFileSync(RUST_ARTIFACT_LIBRARY_DEBUG_DISPATCH_PATH, "utf8")
+    : "";
+  const rustWebDavMaintenanceDispatchSource = fs.existsSync(
+    RUST_WEBDAV_MAINTENANCE_DISPATCH_PATH,
+  )
+    ? fs.readFileSync(RUST_WEBDAV_MAINTENANCE_DISPATCH_PATH, "utf8")
+    : "";
   const surfaceCorpora =
     options.surfaceCorpora ?? readSynthesisProductionSurfaceCorpora(ROOT);
   const referenceCitationTypedCapabilities = surfaceCorpora
     .filter((surface) => REFERENCE_CITATION_TYPED_SURFACES.has(surface.id))
     .flatMap((surface) =>
       surface.corpus.operations.map((operation) => operation.id),
-    );
+    )
+    .concat(REFERENCE_CITATION_TYPED_EXTENSIONS);
+  const tagTypedCapabilities = surfaceCorpora
+    .find((surface) => surface.id === "tag")!
+    .corpus.operations.map((operation) => operation.id);
+  const conceptTopicGraphTypedCapabilities = surfaceCorpora
+    .find((surface) => surface.id === "concept-topic-graph")!
+    .corpus.operations.map((operation) => operation.id);
+  const artifactLibraryDebugTypedCapabilities = surfaceCorpora
+    .find((surface) => surface.id === "artifact-library-debug")!
+    .corpus.operations.map((operation) => operation.id)
+    .concat(ARTIFACT_LIBRARY_DEBUG_TYPED_EXTENSIONS);
+  const webDavMaintenanceTypedCapabilities = surfaceCorpora
+    .find((surface) => surface.id === "webdav-maintenance")!
+    .corpus.operations.map((operation) => operation.id);
   const rustReadyBlock =
     rustSource.match(
       /READY_PRODUCTION_CLIENT_CAPABILITIES:\s*&\[&str\]\s*=\s*&\[(.*?)\];/s,
@@ -288,19 +342,33 @@ export function inspectSynthesisProductionCapabilities(
       .map((operation) => operation.id)
       .filter((capability) => !source.includes(`"${capability}"`));
   });
-  const rustDispatcherCapabilities =
-    options.rustDispatcherCapabilities ??
-    [
-      ...extractRustDispatcherCapabilities(rustCompatDispatchSource),
-      ...extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource),
-      ...extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource),
-    ];
-  const rustCompatDispatcherCapabilities =
-    extractRustDispatcherCapabilities(rustCompatDispatchSource);
+  const rustDispatcherCapabilities = options.rustDispatcherCapabilities ?? [
+    ...extractRustDispatcherCapabilities(rustCompatDispatchSource),
+    ...extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource),
+    ...extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource),
+    ...extractRustDispatcherCapabilities(rustTagDispatchSource),
+    ...extractRustDispatcherCapabilities(rustConceptTopicGraphDispatchSource),
+    ...extractRustDispatcherCapabilities(
+      rustArtifactLibraryDebugDispatchSource,
+    ),
+    ...extractRustDispatcherCapabilities(rustWebDavMaintenanceDispatchSource),
+  ];
+  const rustCompatDispatcherCapabilities = extractRustDispatcherCapabilities(
+    rustCompatDispatchSource,
+  );
   const rustTopicWorkbenchDispatcherCapabilities =
     extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource);
   const rustReferenceCitationDispatcherCapabilities =
     extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource);
+  const rustTagDispatcherCapabilities = extractRustDispatcherCapabilities(
+    rustTagDispatchSource,
+  );
+  const rustConceptTopicGraphDispatcherCapabilities =
+    extractRustDispatcherCapabilities(rustConceptTopicGraphDispatchSource);
+  const rustArtifactLibraryDebugDispatcherCapabilities =
+    extractRustDispatcherCapabilities(rustArtifactLibraryDebugDispatchSource);
+  const rustWebDavMaintenanceDispatcherCapabilities =
+    extractRustDispatcherCapabilities(rustWebDavMaintenanceDispatchSource);
   const dispatcherCapabilities = [...new Set(rustDispatcherCapabilities)];
 
   return {
@@ -390,6 +458,62 @@ export function inspectSynthesisProductionCapabilities(
         ...rustCompatDispatcherCapabilities
           .filter((capability) =>
             referenceCitationTypedCapabilities.includes(capability),
+          )
+          .map((capability) => `compat owner retained: ${capability}`),
+      ],
+      typedTagOwnership: [
+        ...difference(tagTypedCapabilities, rustTagDispatcherCapabilities).map(
+          (capability) => `typed owner missing: ${capability}`,
+        ),
+        ...difference(rustTagDispatcherCapabilities, tagTypedCapabilities).map(
+          (capability) => `typed owner unknown: ${capability}`,
+        ),
+        ...rustCompatDispatcherCapabilities
+          .filter((capability) => tagTypedCapabilities.includes(capability))
+          .map((capability) => `compat owner retained: ${capability}`),
+      ],
+      typedConceptTopicGraphOwnership: [
+        ...difference(
+          conceptTopicGraphTypedCapabilities,
+          rustConceptTopicGraphDispatcherCapabilities,
+        ).map((capability) => `typed owner missing: ${capability}`),
+        ...difference(
+          rustConceptTopicGraphDispatcherCapabilities,
+          conceptTopicGraphTypedCapabilities,
+        ).map((capability) => `typed owner unknown: ${capability}`),
+        ...rustCompatDispatcherCapabilities
+          .filter((capability) =>
+            conceptTopicGraphTypedCapabilities.includes(capability),
+          )
+          .map((capability) => `compat owner retained: ${capability}`),
+      ],
+      typedArtifactLibraryDebugOwnership: [
+        ...difference(
+          artifactLibraryDebugTypedCapabilities,
+          rustArtifactLibraryDebugDispatcherCapabilities,
+        ).map((capability) => `typed owner missing: ${capability}`),
+        ...difference(
+          rustArtifactLibraryDebugDispatcherCapabilities,
+          artifactLibraryDebugTypedCapabilities,
+        ).map((capability) => `typed owner unknown: ${capability}`),
+        ...rustCompatDispatcherCapabilities
+          .filter((capability) =>
+            artifactLibraryDebugTypedCapabilities.includes(capability),
+          )
+          .map((capability) => `compat owner retained: ${capability}`),
+      ],
+      typedWebDavMaintenanceOwnership: [
+        ...difference(
+          webDavMaintenanceTypedCapabilities,
+          rustWebDavMaintenanceDispatcherCapabilities,
+        ).map((capability) => `typed owner missing: ${capability}`),
+        ...difference(
+          rustWebDavMaintenanceDispatcherCapabilities,
+          webDavMaintenanceTypedCapabilities,
+        ).map((capability) => `typed owner unknown: ${capability}`),
+        ...rustCompatDispatcherCapabilities
+          .filter((capability) =>
+            webDavMaintenanceTypedCapabilities.includes(capability),
           )
           .map((capability) => `compat owner retained: ${capability}`),
       ],

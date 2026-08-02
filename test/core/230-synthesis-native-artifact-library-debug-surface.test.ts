@@ -19,6 +19,7 @@ const OWNED = [
   "client.getPaperArtifactManifest",
   "client.getSchemas",
   "client.readPaperArtifacts",
+  "client.resolveTopicPaperDigest",
 ] as const;
 
 describe("Synthesis native Artifact/Library/Debug surface", function () {
@@ -30,7 +31,7 @@ describe("Synthesis native Artifact/Library/Debug surface", function () {
     });
   });
 
-  it("uses one closed Rust compatibility surface for every owned operation", function () {
+  it("uses one closed typed Rust surface for every owned operation", function () {
     const source = fs.readFileSync(
       path.join(
         ROOT,
@@ -45,7 +46,6 @@ describe("Synthesis native Artifact/Library/Debug surface", function () {
         capability,
       );
     }
-    assert.include(source, '"[redacted-path]"');
     assert.include(source, "delivery.export.publish_archive");
     assert.include(source, "library.artifacts.scan_page");
   });

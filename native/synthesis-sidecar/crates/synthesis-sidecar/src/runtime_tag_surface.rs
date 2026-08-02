@@ -12,45 +12,75 @@ use crate::runtime_public_maintenance_operation::{
 /// The only production adapter for the public Tag surface.  It deliberately
 /// keeps the private vocabulary application as the durable domain owner while
 /// preventing the RPC dispatcher from exposing repository records directly.
+type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
+
+struct RegisteredProductionClientHandler {
+    capability: &'static str,
+    dispatch: ProductionClientHandler,
+}
+
+macro_rules! register_production_client_handlers {
+    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
+        const TAG_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
+            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
+        ];
+    };
+}
+
+register_production_client_handlers!(
+    ("client.isBuiltinTagPolicyInitialized", |apps, args| {
+        no_args(args)?;
+        Ok(Value::Bool(apps.tags.inspect()?.vocabulary_hash.is_some()))
+    }),
+    ("client.loadTagVocabulary", |apps, args| {
+        no_args(args)?;
+        snapshot(apps)
+    }),
+    ("client.exportTagVocabularyForRegulator", |apps, args| {
+        no_args(args)?;
+        wire(apps.tags.export_regulator_tags()?)
+    }),
+    ("client.listStagedTagSuggestions", list_staged),
+    ("client.initializeBuiltinTagPolicy", |apps, args| {
+        no_args(args)?;
+        apps.initialize_builtin_tag_policy()
+    }),
+    ("client.saveTagVocabulary", save),
+    ("client.validateTagVocabulary", validate),
+    ("client.rebuildTagVocabularyIndex", rebuild_index),
+    ("client.stageTagSuggestions", |apps, args| {
+        replace_staged(apps, args, "stage")
+    }),
+    ("client.updateStagedTagSuggestion", |apps, args| {
+        replace_staged(apps, args, "update")
+    }),
+    ("client.updateTagVocabularyEntry", save),
+    ("client.deleteTagVocabularyEntry", save),
+    ("client.promoteStagedTagSuggestions", promote),
+    ("client.discardStagedTagSuggestions", |apps, args| {
+        replace_staged(apps, args, "discard")
+    }),
+    ("client.clearStagedTagSuggestions", clear_staged),
+    ("client.previewTagVocabularyImport", preview_import),
+    ("client.applyTagVocabularyImport", apply_import),
+    ("client.replaceTagAuditRecords", replace_audits),
+    ("client.clearTagAuditRecord", clear_audit),
+);
+
 pub(crate) fn dispatch(
     apps: &ProductionApplications,
-    operation: &str,
+    capability: &str,
     args: &[Value],
-) -> Result<Value, String> {
-    match operation {
-        "client.isBuiltinTagPolicyInitialized" => {
-            no_args(args)?;
-            Ok(Value::Bool(apps.tags.inspect()?.vocabulary_hash.is_some()))
-        }
-        "client.loadTagVocabulary" => {
-            no_args(args)?;
-            snapshot(apps)
-        }
-        "client.exportTagVocabularyForRegulator" => {
-            no_args(args)?;
-            wire(apps.tags.export_regulator_tags()?)
-        }
-        "client.listStagedTagSuggestions" => list_staged(apps, args),
-        "client.initializeBuiltinTagPolicy" => {
-            no_args(args)?;
-            apps.initialize_builtin_tag_policy()
-        }
-        "client.saveTagVocabulary" => save(apps, args),
-        "client.validateTagVocabulary" => validate(apps, args),
-        "client.rebuildTagVocabularyIndex" => rebuild_index(apps, args),
-        "client.stageTagSuggestions" => replace_staged(apps, args, "stage"),
-        "client.updateStagedTagSuggestion" => replace_staged(apps, args, "update"),
-        "client.updateTagVocabularyEntry" => save(apps, args),
-        "client.deleteTagVocabularyEntry" => save(apps, args),
-        "client.promoteStagedTagSuggestions" => promote(apps, args),
-        "client.discardStagedTagSuggestions" => replace_staged(apps, args, "discard"),
-        "client.clearStagedTagSuggestions" => clear_staged(apps, args),
-        "client.previewTagVocabularyImport" => preview_import(apps, args),
-        "client.applyTagVocabularyImport" => apply_import(apps, args),
-        "client.replaceTagAuditRecords" => replace_audits(apps, args),
-        "client.clearTagAuditRecord" => clear_audit(apps, args),
-        _ => Err("unknown_operation".into()),
-    }
+) -> Option<Result<Value, String>> {
+    TAG_CLIENT_HANDLERS
+        .iter()
+        .find(|handler| handler.capability == capability)
+        .map(|handler| (handler.dispatch)(apps, args))
+}
+
+#[cfg(test)]
+pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
+    TAG_CLIENT_HANDLERS.iter().map(|handler| handler.capability)
 }
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
@@ -418,6 +448,16 @@ fn clear_audit(apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapter_has_the_closed_nineteen_operation_slice() {
+        assert_eq!(TAG_CLIENT_HANDLERS.len(), 19);
+        let capabilities = TAG_CLIENT_HANDLERS
+            .iter()
+            .map(|handler| handler.capability)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(capabilities.len(), 19);
+    }
 
     #[test]
     fn collects_empty_single_and_multi_page_staged_arrays() {
