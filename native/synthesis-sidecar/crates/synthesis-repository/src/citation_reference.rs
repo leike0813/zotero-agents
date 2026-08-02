@@ -197,6 +197,15 @@ pub struct ReferenceApplicationStateRecord {
     pub updated_at: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReferenceProjectionSnapshot {
+    pub state: Option<ReferenceApplicationStateRecord>,
+    pub sources: Vec<ReferenceSourceRecord>,
+    pub artifacts: Vec<ReferenceArtifactRecord>,
+    pub raw_references: Vec<RawReferenceRecord>,
+    pub bindings: Vec<ReferenceBindingFactRecord>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceSourceRecord {
@@ -522,6 +531,18 @@ impl Repository {
         .next()
         .map(reference_state_record)
         .transpose()
+    }
+
+    pub fn load_reference_projection_snapshot(
+        &self,
+    ) -> Result<ReferenceProjectionSnapshot, String> {
+        Ok(ReferenceProjectionSnapshot {
+            state: self.get_reference_application_state()?,
+            sources: self.list_reference_sources()?,
+            artifacts: self.list_reference_artifacts(&[])?,
+            raw_references: self.list_raw_references()?,
+            bindings: self.list_reference_bindings()?,
+        })
     }
 
     pub fn get_reference_matching_state(

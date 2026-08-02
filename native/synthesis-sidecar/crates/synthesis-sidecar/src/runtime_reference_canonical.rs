@@ -16,8 +16,8 @@ use synthesis_application::reference_refresh::{
     REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES, REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES,
     ReferenceArtifactDescriptor, ReferenceArtifactType, ReferenceRefreshApplication,
     ReferenceRefreshApplyCapacity, ReferenceRefreshApplyRequest, ReferenceRefreshItem,
-    ReferenceRefreshPayload, ReferenceRefreshPrepareRequest, ReferenceRefreshScope,
-    ReferenceRefreshStatus, measure_reference_refresh_apply_request,
+    ReferenceRefreshPayload, ReferenceRefreshPrepareRequest, ReferenceRefreshRun,
+    ReferenceRefreshScope, ReferenceRefreshStatus, measure_reference_refresh_apply_request,
     validate_reference_refresh_apply_request,
 };
 use synthesis_canonical_store::canonical_json_hash;
@@ -1454,7 +1454,25 @@ impl ReferenceCanonicalApplication {
                     .returned(host_artifacts.len())
             });
             let artifacts = complete_artifact_manifest(&items, &host_artifacts)?;
-            let mut batches = VecDeque::from(partition_refresh_batches(&items, &artifacts));
+            let run = self.refresh.begin_run()?;
+            let refresh_items = items.iter().map(refresh_item).collect::<Vec<_>>();
+            let run_scope = if requested.is_empty() {
+                ReferenceRefreshScope::Full
+            } else {
+                ReferenceRefreshScope::Sources {
+                    source_refs: items.iter().map(|item| item.paper_ref.clone()).collect(),
+                }
+            };
+            let changed_source_refs = run
+                .changed_source_refs(&run_scope, &refresh_items, &artifacts, false)?
+                .into_iter()
+                .collect::<HashSet<_>>();
+            let changed_items = items
+                .iter()
+                .filter(|item| changed_source_refs.contains(&item.paper_ref))
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut batches = VecDeque::from(partition_refresh_batches(&changed_items, &artifacts));
             let mut processed = BTreeSet::new();
             let mut failed = BTreeSet::new();
             let mut warnings = Vec::new();
@@ -1483,6 +1501,7 @@ impl ReferenceCanonicalApplication {
                     .cloned()
                     .collect::<Vec<_>>();
                 match self.run_refresh_batch(
+                    &run,
                     &batch,
                     batch_artifacts,
                     batch_ordinal,
@@ -1534,8 +1553,8 @@ impl ReferenceCanonicalApplication {
 
             if failure_code.is_none() && requested.is_empty() {
                 match self.run_reference_refresh_full_sweep(
+                    &run,
                     &items,
-                    artifacts,
                     batch_ordinal + 1,
                     checkpoint,
                 )? {
@@ -1557,7 +1576,7 @@ impl ReferenceCanonicalApplication {
                 }
             }
 
-            let inspection = self.refresh.inspect()?;
+            let inspection = run.inspect()?;
             let ok = failure_code.is_none();
             Ok(json!({
                 "ok":ok,
@@ -1586,6 +1605,7 @@ impl ReferenceCanonicalApplication {
 
     fn run_refresh_batch(
         &self,
+        run: &ReferenceRefreshRun<'_>,
         items: &[ReferenceHostItem],
         artifacts: Vec<ReferenceArtifactDescriptor>,
         batch_ordinal: usize,
@@ -1603,17 +1623,15 @@ impl ReferenceCanonicalApplication {
                 .batch_ordinal(batch_ordinal)
                 .source_count(items.len())
         });
-        let prepared = self
-            .refresh
-            .prepare_refresh(ReferenceRefreshPrepareRequest {
-                expected_reference_hash: self.refresh.inspect()?.reference_hash,
-                force: false,
-                scope: ReferenceRefreshScope::Sources {
-                    source_refs: source_refs.clone(),
-                },
-                items: items.iter().map(refresh_item).collect(),
-                artifacts,
-            });
+        let prepared = run.prepare_refresh(ReferenceRefreshPrepareRequest {
+            expected_reference_hash: run.inspect()?.reference_hash,
+            force: false,
+            scope: ReferenceRefreshScope::Sources {
+                source_refs: source_refs.clone(),
+            },
+            items: items.iter().map(refresh_item).collect(),
+            artifacts,
+        });
         if prepared.status == ReferenceRefreshStatus::Unchanged {
             return Ok(RefreshBatchAttempt::Converged {
                 promoted: false,
@@ -1638,47 +1656,78 @@ impl ReferenceCanonicalApplication {
             .clone()
             .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
         if let Err(error) = self.write_job(job) {
-            self.refresh.discard_preparation(&preparation_id);
+            run.discard_preparation(&preparation_id);
             return Err(error);
         }
         let mut payloads = Vec::with_capacity(prepared.reads.len());
-        for (index, read) in prepared.reads.iter().enumerate() {
-            if bounded_timeout(Duration::from_secs(10)).is_err() {
-                self.refresh.discard_preparation(&preparation_id);
+        for (group_ordinal, group) in prepared.reads.chunks(2).enumerate() {
+            if let Err(error) = refresh_read_admission(checkpoint) {
+                run.discard_preparation(&preparation_id);
                 return Ok(RefreshBatchAttempt::Failed {
-                    code: "operation_timeout".into(),
+                    code: error,
                     capacity: None,
                 });
             }
-            emit_debug(|| {
-                NativeDiagnosticEvent::new("operation", "artifact-read-started", "started")
-                    .capability("library.artifacts.read")
-                    .operation_id(REFRESH_JOB_ID)
-                    .batch_ordinal(batch_ordinal)
-                    .page(index)
-                    .total(prepared.reads.len())
+            let base_ordinal = group_ordinal * 2;
+            for index in base_ordinal..base_ordinal + group.len() {
+                emit_debug(|| {
+                    NativeDiagnosticEvent::new("operation", "artifact-read-started", "started")
+                        .capability("library.artifacts.read")
+                        .operation_id(REFRESH_JOB_ID)
+                        .batch_ordinal(batch_ordinal)
+                        .page(index)
+                        .total(prepared.reads.len())
+                });
+            }
+            let results = std::thread::scope(|scope| {
+                group
+                    .iter()
+                    .map(|read| {
+                        scope.spawn(|| {
+                            self.host
+                                .read_artifact(&read.locator, &read.expected_hash)
+                                .and_then(|payload| refresh_payload(read, payload))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|handle| {
+                        handle
+                            .join()
+                            .map_err(|_| "reverse_host_unavailable".to_owned())?
+                    })
+                    .collect::<Vec<_>>()
             });
-            match self
-                .host
-                .read_artifact(&read.locator, &read.expected_hash)
-                .and_then(|payload| refresh_payload(read, payload))
-            {
-                Ok(payload) => payloads.push(payload),
-                Err(error) => {
-                    self.refresh.discard_preparation(&preparation_id);
-                    emit_debug(|| {
-                        NativeDiagnosticEvent::new("operation", "artifact-read-failed", "failed")
+            if let Err(error) = refresh_read_admission(checkpoint) {
+                run.discard_preparation(&preparation_id);
+                return Ok(RefreshBatchAttempt::Failed {
+                    code: error,
+                    capacity: None,
+                });
+            }
+            for (offset, result) in results.into_iter().enumerate() {
+                match result {
+                    Ok(payload) => payloads.push(payload),
+                    Err(error) => {
+                        run.discard_preparation(&preparation_id);
+                        emit_debug(|| {
+                            NativeDiagnosticEvent::new(
+                                "operation",
+                                "artifact-read-failed",
+                                "failed",
+                            )
                             .capability("library.artifacts.read")
                             .operation_id(REFRESH_JOB_ID)
                             .batch_ordinal(batch_ordinal)
-                            .page(index)
+                            .page(base_ordinal + offset)
                             .total(prepared.reads.len())
                             .code(&error)
-                    });
-                    return Ok(RefreshBatchAttempt::Failed {
-                        code: error,
-                        capacity: None,
-                    });
+                        });
+                        return Ok(RefreshBatchAttempt::Failed {
+                            code: error,
+                            capacity: None,
+                        });
+                    }
                 }
             }
         }
@@ -1689,7 +1738,7 @@ impl ReferenceCanonicalApplication {
         let capacity = match measure_reference_refresh_apply_request(&apply_request) {
             Ok(capacity) => capacity,
             Err(error) => {
-                self.refresh.discard_preparation(&preparation_id);
+                run.discard_preparation(&preparation_id);
                 return Ok(RefreshBatchAttempt::Failed {
                     code: error.into(),
                     capacity: None,
@@ -1697,7 +1746,7 @@ impl ReferenceCanonicalApplication {
             }
         };
         if let Err(error) = validate_reference_refresh_apply_request(&apply_request) {
-            self.refresh.discard_preparation(&preparation_id);
+            run.discard_preparation(&preparation_id);
             emit_debug(|| {
                 NativeDiagnosticEvent::new("operation", "refresh-apply-rejected", "failed")
                     .capability("reference_sidecar_refresh")
@@ -1733,10 +1782,8 @@ impl ReferenceCanonicalApplication {
                 .limit_json_nodes(REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES)
         });
         let applied = match checkpoint {
-            Some(checkpoint) => self
-                .refresh
-                .apply_refresh_with_checkpoint(apply_request, checkpoint),
-            None => self.refresh.apply_refresh(apply_request),
+            Some(checkpoint) => run.apply_refresh_with_checkpoint(apply_request, checkpoint),
+            None => run.apply_refresh(apply_request),
         };
         if !matches!(
             applied.status,
@@ -1770,20 +1817,20 @@ impl ReferenceCanonicalApplication {
 
     fn run_reference_refresh_full_sweep(
         &self,
+        run: &ReferenceRefreshRun<'_>,
         items: &[ReferenceHostItem],
-        artifacts: Vec<ReferenceArtifactDescriptor>,
         batch_ordinal: usize,
         checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<RefreshBatchAttempt, String> {
-        let prepared = self
-            .refresh
-            .prepare_refresh(ReferenceRefreshPrepareRequest {
-                expected_reference_hash: self.refresh.inspect()?.reference_hash,
-                force: false,
-                scope: ReferenceRefreshScope::Full,
-                items: items.iter().map(refresh_item).collect(),
-                artifacts,
-            });
+        let prepared = run.prepare_refresh(ReferenceRefreshPrepareRequest {
+            expected_reference_hash: run.inspect()?.reference_hash,
+            force: false,
+            scope: ReferenceRefreshScope::FullSweep {
+                source_refs: items.iter().map(|item| item.paper_ref.clone()).collect(),
+            },
+            items: Vec::new(),
+            artifacts: Vec::new(),
+        });
         if prepared.status == ReferenceRefreshStatus::Unchanged {
             return Ok(RefreshBatchAttempt::Converged {
                 promoted: false,
@@ -1804,7 +1851,7 @@ impl ReferenceCanonicalApplication {
             .clone()
             .ok_or_else(|| "reference_refresh_preparation_missing".to_owned())?;
         if !prepared.reads.is_empty() {
-            self.refresh.discard_preparation(&preparation_id);
+            run.discard_preparation(&preparation_id);
             return Ok(RefreshBatchAttempt::Failed {
                 code: "reference_refresh_full_sweep_not_converged".into(),
                 capacity: None,
@@ -1823,10 +1870,8 @@ impl ReferenceCanonicalApplication {
                 .payload_count(0)
         });
         let applied = match checkpoint {
-            Some(checkpoint) => self
-                .refresh
-                .apply_refresh_with_checkpoint(apply_request, checkpoint),
-            None => self.refresh.apply_refresh(apply_request),
+            Some(checkpoint) => run.apply_refresh_with_checkpoint(apply_request, checkpoint),
+            None => run.apply_refresh(apply_request),
         };
         if !matches!(
             applied.status,
@@ -2872,6 +2917,14 @@ fn refresh_payload(
         content,
         diagnostics: payload.diagnostics.into_iter().map(Value::String).collect(),
     })
+}
+
+fn refresh_read_admission(checkpoint: Option<&PromotionCheckpoint<'_>>) -> Result<(), String> {
+    bounded_timeout(Duration::from_secs(10))?;
+    if let Some(checkpoint) = checkpoint {
+        checkpoint()?;
+    }
+    Ok(())
 }
 
 fn validate_artifact_page(

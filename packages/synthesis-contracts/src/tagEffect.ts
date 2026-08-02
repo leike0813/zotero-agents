@@ -9,7 +9,7 @@ import {
 } from "./itemRef.js";
 
 export const SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX = 100 as const;
-export const SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX = 50 as const;
+export const SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX = 100 as const;
 export const SYNTHESIS_HOST_TAG_EFFECT_DIAGNOSTICS_MAX = 20 as const;
 
 const EFFECT_ID_MAX = 256;

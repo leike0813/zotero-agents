@@ -20,7 +20,8 @@ use synthesis_application::reference_matching::{
     ReferenceMatcherInput, ReferenceMatcherOutcome, ReferenceMatcherPort,
 };
 use synthesis_application::tag_vocabulary::{
-    TagHostEffectPort, TagIndexOutput, TagLegacyBindingResolverPort, TagVocabularyComputePort,
+    TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolverPort,
+    TagVocabularyComputePort,
 };
 use synthesis_application::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
 use synthesis_application::webdav_sync::{
@@ -165,7 +166,7 @@ impl ProductionApplications {
                     deprecated: 0,
                     replacement: String::new(),
                     aliases_json: "[]".into(),
-                    abbrev_json: "{}".into(),
+                    abbrev_json: "[]".into(),
                     usage_count: 0,
                     last_synced_at: String::new(),
                     created_at: now.clone(),
@@ -802,21 +803,78 @@ struct NativeTagVocabularyComputePort {
     compute: Arc<NativeComputePool>,
 }
 
+fn tag_worker_entries(entries: &[TagVocabularyEntryRecord]) -> Result<Vec<Value>, String> {
+    entries
+        .iter()
+        .map(|entry| {
+            Ok(json!({
+                "tag":entry.tag,
+                "facet":entry.facet,
+                "note":entry.note,
+                "deprecated":entry.deprecated != 0,
+                "replacement":entry.replacement,
+                "aliases":serde_json::from_str::<Vec<Value>>(&entry.aliases_json)
+                    .map_err(|_| "invalid_request")?,
+                "abbrev":serde_json::from_str::<Vec<Value>>(&entry.abbrev_json)
+                    .map_err(|_| "invalid_request")?,
+            }))
+        })
+        .collect()
+}
+
+fn tag_worker_aliases(candidate: &TagVocabularyReplacement) -> Value {
+    Value::Object(
+        candidate
+            .aliases
+            .iter()
+            .map(|record| (record.alias.clone(), Value::String(record.tag.clone())))
+            .collect(),
+    )
+}
+
+fn tag_worker_abbrevs(candidate: &TagVocabularyReplacement) -> Value {
+    Value::Object(
+        candidate
+            .abbrevs
+            .iter()
+            .map(|record| {
+                (
+                    record.abbrev_key.clone(),
+                    Value::String(record.abbrev_value.clone()),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn tag_worker_protocol(protocol: &TagProtocolRecord) -> Result<Value, String> {
+    Ok(json!({
+        "tagPattern":protocol.tag_pattern,
+        "maxTagLength":protocol.max_tag_length,
+        "facets":serde_json::from_str::<Vec<Value>>(&protocol.facets_json)
+            .map_err(|_| "invalid_request")?,
+    }))
+}
+
 impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
     fn validate(
         &self,
         candidate: &TagVocabularyReplacement,
         _canceled: &Arc<AtomicBool>,
     ) -> Result<TagVocabularyReplacement, String> {
+        let protocol = candidate
+            .protocols
+            .first()
+            .ok_or_else(|| "invalid_request".to_owned())?;
         self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TagVocabularyValidate,
             serde_json::json!({
                 "contractVersion":"synthesis-tag-vocabulary.v1",
                 "algorithmVersion":"tag-vocabulary-validation.v1",
-                "protocol":candidate.protocols.first(),
-                "entries":candidate.entries,
-                "aliases":candidate.aliases,
-                "abbrev":candidate.abbrevs,
+                "protocol":tag_worker_protocol(protocol)?,
+                "entries":tag_worker_entries(&candidate.entries)?,
+                "aliases":tag_worker_aliases(candidate),
+                "abbrev":tag_worker_abbrevs(candidate),
             }),
         )?;
         Ok(candidate.clone())
@@ -827,6 +885,12 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
         entries: &[TagVocabularyEntryRecord],
         _canceled: &Arc<AtomicBool>,
     ) -> Result<TagIndexOutput, String> {
+        let facets = entries
+            .iter()
+            .map(|entry| entry.facet.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TagVocabularyIndex,
             serde_json::json!({
@@ -834,8 +898,12 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
                 "algorithmVersion":"tag-vocabulary-index.v1",
                 "sourceManifestHash":canonical_json_hash(&serde_json::json!(entries))?,
                 "rebuiltAt":utc_now_iso8601(),
-                "protocol":{},
-                "entries":entries,
+                "protocol":{
+                    "tagPattern":"^.+:.+$",
+                    "maxTagLength":512,
+                    "facets":facets,
+                },
+                "entries":tag_worker_entries(entries)?,
                 "aliases":{},
                 "abbrev":{},
             }),
@@ -1731,11 +1799,17 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
 }
 
 impl TagHostEffectPort for ReverseHostApplicationPort {
-    fn apply(&self, effect: &TagEffectRecord) -> Result<(), String> {
+    fn apply_batch(
+        &self,
+        effects: &[TagEffectRecord],
+    ) -> Result<Vec<TagHostEffectReceipt>, String> {
+        if effects.is_empty() || effects.len() > 100 {
+            return Err("invalid_request".into());
+        }
         let result = self.call(
             "effects.tags.apply_batch",
             serde_json::json!({
-                "effects":[{
+                "effects":effects.iter().map(|effect| serde_json::json!({
                     "effectId":effect.effect_id,
                     "action":"ensure_present",
                     "target":{"libraryId":effect.library_id,"itemKey":effect.item_key},
@@ -1743,21 +1817,69 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
                     "provenance":{"kind":"staged_tag_promotion"},
                     "precondition":{"target":"exists"},
                     "permission":{"scope":"synthesis.tags","reason":"promote_staged_tag"},
-                }],
+                })).collect::<Vec<_>>(),
             }),
         )?;
-        let status = result
+        let receipts = result
             .get("receipts")
             .and_then(Value::as_array)
-            .and_then(|receipts| receipts.first())
-            .and_then(|receipt| receipt.get("status"))
-            .and_then(Value::as_str)
             .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-        if matches!(status, "applied" | "already_satisfied") {
-            Ok(())
-        } else {
-            Err("host_effect_failed".into())
+        if receipts.len() != effects.len() {
+            return Err("reverse_host_result_invalid".into());
         }
+        let expected = effects
+            .iter()
+            .map(|effect| effect.effect_id.as_str())
+            .collect::<HashSet<_>>();
+        let mut seen = HashSet::new();
+        receipts
+            .iter()
+            .map(|receipt| {
+                let receipt = receipt
+                    .as_object()
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let effect_id = receipt
+                    .get("effectId")
+                    .and_then(Value::as_str)
+                    .filter(|effect_id| expected.contains(*effect_id) && seen.insert(*effect_id))
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                if receipt.get("action").and_then(Value::as_str) != Some("ensure_present") {
+                    return Err("reverse_host_result_invalid".into());
+                }
+                let status = receipt
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .filter(|status| {
+                        matches!(
+                            *status,
+                            "applied" | "already_satisfied" | "not_found" | "failed"
+                        )
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let occurred_at = receipt
+                    .get("occurredAt")
+                    .and_then(Value::as_str)
+                    .filter(|value| {
+                        synthesis_protocol::unix_millis_from_utc_iso8601(value).is_some()
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let diagnostics = receipt
+                    .get("diagnostics")
+                    .and_then(Value::as_array)
+                    .filter(|diagnostics| diagnostics.len() <= 20)
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                if diagnostics.iter().any(|entry| !entry.is_object()) {
+                    return Err("reverse_host_result_invalid".into());
+                }
+                Ok(TagHostEffectReceipt {
+                    effect_id: effect_id.into(),
+                    status: status.into(),
+                    occurred_at: occurred_at.into(),
+                    diagnostics_json: serde_json::to_string(diagnostics)
+                        .map_err(|_| "reverse_host_result_invalid".to_owned())?,
+                })
+            })
+            .collect()
     }
 }
 

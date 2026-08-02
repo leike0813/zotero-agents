@@ -1,4 +1,4 @@
-use crate::{OperationRecord, Repository};
+use crate::{OperationRecord, Repository, row_integer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -110,6 +110,15 @@ pub struct TagEffectRecord {
     pub occurred_at: String,
     pub diagnostics_json: String,
     pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TagEffectReceiptRecord {
+    pub effect_id: String,
+    pub status: String,
+    pub occurred_at: String,
+    pub diagnostics_json: String,
     pub updated_at: String,
 }
 
@@ -435,6 +444,33 @@ impl Repository {
         many(self, "SELECT * FROM synt_tag_effect ORDER BY effect_id")
     }
 
+    pub fn count_pending_tag_effects(&self) -> Result<usize, String> {
+        let row = self
+            .query(
+                "SELECT COUNT(*) AS pending_count FROM synt_tag_effect WHERE status='pending'",
+                &[],
+            )?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "repository_row_missing".to_owned())?;
+        usize::try_from(row_integer(&row, "pending_count")?)
+            .map_err(|_| "repository_value_invalid".to_owned())
+    }
+
+    pub fn list_pending_tag_effects(&self, limit: usize) -> Result<Vec<TagEffectRecord>, String> {
+        if limit == 0 || limit > 100 {
+            return Err("invalid_request".into());
+        }
+        self.query(
+            "SELECT * FROM synt_tag_effect WHERE status='pending' \
+             ORDER BY updated_at ASC,effect_id ASC LIMIT ?1",
+            &[json!(limit)],
+        )?
+        .into_iter()
+        .map(decode)
+        .collect()
+    }
+
     pub fn replace_tag_vocabulary_state(
         &mut self,
         expected_vocabulary_hash: Option<&str>,
@@ -564,6 +600,45 @@ impl Repository {
                 json!(effect_id),
             ],
         )? > 0)
+    }
+
+    pub fn update_tag_effect_receipts(
+        &mut self,
+        receipts: &[TagEffectReceiptRecord],
+    ) -> Result<(), String> {
+        if receipts.is_empty() || receipts.len() > 100 {
+            return Err("invalid_request".into());
+        }
+        self.transaction(|repository| {
+            for receipt in receipts {
+                if receipt.effect_id.is_empty()
+                    || !matches!(
+                        receipt.status.as_str(),
+                        "pending" | "applied" | "already_satisfied" | "not_found" | "failed"
+                    )
+                    || !serde_json::from_str::<Value>(&receipt.diagnostics_json)
+                        .is_ok_and(|value| value.is_array())
+                {
+                    return Err("invalid_request".into());
+                }
+                let updated = repository.execute(
+                    "UPDATE synt_tag_effect \
+                     SET status=?1,diagnostics_json=?2,occurred_at=?3,updated_at=?4 \
+                     WHERE effect_id=?5",
+                    &[
+                        json!(receipt.status),
+                        json!(receipt.diagnostics_json),
+                        json!(receipt.occurred_at),
+                        json!(receipt.updated_at),
+                        json!(receipt.effect_id),
+                    ],
+                )?;
+                if updated != 1 {
+                    return Err("tag_effect_missing".into());
+                }
+            }
+            Ok(())
+        })
     }
 
     pub fn get_concept_application_state(
@@ -1521,6 +1596,74 @@ mod tests {
         );
         assert_eq!(reopened.list_topic_graph_nodes().expect("nodes").len(), 1);
         drop(reopened);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tag_effect_receipt_batch_is_bounded_and_atomic() {
+        let (root, mut repository) = open("tag-effect-receipts");
+        for effect_id in ["effect:1", "effect:2"] {
+            put_tag_effect(
+                &repository,
+                &TagEffectRecord {
+                    effect_id: effect_id.into(),
+                    vocabulary_hash: "tag:1".into(),
+                    staged_revision: 1,
+                    library_id: 1,
+                    item_key: effect_id.into(),
+                    tag: "method:test".into(),
+                    status: "pending".into(),
+                    diagnostics_json: "[]".into(),
+                    created_at: "2026-08-03T00:00:00.000Z".into(),
+                    updated_at: "2026-08-03T00:00:00.000Z".into(),
+                    ..TagEffectRecord::default()
+                },
+            )
+            .expect("effect");
+        }
+        let failed_batch = [
+            TagEffectReceiptRecord {
+                effect_id: "effect:1".into(),
+                status: "applied".into(),
+                occurred_at: "2026-08-03T00:00:01.000Z".into(),
+                diagnostics_json: "[]".into(),
+                updated_at: "2026-08-03T00:00:01.000Z".into(),
+            },
+            TagEffectReceiptRecord {
+                effect_id: "effect:missing".into(),
+                status: "failed".into(),
+                occurred_at: "2026-08-03T00:00:01.000Z".into(),
+                diagnostics_json: "[]".into(),
+                updated_at: "2026-08-03T00:00:01.000Z".into(),
+            },
+        ];
+        assert!(
+            repository
+                .update_tag_effect_receipts(&failed_batch)
+                .is_err()
+        );
+        assert_eq!(repository.count_pending_tag_effects().expect("count"), 2);
+        assert_eq!(
+            repository
+                .list_pending_tag_effects(1)
+                .expect("bounded pending")
+                .len(),
+            1
+        );
+        let receipts = [
+            failed_batch[0].clone(),
+            TagEffectReceiptRecord {
+                effect_id: "effect:2".into(),
+                status: "already_satisfied".into(),
+                ..failed_batch[0].clone()
+            },
+        ];
+        repository
+            .update_tag_effect_receipts(&receipts)
+            .expect("receipt batch");
+        assert_eq!(repository.count_pending_tag_effects().expect("count"), 0);
+
+        drop(repository);
         let _ = std::fs::remove_dir_all(root);
     }
 }

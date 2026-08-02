@@ -1030,6 +1030,12 @@ describe("Synthesis Rust production client route", function () {
         };
         if (call.capability === "library.artifacts.scan_page") {
           setTimeout(send, 2_100);
+        } else if (call.capability === "library.artifacts.read") {
+          const delay = String(call.payload.expectedHash).includes("hostref1")
+            ? 25
+            : 5;
+          setTimeout(send, delay);
+          return;
         } else {
           send();
         }
@@ -1213,10 +1219,10 @@ describe("Synthesis Rust production client route", function () {
         1,
         "one refresh must capture the Host artifact snapshot once",
       );
-      assert.isAtMost(
+      assert.equal(
         maxActiveArtifactReads,
         2,
-        "artifact reads must keep the approved two-call concurrency bound",
+        "artifact reads must exercise and keep the approved two-call concurrency bound",
       );
 
       const matching = await call(

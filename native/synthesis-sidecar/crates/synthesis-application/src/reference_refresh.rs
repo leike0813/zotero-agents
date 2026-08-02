@@ -13,7 +13,7 @@ use synthesis_repository::{
     CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
     RawReferenceRecord, ReferenceApplicationStateRecord, ReferenceArtifactRecord,
     ReferenceBindingFactRecord, ReferenceProjectionReplacement, ReferenceProjectionScope,
-    ReferenceRevisionReviewRecord, ReferenceSourceRecord,
+    ReferenceProjectionSnapshot, ReferenceRevisionReviewRecord, ReferenceSourceRecord,
 };
 
 const MAX_PREPARATION_BYTES: usize = 8 * 1024 * 1024;
@@ -73,6 +73,7 @@ pub struct ReferenceRefreshMutationResult {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReferenceRefreshScope {
     Full,
+    FullSweep { source_refs: Vec<String> },
     Sources { source_refs: Vec<String> },
 }
 
@@ -170,13 +171,17 @@ struct Preparation {
     request: ReferenceRefreshPrepareRequest,
     reads: Vec<ReferenceRefreshRead>,
     replace_source_refs: Vec<String>,
+    affected_source_refs: Vec<String>,
     binding_candidates: Vec<ReferenceRefreshItem>,
+    snapshot: ReferenceProjectionSnapshot,
 }
 
 struct RefreshState {
     accepting: bool,
     active: bool,
     preparation: Option<Preparation>,
+    projection_snapshot: Option<ReferenceProjectionSnapshot>,
+    explicit_run: bool,
 }
 
 type Clock = Arc<dyn Fn() -> String + Send + Sync>;
@@ -192,12 +197,66 @@ pub struct ReferenceRefreshApplication {
 
 struct ActiveApply<'a>(&'a ReferenceRefreshApplication);
 
+pub struct ReferenceRefreshRun<'a> {
+    application: &'a ReferenceRefreshApplication,
+}
+
 impl Drop for ActiveApply<'_> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.0.state.lock() {
             state.active = false;
             self.0.drained.notify_all();
         }
+    }
+}
+
+impl Drop for ReferenceRefreshRun<'_> {
+    fn drop(&mut self) {
+        self.application.end_run();
+    }
+}
+
+impl ReferenceRefreshRun<'_> {
+    pub fn inspect(&self) -> Result<ReferenceRefreshInspectResult, String> {
+        self.application.inspect_snapshot()
+    }
+
+    pub fn changed_source_refs(
+        &self,
+        scope: &ReferenceRefreshScope,
+        items: &[ReferenceRefreshItem],
+        artifacts: &[ReferenceArtifactDescriptor],
+        force: bool,
+    ) -> Result<Vec<String>, String> {
+        self.application
+            .changed_source_refs(scope, items, artifacts, force)
+    }
+
+    pub fn prepare_refresh(
+        &self,
+        request: ReferenceRefreshPrepareRequest,
+    ) -> ReferenceRefreshPrepareResult {
+        self.application.prepare_refresh(request)
+    }
+
+    pub fn apply_refresh(
+        &self,
+        request: ReferenceRefreshApplyRequest,
+    ) -> ReferenceRefreshMutationResult {
+        self.application.apply_refresh(request)
+    }
+
+    pub fn apply_refresh_with_checkpoint(
+        &self,
+        request: ReferenceRefreshApplyRequest,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> ReferenceRefreshMutationResult {
+        self.application
+            .apply_refresh_with_checkpoint(request, checkpoint)
+    }
+
+    pub fn discard_preparation(&self, preparation_id: &str) -> ReferenceRefreshMutationResult {
+        self.application.discard_preparation(preparation_id)
     }
 }
 
@@ -230,6 +289,8 @@ impl ReferenceRefreshApplication {
                 accepting: true,
                 active: false,
                 preparation: None,
+                projection_snapshot: None,
+                explicit_run: false,
             }),
             drained: Condvar::new(),
         }
@@ -237,6 +298,32 @@ impl ReferenceRefreshApplication {
 
     pub fn inspect(&self) -> Result<ReferenceRefreshInspectResult, String> {
         Ok(inspect_state(self.repository.get_state()?))
+    }
+
+    pub fn begin_run(&self) -> Result<ReferenceRefreshRun<'_>, String> {
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "reference_refresh_unavailable".to_owned())?;
+            if !state.accepting {
+                return Err("reference_refresh_stopping".into());
+            }
+            if state.active || state.preparation.is_some() || state.explicit_run {
+                return Err("reference_refresh_busy".into());
+            }
+            state.active = true;
+        }
+        let snapshot = self.repository.load_projection_snapshot();
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "reference_refresh_unavailable".to_owned())?;
+        state.active = false;
+        self.drained.notify_all();
+        state.projection_snapshot = Some(snapshot?);
+        state.explicit_run = true;
+        Ok(ReferenceRefreshRun { application: self })
     }
 
     pub fn prepare_refresh(
@@ -288,8 +375,8 @@ impl ReferenceRefreshApplication {
             state.active = true;
         }
         let _active = ActiveApply(self);
-        let current = match self.repository.get_state() {
-            Ok(state) => state,
+        let snapshot = match self.snapshot_for_prepare() {
+            Ok(snapshot) => snapshot,
             Err(_) => {
                 return self.prepare_result(
                     ReferenceRefreshStatus::RepairRequired,
@@ -298,7 +385,10 @@ impl ReferenceRefreshApplication {
                 );
             }
         };
-        if current.as_ref().map(|state| state.reference_hash.as_str())
+        if snapshot
+            .state
+            .as_ref()
+            .map(|state| state.reference_hash.as_str())
             != request.expected_reference_hash.as_deref()
         {
             return self.prepare_result(ReferenceRefreshStatus::BasisMismatch, None, Vec::new());
@@ -329,7 +419,8 @@ impl ReferenceRefreshApplication {
         };
         if !request.force
             && !bypass_unchanged
-            && current
+            && snapshot
+                .state
                 .as_ref()
                 .is_some_and(|state| state.input_hash == input_hash)
         {
@@ -340,19 +431,11 @@ impl ReferenceRefreshApplication {
             );
         }
         let source_refs = scoped_source_refs(&request);
-        let current_artifacts = match self.repository.list_artifacts(&source_refs) {
-            Ok(rows) => rows
-                .into_iter()
-                .map(|row| ((row.paper_ref.clone(), row.artifact_type.clone()), row))
-                .collect::<HashMap<_, _>>(),
-            Err(_) => {
-                return self.prepare_result(
-                    ReferenceRefreshStatus::RepairRequired,
-                    None,
-                    Vec::new(),
-                );
-            }
-        };
+        let current_artifacts = snapshot
+            .artifacts
+            .iter()
+            .map(|row| ((row.paper_ref.clone(), row.artifact_type.clone()), row))
+            .collect::<HashMap<_, _>>();
         let descriptors = request
             .artifacts
             .iter()
@@ -366,24 +449,66 @@ impl ReferenceRefreshApplication {
                 )
             })
             .collect::<HashMap<_, _>>();
-        let changed_sources = source_refs
-            .iter()
-            .filter(|paper_ref| {
-                let key = ((*paper_ref).clone(), "references".to_owned());
-                let next = descriptors[&key];
-                request.force
-                    || reproject_sources
-                    || current_artifacts.get(&key).is_none_or(|current| {
-                        current.status != next.status
-                            || current.locator != next.locator
-                            || current.payload_hash != next.payload_hash
-                            || current.payload_type != next.payload_type
-                    })
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+        let changed_sources = changed_source_refs_for_snapshot(
+            &snapshot,
+            &request.scope,
+            &request.items,
+            &request.artifacts,
+            request.force,
+        );
+        let identity_only_sweep = matches!(request.scope, ReferenceRefreshScope::FullSweep { .. })
+            && request.items.is_empty()
+            && request.artifacts.is_empty();
+        let replace_source_refs = if identity_only_sweep {
+            Vec::new()
+        } else {
+            source_refs
+                .iter()
+                .filter(|paper_ref| {
+                    request.force
+                        || reproject_sources
+                        || ["references", "citation_analysis"]
+                            .iter()
+                            .any(|artifact_type| {
+                                let key = ((*paper_ref).clone(), (*artifact_type).to_owned());
+                                artifact_record_changed(
+                                    current_artifacts.get(&key).copied(),
+                                    descriptors[&key],
+                                )
+                            })
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let removed_sources = if matches!(
+            request.scope,
+            ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+        ) {
+            let host_sources = source_refs.iter().collect::<HashSet<_>>();
+            snapshot
+                .sources
+                .iter()
+                .filter(|source| !host_sources.contains(&source.paper_ref))
+                .count()
+        } else {
+            0
+        };
+        if !bypass_unchanged
+            && changed_sources.is_empty()
+            && removed_sources == 0
+            && !matches!(
+                request.scope,
+                ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+            )
+        {
+            return self.prepare_result(
+                ReferenceRefreshStatus::Unchanged,
+                Some(input_hash),
+                Vec::new(),
+            );
+        }
         let mut reads = Vec::new();
-        for paper_ref in &changed_sources {
+        for paper_ref in &replace_source_refs {
             for artifact_type in [
                 ReferenceArtifactType::References,
                 ReferenceArtifactType::CitationAnalysis,
@@ -417,8 +542,10 @@ impl ReferenceRefreshApplication {
             input_hash: input_hash.clone(),
             request,
             reads: reads.clone(),
-            replace_source_refs: changed_sources,
+            replace_source_refs,
+            affected_source_refs: changed_sources,
             binding_candidates,
+            snapshot,
         };
         if self
             .repository
@@ -544,7 +671,7 @@ impl ReferenceRefreshApplication {
             projection.bindings.clear();
             projection.reviews.clear();
         }
-        let affected = preparation.replace_source_refs.clone();
+        let affected = preparation.affected_source_refs.clone();
         if checkpoint.is_some_and(|checkpoint| checkpoint().is_err()) {
             self.finish_operation(&preparation.operation_id, "canceled", "promotion_blocked");
             return self.mutation_result(ReferenceRefreshStatus::Stopping, Vec::new(), Vec::new());
@@ -557,6 +684,7 @@ impl ReferenceRefreshApplication {
         };
         match replaced {
             Ok(true) => {
+                self.update_projection_snapshot(&projection);
                 let mut warnings = Vec::new();
                 if self
                     .repository
@@ -668,56 +796,18 @@ impl ReferenceRefreshApplication {
             .request
             .items
             .iter()
-            .map(|item| ReferenceSourceRecord {
-                paper_ref: item.paper_ref.clone(),
-                library_id: item.library_id,
-                item_key: item.item_key.clone(),
-                title: item.title.clone(),
-                year: item.year.clone(),
-                metadata_hash: canonical_json_hash(&json!({
-                    "title": item.title,
-                    "year": item.year,
-                    "date": item.metadata.get("date").cloned().unwrap_or(Value::String(String::new())),
-                    "creators": item.metadata.get("creators").cloned().unwrap_or(Value::Array(Vec::new())),
-                    "tags": item.metadata.get("tags").cloned().unwrap_or(Value::Array(Vec::new())),
-                    "collections": item.metadata.get("collections").cloned().unwrap_or(Value::Array(Vec::new())),
-                    "doi": item.metadata.get("doi").cloned().unwrap_or(Value::String(String::new())),
-                    "arxiv": item.metadata.get("arxiv").cloned().unwrap_or(Value::String(String::new())),
-                    "isbn": item.metadata.get("isbn").cloned().unwrap_or(Value::String(String::new())),
-                    "url": item.metadata.get("url").cloned().unwrap_or(Value::String(String::new())),
-                    "citekey": item.metadata.get("citekey").cloned().unwrap_or(Value::String(String::new())),
-                }))
-                .unwrap_or_default(),
-                summary_json: synthesis_protocol::canonical_json(item)
-                    .unwrap_or_else(|_| "{}".into()),
-                updated_at: now.clone(),
-            })
+            .map(|item| source_record(item, &now))
             .collect::<Vec<_>>();
         let artifacts = preparation
             .request
             .artifacts
             .iter()
-            .map(|descriptor| ReferenceArtifactRecord {
-                paper_ref: descriptor.paper_ref.clone(),
-                artifact_type: artifact_type_name(&descriptor.artifact_type).into(),
-                payload_type: descriptor.payload_type.clone(),
-                status: descriptor.status.clone(),
-                locator: descriptor.locator.clone(),
-                payload_hash: descriptor.payload_hash.clone(),
-                diagnostics_json: serde_json::to_string(&descriptor.diagnostics)
-                    .unwrap_or_else(|_| "[]".into()),
-                updated_at: now.clone(),
-            })
+            .map(|descriptor| artifact_record(descriptor, &now))
             .collect::<Vec<_>>();
-        let current_sources = self.repository.list_sources()?;
-        let current_artifacts = self.repository.list_artifacts(
-            &current_sources
-                .iter()
-                .map(|row| row.paper_ref.clone())
-                .collect::<Vec<_>>(),
-        )?;
-        let current_raws = self.repository.list_raw_references()?;
-        let current_bindings = self.repository.list_bindings()?;
+        let current_sources = preparation.snapshot.sources.clone();
+        let current_artifacts = preparation.snapshot.artifacts.clone();
+        let current_raws = preparation.snapshot.raw_references.clone();
+        let current_bindings = preparation.snapshot.bindings.clone();
         let protected_canonicals = current_bindings
             .iter()
             .filter(|binding| binding.reviewer != "reference-refresh-application")
@@ -915,13 +1005,34 @@ impl ReferenceRefreshApplication {
                 }
             }
         }
-        let replacement_sources = preparation
+        let mut replacement_sources = preparation
             .replace_source_refs
             .iter()
+            .cloned()
             .collect::<HashSet<_>>();
+        let source_scope = scoped_source_refs(&preparation.request)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        if matches!(
+            preparation.request.scope,
+            ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+        ) {
+            replacement_sources.extend(
+                current_sources
+                    .iter()
+                    .filter(|source| !source_scope.contains(&source.paper_ref))
+                    .map(|source| source.paper_ref.clone()),
+            );
+        }
         let mut projected_facts = current_raws
             .iter()
-            .filter(|row| !replacement_sources.contains(&row.source_ref))
+            .filter(|row| {
+                !replacement_sources.contains(&row.source_ref)
+                    && (!matches!(
+                        preparation.request.scope,
+                        ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+                    ) || source_scope.contains(&row.source_ref))
+            })
             .map(|row| {
                 (
                     row.source_ref.clone(),
@@ -952,14 +1063,13 @@ impl ReferenceRefreshApplication {
             })
             .collect::<Vec<_>>();
         previous_facts.sort();
-        let source_scope = scoped_source_refs(&preparation.request)
-            .into_iter()
-            .collect::<HashSet<_>>();
         let mut final_sources = current_sources
             .into_iter()
             .filter(|row| {
-                !matches!(preparation.request.scope, ReferenceRefreshScope::Full)
-                    || source_scope.contains(&row.paper_ref)
+                !matches!(
+                    preparation.request.scope,
+                    ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+                ) || source_scope.contains(&row.paper_ref)
             })
             .map(|row| (row.paper_ref.clone(), row))
             .collect::<BTreeMap<_, _>>();
@@ -969,9 +1079,14 @@ impl ReferenceRefreshApplication {
         let mut final_artifacts = current_artifacts
             .into_iter()
             .filter(|row| {
-                (!matches!(preparation.request.scope, ReferenceRefreshScope::Full)
-                    || source_scope.contains(&row.paper_ref))
-                    && !source_scope.contains(&row.paper_ref)
+                if matches!(
+                    preparation.request.scope,
+                    ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+                ) {
+                    source_scope.contains(&row.paper_ref)
+                } else {
+                    !source_scope.contains(&row.paper_ref)
+                }
             })
             .map(|row| ((row.paper_ref.clone(), row.artifact_type.clone()), row))
             .collect::<BTreeMap<_, _>>();
@@ -985,8 +1100,10 @@ impl ReferenceRefreshApplication {
             .iter()
             .filter(|row| {
                 !replacement_sources.contains(&row.source_ref)
-                    && (!matches!(preparation.request.scope, ReferenceRefreshScope::Full)
-                        || source_scope.contains(&row.source_ref))
+                    && (!matches!(
+                        preparation.request.scope,
+                        ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. }
+                    ) || source_scope.contains(&row.source_ref))
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -1082,7 +1199,9 @@ impl ReferenceRefreshApplication {
             reference_hash,
             input_hash: preparation.input_hash.clone(),
             scope: match preparation.request.scope {
-                ReferenceRefreshScope::Full => ReferenceProjectionScope::Full,
+                ReferenceRefreshScope::Full | ReferenceRefreshScope::FullSweep { .. } => {
+                    ReferenceProjectionScope::Full
+                }
                 ReferenceRefreshScope::Sources { .. } => ReferenceProjectionScope::Sources,
             },
             source_refs: scoped_source_refs(&preparation.request),
@@ -1098,6 +1217,168 @@ impl ReferenceRefreshApplication {
                 || previous_binding_facts != projected_binding_facts,
             now,
         })
+    }
+
+    fn snapshot_for_prepare(&self) -> Result<ReferenceProjectionSnapshot, String> {
+        {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "reference_refresh_unavailable".to_owned())?;
+            if state.explicit_run {
+                return state
+                    .projection_snapshot
+                    .clone()
+                    .ok_or_else(|| "reference_refresh_run_missing".to_owned());
+            }
+        }
+        let snapshot = self.repository.load_projection_snapshot()?;
+        self.state
+            .lock()
+            .map_err(|_| "reference_refresh_unavailable".to_owned())?
+            .projection_snapshot = Some(snapshot.clone());
+        Ok(snapshot)
+    }
+
+    fn inspect_snapshot(&self) -> Result<ReferenceRefreshInspectResult, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "reference_refresh_unavailable".to_owned())?
+            .projection_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.state.clone());
+        Ok(inspect_state(state))
+    }
+
+    fn changed_source_refs(
+        &self,
+        scope: &ReferenceRefreshScope,
+        items: &[ReferenceRefreshItem],
+        artifacts: &[ReferenceArtifactDescriptor],
+        force: bool,
+    ) -> Result<Vec<String>, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "reference_refresh_unavailable".to_owned())?;
+        let snapshot = state
+            .projection_snapshot
+            .as_ref()
+            .ok_or_else(|| "reference_refresh_run_missing".to_owned())?;
+        Ok(changed_source_refs_for_snapshot(
+            snapshot, scope, items, artifacts, force,
+        ))
+    }
+
+    fn update_projection_snapshot(&self, replacement: &ReferenceProjectionReplacement) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let Some(snapshot) = state.projection_snapshot.as_mut() else {
+            return;
+        };
+        if replacement.scope == ReferenceProjectionScope::Full {
+            let retained = replacement.source_refs.iter().collect::<HashSet<_>>();
+            snapshot
+                .sources
+                .retain(|source| retained.contains(&source.paper_ref));
+            snapshot
+                .artifacts
+                .retain(|artifact| retained.contains(&artifact.paper_ref));
+            snapshot
+                .raw_references
+                .retain(|raw| retained.contains(&raw.source_ref));
+        }
+        let replaced_sources = replacement
+            .replace_reference_source_refs
+            .iter()
+            .collect::<HashSet<_>>();
+        snapshot
+            .raw_references
+            .retain(|raw| !replaced_sources.contains(&raw.source_ref));
+        let removed_bindings = replacement
+            .remove_binding_ids
+            .iter()
+            .collect::<HashSet<_>>();
+        snapshot
+            .bindings
+            .retain(|binding| !removed_bindings.contains(&binding.binding_id));
+        upsert_by(&mut snapshot.sources, &replacement.sources, |record| {
+            record.paper_ref.clone()
+        });
+        upsert_by(&mut snapshot.artifacts, &replacement.artifacts, |record| {
+            (record.paper_ref.clone(), record.artifact_type.clone())
+        });
+        upsert_by(
+            &mut snapshot.raw_references,
+            &replacement.raw_references,
+            |record| record.raw_reference_id.clone(),
+        );
+        for binding in &replacement.bindings {
+            if !snapshot
+                .bindings
+                .iter()
+                .any(|current| current.binding_id == binding.binding_id)
+            {
+                snapshot.bindings.push(binding.clone());
+            }
+        }
+        snapshot
+            .sources
+            .sort_by(|left, right| left.paper_ref.cmp(&right.paper_ref));
+        snapshot.artifacts.sort_by(|left, right| {
+            left.paper_ref
+                .cmp(&right.paper_ref)
+                .then_with(|| left.artifact_type.cmp(&right.artifact_type))
+        });
+        snapshot.raw_references.sort_by(|left, right| {
+            left.source_ref
+                .cmp(&right.source_ref)
+                .then_with(|| left.reference_index.cmp(&right.reference_index))
+                .then_with(|| left.raw_reference_id.cmp(&right.raw_reference_id))
+        });
+        snapshot
+            .bindings
+            .sort_by(|left, right| left.binding_id.cmp(&right.binding_id));
+        let canonical_count = snapshot
+            .raw_references
+            .iter()
+            .map(|raw| raw.canonical_reference_id.as_str())
+            .chain(
+                snapshot
+                    .bindings
+                    .iter()
+                    .map(|binding| binding.canonical_reference_id.as_str()),
+            )
+            .collect::<HashSet<_>>()
+            .len();
+        let current = snapshot.state.as_ref();
+        snapshot.state = Some(ReferenceApplicationStateRecord {
+            reference_hash: replacement.reference_hash.clone(),
+            input_hash: replacement.input_hash.clone(),
+            source_count: snapshot.sources.len() as i64,
+            reference_count: snapshot.raw_references.len() as i64,
+            canonical_count: canonical_count as i64,
+            binding_count: snapshot.bindings.len() as i64,
+            reference_ready: true,
+            graph_ready: !replacement.graph_facts_changed
+                && current.is_none_or(|state| state.graph_ready),
+            related_items_ready: !replacement.graph_facts_changed
+                && current.is_none_or(|state| state.related_items_ready),
+            updated_at: replacement.now.clone(),
+        });
+    }
+
+    fn end_run(&self) {
+        let preparation = self.state.lock().ok().and_then(|mut state| {
+            state.explicit_run = false;
+            state.projection_snapshot = None;
+            state.preparation.take()
+        });
+        if let Some(preparation) = preparation {
+            self.finish_operation(&preparation.operation_id, "canceled", "run_ended");
+        }
     }
 
     fn prepare_result(
@@ -1169,7 +1450,16 @@ fn validate_prepare(request: &ReferenceRefreshPrepareRequest) -> Result<(), Stri
         ReferenceRefreshScope::Sources { source_refs }
             if source_refs.is_empty() || source_refs.len() > MAX_SOURCES
     ) || source_refs.iter().collect::<HashSet<_>>().len() != source_refs.len()
-        || request.items.len() != source_refs.len()
+    {
+        return Err("invalid_request".into());
+    }
+    let identity_only_sweep = matches!(request.scope, ReferenceRefreshScope::FullSweep { .. })
+        && request.items.is_empty()
+        && request.artifacts.is_empty();
+    if identity_only_sweep {
+        return Ok(());
+    }
+    if request.items.len() != source_refs.len()
         || request
             .items
             .iter()
@@ -1254,7 +1544,8 @@ fn scoped_source_refs(request: &ReferenceRefreshPrepareRequest) -> Vec<String> {
             .iter()
             .map(|item| item.paper_ref.clone())
             .collect(),
-        ReferenceRefreshScope::Sources { source_refs } => source_refs.clone(),
+        ReferenceRefreshScope::FullSweep { source_refs }
+        | ReferenceRefreshScope::Sources { source_refs } => source_refs.clone(),
     }
 }
 
@@ -1264,6 +1555,148 @@ fn artifact_type_name(value: &ReferenceArtifactType) -> &'static str {
         ReferenceArtifactType::References => "references",
         ReferenceArtifactType::CitationAnalysis => "citation_analysis",
     }
+}
+
+fn source_record(item: &ReferenceRefreshItem, now: &str) -> ReferenceSourceRecord {
+    ReferenceSourceRecord {
+        paper_ref: item.paper_ref.clone(),
+        library_id: item.library_id,
+        item_key: item.item_key.clone(),
+        title: item.title.clone(),
+        year: item.year.clone(),
+        metadata_hash: canonical_json_hash(&json!({
+            "title": item.title,
+            "year": item.year,
+            "date": item.metadata.get("date").cloned().unwrap_or(Value::String(String::new())),
+            "creators": item.metadata.get("creators").cloned().unwrap_or(Value::Array(Vec::new())),
+            "tags": item.metadata.get("tags").cloned().unwrap_or(Value::Array(Vec::new())),
+            "collections": item.metadata.get("collections").cloned().unwrap_or(Value::Array(Vec::new())),
+            "doi": item.metadata.get("doi").cloned().unwrap_or(Value::String(String::new())),
+            "arxiv": item.metadata.get("arxiv").cloned().unwrap_or(Value::String(String::new())),
+            "isbn": item.metadata.get("isbn").cloned().unwrap_or(Value::String(String::new())),
+            "url": item.metadata.get("url").cloned().unwrap_or(Value::String(String::new())),
+            "citekey": item.metadata.get("citekey").cloned().unwrap_or(Value::String(String::new())),
+        }))
+        .unwrap_or_default(),
+        summary_json: synthesis_protocol::canonical_json(item).unwrap_or_else(|_| "{}".into()),
+        updated_at: now.into(),
+    }
+}
+
+fn artifact_record(descriptor: &ReferenceArtifactDescriptor, now: &str) -> ReferenceArtifactRecord {
+    ReferenceArtifactRecord {
+        paper_ref: descriptor.paper_ref.clone(),
+        artifact_type: artifact_type_name(&descriptor.artifact_type).into(),
+        payload_type: descriptor.payload_type.clone(),
+        status: descriptor.status.clone(),
+        locator: descriptor.locator.clone(),
+        payload_hash: descriptor.payload_hash.clone(),
+        diagnostics_json: serde_json::to_string(&descriptor.diagnostics)
+            .unwrap_or_else(|_| "[]".into()),
+        updated_at: now.into(),
+    }
+}
+
+fn artifact_record_changed(
+    current: Option<&ReferenceArtifactRecord>,
+    next: &ReferenceArtifactDescriptor,
+) -> bool {
+    current.is_none_or(|current| {
+        current.payload_type != next.payload_type
+            || current.status != next.status
+            || current.locator != next.locator
+            || current.payload_hash != next.payload_hash
+            || current.diagnostics_json
+                != serde_json::to_string(&next.diagnostics).unwrap_or_else(|_| "[]".into())
+    })
+}
+
+fn changed_source_refs_for_snapshot(
+    snapshot: &ReferenceProjectionSnapshot,
+    scope: &ReferenceRefreshScope,
+    items: &[ReferenceRefreshItem],
+    artifacts: &[ReferenceArtifactDescriptor],
+    force: bool,
+) -> Vec<String> {
+    let scoped = match scope {
+        ReferenceRefreshScope::Full => items
+            .iter()
+            .map(|item| item.paper_ref.as_str())
+            .collect::<HashSet<_>>(),
+        ReferenceRefreshScope::FullSweep { source_refs }
+        | ReferenceRefreshScope::Sources { source_refs } => source_refs
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>(),
+    };
+    let current_sources = snapshot
+        .sources
+        .iter()
+        .map(|source| (source.paper_ref.as_str(), source))
+        .collect::<HashMap<_, _>>();
+    let current_artifacts = snapshot
+        .artifacts
+        .iter()
+        .map(|artifact| {
+            (
+                (artifact.paper_ref.as_str(), artifact.artifact_type.as_str()),
+                artifact,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let next_artifacts = artifacts
+        .iter()
+        .map(|artifact| {
+            (
+                (
+                    artifact.paper_ref.as_str(),
+                    artifact_type_name(&artifact.artifact_type),
+                ),
+                artifact,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut changed = items
+        .iter()
+        .filter(|item| scoped.contains(item.paper_ref.as_str()))
+        .filter(|item| {
+            let next = source_record(item, "");
+            force
+                || current_sources
+                    .get(item.paper_ref.as_str())
+                    .is_none_or(|current| {
+                        current.library_id != next.library_id
+                            || current.item_key != next.item_key
+                            || current.title != next.title
+                            || current.year != next.year
+                            || current.metadata_hash != next.metadata_hash
+                            || current.summary_json != next.summary_json
+                    })
+                || ["digest", "references", "citation_analysis"]
+                    .iter()
+                    .any(|artifact_type| {
+                        let key = (item.paper_ref.as_str(), *artifact_type);
+                        next_artifacts.get(&key).is_some_and(|next| {
+                            artifact_record_changed(current_artifacts.get(&key).copied(), next)
+                        })
+                    })
+        })
+        .map(|item| item.paper_ref.clone())
+        .collect::<Vec<_>>();
+    changed.sort();
+    changed.dedup();
+    changed
+}
+
+fn upsert_by<T: Clone, K: Ord>(target: &mut Vec<T>, additions: &[T], key: impl Fn(&T) -> K) {
+    let mut rows = std::mem::take(target)
+        .into_iter()
+        .map(|row| (key(&row), row))
+        .collect::<BTreeMap<_, _>>();
+    for row in additions {
+        rows.insert(key(row), row.clone());
+    }
+    *target = rows.into_values().collect();
 }
 
 fn exact_payloads(reads: &[ReferenceRefreshRead], payloads: &[ReferenceRefreshPayload]) -> bool {
@@ -1419,7 +1852,72 @@ mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
     use synthesis_repository::{Repository, RepositoryIdentity};
+
+    struct CountingRepositoryPort {
+        inner: RepositoryPort,
+        snapshot_loads: Arc<AtomicUsize>,
+    }
+
+    impl ReferenceRefreshRepositoryPort for CountingRepositoryPort {
+        fn get_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String> {
+            ReferenceRefreshRepositoryPort::get_state(&self.inner)
+        }
+
+        fn load_projection_snapshot(&self) -> Result<ReferenceProjectionSnapshot, String> {
+            self.snapshot_loads.fetch_add(1, Ordering::Relaxed);
+            ReferenceRefreshRepositoryPort::load_projection_snapshot(&self.inner)
+        }
+
+        fn list_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String> {
+            ReferenceRefreshRepositoryPort::list_sources(&self.inner)
+        }
+
+        fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
+            ReferenceRefreshRepositoryPort::list_raw_references(&self.inner)
+        }
+
+        fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String> {
+            ReferenceRefreshRepositoryPort::replace(&self.inner, replacement)
+        }
+
+        fn apply_literature_projection(
+            &self,
+            replacement: &ReferenceProjectionReplacement,
+            metadata: Option<&LiteratureMatchingMetadataRecord>,
+            receipt: &OperationRecord,
+        ) -> Result<bool, String> {
+            ReferenceRefreshRepositoryPort::apply_literature_projection(
+                &self.inner,
+                replacement,
+                metadata,
+                receipt,
+            )
+        }
+
+        fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
+            ReferenceRefreshRepositoryPort::upsert_operation(&self.inner, record)
+        }
+
+        fn update_operation(
+            &self,
+            operation_id: &str,
+            status: &str,
+            phase: &str,
+            diagnostics: &[String],
+            now: &str,
+        ) -> Result<(), String> {
+            ReferenceRefreshRepositoryPort::update_operation(
+                &self.inner,
+                operation_id,
+                status,
+                phase,
+                diagnostics,
+                now,
+            )
+        }
+    }
 
     fn root() -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -1515,6 +2013,176 @@ mod tests {
                 diagnostics: Vec::new(),
             })
             .collect()
+    }
+
+    fn source_request(
+        paper_ref: &str,
+        item_key: &str,
+        expected_reference_hash: Option<String>,
+    ) -> ReferenceRefreshPrepareRequest {
+        let mut request = request(expected_reference_hash);
+        request.scope = ReferenceRefreshScope::Sources {
+            source_refs: vec![paper_ref.into()],
+        };
+        request.items[0].paper_ref = paper_ref.into();
+        request.items[0].item_key = item_key.into();
+        for artifact in &mut request.artifacts {
+            artifact.paper_ref = paper_ref.into();
+            artifact.locator = format!("{paper_ref}/{}", artifact.payload_type);
+            artifact.payload_hash = format!(
+                "sha256:{item_key}:{}",
+                artifact_type_name(&artifact.artifact_type)
+            );
+        }
+        request
+    }
+
+    #[test]
+    fn explicit_multi_batch_run_loads_one_projection_snapshot() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-counting".into(),
+                data_root_id: "data-counting".into(),
+            },
+        )
+        .expect("open repository");
+        let snapshot_loads = Arc::new(AtomicUsize::new(0));
+        let port = Arc::new(CountingRepositoryPort {
+            inner: RepositoryPort::new(Arc::new(Mutex::new(repository))),
+            snapshot_loads: Arc::clone(&snapshot_loads),
+        });
+        let application = ReferenceRefreshApplication::with_factories(
+            port,
+            Arc::new(|| "2026-08-03T00:00:00.000Z".into()),
+            Arc::new(|| "refresh:counted".into()),
+        );
+        let run = application.begin_run().expect("begin run");
+        let first = source_request("1:A", "A", None);
+        let second = source_request("1:B", "B", None);
+        let items = first
+            .items
+            .iter()
+            .chain(second.items.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let artifacts = first
+            .artifacts
+            .iter()
+            .chain(second.artifacts.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            run.changed_source_refs(&ReferenceRefreshScope::Full, &items, &artifacts, false,)
+                .expect("changed sources"),
+            vec!["1:A", "1:B"]
+        );
+        for mut batch in [first, second] {
+            batch.expected_reference_hash = run.inspect().expect("run state").reference_hash;
+            let prepared = run.prepare_refresh(batch);
+            assert_eq!(prepared.status, ReferenceRefreshStatus::Prepared);
+            assert_eq!(
+                run.apply_refresh(ReferenceRefreshApplyRequest {
+                    preparation_id: prepared.preparation_id.clone().expect("preparation"),
+                    payloads: payloads(&prepared),
+                })
+                .status,
+                ReferenceRefreshStatus::Promoted
+            );
+        }
+        assert_eq!(snapshot_loads.load(Ordering::Relaxed), 1);
+        assert_eq!(run.inspect().expect("final run state").source_count, 2);
+        drop(run);
+        drop(application);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn metadata_only_preserves_reference_facts_while_citation_change_reprojects() {
+        let (application, root) = application();
+        let prepared = application.prepare_refresh(request(None));
+        let promoted = application.apply_refresh(ReferenceRefreshApplyRequest {
+            preparation_id: prepared.preparation_id.clone().expect("preparation"),
+            payloads: payloads(&prepared),
+        });
+        assert_eq!(promoted.status, ReferenceRefreshStatus::Promoted);
+        let original_raw = application.read_references(0, 10).expect("references").0[0].clone();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("reopen repository");
+        repository
+            .execute(
+                "UPDATE synt_reference_application_state \
+                 SET graph_ready=1,related_items_ready=1 WHERE singleton_id=1",
+                &[],
+            )
+            .expect("mark dependent caches ready");
+        drop(repository);
+
+        let mut metadata_only = request(promoted.reference_hash.clone());
+        metadata_only.items[0].title = "Alpha revised".into();
+        metadata_only
+            .artifacts
+            .iter_mut()
+            .find(|artifact| artifact.artifact_type == ReferenceArtifactType::Digest)
+            .expect("digest")
+            .payload_hash = "sha256:digest-revised".into();
+        let prepared = application.prepare_refresh(metadata_only);
+        assert_eq!(prepared.status, ReferenceRefreshStatus::Prepared);
+        assert!(prepared.reads.is_empty());
+        let metadata_promoted = application.apply_refresh(ReferenceRefreshApplyRequest {
+            preparation_id: prepared.preparation_id.clone().expect("preparation"),
+            payloads: Vec::new(),
+        });
+        assert_eq!(metadata_promoted.status, ReferenceRefreshStatus::Promoted);
+        assert_eq!(
+            application.read_references(0, 10).expect("references").0[0].raw_reference_id,
+            original_raw.raw_reference_id
+        );
+        let inspection = application.inspect().expect("inspection");
+        assert!(inspection.graph_ready);
+        assert!(inspection.related_items_ready);
+
+        let mut citation_only = request(metadata_promoted.reference_hash);
+        citation_only.items[0].title = "Alpha revised".into();
+        citation_only
+            .artifacts
+            .iter_mut()
+            .find(|artifact| artifact.artifact_type == ReferenceArtifactType::Digest)
+            .expect("digest")
+            .payload_hash = "sha256:digest-revised".into();
+        citation_only
+            .artifacts
+            .iter_mut()
+            .find(|artifact| artifact.artifact_type == ReferenceArtifactType::CitationAnalysis)
+            .expect("citation analysis")
+            .payload_hash = "sha256:citation-revised".into();
+        let prepared = application.prepare_refresh(citation_only);
+        assert_eq!(prepared.reads.len(), 2);
+        let mut changed_payloads = payloads(&prepared);
+        changed_payloads
+            .iter_mut()
+            .find(|payload| payload.locator.contains("citation-analysis-json"))
+            .expect("citation payload")
+            .content = json!({"citations":[{"reference_index":0,"role":"method"}]});
+        assert_eq!(
+            application
+                .apply_refresh(ReferenceRefreshApplyRequest {
+                    preparation_id: prepared.preparation_id.clone().expect("preparation"),
+                    payloads: changed_payloads,
+                })
+                .status,
+            ReferenceRefreshStatus::Promoted
+        );
+        assert!(!application.inspect().expect("inspection").graph_ready);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

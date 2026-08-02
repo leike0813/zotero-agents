@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use synthesis_application::tag_vocabulary::{TagPromoteRequest, TagStagedPage};
+use synthesis_application::tag_vocabulary::{TagMutationStatus, TagPromoteRequest, TagStagedPage};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
 
@@ -275,11 +275,15 @@ fn promote(apps: &ProductionApplications, args: &[Value]) -> Result<Value, Strin
         .and_then(Value::as_i64)
         .unwrap_or(inspect.staged_revision);
     let tags = serde_json::from_value(tags).map_err(|_| "invalid_request".to_owned())?;
-    let mut result = mutation(apps.tags.promote(&TagPromoteRequest {
+    let promoted = apps.tags.promote(&TagPromoteRequest {
         expected_vocabulary_hash: expected_hash,
         expected_staged_revision: expected_revision,
         tags,
-    }))?;
+    });
+    if promoted.status == TagMutationStatus::Unchanged {
+        return Err("unavailable".into());
+    }
+    let mut result = mutation(promoted)?;
     let reconciled = apps.tags.reconcile_pending_effects(100)?;
     result
         .as_object_mut()

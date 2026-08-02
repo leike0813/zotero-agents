@@ -38,8 +38,8 @@
 
 - [x] 6.1 Replace Topic N+1 and full-detail list materialization with compact joined pages and targeted details
 - [x] 6.2 Replace Graph full-state reads with windowed topic-scope, metrics, and layout queries
-- [ ] 6.3 Replace Reference per-batch full-state scans with one snapshot/diff and changed-source keyed projection
-- [ ] 6.4 Batch Tag Host effects by 100 and bound ordered artifact reads to two concurrent calls
+- [x] 6.3 Replace Reference per-batch full-state scans with one snapshot/diff and changed-source keyed projection
+- [x] 6.4 Batch Tag Host effects by 100 and bound ordered artifact reads to two concurrent calls
 - [ ] 6.5 Add one repository writer and at most four read-only connections without a new dependency
 
 ## 7. Preserve Durable Data

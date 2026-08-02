@@ -2,7 +2,7 @@ use crate::PromotionCheckpoint;
 use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::ports::TagVocabularyRepositoryPort;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,9 +11,12 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    TagApplicationStateRecord, TagAuditRecord, TagEffectRecord, TagStagedSuggestionRecord,
-    TagVocabularyEntryRecord, TagVocabularyPromotion, TagVocabularyReplacement,
+    TagApplicationStateRecord, TagAuditRecord, TagEffectReceiptRecord, TagEffectRecord,
+    TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyPromotion,
+    TagVocabularyReplacement,
 };
+
+const TAG_EFFECT_BATCH_MAX: usize = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -107,7 +110,16 @@ pub trait TagVocabularyComputePort: Send + Sync {
 }
 
 pub trait TagHostEffectPort: Send + Sync {
-    fn apply(&self, effect: &TagEffectRecord) -> Result<(), String>;
+    fn apply_batch(&self, effects: &[TagEffectRecord])
+    -> Result<Vec<TagHostEffectReceipt>, String>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagHostEffectReceipt {
+    pub effect_id: String,
+    pub status: String,
+    pub occurred_at: String,
+    pub diagnostics_json: String,
 }
 
 pub trait TagLegacyBindingResolverPort: Send + Sync {
@@ -166,12 +178,7 @@ impl TagVocabularyApplication {
         let state = self.repository.get_state()?;
         let entries = self.repository.list_entries()?;
         let staged = self.repository.list_staged()?;
-        let pending_effect_count = self
-            .repository
-            .list_effects()?
-            .into_iter()
-            .filter(|effect| effect.status == "pending")
-            .count();
+        let pending_effect_count = self.repository.count_pending_effects()?;
         Ok(TagInspectResult {
             vocabulary_hash: state.as_ref().map(|state| state.vocabulary_hash.clone()),
             staged_revision: state.as_ref().map_or(0, |state| state.staged_revision),
@@ -512,32 +519,7 @@ impl TagVocabularyApplication {
         if !promoted {
             return self.result(TagMutationStatus::BasisMismatch, Vec::new(), Vec::new());
         }
-        let mut warnings = Vec::new();
-        for effect in &promotion.effects {
-            match self.host.apply(effect) {
-                Ok(()) => {
-                    if self
-                        .repository
-                        .update_effect(&effect.effect_id, "applied", "[]", &now, &now)
-                        .is_err()
-                    {
-                        warnings.push("tag_effect_receipt_failed".into());
-                    }
-                }
-                Err(error) => {
-                    warnings.push("tag_host_effect_failed".into());
-                    let diagnostics =
-                        serde_json::to_string(&vec![error]).unwrap_or_else(|_| "[]".into());
-                    let _ = self.repository.update_effect(
-                        &effect.effect_id,
-                        "pending",
-                        &diagnostics,
-                        "",
-                        &now,
-                    );
-                }
-            }
-        }
+        let (_, warnings) = self.apply_effect_batches(&promotion.effects, &now);
         self.result(
             TagMutationStatus::Committed,
             promoted_keys.into_iter().collect(),
@@ -622,41 +604,69 @@ impl TagVocabularyApplication {
         if limit == 0 || limit > 100 {
             return Err("invalid_request".into());
         }
-        let effects = self
-            .repository
-            .list_effects()?
-            .into_iter()
-            .filter(|effect| effect.status == "pending")
-            .take(limit)
-            .collect::<Vec<_>>();
+        let effects = self.repository.list_pending_effects(limit)?;
         let now = (self.now)();
-        let mut reconciled = 0;
-        for effect in effects {
-            match self.host.apply(&effect) {
-                Ok(()) => {
-                    self.repository.update_effect(
-                        &effect.effect_id,
-                        "applied",
-                        "[]",
-                        &now,
-                        &now,
-                    )?;
-                    reconciled += 1;
-                }
-                Err(error) => {
-                    let diagnostics =
-                        serde_json::to_string(&vec![error]).unwrap_or_else(|_| "[]".into());
-                    self.repository.update_effect(
-                        &effect.effect_id,
-                        "pending",
-                        &diagnostics,
-                        "",
-                        &now,
-                    )?;
-                }
-            }
+        let (reconciled, warnings) = self.apply_effect_batches(&effects, &now);
+        if warnings
+            .iter()
+            .any(|warning| warning == "tag_effect_receipt_failed")
+        {
+            return Err("tag_effect_receipt_failed".into());
         }
         Ok(reconciled)
+    }
+
+    fn apply_effect_batches(&self, effects: &[TagEffectRecord], now: &str) -> (usize, Vec<String>) {
+        let mut reconciled = 0;
+        let mut warnings = Vec::new();
+        for batch in effects.chunks(TAG_EFFECT_BATCH_MAX) {
+            let receipts = self.host.apply_batch(batch).and_then(|receipts| {
+                validate_effect_receipts(batch, &receipts)?;
+                Ok(receipts)
+            });
+            let updates = match receipts {
+                Ok(receipts) => {
+                    if receipts
+                        .iter()
+                        .any(|receipt| matches!(receipt.status.as_str(), "not_found" | "failed"))
+                    {
+                        warnings.push("tag_host_effect_failed".into());
+                    }
+                    reconciled += receipts.len();
+                    receipts
+                        .into_iter()
+                        .map(|receipt| TagEffectReceiptRecord {
+                            effect_id: receipt.effect_id,
+                            status: receipt.status,
+                            occurred_at: receipt.occurred_at,
+                            diagnostics_json: receipt.diagnostics_json,
+                            updated_at: now.into(),
+                        })
+                        .collect::<Vec<_>>()
+                }
+                Err(error) => {
+                    warnings.push("tag_host_effect_failed".into());
+                    let diagnostics_json =
+                        serde_json::to_string(&vec![error]).unwrap_or_else(|_| "[]".into());
+                    batch
+                        .iter()
+                        .map(|effect| TagEffectReceiptRecord {
+                            effect_id: effect.effect_id.clone(),
+                            status: "pending".into(),
+                            occurred_at: String::new(),
+                            diagnostics_json: diagnostics_json.clone(),
+                            updated_at: now.into(),
+                        })
+                        .collect::<Vec<_>>()
+                }
+            };
+            if self.repository.update_effect_receipts(&updates).is_err() {
+                warnings.push("tag_effect_receipt_failed".into());
+            }
+        }
+        warnings.sort();
+        warnings.dedup();
+        (reconciled, warnings)
     }
 
     pub fn stop_admission(&self) {
@@ -746,6 +756,40 @@ fn validate_candidate(candidate: &TagVocabularyReplacement) -> Result<(), String
     }
 }
 
+fn validate_effect_receipts(
+    effects: &[TagEffectRecord],
+    receipts: &[TagHostEffectReceipt],
+) -> Result<(), String> {
+    if receipts.len() != effects.len()
+        || receipts.is_empty()
+        || receipts.len() > TAG_EFFECT_BATCH_MAX
+    {
+        return Err("tag_effect_receipt_invalid".into());
+    }
+    let expected = effects
+        .iter()
+        .map(|effect| effect.effect_id.as_str())
+        .collect::<HashSet<_>>();
+    let actual = receipts
+        .iter()
+        .map(|receipt| receipt.effect_id.as_str())
+        .collect::<HashSet<_>>();
+    if actual.len() != receipts.len()
+        || actual != expected
+        || receipts.iter().any(|receipt| {
+            !matches!(
+                receipt.status.as_str(),
+                "applied" | "already_satisfied" | "not_found" | "failed"
+            ) || synthesis_protocol::unix_millis_from_utc_iso8601(&receipt.occurred_at).is_none()
+                || !serde_json::from_str::<Value>(&receipt.diagnostics_json)
+                    .is_ok_and(|value| value.is_array())
+        })
+    {
+        return Err("tag_effect_receipt_invalid".into());
+    }
+    Ok(())
+}
+
 fn map_admission(error: AdmissionError) -> TagMutationStatus {
     match error {
         AdmissionError::Busy => TagMutationStatus::TagVocabularyBusy,
@@ -807,11 +851,54 @@ mod tests {
         }
     }
 
-    struct Host(bool);
+    struct Host {
+        available: AtomicBool,
+        batch_sizes: Arc<Mutex<Vec<usize>>>,
+        statuses: Vec<String>,
+    }
+
+    impl Host {
+        fn new(available: bool) -> Self {
+            Self {
+                available: AtomicBool::new(available),
+                batch_sizes: Arc::new(Mutex::new(Vec::new())),
+                statuses: Vec::new(),
+            }
+        }
+
+        fn with_statuses(statuses: &[&str]) -> Self {
+            Self {
+                available: AtomicBool::new(true),
+                batch_sizes: Arc::new(Mutex::new(Vec::new())),
+                statuses: statuses.iter().map(|status| (*status).into()).collect(),
+            }
+        }
+    }
+
     impl TagHostEffectPort for Host {
-        fn apply(&self, _effect: &TagEffectRecord) -> Result<(), String> {
-            if self.0 {
-                Ok(())
+        fn apply_batch(
+            &self,
+            effects: &[TagEffectRecord],
+        ) -> Result<Vec<TagHostEffectReceipt>, String> {
+            self.batch_sizes
+                .lock()
+                .expect("batch sizes")
+                .push(effects.len());
+            if self.available.load(Ordering::Relaxed) {
+                Ok(effects
+                    .iter()
+                    .enumerate()
+                    .map(|(index, effect)| TagHostEffectReceipt {
+                        effect_id: effect.effect_id.clone(),
+                        status: self
+                            .statuses
+                            .get(index)
+                            .cloned()
+                            .unwrap_or_else(|| "applied".into()),
+                        occurred_at: "2026-08-03T00:00:00.000Z".into(),
+                        diagnostics_json: "[]".into(),
+                    })
+                    .collect())
             } else {
                 Err("host_unavailable".into())
             }
@@ -875,10 +962,11 @@ mod tests {
             )
             .expect("repository"),
         ));
+        let host = Arc::new(Host::new(false));
         let app = TagVocabularyApplication::with_clock(
             Arc::new(RepositoryPort::new(Arc::clone(&owner))),
             Arc::new(Compute),
-            Arc::new(Host(false)),
+            host.clone(),
             Arc::new(Resolver),
             Arc::new(|| "fixed".into()),
         );
@@ -918,6 +1006,10 @@ mod tests {
         });
         assert_eq!(result.status, TagMutationStatus::Committed);
         assert_eq!(result.warnings, ["tag_host_effect_failed"]);
+        assert_eq!(app.inspect().expect("inspect").pending_effect_count, 1);
+        host.available.store(true, Ordering::Relaxed);
+        assert_eq!(app.reconcile_pending_effects(100).expect("reconcile"), 1);
+        assert_eq!(app.inspect().expect("inspect").pending_effect_count, 0);
         app.stop_admission();
         assert_eq!(
             app.save(Some("irrelevant"), &candidate("tag:3")).status,
@@ -926,6 +1018,172 @@ mod tests {
         app.shutdown(Duration::from_secs(1)).expect("shutdown");
         drop(app);
         drop(owner);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn batches_two_hundred_fifty_effects_as_one_hundred_one_hundred_fifty() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-batch".into(),
+                    data_root_id: "data-batch".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let host = Arc::new(Host::new(true));
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            host.clone(),
+            Arc::new(Resolver),
+            Arc::new(|| "2026-08-03T00:00:00.000Z".into()),
+        );
+        assert_eq!(
+            app.save(None, &candidate("tag:batch")).status,
+            TagMutationStatus::Committed
+        );
+        let parent_bindings_json = serde_json::to_string(
+            &(0..250)
+                .map(|index| json!({"libraryId":1,"itemKey":format!("I{index:08}")}))
+                .collect::<Vec<_>>(),
+        )
+        .expect("bindings");
+        assert_eq!(
+            app.stage(
+                0,
+                &[TagStagedSuggestionRecord {
+                    tag: "method:batch".into(),
+                    facet: "method".into(),
+                    parent_bindings_json,
+                    created_at: "2026-08-03T00:00:00.000Z".into(),
+                    updated_at: "2026-08-03T00:00:00.000Z".into(),
+                    ..TagStagedSuggestionRecord::default()
+                }]
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+        assert_eq!(
+            app.promote(&TagPromoteRequest {
+                expected_vocabulary_hash: "tag:batch".into(),
+                expected_staged_revision: 1,
+                tags: vec!["method:batch".into()],
+            })
+            .status,
+            TagMutationStatus::Committed
+        );
+        assert_eq!(
+            *host.batch_sizes.lock().expect("batch sizes"),
+            vec![100, 100, 50]
+        );
+        assert_eq!(
+            owner
+                .lock()
+                .expect("repository")
+                .list_tag_effects()
+                .expect("effects")
+                .iter()
+                .filter(|effect| effect.status == "applied")
+                .count(),
+            250
+        );
+
+        drop(app);
+        drop(owner);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn persists_mixed_host_receipts_without_collapsing_statuses() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-mixed".into(),
+                    data_root_id: "data-mixed".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let host = Arc::new(Host::with_statuses(&[
+            "applied",
+            "already_satisfied",
+            "not_found",
+            "failed",
+        ]));
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            host,
+            Arc::new(Resolver),
+            Arc::new(|| "2026-08-03T00:00:00.000Z".into()),
+        );
+        assert_eq!(
+            app.save(None, &candidate("tag:mixed")).status,
+            TagMutationStatus::Committed
+        );
+        let bindings = serde_json::to_string(
+            &(0..4)
+                .map(|index| json!({"libraryId":1,"itemKey":format!("M{index:08}")}))
+                .collect::<Vec<_>>(),
+        )
+        .expect("bindings");
+        assert_eq!(
+            app.stage(
+                0,
+                &[TagStagedSuggestionRecord {
+                    tag: "method:mixed".into(),
+                    facet: "method".into(),
+                    parent_bindings_json: bindings,
+                    created_at: "2026-08-03T00:00:00.000Z".into(),
+                    updated_at: "2026-08-03T00:00:00.000Z".into(),
+                    ..TagStagedSuggestionRecord::default()
+                }]
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+        let result = app.promote(&TagPromoteRequest {
+            expected_vocabulary_hash: "tag:mixed".into(),
+            expected_staged_revision: 1,
+            tags: vec!["method:mixed".into()],
+        });
+        assert_eq!(result.status, TagMutationStatus::Committed);
+        assert_eq!(result.warnings, ["tag_host_effect_failed"]);
+        assert_eq!(
+            owner
+                .lock()
+                .expect("repository")
+                .list_tag_effects()
+                .expect("effects")
+                .into_iter()
+                .map(|effect| effect.status)
+                .collect::<HashSet<_>>(),
+            HashSet::from([
+                "applied".to_owned(),
+                "already_satisfied".to_owned(),
+                "not_found".to_owned(),
+                "failed".to_owned(),
+            ])
+        );
+
+        drop(app);
+        drop(owner);
+        let reopened = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-mixed".into(),
+                data_root_id: "data-mixed".into(),
+            },
+        )
+        .expect("reopen repository");
+        assert_eq!(reopened.list_tag_effects().expect("effects").len(), 4);
+        drop(reopened);
         let _ = std::fs::remove_dir_all(root);
     }
 }

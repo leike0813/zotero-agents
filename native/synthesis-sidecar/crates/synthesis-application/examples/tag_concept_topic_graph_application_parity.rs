@@ -16,8 +16,8 @@ use synthesis_application::concept_kb::{
     ConceptProposal, ConceptReviewAction, ConceptReviewRequest,
 };
 use synthesis_application::tag_vocabulary::{
-    TagHostEffectPort, TagIndexOutput, TagLegacyBindingResolverPort, TagPromoteRequest,
-    TagVocabularyComputePort,
+    TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolverPort,
+    TagPromoteRequest, TagVocabularyComputePort,
 };
 use synthesis_application::topic_graph::{
     TopicGraphComputePort, TopicGraphIndexOutput, TopicGraphIngestRequest,
@@ -120,7 +120,10 @@ impl TagVocabularyComputePort for TagCompute {
 struct FailingHost;
 
 impl TagHostEffectPort for FailingHost {
-    fn apply(&self, _effect: &TagEffectRecord) -> Result<(), String> {
+    fn apply_batch(
+        &self,
+        _effects: &[TagEffectRecord],
+    ) -> Result<Vec<TagHostEffectReceipt>, String> {
         Err("fixture_host_unavailable".into())
     }
 }

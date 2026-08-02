@@ -23,15 +23,16 @@ use synthesis_repository::{
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationLayoutRecord,
     CitationLayoutWindowRecord, CitationMetricsPageQuery, CitationMetricsPageRows,
     CitationNodeRecord, LiteratureMatchingMetadataRecord, RawReferenceRecord,
-    ReferenceApplicationStateRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
-    ReferenceMatchProposalRecord, ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion,
-    ReferenceMatchingStateRecord, ReferenceProjectionReplacement, ReferenceRedirectFactRecord,
+    ReferenceApplicationStateRecord, ReferenceBindingFactRecord, ReferenceMatchProposalRecord,
+    ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion, ReferenceMatchingStateRecord,
+    ReferenceProjectionReplacement, ReferenceProjectionSnapshot, ReferenceRedirectFactRecord,
     ReferenceReviewTransition, ReferenceSourceRecord,
 };
 use synthesis_repository::{
     ConceptApplicationStateRecord, ConceptKbReplacement, TagApplicationStateRecord, TagAuditRecord,
-    TagEffectRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyPromotion,
-    TagVocabularyReplacement, TopicGraphApplicationStateRecord, TopicGraphReplacement,
+    TagEffectReceiptRecord, TagEffectRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
+    TagVocabularyPromotion, TagVocabularyReplacement, TopicGraphApplicationStateRecord,
+    TopicGraphReplacement,
 };
 use synthesis_repository::{
     DebugProjection, DurableBundleCapture, DurableImportApply, DurableImportCapture,
@@ -88,14 +89,9 @@ pub trait CitationGraphRepositoryPort: Send + Sync {
 
 pub trait ReferenceRefreshRepositoryPort: Send + Sync {
     fn get_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String>;
+    fn load_projection_snapshot(&self) -> Result<ReferenceProjectionSnapshot, String>;
     fn list_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String>;
-    fn list_artifacts(
-        &self,
-        source_refs: &[String],
-    ) -> Result<Vec<ReferenceArtifactRecord>, String>;
     fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String>;
-    fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String>;
-    fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String>;
     fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String>;
     fn apply_literature_projection(
         &self,
@@ -159,6 +155,8 @@ pub trait TagVocabularyRepositoryPort: Send + Sync {
     fn list_entries(&self) -> Result<Vec<TagVocabularyEntryRecord>, String>;
     fn list_staged(&self) -> Result<Vec<TagStagedSuggestionRecord>, String>;
     fn list_effects(&self) -> Result<Vec<TagEffectRecord>, String>;
+    fn count_pending_effects(&self) -> Result<usize, String>;
+    fn list_pending_effects(&self, limit: usize) -> Result<Vec<TagEffectRecord>, String>;
     fn replace_vocabulary(
         &self,
         expected_vocabulary_hash: Option<&str>,
@@ -186,14 +184,7 @@ pub trait TagVocabularyRepositoryPort: Send + Sync {
     ) -> Result<bool, String>;
     fn replace_audit(&self, record: &TagAuditRecord) -> Result<(), String>;
     fn clear_audit(&self, library_id: i64, item_key: &str) -> Result<bool, String>;
-    fn update_effect(
-        &self,
-        effect_id: &str,
-        status: &str,
-        diagnostics_json: &str,
-        occurred_at: &str,
-        now: &str,
-    ) -> Result<bool, String>;
+    fn update_effect_receipts(&self, receipts: &[TagEffectReceiptRecord]) -> Result<(), String>;
 }
 
 pub trait ConceptKbRepositoryPort: Send + Sync {
@@ -418,6 +409,20 @@ impl TagVocabularyRepositoryPort for RepositoryPort {
             .list_tag_effects()
     }
 
+    fn count_pending_effects(&self) -> Result<usize, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .count_pending_tag_effects()
+    }
+
+    fn list_pending_effects(&self, limit: usize) -> Result<Vec<TagEffectRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_pending_tag_effects(limit)
+    }
+
     fn replace_vocabulary(
         &self,
         expected_vocabulary_hash: Option<&str>,
@@ -485,18 +490,11 @@ impl TagVocabularyRepositoryPort for RepositoryPort {
             .clear_tag_audit(library_id, item_key)
     }
 
-    fn update_effect(
-        &self,
-        effect_id: &str,
-        status: &str,
-        diagnostics_json: &str,
-        occurred_at: &str,
-        now: &str,
-    ) -> Result<bool, String> {
+    fn update_effect_receipts(&self, receipts: &[TagEffectReceiptRecord]) -> Result<(), String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .update_tag_effect(effect_id, status, diagnostics_json, occurred_at, now)
+            .update_tag_effect_receipts(receipts)
     }
 }
 
@@ -815,6 +813,13 @@ impl ReferenceRefreshRepositoryPort for RepositoryPort {
             .get_reference_application_state()
     }
 
+    fn load_projection_snapshot(&self) -> Result<ReferenceProjectionSnapshot, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .load_reference_projection_snapshot()
+    }
+
     fn list_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String> {
         self.repository
             .lock()
@@ -822,35 +827,11 @@ impl ReferenceRefreshRepositoryPort for RepositoryPort {
             .list_reference_sources()
     }
 
-    fn list_artifacts(
-        &self,
-        source_refs: &[String],
-    ) -> Result<Vec<ReferenceArtifactRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_reference_artifacts(source_refs)
-    }
-
     fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .list_raw_references()
-    }
-
-    fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_canonical_references()
-    }
-
-    fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_reference_bindings()
     }
 
     fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String> {
