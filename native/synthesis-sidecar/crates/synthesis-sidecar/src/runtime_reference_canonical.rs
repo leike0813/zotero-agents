@@ -1425,6 +1425,7 @@ impl ReferenceCanonicalApplication {
         retry: bool,
         checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<Value, String> {
+        let requested = refresh_scope_filter(request)?;
         let _mutation = self
             .mutation
             .lock()
@@ -1442,7 +1443,6 @@ impl ReferenceCanonicalApplication {
                     .operation_id(REFRESH_JOB_ID)
                     .returned(items.len())
             });
-            let requested = refresh_scope_filter(request)?;
             if !requested.is_empty() {
                 items.retain(|item| requested.contains(&item.paper_ref));
             }

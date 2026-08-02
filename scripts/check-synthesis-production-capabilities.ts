@@ -96,6 +96,10 @@ const RUST_TOPIC_WORKBENCH_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs",
 );
+const RUST_REFERENCE_CITATION_DISPATCH_PATH = path.join(
+  ROOT,
+  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs",
+);
 const TOPIC_WORKBENCH_TYPED_CAPABILITIES = [
   "client.listTopics",
   "client.findTopicsByPaperRef",
@@ -114,6 +118,10 @@ const TOPIC_WORKBENCH_TYPED_CAPABILITIES = [
   "client.rejectTopicDiscoveryHint",
   "client.restoreTopicDiscoveryHint",
 ] as const;
+const REFERENCE_CITATION_TYPED_SURFACES = new Set([
+  "reference-canonical",
+  "citation-graph",
+]);
 function sorted(values: readonly string[]) {
   return [...values].sort();
 }
@@ -247,8 +255,18 @@ export function inspectSynthesisProductionCapabilities(
   )
     ? fs.readFileSync(RUST_TOPIC_WORKBENCH_DISPATCH_PATH, "utf8")
     : "";
+  const rustReferenceCitationDispatchSource = fs.existsSync(
+    RUST_REFERENCE_CITATION_DISPATCH_PATH,
+  )
+    ? fs.readFileSync(RUST_REFERENCE_CITATION_DISPATCH_PATH, "utf8")
+    : "";
   const surfaceCorpora =
     options.surfaceCorpora ?? readSynthesisProductionSurfaceCorpora(ROOT);
+  const referenceCitationTypedCapabilities = surfaceCorpora
+    .filter((surface) => REFERENCE_CITATION_TYPED_SURFACES.has(surface.id))
+    .flatMap((surface) =>
+      surface.corpus.operations.map((operation) => operation.id),
+    );
   const rustReadyBlock =
     rustSource.match(
       /READY_PRODUCTION_CLIENT_CAPABILITIES:\s*&\[&str\]\s*=\s*&\[(.*?)\];/s,
@@ -275,11 +293,14 @@ export function inspectSynthesisProductionCapabilities(
     [
       ...extractRustDispatcherCapabilities(rustCompatDispatchSource),
       ...extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource),
+      ...extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource),
     ];
   const rustCompatDispatcherCapabilities =
     extractRustDispatcherCapabilities(rustCompatDispatchSource);
   const rustTopicWorkbenchDispatcherCapabilities =
     extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource);
+  const rustReferenceCitationDispatcherCapabilities =
+    extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource);
   const dispatcherCapabilities = [...new Set(rustDispatcherCapabilities)];
 
   return {
@@ -354,6 +375,21 @@ export function inspectSynthesisProductionCapabilities(
         ...rustCompatDispatcherCapabilities
           .filter((capability) =>
             TOPIC_WORKBENCH_TYPED_CAPABILITIES.includes(capability as never),
+          )
+          .map((capability) => `compat owner retained: ${capability}`),
+      ],
+      typedReferenceCitationOwnership: [
+        ...difference(
+          referenceCitationTypedCapabilities,
+          rustReferenceCitationDispatcherCapabilities,
+        ).map((capability) => `typed owner missing: ${capability}`),
+        ...difference(
+          rustReferenceCitationDispatcherCapabilities,
+          referenceCitationTypedCapabilities,
+        ).map((capability) => `typed owner unknown: ${capability}`),
+        ...rustCompatDispatcherCapabilities
+          .filter((capability) =>
+            referenceCitationTypedCapabilities.includes(capability),
           )
           .map((capability) => `compat owner retained: ${capability}`),
       ],

@@ -30,7 +30,7 @@
 ## 5. Replace Compatibility Routing
 
 - [x] 5.1 Introduce typed Topic/Workbench/Workflow production adapters and remove their route-local DTO/business fallbacks
-- [ ] 5.2 Introduce typed Reference/Matching and Citation production adapters with application-owned behavior
+- [x] 5.2 Introduce typed Reference/Matching and Citation production adapters with application-owned behavior
 - [ ] 5.3 Introduce typed Tag/Concept/Topic Graph and durable/WebDAV/maintenance/debug adapters
 - [ ] 5.4 Delete `runtime_production_compat.rs` after the closed operation inventory has typed owners and route evidence
 

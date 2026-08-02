@@ -60,6 +60,9 @@ production_native_route:
     route_harness: test/helpers/synthesisProductionRouteHarness.ts
     scale_gate: scripts/check-synthesis-production-route-performance.ts
     topic_workbench_parity: scripts/check-synthesis-topic-workbench-surface-parity.ts
+    citation_graph_parity: scripts/check-synthesis-citation-graph-surface-parity.ts
+    reference_canonical_parity: scripts/check-synthesis-reference-canonical-surface-parity.ts
+    citation_reference_application_parity: scripts/check-synthesis-citation-reference-application-parity.ts
   observations:
     sql_queries: synthesis-sidecar-observation.v2:sqlQueryCount
     sql_writes: synthesis-sidecar-observation.v2:sqlWriteCount
@@ -435,6 +438,9 @@ method_groups:
     target_capability: workflow_review
     disposition: client_capability
     consumer_groups: [workflow, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
+    application_owner: [runtime_reference_canonical::ReferenceCanonicalApplication, synthesis_application::ConceptKbApplication, synthesis_application::TopicGraphApplication]
+    production_evidence: production_native_route.evidence
     methods:
       - getReviewInput
 
@@ -443,6 +449,9 @@ method_groups:
     target_capability: graph
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
+    application_owner: synthesis_application::CitationGraphApplication
+    production_evidence: production_native_route.evidence
     methods:
       - queryCitationGraphCluster
       - getCitationGraphSlice
@@ -459,6 +468,9 @@ method_groups:
     target_capability: graph
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
+    application_owner: synthesis_application::CitationGraphApplication
+    production_evidence: production_native_route.evidence
     methods:
       - recomputeCitationGraphLayout
       - refreshCitationGraphCacheIncrementalNow
@@ -498,6 +510,9 @@ method_groups:
     target_capability: references
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
+    application_owner: runtime_reference_canonical::ReferenceCanonicalApplication
+    production_evidence: production_native_route.evidence
     methods:
       - getReferenceSidecarIndex
       - rankExternalReferences
@@ -511,6 +526,9 @@ method_groups:
     target_capability: references
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
+    production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
+    application_owner: runtime_reference_canonical::ReferenceCanonicalApplication
+    production_evidence: production_native_route.evidence
     methods:
       - refreshReferenceSidecarNow
       - startReferenceSidecarRefresh

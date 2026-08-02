@@ -1,18 +1,10 @@
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 use synthesis_repository::{TagStagedSuggestionRecord, TagVocabularyReplacement};
 
 use crate::runtime_artifact_library_debug;
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_public_maintenance_operation::{
-    checkpoint_before_promotion, current_operation_id,
-};
-use crate::runtime_reference_canonical::{
-    CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
-    CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest,
-};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -28,29 +20,6 @@ fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
         [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
         _ => Err("invalid_request".into()),
     }
-}
-
-fn optional_one<T: DeserializeOwned + Default>(args: &[Value]) -> Result<T, String> {
-    match args {
-        [] => Ok(T::default()),
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
-        _ => Err("invalid_request".into()),
-    }
-}
-
-fn no_args(args: &[Value]) -> Result<(), String> {
-    if args.is_empty() {
-        Ok(())
-    } else {
-        Err("invalid_request".into())
-    }
-}
-
-fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
-    let Some(operation_id) = current_operation_id() else {
-        return Ok(());
-    };
-    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
 }
 
 fn object_arg(args: &[Value]) -> Result<Value, String> {
@@ -175,109 +144,6 @@ fn staged_request(args: &[Value]) -> Result<(i64, Vec<TagStagedSuggestionRecord>
     }
 }
 
-fn reference_review_decisions(args: &[Value]) -> Result<Vec<ReferenceReviewDecision>, String> {
-    let decisions = match args {
-        [Value::Array(decisions)] => decisions.clone(),
-        [Value::Object(request)] if request.contains_key("decisions") => request
-            .get("decisions")
-            .and_then(Value::as_array)
-            .cloned()
-            .ok_or_else(|| "invalid_request".to_owned())?,
-        [decision @ Value::Object(_)] => vec![decision.clone()],
-        _ => return Err("invalid_request".into()),
-    };
-    if decisions.is_empty() || decisions.len() > 100 {
-        return Err("invalid_request".into());
-    }
-    decisions
-        .into_iter()
-        .map(|decision| {
-            let object = decision
-                .as_object()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            if object
-                .keys()
-                .any(|key| !matches!(key.as_str(), "proposalId" | "action" | "target"))
-            {
-                return Err("invalid_request".into());
-            }
-            let proposal_id = object
-                .get("proposalId")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| "invalid_request".to_owned())?
-                .trim()
-                .to_owned();
-            let action = object
-                .get("action")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            let mut result = ReferenceReviewDecision {
-                proposal_id,
-                action: match action {
-                    "accept" => ReferenceReviewAction::Accept,
-                    "reverse_accept" => ReferenceReviewAction::Reverse,
-                    "reject" => ReferenceReviewAction::Reject,
-                    "reopen" => ReferenceReviewAction::Reopen,
-                    "delete" => ReferenceReviewAction::Delete,
-                    "manual_target" => ReferenceReviewAction::Retarget,
-                    _ => return Err("invalid_request".into()),
-                },
-                target_canonical_reference_id: String::new(),
-                target_library_id: 0,
-                target_item_key: String::new(),
-            };
-            if action == "manual_target" {
-                let target = object
-                    .get("target")
-                    .and_then(Value::as_object)
-                    .ok_or_else(|| "invalid_request".to_owned())?;
-                match target.get("kind").and_then(Value::as_str) {
-                    Some("zotero_item") => {
-                        if target
-                            .keys()
-                            .any(|key| !matches!(key.as_str(), "kind" | "libraryId" | "itemKey"))
-                        {
-                            return Err("invalid_request".into());
-                        }
-                        result.target_library_id = target
-                            .get("libraryId")
-                            .and_then(Value::as_i64)
-                            .filter(|value| *value > 0)
-                            .ok_or_else(|| "invalid_request".to_owned())?;
-                        result.target_item_key = target
-                            .get("itemKey")
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.trim().is_empty())
-                            .ok_or_else(|| "invalid_request".to_owned())?
-                            .trim()
-                            .to_owned();
-                    }
-                    Some("canonical_reference") => {
-                        if target
-                            .keys()
-                            .any(|key| !matches!(key.as_str(), "kind" | "canonicalReferenceId"))
-                        {
-                            return Err("invalid_request".into());
-                        }
-                        result.target_canonical_reference_id = target
-                            .get("canonicalReferenceId")
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.trim().is_empty())
-                            .ok_or_else(|| "invalid_request".to_owned())?
-                            .trim()
-                            .to_owned();
-                    }
-                    _ => return Err("invalid_request".into()),
-                }
-            } else if object.contains_key("target") {
-                return Err("invalid_request".into());
-            }
-            Ok(result)
-        })
-        .collect()
-}
-
 #[allow(dead_code)]
 fn tag_vocabulary_hash(apps: &ProductionApplications) -> Result<String, String> {
     apps.tags
@@ -307,31 +173,6 @@ macro_rules! register_production_client_handlers {
 register_production_client_handlers!(
     ("client.getSchemas", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.getSchemas", args)
-    }),
-    ("client.getCitationGraphLayout", |apps, args| {
-        crate::runtime_citation_graph_read_surface::dispatch(
-            apps,
-            "client.getCitationGraphLayout",
-            args,
-        )
-    }),
-    ("client.queryCitationGraph", |apps, args| {
-        crate::runtime_citation_graph_read_surface::dispatch(
-            apps,
-            "client.queryCitationGraph",
-            args,
-        )
-    }),
-    ("client.queryCitationGraphCluster", |apps, args| {
-        crate::runtime_citation_graph_read_surface::dispatch(
-            apps,
-            "client.queryCitationGraphCluster",
-            args,
-        )
-    }),
-    ("client.getReferenceSidecarIndex", |apps, args| {
-        apps.reference_canonical
-            .sidecar_index(&optional_one::<Value>(args)?)
     }),
     ("client.isBuiltinTagPolicyInitialized", |apps, args| {
         crate::runtime_tag_surface::dispatch(apps, "client.isBuiltinTagPolicyInitialized", args)
@@ -381,137 +222,6 @@ register_production_client_handlers!(
         "client.resolveTopicPaperDigest",
         digest_resolution_from_compat
     ),
-    ("client.getCitationGraphSlice", |apps, args| {
-        crate::runtime_citation_graph_read_surface::dispatch(
-            apps,
-            "client.getCitationGraphSlice",
-            args,
-        )
-    }),
-    ("client.getCitationGraphMetrics", |apps, args| {
-        crate::runtime_citation_graph_read_surface::dispatch(
-            apps,
-            "client.getCitationGraphMetrics",
-            args,
-        )
-    }),
-    ("client.rankLibraryPapers", |apps, args| {
-        crate::runtime_citation_graph_read_surface::dispatch(apps, "client.rankLibraryPapers", args)
-    }),
-    ("client.refreshCitationGraphMetricsNow", |apps, args| {
-        crate::runtime_citation_graph_commands::dispatch(
-            apps,
-            "client.refreshCitationGraphMetricsNow",
-            args,
-        )
-    }),
-    ("client.startCitationGraphUpdate", |apps, args| {
-        crate::runtime_citation_graph_commands::dispatch(
-            apps,
-            "client.startCitationGraphUpdate",
-            args,
-        )
-    }),
-    ("client.recomputeCitationGraphLayout", |apps, args| {
-        crate::runtime_citation_graph_commands::dispatch(
-            apps,
-            "client.recomputeCitationGraphLayout",
-            args,
-        )
-    }),
-    ("client.rebuildCitationGraphCacheNow", |apps, args| {
-        crate::runtime_citation_graph_commands::dispatch(
-            apps,
-            "client.rebuildCitationGraphCacheNow",
-            args,
-        )
-    }),
-    (
-        "client.refreshCitationGraphCacheIncrementalNow",
-        |apps, args| {
-            crate::runtime_citation_graph_commands::dispatch(
-                apps,
-                "client.refreshCitationGraphCacheIncrementalNow",
-                args,
-            )
-        }
-    ),
-    ("client.retryCitationGraphCacheRebuild", |apps, args| {
-        crate::runtime_citation_graph_commands::dispatch(
-            apps,
-            "client.retryCitationGraphCacheRebuild",
-            args,
-        )
-    }),
-    ("client.rankExternalReferences", |apps, args| {
-        apps.reference_canonical
-            .rank_external_references(&optional_one::<Value>(args)?)
-    }),
-    ("client.getAttentionQueue", |apps, args| {
-        apps.reference_canonical
-            .attention_queue(&optional_one::<Value>(args)?)
-    }),
-    ("client.startReferenceSidecarRefresh", |apps, args| {
-        let request = optional_one::<Value>(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .start_refresh_with_checkpoint(&request, &checkpoint)
-    }),
-    ("client.refreshReferenceSidecarNow", |apps, args| {
-        no_args(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .refresh_now_with_checkpoint(&checkpoint)
-    }),
-    ("client.retryReferenceSidecarRefresh", |apps, args| {
-        no_args(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .retry_refresh_with_checkpoint(&checkpoint)
-    }),
-    ("client.runAdvancedReferenceMatchingNow", |apps, args| {
-        no_args(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .run_advanced_matching_with_checkpoint(&checkpoint)
-    }),
-    ("client.retryAdvancedReferenceMatching", |apps, args| {
-        no_args(args)?;
-        let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .retry_advanced_matching_with_checkpoint(&checkpoint)
-    }),
-    ("client.applyCanonicalRevisionReviewAction", |apps, args| {
-        apps.reference_canonical
-            .apply_revision_review(one::<CanonicalRevisionReviewRequest>(args)?)
-    }),
-    ("client.applyReferenceMatchProposalAction", |apps, args| {
-        apps.reference_canonical
-            .apply_proposal_actions(&reference_review_decisions(args)?)
-    }),
-    ("client.applyReferenceMatchProposalActions", |apps, args| {
-        apps.reference_canonical
-            .apply_proposal_actions(&reference_review_decisions(args)?)
-    }),
-    ("client.mergeEffectiveCanonicalReference", |apps, args| {
-        apps.reference_canonical
-            .merge_canonical(one::<EffectiveCanonicalMergeRequest>(args)?)
-    }),
-    (
-        "client.applyCanonicalRevisionMergeRequests",
-        |apps, args| {
-            apps.reference_canonical
-                .merge_canonical_batch(one::<CanonicalMergeBatchRequest>(args)?)
-        }
-    ),
-    ("client.updateCanonicalReferenceMetadata", |apps, args| {
-        apps.reference_canonical
-            .update_canonical_metadata(one::<CanonicalMetadataUpdateRequest>(args)?)
-    }),
-    ("client.archiveCanonicalReference", |apps, args| {
-        apps.reference_canonical
-            .archive_canonical(one::<CanonicalArchiveRequest>(args)?)
-    }),
     ("client.queryConceptKb", |apps, args| {
         crate::runtime_concept_topic_graph_surface::dispatch(apps, "client.queryConceptKb", args)
     }),
@@ -623,14 +333,6 @@ register_production_client_handlers!(
     ("client.getLibraryIndex", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.getLibraryIndex", args)
     }),
-    ("client.getReviewInput", |apps, args| {
-        let request = optional_one::<Value>(args)?;
-        Ok(json!({
-            "reference":apps.reference_canonical.review_input(&request)?,
-            "concept":apps.concepts.load()?.reviews,
-            "topicGraph":apps.topic_graph.load()?.reviews,
-        }))
-    }),
     ("client.debugSynthesisProfilerList", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisProfilerList", args)
     }),
@@ -691,6 +393,7 @@ fn dispatched_production_client_capabilities() -> impl Iterator<Item = &'static 
         .iter()
         .map(|handler| handler.capability)
         .chain(crate::runtime_topic_workbench_surface::dispatched_capabilities())
+        .chain(crate::runtime_reference_citation_surface::dispatched_capabilities())
 }
 
 // The control receipt endpoint is deliberately handled by the production
@@ -706,6 +409,11 @@ pub(crate) fn dispatch_legacy_client(
     args: &[Value],
 ) -> Result<Value, String> {
     if let Some(result) = crate::runtime_topic_workbench_surface::dispatch(apps, capability, args) {
+        return result;
+    }
+    if let Some(result) =
+        crate::runtime_reference_citation_surface::dispatch(apps, capability, args)
+    {
         return result;
     }
     PRODUCTION_CLIENT_HANDLERS
@@ -724,9 +432,7 @@ mod tests {
 
     use super::*;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-    use synthesis_repository::{
-        CacheBasisRecord, CanonicalReferenceRecord, Repository, RepositoryIdentity,
-    };
+    use synthesis_repository::{CacheBasisRecord, Repository, RepositoryIdentity};
     use synthesis_sidecar::production_capabilities::{
         READY_PRODUCTION_CLIENT_CAPABILITIES, production_client_capabilities,
     };
@@ -852,7 +558,10 @@ mod tests {
             .collect::<BTreeSet<_>>();
         assert_eq!(
             registered.len(),
-            PRODUCTION_CLIENT_HANDLERS.len() + 16 + DIRECT_PRODUCTION_CLIENT_CAPABILITIES.len()
+            PRODUCTION_CLIENT_HANDLERS.len()
+                + 16
+                + 28
+                + DIRECT_PRODUCTION_CLIENT_CAPABILITIES.len()
         );
         assert!(registered.is_subset(&declared));
     }
@@ -1178,28 +887,12 @@ mod tests {
     }
 
     #[test]
-    fn canonical_and_topic_discovery_public_adapters_preserve_stable_shapes() {
+    fn topic_discovery_public_adapter_preserves_stable_shape() {
         let root = test_root();
         let apps = test_applications(&root);
         {
             let owner = apps.repository.owner();
-            let mut repository = owner.lock().expect("repository");
-            for id in ["canonical:source", "canonical:target"] {
-                repository
-                    .upsert_canonical_reference_record(&CanonicalReferenceRecord {
-                        canonical_reference_id: id.into(),
-                        title: id.into(),
-                        normalized_title: id.into(),
-                        authors_json: "[]".into(),
-                        identifiers_json: "{}".into(),
-                        metadata_hash: "sha256:metadata".into(),
-                        status: "active".into(),
-                        created_at: "1".into(),
-                        updated_at: "1".into(),
-                        ..CanonicalReferenceRecord::default()
-                    })
-                    .expect("canonical");
-            }
+            let repository = owner.lock().expect("repository");
             repository
                 .execute(
                     "INSERT INTO synt_topic_discovery_hint(
@@ -1209,16 +902,6 @@ mod tests {
                 )
                 .expect("hint");
         }
-        let merged = dispatch_legacy_client(
-            &apps,
-            "client.mergeEffectiveCanonicalReference",
-            &[json!({
-                "sourceEffectiveCanonicalId":"canonical:source",
-                "targetEffectiveCanonicalId":"canonical:target",
-            })],
-        )
-        .expect("merge");
-        assert_eq!(merged["status"], "merged");
         let rejected = dispatch_legacy_client(
             &apps,
             "client.rejectTopicDiscoveryHint",
@@ -1227,134 +910,6 @@ mod tests {
         .expect("reject hint");
         assert_eq!(rejected["status"], "rejected");
         assert_eq!(rejected["hint"]["status"], "rejected");
-        drop(apps);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn reference_public_adapters_preserve_empty_reads_and_no_arg_jobs() {
-        let root = test_root();
-        let apps = test_applications(&root);
-        let index = dispatch_legacy_client(&apps, "client.getReferenceSidecarIndex", &[json!({})])
-            .expect("index");
-        assert_eq!(index["rows"], json!([]));
-        assert_eq!(index["cursor"], "0");
-        assert_eq!(index["next_cursor"], "");
-        assert_eq!(index["has_more"], false);
-
-        let ranked = dispatch_legacy_client(&apps, "client.rankExternalReferences", &[json!({})])
-            .expect("ranking");
-        assert_eq!(ranked["items"], json!([]));
-        assert_eq!(ranked["nextCursor"], "");
-        assert_eq!(ranked["hasMore"], false);
-
-        let attention = dispatch_legacy_client(&apps, "client.getAttentionQueue", &[json!({})])
-            .expect("attention");
-        assert_eq!(attention["ok"], true);
-        assert!(attention["items"].is_array());
-
-        let review = dispatch_legacy_client(&apps, "client.getReviewInput", &[json!({})])
-            .expect("review input");
-        assert!(review["reference"]["records"].is_array());
-        assert!(review["concept"].is_array());
-        assert!(review["topicGraph"].is_array());
-
-        for capability in [
-            "client.refreshReferenceSidecarNow",
-            "client.retryReferenceSidecarRefresh",
-            "client.runAdvancedReferenceMatchingNow",
-            "client.retryAdvancedReferenceMatching",
-        ] {
-            assert_eq!(
-                dispatch_legacy_client(&apps, capability, &[]),
-                Err("reverse_host_unavailable".into()),
-                "{capability} must accept the public no-argument boundary",
-            );
-        }
-        assert_eq!(
-            dispatch_legacy_client(
-                &apps,
-                "client.updateCanonicalReferenceMetadata",
-                &[json!({
-                    "canonicalReferenceId":"canonical",
-                    "patch":{"title":"Title"},
-                    "unexpected":true,
-                })],
-            ),
-            Err("invalid_request".into()),
-        );
-        drop(apps);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn citation_graph_public_commands_validate_only_the_public_boundary() {
-        let root = test_root();
-        let apps = test_applications(&root);
-
-        for capability in [
-            "client.rebuildCitationGraphCacheNow",
-            "client.refreshCitationGraphCacheIncrementalNow",
-            "client.retryCitationGraphCacheRebuild",
-        ] {
-            assert_ne!(
-                dispatch_legacy_client(&apps, capability, &[]),
-                Err("invalid_request".into()),
-                "{capability} must accept the public no-argument boundary",
-            );
-            assert_eq!(
-                dispatch_legacy_client(&apps, capability, &[json!({})]),
-                Err("invalid_request".into()),
-                "{capability} must reject public arguments",
-            );
-        }
-
-        assert_ne!(
-            dispatch_legacy_client(
-                &apps,
-                "client.startCitationGraphUpdate",
-                &[json!({
-                    "scope":"papers",
-                    "paperRefs":["1:AAAA1111"],
-                    "expectedReferenceBasisHash":"sha256:reference",
-                    "idempotencyKey":"graph-update-a",
-                })],
-            ),
-            Err("invalid_request".into()),
-        );
-        assert_ne!(
-            dispatch_legacy_client(
-                &apps,
-                "client.refreshCitationGraphMetricsNow",
-                &[json!({"graphHash":"sha256:graph"})],
-            ),
-            Err("invalid_request".into()),
-        );
-        assert_ne!(
-            dispatch_legacy_client(
-                &apps,
-                "client.recomputeCitationGraphLayout",
-                &[json!({"algorithm":"radial","force":true})],
-            ),
-            Err("invalid_request".into()),
-        );
-        assert_eq!(
-            dispatch_legacy_client(
-                &apps,
-                "client.startCitationGraphUpdate",
-                &[json!({"scope":"library","libraryId":1})],
-            ),
-            Err("invalid_request".into()),
-            "native payloads must not select Host library authority",
-        );
-        assert_eq!(
-            dispatch_legacy_client(
-                &apps,
-                "client.recomputeCitationGraphLayout",
-                &[json!({"algorithm":"radial","force":true,"input":{}})],
-            ),
-            Err("invalid_request".into()),
-        );
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }
