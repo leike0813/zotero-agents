@@ -57,6 +57,9 @@ CREATE INDEX IF NOT EXISTS idx_synt_citation_edge_target ON synt_citation_edge(t
 CREATE INDEX IF NOT EXISTS idx_synt_citation_layout_graph ON synt_citation_layout_state(graph_hash, preset, view_key);
 CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_foundation ON synt_citation_metrics_complex(foundation_score DESC, literature_item_id ASC);
 CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_frontier ON synt_citation_metrics_complex(frontier_score DESC, literature_item_id ASC);
+CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_pagerank ON synt_citation_metrics_complex(internal_pagerank DESC, literature_item_id ASC);
+CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_in_degree ON synt_citation_metrics_complex(internal_in_degree DESC, literature_item_id ASC);
+CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_paper_ref ON synt_citation_metrics_complex(paper_ref, literature_item_id ASC);
 CREATE INDEX IF NOT EXISTS idx_synt_concept_alias_concept_status ON synt_concept_alias(concept_id,status);
 CREATE INDEX IF NOT EXISTS idx_synt_concept_alias_normalized ON synt_concept_alias(normalized,status);
 CREATE INDEX IF NOT EXISTS idx_synt_concept_relation_source_status ON synt_concept_relation(source_concept_id,status);
@@ -82,6 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_synt_tag_effect_status ON synt_tag_effect(status,
 CREATE INDEX IF NOT EXISTS idx_synt_tag_staged_updated ON synt_tag_staged_suggestion(updated_at DESC,tag);
 CREATE INDEX IF NOT EXISTS idx_synt_tag_vocabulary_facet ON synt_tag_vocabulary_entry(facet,tag);
 CREATE INDEX IF NOT EXISTS idx_synt_topic_application_state_updated ON synt_topic_application_state(updated_at DESC, topic_id ASC);
+CREATE INDEX IF NOT EXISTS idx_synt_topic_application_state_title ON synt_topic_application_state(title COLLATE NOCASE, topic_id ASC);
 CREATE INDEX IF NOT EXISTS idx_synt_topic_deleted_artifact_deleted ON synt_topic_deleted_artifact(deleted_at DESC, topic_id ASC);
 CREATE INDEX IF NOT EXISTS idx_synt_topic_concept_link_concept ON synt_topic_concept_link(concept_id);
 CREATE INDEX IF NOT EXISTS idx_synt_topic_concept_link_topic ON synt_topic_concept_link(topic_id);

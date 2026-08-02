@@ -741,8 +741,10 @@ fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Val
     if !request.force
         && apps
             .citations
-            .read_layout(&layout_key)?
-            .is_some_and(|layout| layout.graph_hash == graph_hash && layout.status == "ready")
+            .read_layout_window(&layout_key, &[])?
+            .is_some_and(|layout| {
+                layout.metadata.graph_hash == graph_hash && layout.metadata.status == "ready"
+            })
     {
         return wire(CitationMutationResult {
             status: CitationMutationStatus::Unchanged,
@@ -989,11 +991,11 @@ mod tests {
         assert_eq!(layout["status"], "promoted");
         let persisted = apps
             .citations
-            .read_layout("workbench_overview:radial")
+            .read_layout_window("workbench_overview:radial", &[])
             .expect("layout read")
             .expect("persisted layout");
-        assert_eq!(persisted.view_key, "workbench_overview");
-        assert_eq!(persisted.preset, "radial");
+        assert_eq!(persisted.metadata.view_key, "workbench_overview");
+        assert_eq!(persisted.metadata.preset, "radial");
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1062,17 +1064,24 @@ mod tests {
         assert_eq!(result["status"], "promoted");
         let persisted = apps
             .citations
-            .read_layout("workbench_overview:radial")
+            .read_layout_window(
+                "workbench_overview:radial",
+                &[
+                    "1:AAAA1111".into(),
+                    "1:BBBB2222".into(),
+                    "external:shared".into(),
+                ],
+            )
             .expect("layout read")
             .expect("persisted layout");
-        let layout: Value = serde_json::from_str(&persisted.layout_json).expect("layout json");
-        let coordinates = layout["nodes"].as_object().expect("layout nodes");
-        assert_eq!(coordinates.len(), 3);
-        assert!(coordinates.values().all(|coordinate| {
-            coordinate["x"].as_f64().is_some_and(f64::is_finite)
-                && coordinate["y"].as_f64().is_some_and(f64::is_finite)
-        }));
-        assert_eq!(persisted.graph_hash, graph_hash);
+        assert_eq!(persisted.points.len(), 3);
+        assert!(
+            persisted
+                .points
+                .iter()
+                .all(|point| point.x.is_finite() && point.y.is_finite())
+        );
+        assert_eq!(persisted.metadata.graph_hash, graph_hash);
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }

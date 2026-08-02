@@ -21,6 +21,9 @@ export const SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_INDEXES = [
   "idx_synt_citation_edge_target",
   "idx_synt_citation_metrics_complex_foundation",
   "idx_synt_citation_metrics_complex_frontier",
+  "idx_synt_citation_metrics_complex_in_degree",
+  "idx_synt_citation_metrics_complex_pagerank",
+  "idx_synt_citation_metrics_complex_paper_ref",
   "idx_synt_citation_layout_graph",
 ] as const;
 
@@ -401,6 +404,15 @@ export function ensureSynthesisCitationGraphProjectionSchema(
   );
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_frontier ON synt_citation_metrics_complex(frontier_score DESC, literature_item_id ASC)",
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_in_degree ON synt_citation_metrics_complex(internal_in_degree DESC, literature_item_id ASC)",
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_pagerank ON synt_citation_metrics_complex(internal_pagerank DESC, literature_item_id ASC)",
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_synt_citation_metrics_complex_paper_ref ON synt_citation_metrics_complex(paper_ref, literature_item_id ASC)",
   );
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_synt_citation_layout_graph ON synt_citation_layout_state(graph_hash, preset, view_key)",

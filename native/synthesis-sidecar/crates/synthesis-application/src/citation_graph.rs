@@ -2,7 +2,6 @@ use crate::PromotionCheckpoint;
 use crate::ports::CitationGraphRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -12,7 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphReplacement,
-    CitationLayoutRecord, CitationNodeRecord, OperationRecord,
+    CitationLayoutRecord, CitationLayoutWindowRecord, CitationMetricsPageQuery,
+    CitationMetricsSort as RepositoryCitationMetricsSort, CitationNodeRecord, OperationRecord,
 };
 
 const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -239,7 +239,7 @@ pub enum CitationMetricsSort {
     Foundation,
     Frontier,
     Pagerank,
-    Year,
+    InDegree,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,7 +259,9 @@ pub struct CitationMetricsPage {
     pub cursor: usize,
     pub next_cursor: Option<usize>,
     pub returned: usize,
+    pub total: usize,
     pub has_more: bool,
+    pub stale: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -372,20 +374,10 @@ impl CitationGraphApplication {
 
     pub fn inspect(&self) -> Result<CitationInspectResult, String> {
         let state = self.repository.get_state()?;
-        let mut presets = self
-            .repository
-            .list_layouts()?
-            .into_iter()
-            .filter(|layout| {
-                layout.status == "ready"
-                    && state
-                        .as_ref()
-                        .is_some_and(|state| layout.graph_hash == state.graph_hash)
-            })
-            .map(|layout| layout.preset)
-            .collect::<Vec<_>>();
-        presets.sort();
-        presets.dedup();
+        let presets = state.as_ref().map_or_else(
+            || Ok(Vec::new()),
+            |state| self.repository.list_ready_layout_presets(&state.graph_hash),
+        )?;
         Ok(CitationInspectResult {
             graph_hash: state.as_ref().map(|state| state.graph_hash.clone()),
             input_hash: state.as_ref().map(|state| state.input_hash.clone()),
@@ -705,51 +697,42 @@ impl CitationGraphApplication {
         &self,
         request: CitationMetricsPageRequest,
     ) -> Result<CitationMetricsPage, String> {
-        if request.limit == 0 || request.limit > 100 {
+        if request.limit == 0 || request.limit > 100 || request.paper_refs.len() > 250 {
             return Err("invalid_request".into());
         }
-        let selected = request.paper_refs.into_iter().collect::<HashSet<_>>();
-        let mut rows = self
+        let page = self
             .repository
-            .list_complex_metrics()?
-            .into_iter()
-            .filter(|row| selected.is_empty() || selected.contains(&row.paper_ref))
-            .collect::<Vec<_>>();
-        rows.sort_by(|left, right| {
-            let order = match request.sort_by {
-                CitationMetricsSort::Foundation => {
-                    right.foundation_score.partial_cmp(&left.foundation_score)
-                }
-                CitationMetricsSort::Frontier => {
-                    right.frontier_score.partial_cmp(&left.frontier_score)
-                }
-                CitationMetricsSort::Pagerank => {
-                    right.internal_pagerank.partial_cmp(&left.internal_pagerank)
-                }
-                CitationMetricsSort::Year => right.year.cmp(&left.year).into(),
-            }
-            .unwrap_or(CmpOrdering::Equal);
-            order.then_with(|| left.literature_item_id.cmp(&right.literature_item_id))
-        });
-        let records = rows
-            .iter()
-            .skip(request.cursor)
-            .take(request.limit)
-            .cloned()
-            .collect::<Vec<_>>();
+            .read_metrics_page(&CitationMetricsPageQuery {
+                offset: request.cursor,
+                limit: request.limit,
+                sort_by: match request.sort_by {
+                    CitationMetricsSort::Foundation => RepositoryCitationMetricsSort::Foundation,
+                    CitationMetricsSort::Frontier => RepositoryCitationMetricsSort::Frontier,
+                    CitationMetricsSort::Pagerank => RepositoryCitationMetricsSort::Pagerank,
+                    CitationMetricsSort::InDegree => RepositoryCitationMetricsSort::InDegree,
+                },
+                paper_refs: request.paper_refs,
+            })?;
+        let records = page.records;
         let next = request.cursor + records.len();
-        let has_more = next < rows.len();
+        let has_more = next < page.total;
         Ok(CitationMetricsPage {
             returned: records.len(),
             records,
             cursor: request.cursor,
             next_cursor: has_more.then_some(next),
             has_more,
+            total: page.total,
+            stale: page.stale,
         })
     }
 
-    pub fn read_layout(&self, layout_key: &str) -> Result<Option<CitationLayoutRecord>, String> {
-        self.repository.get_layout(layout_key)
+    pub fn read_layout_window(
+        &self,
+        layout_key: &str,
+        node_ids: &[String],
+    ) -> Result<Option<CitationLayoutWindowRecord>, String> {
+        self.repository.read_layout_window(layout_key, node_ids)
     }
 
     pub fn stop_admission(&self) {

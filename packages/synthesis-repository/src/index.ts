@@ -257,6 +257,7 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_TABLES = [
 ] as const;
 
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_INDEXES = [
+  "idx_synt_topic_application_state_title",
   "idx_synt_topic_application_state_updated",
 ] as const;
 
@@ -513,6 +514,10 @@ export function ensureSynthesisTopicApplicationRepositorySchema(
       discovery_json TEXT NOT NULL DEFAULT '{}',
       updated_at TEXT NOT NULL DEFAULT ''
     )
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_topic_application_state_title
+      ON synt_topic_application_state(title COLLATE NOCASE, topic_id ASC)
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_topic_application_state_updated

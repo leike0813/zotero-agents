@@ -1440,6 +1440,50 @@ describe("Synthesis Rust production client route", function () {
       );
       assert.equal(persistedLayout.body.data.status, "ready");
       assert.notProperty(persistedLayout.body.data, "layoutJson");
+      const explicitNodeIds = overview.body.data.nodes
+        .slice(0, 2)
+        .map((node: Record<string, unknown>) => node.node_id);
+      const explicitLayout = await call(port, "client.getCitationGraphLayout", {
+        args: [{ nodeIds: explicitNodeIds, algorithm: "force" }],
+      });
+      assert.equal(
+        explicitLayout.body.data.status,
+        "ready",
+        JSON.stringify(explicitLayout.body),
+      );
+      assert.equal(explicitLayout.body.data.scope, "explicit");
+      assert.deepEqual(
+        explicitLayout.body.data.nodes
+          .map((node: Record<string, unknown>) => node.node_id)
+          .sort(),
+        [...explicitNodeIds].sort(),
+      );
+      const oversizedLayout = await call(
+        port,
+        "client.getCitationGraphLayout",
+        { args: [{ scope: "full", algorithm: "force", maxNodes: 1 }] },
+      );
+      assert.equal(oversizedLayout.body.data.status, "too_large");
+      assert.equal(oversizedLayout.body.data.layout_status, "ready");
+      assert.equal(oversizedLayout.body.data.diagnostics.layout_found, true);
+      assert.deepEqual(oversizedLayout.body.data.nodes, []);
+      const truncatedLayout = await call(
+        port,
+        "client.getCitationGraphLayout",
+        {
+          args: [
+            {
+              scope: "full",
+              algorithm: "force",
+              maxNodes: 1,
+              allowTruncated: true,
+            },
+          ],
+        },
+      );
+      assert.equal(truncatedLayout.body.data.status, "ready");
+      assert.equal(truncatedLayout.body.data.diagnostics.truncated, true);
+      assert.isAtMost(truncatedLayout.body.data.nodes.length, 1);
 
       const cluster = await call(port, "client.queryCitationGraphCluster", {
         args: [{}],
@@ -1499,6 +1543,22 @@ describe("Synthesis Rust production client route", function () {
         JSON.stringify(ranking.body),
       );
       assert.notProperty(metrics.body.data.items[0], "literatureItemId");
+      const metricsPage = await call(port, "client.getCitationGraphMetrics", {
+        args: [{ limit: 1, sortBy: "pagerank" }],
+      });
+      assert.equal(metricsPage.body.data.returned, 1);
+      assert.equal(metricsPage.body.data.hasMore, true);
+      assert.isAbove(metricsPage.body.data.total, 1);
+      const metricsByPaper = await call(
+        port,
+        "client.getCitationGraphMetrics",
+        { args: [{ paperRefs: [metricsPage.body.data.items[0].paper_ref] }] },
+      );
+      assert.equal(metricsByPaper.body.data.total, 1);
+      assert.equal(
+        metricsByPaper.body.data.items[0].paper_ref,
+        metricsPage.body.data.items[0].paper_ref,
+      );
       const refreshTraceEvents = sidecar
         .stderr()
         .split("\n")

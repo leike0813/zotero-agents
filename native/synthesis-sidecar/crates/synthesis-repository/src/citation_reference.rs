@@ -131,6 +131,57 @@ pub struct CitationLayoutRecord {
     pub updated_at: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CitationMetricsSort {
+    #[default]
+    Foundation,
+    Frontier,
+    Pagerank,
+    InDegree,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CitationMetricsPageQuery {
+    pub offset: usize,
+    pub limit: usize,
+    pub sort_by: CitationMetricsSort,
+    pub paper_refs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CitationMetricsPageRows {
+    pub records: Vec<CitationComplexMetricsRecord>,
+    pub total: usize,
+    pub stale: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CitationLayoutMetadataRecord {
+    pub layout_key: String,
+    pub view_key: String,
+    pub preset: String,
+    pub graph_hash: String,
+    pub layout_hash: String,
+    pub layout_version: i64,
+    pub status: String,
+    pub diagnostics_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CitationLayoutPointRecord {
+    pub node_id: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CitationLayoutWindowRecord {
+    pub metadata: CitationLayoutMetadataRecord,
+    pub points: Vec<CitationLayoutPointRecord>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceApplicationStateRecord {
@@ -679,6 +730,55 @@ impl Repository {
         })
     }
 
+    pub fn read_citation_graph_explicit(
+        &self,
+        node_ids: &[String],
+        max_edges: usize,
+        filter: &CitationGraphWindowFilter,
+    ) -> Result<CitationGraphNeighborhoodRows, String> {
+        if node_ids.is_empty() || node_ids.len() > 5_000 || max_edges > 20_000 {
+            return Err("invalid_request".into());
+        }
+        for node_id in node_ids {
+            validate_identity_part(node_id)?;
+        }
+        let (cte, values) = citation_graph_window_cte(filter)?;
+        let nodes = self.read_citation_graph_endpoint_nodes(&cte, &values, node_ids)?;
+        let retained = nodes
+            .iter()
+            .map(|node| node.record.literature_item_id.clone())
+            .collect::<Vec<_>>();
+        if retained.is_empty() {
+            return Ok(CitationGraphNeighborhoodRows::default());
+        }
+        let mut bindings = values;
+        bindings.extend(retained.iter().map(|id| json!(id)));
+        bindings.extend(retained.iter().map(|id| json!(id)));
+        bindings.push(json!(max_edges.saturating_add(1) as i64));
+        let candidates = self
+            .query(
+                &format!(
+                    "{cte}
+                     SELECT * FROM filtered_edges
+                     WHERE source_literature_item_id IN ({})
+                       AND target_literature_item_id IN ({})
+                     ORDER BY edge_id ASC LIMIT ?",
+                    sql_placeholders(retained.len()),
+                    sql_placeholders(retained.len())
+                ),
+                &bindings,
+            )?
+            .into_iter()
+            .map(citation_graph_window_edge_record)
+            .collect::<Result<Vec<_>, _>>()?;
+        let truncated = candidates.len() > max_edges;
+        Ok(CitationGraphNeighborhoodRows {
+            nodes,
+            edges: candidates.into_iter().take(max_edges).collect(),
+            truncated,
+        })
+    }
+
     fn read_citation_graph_node_page(
         &self,
         cte: &str,
@@ -815,37 +915,152 @@ impl Repository {
         .collect()
     }
 
-    pub fn list_citation_complex_metrics(
+    pub fn read_citation_metrics_page(
         &self,
-    ) -> Result<Vec<CitationComplexMetricsRecord>, String> {
-        self.query("SELECT * FROM synt_citation_metrics_complex", &[])?
+        request: &CitationMetricsPageQuery,
+    ) -> Result<CitationMetricsPageRows, String> {
+        if request.limit == 0
+            || request.limit > 100
+            || request.paper_refs.len() > 250
+            || request
+                .paper_refs
+                .iter()
+                .any(|value| value.trim().is_empty())
+        {
+            return Err("invalid_request".into());
+        }
+        let mut values = request
+            .paper_refs
+            .iter()
+            .map(|value| json!(value))
+            .collect::<Vec<_>>();
+        let predicate = if request.paper_refs.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "WHERE complex.paper_ref IN ({})",
+                sql_placeholders(request.paper_refs.len())
+            )
+        };
+        let total_row = self
+            .query(
+                &format!(
+                    "SELECT COUNT(*) AS total,
+                            COALESCE(MAX(CASE WHEN complex.status<>'ready'
+                               OR COALESCE(light.source_structure_version,0)>
+                                  complex.source_structure_version
+                             THEN 1 ELSE 0 END),0) AS window_stale
+                     FROM synt_citation_metrics_complex complex
+                     LEFT JOIN synt_citation_metrics_light light
+                       ON light.literature_item_id=complex.literature_item_id
+                     {predicate}"
+                ),
+                &values,
+            )?
             .into_iter()
-            .map(citation_complex_metrics_record)
-            .collect()
+            .next()
+            .unwrap_or_else(|| json!({}));
+        let total = nullable_count(&total_row, "total")?;
+        let stale = row_integer(&total_row, "window_stale")? != 0;
+        let order = match request.sort_by {
+            CitationMetricsSort::Foundation => "complex.foundation_score DESC",
+            CitationMetricsSort::Frontier => "complex.frontier_score DESC",
+            CitationMetricsSort::Pagerank => "complex.internal_pagerank DESC",
+            CitationMetricsSort::InDegree => "complex.internal_in_degree DESC",
+        };
+        values.extend([json!(request.limit as i64), json!(request.offset as i64)]);
+        let rows = self.query(
+            &format!(
+                "SELECT complex.*
+                 FROM synt_citation_metrics_complex complex
+                 {predicate}
+                 ORDER BY {order},complex.literature_item_id ASC
+                 LIMIT ? OFFSET ?"
+            ),
+            &values,
+        )?;
+        Ok(CitationMetricsPageRows {
+            records: rows
+                .into_iter()
+                .map(citation_complex_metrics_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            total,
+            stale,
+        })
     }
 
-    pub fn list_citation_layouts(&self) -> Result<Vec<CitationLayoutRecord>, String> {
-        self.query(
-            "SELECT * FROM synt_citation_layout_state ORDER BY view_key ASC,preset ASC",
-            &[],
-        )?
-        .into_iter()
-        .map(citation_layout_record)
-        .collect()
+    pub fn list_ready_citation_layout_presets(
+        &self,
+        graph_hash: &str,
+    ) -> Result<Vec<String>, String> {
+        validate_identity_part(graph_hash)?;
+        Ok(self
+            .query(
+                "SELECT DISTINCT preset FROM synt_citation_layout_state
+                 WHERE graph_hash=?1 AND status='ready'
+                 ORDER BY preset ASC",
+                &[json!(graph_hash)],
+            )?
+            .into_iter()
+            .filter_map(|row| row["preset"].as_str().map(str::to_owned))
+            .collect())
     }
 
-    pub fn get_citation_layout(
+    pub fn read_citation_layout_window(
         &self,
         layout_key: &str,
-    ) -> Result<Option<CitationLayoutRecord>, String> {
-        self.query(
-            "SELECT * FROM synt_citation_layout_state WHERE layout_key=?1 LIMIT 1",
-            &[json!(layout_key)],
-        )?
-        .into_iter()
-        .next()
-        .map(citation_layout_record)
-        .transpose()
+        node_ids: &[String],
+    ) -> Result<Option<CitationLayoutWindowRecord>, String> {
+        validate_identity_part(layout_key)?;
+        if node_ids.len() > 5_000 {
+            return Err("invalid_request".into());
+        }
+        for node_id in node_ids {
+            validate_identity_part(node_id)?;
+        }
+        let Some(metadata) = self
+            .query(
+                "SELECT layout_key,view_key,preset,graph_hash,status,diagnostics_json,
+                        created_at,updated_at,
+                        COALESCE(json_extract(layout_json,'$.layout_hash'),'') AS layout_hash,
+                        COALESCE(json_extract(layout_json,'$.layout_version'),0) AS layout_version
+                 FROM synt_citation_layout_state WHERE layout_key=?1 LIMIT 1",
+                &[json!(layout_key)],
+            )?
+            .into_iter()
+            .next()
+            .map(citation_layout_metadata_record)
+            .transpose()?
+        else {
+            return Ok(None);
+        };
+        if node_ids.is_empty() {
+            return Ok(Some(CitationLayoutWindowRecord {
+                metadata,
+                points: Vec::new(),
+            }));
+        }
+        let mut values = vec![json!(layout_key)];
+        values.extend(node_ids.iter().map(|node_id| json!(node_id)));
+        let points = self
+            .query(
+                &format!(
+                    "SELECT point.key AS node_id,
+                            json_extract(point.value,'$.x') AS x,
+                            json_extract(point.value,'$.y') AS y
+                     FROM synt_citation_layout_state layout,
+                          json_each(layout.layout_json,'$.nodes') point
+                     WHERE layout.layout_key=?
+                       AND point.key IN ({})
+                     ORDER BY point.key ASC",
+                    sql_placeholders(node_ids.len())
+                ),
+                &values,
+            )?
+            .into_iter()
+            .map(citation_layout_point_record)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(CitationLayoutWindowRecord { metadata, points }))
     }
 
     pub fn list_reference_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String> {
@@ -2188,17 +2403,26 @@ fn citation_complex_metrics_record(row: Value) -> Result<CitationComplexMetricsR
     })
 }
 
-fn citation_layout_record(row: Value) -> Result<CitationLayoutRecord, String> {
-    Ok(CitationLayoutRecord {
+fn citation_layout_metadata_record(row: Value) -> Result<CitationLayoutMetadataRecord, String> {
+    Ok(CitationLayoutMetadataRecord {
         layout_key: row_text(&row, "layout_key")?,
         view_key: row_text(&row, "view_key")?,
         preset: row_text(&row, "preset")?,
         graph_hash: row_text(&row, "graph_hash")?,
+        layout_hash: row_text(&row, "layout_hash")?,
+        layout_version: row_integer(&row, "layout_version")?,
         status: row_text(&row, "status")?,
-        layout_json: row_text(&row, "layout_json")?,
         diagnostics_json: row_text(&row, "diagnostics_json")?,
         created_at: row_text(&row, "created_at")?,
         updated_at: row_text(&row, "updated_at")?,
+    })
+}
+
+fn citation_layout_point_record(row: Value) -> Result<CitationLayoutPointRecord, String> {
+    Ok(CitationLayoutPointRecord {
+        node_id: row_text(&row, "node_id")?,
+        x: row_number(&row, "x")?,
+        y: row_number(&row, "y")?,
     })
 }
 
@@ -3241,6 +3465,110 @@ mod tests {
         }
         assert_eq!(node_ids.len(), 7500);
         assert_eq!(edge_ids.len(), 12000);
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn citation_graph_metrics_and_layout_reads_materialize_only_the_requested_window() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-windowed-reads".into(),
+                data_root_id: "data-windowed-reads".into(),
+            },
+        )
+        .expect("open repository");
+        repository
+            .execute(
+                "WITH RECURSIVE ids(value) AS (
+                   SELECT 1 UNION ALL SELECT value+1 FROM ids WHERE value<500
+                 )
+                 INSERT INTO synt_citation_node(
+                   literature_item_id,node_status,has_zotero_binding,title,authors_json,summary_json
+                 )
+                 SELECT printf('1:N%05d',value),'active',1,printf('Paper %05d',value),'[]','{}'
+                 FROM ids",
+                &[],
+            )
+            .expect("insert nodes");
+        repository
+            .execute(
+                "WITH RECURSIVE ids(value) AS (
+                   SELECT 1 UNION ALL SELECT value+1 FROM ids WHERE value<500
+                 )
+                 INSERT INTO synt_citation_metrics_complex(
+                   literature_item_id,node_id,paper_ref,item_key,title,
+                   internal_in_degree,internal_pagerank,foundation_score,frontier_score,
+                   source_graph_hash,metrics_hash,status
+                 )
+                 SELECT printf('1:N%05d',value),printf('1:N%05d',value),
+                        printf('1:N%05d',value),printf('N%05d',value),printf('Paper %05d',value),
+                        value,value/1000.0,value/10.0,(501-value)/10.0,
+                        'graph:windowed','metrics:windowed','ready'
+                 FROM ids",
+                &[],
+            )
+            .expect("insert metrics");
+        repository
+            .execute(
+                "INSERT INTO synt_citation_metrics_light(
+                   literature_item_id,source_structure_version
+                 ) VALUES('1:N00500',1)",
+                &[],
+            )
+            .expect("insert stale light metrics marker outside requested page");
+        repository
+            .execute(
+                "INSERT INTO synt_citation_layout_state(
+                   layout_key,view_key,preset,graph_hash,status,layout_json
+                 ) VALUES(
+                   'workbench_overview:force','workbench_overview','force','graph:windowed','ready',
+                   json_object(
+                     'graph_hash','graph:windowed','layout_hash','layout:windowed','layout_version',2,
+                     'nodes',json_object(
+                       '1:N00001',json_object('x',1.0,'y',2.0),
+                       '1:N00500',json_object('x',500.0,'y',1000.0)
+                     )
+                   )
+                 )",
+                &[],
+            )
+            .expect("insert layout");
+
+        let (page, metrics_observation) = crate::observe_repository_sql(|| {
+            repository.read_citation_metrics_page(&CitationMetricsPageQuery {
+                offset: 25,
+                limit: 25,
+                sort_by: CitationMetricsSort::Pagerank,
+                paper_refs: Vec::new(),
+            })
+        });
+        let page = page.expect("metrics page");
+        assert_eq!(page.total, 500);
+        assert_eq!(page.records.len(), 25);
+        assert_eq!(page.records[0].literature_item_id, "1:N00475");
+        assert!(page.stale);
+        assert!(metrics_observation.query_count <= 2);
+        assert_eq!(metrics_observation.write_count, 0);
+
+        let (layout, layout_observation) = crate::observe_repository_sql(|| {
+            repository.read_citation_layout_window("workbench_overview:force", &["1:N00001".into()])
+        });
+        let layout = layout.expect("layout window").expect("layout record");
+        assert_eq!(layout.metadata.layout_hash, "layout:windowed");
+        assert_eq!(layout.points.len(), 1);
+        assert_eq!(layout.points[0].node_id, "1:N00001");
+        assert!(layout_observation.query_count <= 2);
+        assert_eq!(layout_observation.write_count, 0);
+        let (presets, preset_observation) = crate::observe_repository_sql(|| {
+            repository.list_ready_citation_layout_presets("graph:windowed")
+        });
+        assert_eq!(presets.expect("ready presets"), vec!["force"]);
+        assert_eq!(preset_observation.query_count, 1);
+        assert_eq!(preset_observation.write_count, 0);
+
         drop(repository);
         let _ = std::fs::remove_dir_all(root);
     }

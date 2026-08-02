@@ -1,18 +1,18 @@
 use crate::runtime_production_ports::ProductionApplications;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use synthesis_application::citation_graph::project_citation_graph_default;
+use synthesis_application::citation_graph::{
+    CitationMetricsPageRequest, CitationMetricsSort as ApplicationCitationMetricsSort,
+};
 use synthesis_protocol::canonical_sha256;
 use synthesis_repository::{
-    CacheBasisRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
-    CitationGraphApplicationStateRecord, CitationGraphWindowFilter, CitationGraphWindowNodeRecord,
-    CitationGraphWindowQuery, CitationGraphWindowRows, CitationLayoutRecord,
-    CitationLightMetricsRecord, CitationNodeRecord,
+    CacheBasisRecord, CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphWindowFilter,
+    CitationGraphWindowNodeRecord, CitationGraphWindowQuery, CitationGraphWindowRows,
+    CitationLayoutWindowRecord, CitationLightMetricsRecord, CitationNodeRecord,
 };
 
 const CACHE_KEY: &str = "citation-graph:library";
 const LAYOUT_VERSION: i64 = 2;
-const DEFAULT_LIMIT: usize = 100;
 const MAX_LIMIT: usize = 500;
 const DEFAULT_NODE_LIMIT: usize = 200;
 const DEFAULT_EDGE_LIMIT: usize = 400;
@@ -20,7 +20,8 @@ const DEFAULT_HOVER_NODE_LIMIT: usize = 100;
 const DEFAULT_HOVER_EDGE_LIMIT: usize = 200;
 const GRAPH_RESPONSE_BUDGET_BYTES: usize = 768 * 1024;
 const GRAPH_CURSOR_MAX_LENGTH: usize = 4096;
-const TOPIC_SCOPE_LIMIT: usize = 250;
+const DEFAULT_TOPIC_SCOPE_LIMIT: usize = 50;
+const MAX_TOPIC_SCOPE_LIMIT: usize = 250;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct GraphWindowCursor {
@@ -37,18 +38,11 @@ struct GraphWindowRead {
     cursor: GraphWindowCursor,
     rows: CitationGraphWindowRows,
     topic_scopes: Vec<Value>,
+    topic_scope_cursor: usize,
+    topic_scope_limit: usize,
     topic_scope_total: usize,
-    layout: Option<CitationLayoutRecord>,
+    layout: Option<CitationLayoutWindowRecord>,
     cache: Option<CacheBasisRecord>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct CitationGraphReadSnapshot {
-    state: Option<CitationGraphApplicationStateRecord>,
-    nodes: Vec<CitationNodeRecord>,
-    edges: Vec<CitationEdgeRecord>,
-    complex_metrics: Vec<CitationComplexMetricsRecord>,
-    layouts: Vec<CitationLayoutRecord>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,42 +53,46 @@ struct ProjectedNode {
     display_tier: &'static str,
 }
 
-#[derive(Clone, Debug, Default)]
-struct CitationGraphProjection {
-    graph_hash: String,
-    main_nodes: Vec<ProjectedNode>,
-    main_edges: Vec<CitationEdgeRecord>,
-    complex_metrics: Vec<CitationComplexMetricsRecord>,
-    layouts: Vec<CitationLayoutRecord>,
-}
-
 fn read_topic_scopes(
     repository: &synthesis_repository::Repository,
-) -> Result<(Vec<Value>, usize), String> {
+    request: &Map<String, Value>,
+) -> Result<(Vec<Value>, usize, usize, usize), String> {
     let mut topic_scopes = Vec::new();
-    let (records, total) = repository.list_topic_application_records(0, TOPIC_SCOPE_LIMIT)?;
-    for (state, projection) in records {
-        if let Some(projection) = projection {
-            let discovery = serde_json::from_str::<Value>(&projection.discovery_json)
-                .unwrap_or_else(|_| json!({}));
-            let paper_refs = discovery["source_paper_refs"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            if !paper_refs.is_empty() {
-                topic_scopes.push(json!({
-                    "topicId":state.topic_id,
-                    "title":if state.title.is_empty() { state.topic_id.clone() } else { state.title },
-                    "paperRefs":paper_refs,
-                    "nodeIds":paper_refs,
-                }));
-            }
+    let cursor = usize_field(
+        request,
+        &["topicScopeCursor", "topic_scope_cursor"],
+        0,
+        usize::MAX,
+    );
+    let limit = usize_field(
+        request,
+        &["topicScopeLimit", "topic_scope_limit"],
+        DEFAULT_TOPIC_SCOPE_LIMIT,
+        MAX_TOPIC_SCOPE_LIMIT,
+    )
+    .max(1);
+    let (records, total) = repository.list_topic_graph_scope_records(cursor, limit)?;
+    for record in records {
+        let paper_refs = serde_json::from_str::<Value>(&record.source_paper_refs_json)
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .filter(|value| !value.is_empty())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if !paper_refs.is_empty() {
+            topic_scopes.push(json!({
+                "topicId":record.topic_id,
+                "title":if record.title.is_empty() { record.topic_id.clone() } else { record.title },
+                "paperCount":record.paper_count,
+                "paperRefTotal":record.source_paper_ref_total,
+                "paperRefsTruncated":paper_refs.len() < record.source_paper_ref_total.max(0) as usize,
+                "paperRefs":paper_refs,
+                "nodeIds":paper_refs,
+            }));
         }
     }
     topic_scopes.sort_by(|left, right| {
@@ -103,59 +101,7 @@ fn read_topic_scopes(
             .cmp(&right["title"].as_str())
             .then_with(|| left["topicId"].as_str().cmp(&right["topicId"].as_str()))
     });
-    Ok((topic_scopes, total))
-}
-
-fn read_snapshot(apps: &ProductionApplications) -> Result<CitationGraphReadSnapshot, String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    Ok(CitationGraphReadSnapshot {
-        state: repository.get_citation_graph_application_state()?,
-        nodes: repository.list_citation_nodes()?,
-        edges: repository.list_citation_edges()?,
-        complex_metrics: repository.list_citation_complex_metrics()?,
-        layouts: repository.list_citation_layouts()?,
-    })
-}
-
-fn project(snapshot: CitationGraphReadSnapshot) -> CitationGraphProjection {
-    let default = project_citation_graph_default(snapshot.nodes, snapshot.edges);
-    let external_degrees = default.external_degrees;
-    let projected_node = |record: CitationNodeRecord, visibility, display_tier| ProjectedNode {
-        external_degree: (!record.has_zotero_binding).then(|| {
-            external_degrees
-                .get(&record.literature_item_id)
-                .copied()
-                .unwrap_or_default()
-        }),
-        record,
-        visibility,
-        display_tier,
-    };
-    let main_nodes = default
-        .nodes
-        .into_iter()
-        .map(|node| {
-            let tier = if node.has_zotero_binding {
-                "library"
-            } else {
-                "shared_external"
-            };
-            projected_node(node, "default", tier)
-        })
-        .collect();
-    CitationGraphProjection {
-        graph_hash: snapshot
-            .state
-            .map(|state| state.graph_hash)
-            .unwrap_or_default(),
-        main_nodes,
-        main_edges: default.edges,
-        complex_metrics: snapshot.complex_metrics,
-        layouts: snapshot.layouts,
-    }
+    Ok((topic_scopes, cursor, limit, total))
 }
 
 fn authors(value: &str) -> Vec<String> {
@@ -507,16 +453,33 @@ fn read_graph_window(
         .map_err(|_| "response_invalid".to_owned())?
         .len();
         if candidate_size <= GRAPH_RESPONSE_BUDGET_BYTES {
-            let (topic_scopes, topic_scope_total) = read_topic_scopes(&repository)?;
+            let (topic_scopes, topic_scope_cursor, topic_scope_limit, topic_scope_total) =
+                read_topic_scopes(&repository, request)?;
+            let layout_node_ids = rows
+                .nodes
+                .iter()
+                .chain(
+                    rows.endpoint_nodes
+                        .iter()
+                        .filter(|node| node.visibility == "default"),
+                )
+                .map(|node| node.record.literature_item_id.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
             return Ok(GraphWindowRead {
                 graph_hash,
                 query_signature: signature,
                 cursor,
                 rows,
                 topic_scopes,
+                topic_scope_cursor,
+                topic_scope_limit,
                 topic_scope_total,
-                layout: repository
-                    .get_citation_layout(&format!("workbench_overview:{algorithm}"))?,
+                layout: repository.read_citation_layout_window(
+                    &format!("workbench_overview:{algorithm}"),
+                    &layout_node_ids,
+                )?,
                 cache: repository.get_cache_basis(CACHE_KEY)?,
             });
         }
@@ -614,56 +577,32 @@ fn selected_algorithm(state: &Value) -> &str {
         .unwrap_or("force")
 }
 
-fn layout<'a>(
-    projection: &'a CitationGraphProjection,
-    algorithm: &str,
-) -> Option<&'a CitationLayoutRecord> {
-    let key = format!("workbench_overview:{algorithm}");
-    projection
-        .layouts
-        .iter()
-        .find(|layout| layout.layout_key == key)
-}
-
-fn parsed_layout(
-    record: &CitationLayoutRecord,
+fn layout_status(
+    record: Option<&CitationLayoutWindowRecord>,
     graph_hash: &str,
     node_ids: &[String],
-) -> Option<Value> {
-    if record.status != "ready" || record.graph_hash != graph_hash {
-        return None;
-    }
-    let value = serde_json::from_str::<Value>(&record.layout_json).ok()?;
-    if value["graph_hash"].as_str()? != graph_hash
-        || value["layout_version"].as_i64()? != LAYOUT_VERSION
-        || !value["nodes"].is_object()
-    {
-        return None;
-    }
-    for node_id in node_ids {
-        let point = &value["nodes"][node_id];
-        if point["x"].as_f64().is_none_or(|value| !value.is_finite())
-            || point["y"].as_f64().is_none_or(|value| !value.is_finite())
-        {
-            return None;
-        }
-    }
-    Some(value)
-}
-
-fn layout_status(
-    record: Option<&CitationLayoutRecord>,
-    layout: Option<&Value>,
     has_nodes: bool,
 ) -> &'static str {
     if !has_nodes {
         return "missing";
     }
-    match record.map(|record| record.status.as_str()) {
+    match record.map(|record| record.metadata.status.as_str()) {
         None => "missing",
         Some("running") => "refreshing",
         Some("failed") => "failed",
-        Some("ready") if layout.is_some() => "ready",
+        Some("ready")
+            if record.is_some_and(|record| {
+                record.metadata.graph_hash == graph_hash
+                    && record.metadata.layout_version == LAYOUT_VERSION
+                    && node_ids.iter().all(|node_id| {
+                        record.points.iter().any(|point| {
+                            point.node_id == *node_id && point.x.is_finite() && point.y.is_finite()
+                        })
+                    })
+            }) =>
+        {
+            "ready"
+        }
         Some(_) => "stale",
     }
 }
@@ -708,22 +647,28 @@ pub(crate) fn workbench_graph_surface(
         .iter()
         .filter_map(|node| node["id"].as_str().map(str::to_owned))
         .collect::<Vec<_>>();
-    let normalized_layout = window
-        .layout
-        .as_ref()
-        .and_then(|record| parsed_layout(record, &window.graph_hash, &node_ids));
     let status = layout_status(
         window.layout.as_ref(),
-        normalized_layout.as_ref(),
+        &window.graph_hash,
+        &node_ids,
         !nodes.is_empty(),
     );
-    if let Some(layout) = &normalized_layout {
+    if status == "ready"
+        && let Some(layout) = &window.layout
+    {
+        let coordinates = layout
+            .points
+            .iter()
+            .map(|point| (point.node_id.as_str(), (point.x, point.y)))
+            .collect::<BTreeMap<_, _>>();
         for node in &mut nodes {
             let Some(node_id) = node["id"].as_str().map(str::to_owned) else {
                 continue;
             };
-            node["x"] = layout["nodes"][&node_id]["x"].clone();
-            node["y"] = layout["nodes"][&node_id]["y"].clone();
+            if let Some((x, y)) = coordinates.get(node_id.as_str()) {
+                node["x"] = json!(x);
+                node["y"] = json!(y);
+            }
         }
     }
     let edges = window
@@ -764,10 +709,12 @@ pub(crate) fn workbench_graph_surface(
         },
         "topicScopes":window.topic_scopes,
         "topicScopePage":{
+            "cursor":window.topic_scope_cursor.to_string(),
+            "nextCursor":if window.topic_scope_cursor+topic_scope_returned<window.topic_scope_total { (window.topic_scope_cursor+topic_scope_returned).to_string() } else { String::new() },
             "returned":topic_scope_returned,
             "total":window.topic_scope_total,
-            "limit":TOPIC_SCOPE_LIMIT,
-            "hasMore":window.topic_scope_total>TOPIC_SCOPE_LIMIT,
+            "limit":window.topic_scope_limit,
+            "hasMore":window.topic_scope_cursor+topic_scope_returned<window.topic_scope_total,
         },
         "hoverOnlyNodes":hover_nodes,
         "hoverOnlyEdges":hover_edges,
@@ -812,24 +759,6 @@ fn string_field<'a>(request: &'a Map<String, Value>, names: &[&str]) -> Option<&
         .iter()
         .find_map(|name| request.get(*name)?.as_str())
         .filter(|value| !value.is_empty())
-}
-
-fn page(values: Vec<Value>, cursor: usize, limit: usize) -> (Vec<Value>, Value) {
-    let total = values.len();
-    let start = cursor.min(total);
-    let end = (start + limit).min(total);
-    let has_more = end < total;
-    (
-        values[start..end].to_vec(),
-        json!({
-            "cursor":start.to_string(),
-            "nextCursor":if has_more { end.to_string() } else { String::new() },
-            "hasMore":has_more,
-            "returned":end-start,
-            "total":total,
-            "limit":limit,
-        }),
-    )
 }
 
 fn bounded_overview(
@@ -969,85 +898,342 @@ fn public_metric(record: &CitationComplexMetricsRecord) -> Value {
     })
 }
 
-fn metrics(projection: &CitationGraphProjection, request: &Map<String, Value>) -> Value {
+fn metrics(apps: &ProductionApplications, request: &Map<String, Value>) -> Result<Value, String> {
     let cursor = usize_field(request, &["cursor"], 0, usize::MAX);
-    let limit = usize_field(request, &["limit"], DEFAULT_LIMIT, MAX_LIMIT).max(1);
+    let limit = usize_field(request, &["limit"], 25, 100).max(1);
     let sort = string_field(request, &["sortBy", "sort_by"]).unwrap_or("foundation");
-    let mut records = projection.complex_metrics.clone();
-    records.sort_by(|left, right| {
-        let order = match sort {
-            "frontier" => right.frontier_score.total_cmp(&left.frontier_score),
-            "pagerank" => right.internal_pagerank.total_cmp(&left.internal_pagerank),
-            "in_degree" => right.internal_in_degree.cmp(&left.internal_in_degree),
-            _ => right.foundation_score.total_cmp(&left.foundation_score),
-        };
-        order.then_with(|| left.node_id.cmp(&right.node_id))
-    });
-    let metrics_hash = records
-        .first()
-        .map(|record| record.metrics_hash.clone())
+    let paper_refs = match request
+        .get("paperRefs")
+        .or_else(|| request.get("paper_refs"))
+    {
+        None => Vec::new(),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| value.as_str().filter(|value| !value.is_empty()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| "invalid_request".to_owned())?,
+        Some(_) => return Err("invalid_request".into()),
+    };
+    if paper_refs.len() > 250 {
+        return Err("invalid_request".into());
+    }
+    let page = apps.citations.read_metrics(CitationMetricsPageRequest {
+        cursor,
+        limit,
+        sort_by: match sort {
+            "foundation" => ApplicationCitationMetricsSort::Foundation,
+            "frontier" => ApplicationCitationMetricsSort::Frontier,
+            "pagerank" => ApplicationCitationMetricsSort::Pagerank,
+            "in_degree" => ApplicationCitationMetricsSort::InDegree,
+            _ => return Err("invalid_request".into()),
+        },
+        paper_refs: paper_refs.into_iter().map(str::to_owned).collect(),
+    })?;
+    let state = apps
+        .repository
+        .owner()
+        .lock()
+        .map_err(|_| "repository_unavailable".to_owned())?
+        .get_citation_graph_application_state()?;
+    let graph_hash = state
+        .as_ref()
+        .map(|state| state.graph_hash.clone())
         .unwrap_or_default();
-    let stale = records
-        .iter()
-        .any(|record| record.source_graph_hash != projection.graph_hash);
-    let (items, page_info) = page(records.iter().map(public_metric).collect(), cursor, limit);
-    let status = if records.is_empty() {
+    let metrics_hash = state
+        .and_then(|state| state.metrics_hash)
+        .unwrap_or_default();
+    let items = page.records.iter().map(public_metric).collect::<Vec<_>>();
+    let status = if page.total == 0 {
         "missing"
-    } else if stale {
+    } else if page.stale || metrics_hash.is_empty() {
         "stale"
     } else {
         "ready"
     };
+    Ok(json!({
+        "ok":true,"graph_hash":graph_hash,"metrics_hash":metrics_hash,"status":status,
+        "items":items,"cursor":page.cursor.to_string(),
+        "nextCursor":page.next_cursor.map(|value| value.to_string()).unwrap_or_default(),
+        "hasMore":page.has_more,"returned":page.returned,"total":page.total,"limit":limit,
+        "diagnostics":{"snapshot_found":!graph_hash.is_empty(),"metrics_found":page.total>0,
+          "stale":page.stale,"total_library_nodes":page.total,"returned_count":items.len(),
+          "limits":{"limit":limit,"maxLimit":100},"warnings":[]},
+    }))
+}
+
+fn string_list_field(request: &Map<String, Value>, names: &[&str]) -> Result<Vec<String>, String> {
+    let Some(value) = names.iter().find_map(|name| request.get(*name)) else {
+        return Ok(Vec::new());
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| "invalid_request".to_owned())
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+struct LayoutResultBasis<'a> {
+    scope: &'a str,
+    graph_hash: &'a str,
+    layout_hash: &'a str,
+    layout_status: &'a str,
+    layout_found: bool,
+    preset: &'a str,
+    view_key: &'a str,
+    max_nodes: usize,
+    max_edges: usize,
+}
+
+fn empty_layout_result(status: &str, truncated: bool, basis: LayoutResultBasis<'_>) -> Value {
     json!({
-        "ok":true,"graph_hash":projection.graph_hash,"metrics_hash":metrics_hash,"status":status,
-        "items":items,"cursor":page_info["cursor"],"nextCursor":page_info["nextCursor"],"hasMore":page_info["hasMore"],
-        "returned":page_info["returned"],"total":page_info["total"],"limit":page_info["limit"],
-        "diagnostics":{"snapshot_found":!projection.graph_hash.is_empty(),"metrics_found":!records.is_empty(),"stale":stale,"total_library_nodes":records.len(),"returned_count":items.len(),"warnings":[]},
+        "ok":false,"status":status,"scope":basis.scope,"graph_hash":basis.graph_hash,"layout_hash":basis.layout_hash,
+        "layout_status":basis.layout_status,"preset":basis.preset,"view_key":basis.view_key,"nodes":[],"edges":[],
+        "diagnostics":{"snapshot_found":!basis.graph_hash.is_empty(),"layout_found":basis.layout_found,
+          "node_count":0,"edge_count":0,"truncated":truncated,
+          "limits":{"maxNodes":basis.max_nodes,"maxEdges":basis.max_edges,"hardMaxNodes":100,"hardMaxEdges":200},
+          "warnings":[]},
     })
 }
 
-fn layout_result(projection: &CitationGraphProjection, request: &Map<String, Value>) -> Value {
-    let algorithm = string_field(request, &["preset", "algorithm"])
-        .filter(|value| matches!(*value, "force" | "radial" | "components"))
-        .unwrap_or("force");
-    let nodes = projection
-        .main_nodes
+fn layout_result(
+    apps: &ProductionApplications,
+    request: &Map<String, Value>,
+) -> Result<Value, String> {
+    let algorithm = match string_field(request, &["preset", "algorithm"]) {
+        None => "force",
+        Some(value) if matches!(value, "force" | "radial" | "components") => value,
+        Some(_) => return Err("invalid_request".into()),
+    };
+    let view_key = string_field(request, &["viewKey", "view_key"]).unwrap_or("workbench_overview");
+    let max_nodes = usize_field(request, &["maxNodes", "max_nodes"], 25, 100).max(1);
+    let max_edges = usize_field(request, &["maxEdges", "max_edges"], 50, 200);
+    let allow_truncated = request
+        .get("allowTruncated")
+        .or_else(|| request.get("allow_truncated"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let explicit = {
+        let mut values = string_list_field(request, &["nodeIds", "node_ids"])?;
+        values.extend(string_list_field(request, &["paperRefs", "paper_refs"])?);
+        values.sort();
+        values.dedup();
+        values
+    };
+    let start = string_field(
+        request,
+        &["startNodeId", "start_node_id", "paperRef", "paper_ref"],
+    )
+    .map(str::to_owned);
+    let scope = if request.get("scope").and_then(Value::as_str) == Some("full") {
+        "full"
+    } else if start.is_some() {
+        "slice"
+    } else if !explicit.is_empty() {
+        "explicit"
+    } else {
+        "none"
+    };
+    if scope == "none" {
+        return Ok(empty_layout_result(
+            "invalid_request",
+            false,
+            LayoutResultBasis {
+                scope,
+                graph_hash: "",
+                layout_hash: "",
+                layout_status: "missing",
+                layout_found: false,
+                preset: algorithm,
+                view_key,
+                max_nodes,
+                max_edges,
+            },
+        ));
+    }
+
+    let layout_key = format!("{view_key}:{algorithm}");
+    let initial_layout = apps.citations.read_layout_window(&layout_key, &[])?;
+    let owner = apps.repository.owner();
+    let repository = owner
+        .lock()
+        .map_err(|_| "repository_unavailable".to_owned())?;
+    let graph_hash = repository
+        .get_citation_graph_application_state()?
+        .map(|state| state.graph_hash)
+        .unwrap_or_default();
+    let layout_found = initial_layout.is_some();
+    let layout_hash = initial_layout
+        .as_ref()
+        .map(|layout| layout.metadata.layout_hash.as_str())
+        .unwrap_or("");
+    let layout_status = match initial_layout
+        .as_ref()
+        .map(|layout| layout.metadata.status.as_str())
+    {
+        None => "missing",
+        Some("running") => "refreshing",
+        Some("failed") => "failed",
+        Some("ready")
+            if initial_layout.as_ref().is_some_and(|layout| {
+                layout.metadata.graph_hash == graph_hash
+                    && layout.metadata.layout_version == LAYOUT_VERSION
+            }) =>
+        {
+            "ready"
+        }
+        Some(_) => "stale",
+    };
+    let layout_basis = LayoutResultBasis {
+        scope,
+        graph_hash: &graph_hash,
+        layout_hash,
+        layout_status,
+        layout_found,
+        preset: algorithm,
+        view_key,
+        max_nodes,
+        max_edges,
+    };
+    if graph_hash.is_empty() {
+        return Ok(empty_layout_result("missing", false, layout_basis));
+    }
+    if layout_status != "ready" {
+        return Ok(empty_layout_result(layout_status, false, layout_basis));
+    }
+    let filter = CitationGraphWindowFilter {
+        include_low_signal: request
+            .get("includeLowSignal")
+            .or_else(|| request.get("include_low_signal"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        roles: string_list_field(request, &["roleFilter", "role_filter"])?,
+        ..CitationGraphWindowFilter::default()
+    };
+    let (mut selected_nodes, mut selected_edges, mut truncated) = match scope {
+        "slice" => {
+            let direction = string_field(request, &["direction"]).unwrap_or("both");
+            let rows = repository.read_citation_graph_neighborhood(
+                start.as_deref().unwrap_or_default(),
+                direction,
+                max_nodes.saturating_add(1),
+                max_edges.saturating_add(1),
+                &filter,
+            )?;
+            (rows.nodes, rows.edges, rows.truncated)
+        }
+        "explicit" => {
+            if explicit.len() > 100 {
+                return Ok(empty_layout_result("too_large", true, layout_basis));
+            }
+            let rows = repository.read_citation_graph_explicit(
+                &explicit,
+                max_edges.saturating_add(1),
+                &filter,
+            )?;
+            (rows.nodes, rows.edges, rows.truncated)
+        }
+        _ => {
+            let rows = repository.read_citation_graph_window(&CitationGraphWindowQuery {
+                node_offset: 0,
+                node_limit: max_nodes.saturating_add(1),
+                edge_offset: 0,
+                edge_limit: max_edges.saturating_add(1),
+                hover_node_offset: 0,
+                hover_node_limit: 1,
+                hover_edge_offset: 0,
+                hover_edge_limit: 1,
+                filter,
+            })?;
+            let too_large = rows.total_nodes > max_nodes || rows.total_edges > max_edges;
+            (rows.nodes, rows.edges, too_large)
+        }
+    };
+    if selected_nodes.is_empty() {
+        return Ok(empty_layout_result("not_found", false, layout_basis));
+    }
+    if selected_nodes.len() > max_nodes || selected_edges.len() > max_edges {
+        truncated = true;
+    }
+    if truncated && !allow_truncated {
+        return Ok(empty_layout_result("too_large", true, layout_basis));
+    }
+    selected_nodes.truncate(max_nodes);
+    let retained = selected_nodes
         .iter()
-        .map(public_node)
-        .collect::<Vec<_>>();
-    let edges = projection
-        .main_edges
+        .map(|node| node.record.literature_item_id.clone())
+        .collect::<BTreeSet<_>>();
+    selected_edges.retain(|edge| {
+        retained.contains(&edge.record.source_literature_item_id)
+            && retained.contains(&edge.record.target_literature_item_id)
+    });
+    selected_edges.truncate(max_edges);
+    drop(repository);
+
+    let node_ids = retained.into_iter().collect::<Vec<_>>();
+    let Some(layout) = apps.citations.read_layout_window(&layout_key, &node_ids)? else {
+        return Ok(empty_layout_result(
+            "missing",
+            truncated,
+            LayoutResultBasis {
+                layout_hash: "",
+                layout_status: "missing",
+                layout_found: false,
+                ..layout_basis
+            },
+        ));
+    };
+    let status = match layout.metadata.status.as_str() {
+        "running" => "refreshing",
+        "failed" => "failed",
+        "ready"
+            if layout.metadata.graph_hash == graph_hash
+                && layout.metadata.layout_version == LAYOUT_VERSION
+                && layout.points.len() == node_ids.len() =>
+        {
+            "ready"
+        }
+        "ready" => "stale",
+        _ => "stale",
+    };
+    let coordinates = layout
+        .points
         .iter()
-        .map(|edge| public_edge(edge, "default"))
-        .collect::<Vec<_>>();
-    let node_ids = nodes
-        .iter()
-        .filter_map(|node| node["node_id"].as_str().map(str::to_owned))
-        .collect::<Vec<_>>();
-    let record = layout(projection, algorithm);
-    let normalized =
-        record.and_then(|record| parsed_layout(record, &projection.graph_hash, &node_ids));
-    let status = layout_status(record, normalized.as_ref(), !nodes.is_empty());
-    let layout_nodes = normalized.as_ref().map(|layout| {
-        nodes.iter().filter_map(|node| {
-            let node_id = node["node_id"].as_str()?;
-            Some(json!({
-                "node_id":node_id,"title":node["title"],"node_type":node["kind"],"paper_ref":node_id,
-                "year":node["year"],"authors":node["authors"],"x":layout["nodes"][node_id]["x"],"y":layout["nodes"][node_id]["y"],
-                "low_signal":node["low_signal"],
-            }))
-        }).collect::<Vec<_>>()
-    }).unwrap_or_default();
-    let layout_edges = if status == "ready" {
-        edges
+        .map(|point| (point.node_id.as_str(), (point.x, point.y)))
+        .collect::<BTreeMap<_, _>>();
+    let layout_nodes = if status == "ready" {
+        selected_nodes
             .iter()
+            .filter_map(|node| {
+                let public = window_public_node(node);
+                let node_id = public["node_id"].as_str()?;
+                let (x, y) = coordinates.get(node_id)?;
+                Some(json!({
+                    "node_id":node_id,"title":public["title"],"node_type":public["kind"],
+                    "paper_ref":node_id,"year":public["year"],"authors":public["authors"],
+                    "x":x,"y":y,"low_signal":public["low_signal"],
+                }))
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let layout_edges = if status == "ready" {
+        selected_edges
+            .iter()
+            .map(window_public_edge)
             .map(|edge| {
                 json!({
-                    "edge_id":edge["edge_id"],
-                    "source":edge["source"],
-                    "target":edge["target"],
-                    "primary_role":edge["primary_role"],
-                    "aux_roles":edge["aux_roles"],
+                    "edge_id":edge["edge_id"],"source":edge["source"],"target":edge["target"],
+                    "primary_role":edge["primary_role"],"aux_roles":edge["aux_roles"],
                     "weight":edge["mention_count"],
                 })
             })
@@ -1055,14 +1241,23 @@ fn layout_result(projection: &CitationGraphProjection, request: &Map<String, Val
     } else {
         Vec::new()
     };
-    let edge_count = layout_edges.len();
-    json!({
-        "ok":status=="ready","status":status,"scope":"full","graph_hash":projection.graph_hash,
-        "layout_hash":normalized.as_ref().and_then(|layout| layout["layout_hash"].as_str()).unwrap_or_default(),
-        "layout_status":status,"preset":algorithm,"view_key":"workbench_overview","nodes":layout_nodes,
-        "edges":layout_edges,
-        "diagnostics":{"snapshot_found":!projection.graph_hash.is_empty(),"layout_found":record.is_some(),"node_count":layout_nodes.len(),"edge_count":edge_count,"truncated":false,"warnings":[]},
-    })
+    let result = json!({
+        "ok":status=="ready","status":status,"scope":scope,"graph_hash":graph_hash,
+        "layout_hash":layout.metadata.layout_hash,"layout_status":status,"preset":algorithm,
+        "view_key":view_key,"nodes":layout_nodes,"edges":layout_edges,
+        "diagnostics":{"snapshot_found":!graph_hash.is_empty(),"layout_found":true,
+          "node_count":layout_nodes.len(),"edge_count":layout_edges.len(),"truncated":truncated,
+          "limits":{"maxNodes":max_nodes,"maxEdges":max_edges,"hardMaxNodes":100,"hardMaxEdges":200},
+          "warnings":[]},
+    });
+    if serde_json::to_vec(&result)
+        .map_err(|_| "response_invalid".to_owned())?
+        .len()
+        > GRAPH_RESPONSE_BUDGET_BYTES
+    {
+        return Err("response_body_too_large".into());
+    }
+    Ok(result)
 }
 
 pub(crate) fn dispatch(
@@ -1079,12 +1274,8 @@ pub(crate) fn dispatch(
             Ok(result)
         }
         "client.getCitationGraphSlice" => bounded_slice(apps, &request),
-        "client.getCitationGraphLayout" => {
-            Ok(layout_result(&project(read_snapshot(apps)?), &request))
-        }
-        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => {
-            Ok(metrics(&project(read_snapshot(apps)?), &request))
-        }
+        "client.getCitationGraphLayout" => layout_result(apps, &request),
+        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => metrics(apps, &request),
         _ => Err("unsupported_capability".into()),
     }
 }
@@ -1093,97 +1284,34 @@ pub(crate) fn dispatch(
 mod tests {
     use super::*;
 
-    fn node(id: &str, bound: bool, title: &str) -> CitationNodeRecord {
-        CitationNodeRecord {
-            literature_item_id: id.into(),
-            node_status: "active".into(),
-            has_zotero_binding: bound,
-            title: title.into(),
-            authors_json: "[]".into(),
-            ..CitationNodeRecord::default()
-        }
-    }
-
-    fn edge(id: &str, source: &str, target: &str) -> CitationEdgeRecord {
-        CitationEdgeRecord {
-            edge_id: id.into(),
-            source_literature_item_id: source.into(),
-            target_literature_item_id: target.into(),
-            edge_status: "unbound".into(),
-            weight: 1.0,
-            ..CitationEdgeRecord::default()
-        }
-    }
-
-    fn snapshot() -> CitationGraphReadSnapshot {
-        CitationGraphReadSnapshot {
-            state: Some(CitationGraphApplicationStateRecord {
+    #[test]
+    fn layout_window_requires_matching_basis_version_and_complete_coordinates() {
+        let ids = vec!["1:A".to_owned(), "1:B".to_owned()];
+        let stale = CitationLayoutWindowRecord {
+            metadata: synthesis_repository::CitationLayoutMetadataRecord {
                 graph_hash: "graph:1".into(),
-                ..CitationGraphApplicationStateRecord::default()
-            }),
-            nodes: vec![
-                node("1:A", true, "A"),
-                node("1:B", true, "B"),
-                node("external:shared", false, "Shared"),
-                node("external:hover", false, "Hover"),
-            ],
-            edges: vec![
-                edge("e1", "1:A", "external:shared"),
-                edge("e2", "1:B", "external:shared"),
-                edge("e3", "1:A", "external:hover"),
-            ],
-            ..CitationGraphReadSnapshot::default()
-        }
-    }
-
-    #[test]
-    fn compute_projection_uses_default_layout_membership() {
-        let projection = project(snapshot());
-        assert_eq!(projection.main_nodes.len(), 3);
-        assert_eq!(projection.main_edges.len(), 2);
-        assert!(
-            projection
-                .main_nodes
+                status: "ready".into(),
+                layout_version: 1,
+                ..synthesis_repository::CitationLayoutMetadataRecord::default()
+            },
+            points: Vec::new(),
+        };
+        assert_eq!(layout_status(Some(&stale), "graph:1", &ids, true), "stale");
+        let ready = CitationLayoutWindowRecord {
+            metadata: synthesis_repository::CitationLayoutMetadataRecord {
+                layout_version: LAYOUT_VERSION,
+                ..stale.metadata.clone()
+            },
+            points: ids
                 .iter()
-                .all(|node| node.visibility == "default")
-        );
-    }
-
-    #[test]
-    fn raw_worker_layout_is_stale_and_normalized_layout_is_ready() {
-        let mut projection = project(snapshot());
-        let ids = projection
-            .main_nodes
-            .iter()
-            .map(|node| node.record.literature_item_id.clone())
-            .collect::<Vec<_>>();
-        let raw = CitationLayoutRecord {
-            layout_key: "workbench_overview:force".into(),
-            graph_hash: "graph:1".into(),
-            status: "ready".into(),
-            layout_json: r#"{"graphHash":"graph:1","layoutVersion":2,"nodes":[]}"#.into(),
-            ..CitationLayoutRecord::default()
+                .map(|id| synthesis_repository::CitationLayoutPointRecord {
+                    node_id: id.clone(),
+                    x: 1.0,
+                    y: 2.0,
+                })
+                .collect(),
         };
-        assert!(parsed_layout(&raw, "graph:1", &ids).is_none());
-        let coordinates = ids
-            .iter()
-            .map(|id| (id.clone(), json!({"x":1.0,"y":2.0})))
-            .collect::<Map<_, _>>();
-        let normalized = CitationLayoutRecord {
-            layout_json: json!({"graph_hash":"graph:1","layout_version":2,"nodes":coordinates})
-                .to_string(),
-            ..raw.clone()
-        };
-        assert!(parsed_layout(&normalized, "graph:1", &ids).is_some());
-        projection.layouts.push(normalized);
-        assert_eq!(
-            layout_status(
-                layout(&projection, "force"),
-                parsed_layout(layout(&projection, "force").unwrap(), "graph:1", &ids).as_ref(),
-                true
-            ),
-            "ready"
-        );
+        assert_eq!(layout_status(Some(&ready), "graph:1", &ids, true), "ready");
     }
 
     #[test]

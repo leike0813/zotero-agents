@@ -322,6 +322,15 @@ pub type TopicApplicationJoinedRecord = (
 pub type TopicApplicationRecordPage = (Vec<TopicApplicationJoinedRecord>, usize);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TopicGraphScopeRecord {
+    pub topic_id: String,
+    pub title: String,
+    pub paper_count: i64,
+    pub source_paper_ref_total: i64,
+    pub source_paper_refs_json: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OperationQuery {
     pub statuses: Vec<String>,
     pub operation_types: Vec<String>,
@@ -1470,7 +1479,14 @@ impl Repository {
         let limit = limit.clamp(1, 250);
         let total = self
             .query(
-                "SELECT COUNT(*) AS total FROM synt_topic_application_state",
+                "SELECT COUNT(*) AS total
+                 FROM synt_topic_application_state state
+                 JOIN synt_topic_application_projection projection
+                   ON projection.topic_id=state.topic_id
+                 WHERE EXISTS (
+                   SELECT 1 FROM json_each(projection.discovery_json,'$.source_paper_refs') ref
+                   WHERE ref.type='text' AND ref.value<>''
+                 )",
                 &[],
             )?
             .first()
@@ -1523,6 +1539,64 @@ impl Repository {
             rows.into_iter()
                 .map(topic_joined_record)
                 .collect::<Result<Vec<_>, _>>()?,
+            total,
+        ))
+    }
+
+    pub fn list_topic_graph_scope_records(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<TopicGraphScopeRecord>, usize), String> {
+        let limit = limit.clamp(1, 250);
+        let total = self
+            .query(
+                "SELECT COUNT(*) AS total FROM synt_topic_application_state",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row["total"].as_i64())
+            .unwrap_or_default()
+            .max(0) as usize;
+        let rows = self.query(
+            "SELECT state.topic_id,state.title,state.paper_count,
+                    COALESCE(json_array_length(
+                      json_extract(projection.discovery_json,'$.source_paper_refs')
+                    ),0) AS source_paper_ref_total,
+                    COALESCE((
+                      SELECT json_group_array(value) FROM (
+                        SELECT ref.value AS value
+                        FROM json_each(projection.discovery_json,'$.source_paper_refs') ref
+                        WHERE ref.type='text' AND ref.value<>''
+                        ORDER BY ref.value ASC LIMIT 250
+                      )
+                    ),'[]') AS source_paper_refs_json
+             FROM synt_topic_application_state state
+             JOIN synt_topic_application_projection projection
+               ON projection.topic_id=state.topic_id
+             WHERE EXISTS (
+               SELECT 1 FROM json_each(projection.discovery_json,'$.source_paper_refs') ref
+               WHERE ref.type='text' AND ref.value<>''
+             )
+             ORDER BY state.title COLLATE NOCASE ASC,state.topic_id ASC
+             LIMIT ?1 OFFSET ?2",
+            &[json!(limit), json!(offset)],
+        )?;
+        Ok((
+            rows.into_iter()
+                .map(|row| {
+                    Ok(TopicGraphScopeRecord {
+                        topic_id: row_text(&row, "topic_id")?,
+                        title: row_text(&row, "title")?,
+                        paper_count: row_integer(&row, "paper_count")?,
+                        source_paper_ref_total: row_integer(&row, "source_paper_ref_total")?,
+                        source_paper_refs_json: array_json(&row_text(
+                            &row,
+                            "source_paper_refs_json",
+                        )?)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?,
             total,
         ))
     }
@@ -2077,6 +2151,16 @@ fn object_json(value: &str) -> Result<String, String> {
     serde_json::to_string(&parsed).map_err(|_| "repository_topic_json_invalid".into())
 }
 
+fn array_json(value: &str) -> Result<String, String> {
+    let value = if value.is_empty() { "[]" } else { value };
+    let parsed: Value =
+        serde_json::from_str(value).map_err(|_| "repository_topic_json_invalid".to_owned())?;
+    if !parsed.is_array() {
+        return Err("repository_topic_json_invalid".into());
+    }
+    serde_json::to_string(&parsed).map_err(|_| "repository_topic_json_invalid".into())
+}
+
 fn validate_topic_state(record: &TopicApplicationStateRecord) -> Result<(), String> {
     for value in [
         &record.topic_id,
@@ -2224,7 +2308,7 @@ mod tests {
         assert_eq!(pragmas["busyTimeout"], 250);
         let inventory = repository.schema_inventory().expect("inventory");
         assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(53));
-        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(42));
+        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(46));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -2913,7 +2997,7 @@ mod tests {
             topic_graph_json: "{}".into(),
             concepts_json: "{}".into(),
             interest_metadata_json: "{}".into(),
-            discovery_json: "{}".into(),
+            discovery_json: r#"{"source_paper_refs":["1:AAAA1111"]}"#.into(),
             ..TopicApplicationProjectionRecord::default()
         };
         repository
@@ -2935,6 +3019,17 @@ mod tests {
             records[0].1.as_ref().map(|record| record.topic_id.as_str()),
             Some("topic:typed")
         );
+        let ((scopes, scope_total), observation) = observe_repository_sql(|| {
+            repository
+                .list_topic_graph_scope_records(0, 25)
+                .expect("topic graph scopes")
+        });
+        assert_eq!(scope_total, 1);
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes[0].source_paper_ref_total, 1);
+        assert_eq!(scopes[0].source_paper_refs_json, r#"["1:AAAA1111"]"#);
+        assert_eq!(observation.query_count, 2);
+        assert_eq!(observation.write_count, 0);
         assert!(repository.application_state_rows_absent().expect("absence"));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");

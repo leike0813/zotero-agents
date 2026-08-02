@@ -149,7 +149,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.corpus, "synthesis-durable-foundation-corpus.v1");
     assert.equal(result.nodeOracleFiles, 15);
     assert.equal(result.tables, 53);
-    assert.equal(result.indexes, 42);
+    assert.equal(result.indexes, 46);
     assert.equal(result.faultPoints, 7);
     assert.equal(result.canaries, 2);
     assert.equal(result.implementations.node.role, "oracle");

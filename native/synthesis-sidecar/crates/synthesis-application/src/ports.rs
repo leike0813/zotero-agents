@@ -21,6 +21,7 @@ use synthesis_repository::{
 use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationLayoutRecord,
+    CitationLayoutWindowRecord, CitationMetricsPageQuery, CitationMetricsPageRows,
     CitationNodeRecord, LiteratureMatchingMetadataRecord, RawReferenceRecord,
     ReferenceApplicationStateRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
     ReferenceMatchProposalRecord, ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion,
@@ -41,9 +42,16 @@ pub trait CitationGraphRepositoryPort: Send + Sync {
     fn get_state(&self) -> Result<Option<CitationGraphApplicationStateRecord>, String>;
     fn list_nodes(&self) -> Result<Vec<CitationNodeRecord>, String>;
     fn list_edges(&self) -> Result<Vec<CitationEdgeRecord>, String>;
-    fn list_complex_metrics(&self) -> Result<Vec<CitationComplexMetricsRecord>, String>;
-    fn list_layouts(&self) -> Result<Vec<CitationLayoutRecord>, String>;
-    fn get_layout(&self, layout_key: &str) -> Result<Option<CitationLayoutRecord>, String>;
+    fn read_metrics_page(
+        &self,
+        request: &CitationMetricsPageQuery,
+    ) -> Result<CitationMetricsPageRows, String>;
+    fn list_ready_layout_presets(&self, graph_hash: &str) -> Result<Vec<String>, String>;
+    fn read_layout_window(
+        &self,
+        layout_key: &str,
+        node_ids: &[String],
+    ) -> Result<Option<CitationLayoutWindowRecord>, String>;
     fn replace(
         &self,
         expected_graph_hash: Option<&str>,
@@ -701,25 +709,32 @@ impl CitationGraphRepositoryPort for RepositoryPort {
             .list_citation_edges()
     }
 
-    fn list_complex_metrics(&self) -> Result<Vec<CitationComplexMetricsRecord>, String> {
+    fn read_metrics_page(
+        &self,
+        request: &CitationMetricsPageQuery,
+    ) -> Result<CitationMetricsPageRows, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .list_citation_complex_metrics()
+            .read_citation_metrics_page(request)
     }
 
-    fn list_layouts(&self) -> Result<Vec<CitationLayoutRecord>, String> {
+    fn list_ready_layout_presets(&self, graph_hash: &str) -> Result<Vec<String>, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .list_citation_layouts()
+            .list_ready_citation_layout_presets(graph_hash)
     }
 
-    fn get_layout(&self, layout_key: &str) -> Result<Option<CitationLayoutRecord>, String> {
+    fn read_layout_window(
+        &self,
+        layout_key: &str,
+        node_ids: &[String],
+    ) -> Result<Option<CitationLayoutWindowRecord>, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .get_citation_layout(layout_key)
+            .read_citation_layout_window(layout_key, node_ids)
     }
 
     fn replace(

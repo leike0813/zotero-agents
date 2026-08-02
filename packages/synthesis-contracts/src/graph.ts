@@ -114,6 +114,8 @@ export type SynthesisGraphQueryRequest = {
   hoverNodeLimit?: number;
   hoverEdgeCursor?: string | number;
   hoverEdgeLimit?: number;
+  topicScopeCursor?: string | number;
+  topicScopeLimit?: number;
 };
 
 export type SynthesisGraphQueryResult = {
@@ -158,22 +160,47 @@ export type SynthesisCitationGraphLayoutReadRequest = {
   scope?: "full";
   preset?: SynthesisCitationGraphLayoutAlgorithm;
   algorithm?: SynthesisCitationGraphLayoutAlgorithm;
+  viewKey?: string;
+  startNodeId?: string;
+  paperRef?: string;
+  nodeIds?: string[];
+  paperRefs?: string[];
+  depth?: number;
+  direction?: "incoming" | "outgoing" | "both";
+  includeLowSignal?: boolean;
+  roleFilter?: string[];
+  maxNodes?: number;
+  maxEdges?: number;
+  allowTruncated?: boolean;
 };
 
 export type SynthesisCitationGraphLayoutReadResult = {
   ok: boolean;
-  status: "ready" | "missing" | "stale" | "refreshing" | "failed";
-  scope: "full";
+  status:
+    | "ready"
+    | "missing"
+    | "stale"
+    | "refreshing"
+    | "failed"
+    | "invalid_request"
+    | "not_found"
+    | "too_large";
+  scope: "full" | "slice" | "explicit" | "none";
   graph_hash: string;
   layout_hash: string;
   layout_status: "ready" | "missing" | "stale" | "refreshing" | "failed";
   preset: SynthesisCitationGraphLayoutAlgorithm;
-  view_key: "workbench_overview";
+  view_key: string;
   nodes: Array<{
     node_id: string;
+    title?: string;
     node_type: SynthesisCitationGraphNode["kind"];
+    paper_ref?: string;
+    year?: string;
+    authors?: string[];
     x: number;
     y: number;
+    low_signal?: boolean;
   }>;
   edges: Array<{
     edge_id: string;
@@ -190,6 +217,7 @@ export type SynthesisCitationGraphMetricsRequest = {
   cursor?: string | number;
   limit?: number;
   sortBy?: "foundation" | "frontier" | "pagerank" | "in_degree";
+  paperRefs?: string[];
 };
 
 export type SynthesisCitationGraphMetricsResult = {
