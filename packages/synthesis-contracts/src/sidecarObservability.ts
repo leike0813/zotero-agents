@@ -39,6 +39,7 @@ export const SYNTHESIS_SIDECAR_OBSERVATION_METRIC_KEYS = [
   "requestBytes",
   "responseBytes",
   "sqlQueryCount",
+  "sqlWriteCount",
   "budgetBytes",
   "returnedCount",
   "totalCount",

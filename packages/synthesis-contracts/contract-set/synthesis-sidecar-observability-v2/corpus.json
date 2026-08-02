@@ -16,7 +16,11 @@
         "outcome": "succeeded",
         "occurredAtMs": 0,
         "identities": { "operation": "advanced_reference_matching" },
-        "metrics": { "durationMs": 0, "sqlQueryCount": 0 },
+        "metrics": {
+          "durationMs": 0,
+          "sqlQueryCount": 0,
+          "sqlWriteCount": 0
+        },
         "facts": {
           "semanticStatus": "promoted",
           "matchingHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -58,6 +62,22 @@
         "outcome": "failed",
         "code": "request failed because private paper /tmp/a",
         "occurredAtMs": 1
+      }
+    },
+    {
+      "id": "negative-sql-write-count",
+      "kind": "event",
+      "value": {
+        "schema": "synthesis-sidecar-observation.v2",
+        "traceId": "11111111111111111111111111111111",
+        "spanId": "2222222222222222",
+        "attempt": 1,
+        "source": "rust-sidecar",
+        "boundary": "operation",
+        "phase": "query-terminal",
+        "outcome": "succeeded",
+        "occurredAtMs": 1,
+        "metrics": { "sqlWriteCount": -1 }
       }
     }
   ]

@@ -17,7 +17,7 @@ use crate::runtime_webdav_maintenance_surface::{
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::utc_now_iso8601;
-use synthesis_repository::observe_repository_queries;
+use synthesis_repository::{RepositorySqlObservation, observe_repository_sql};
 use synthesis_sidecar::production_capabilities::{
     ProductionClientDataPlane, ProductionClientReceipt, ProductionClientSemanticSuccess,
 };
@@ -95,14 +95,14 @@ pub(crate) fn dispatch_production_client(
         );
     }
     let started_at = Instant::now();
-    let (outcome, sql_query_count) = observe_repository_queries(|| {
+    let (outcome, sql_observation) = observe_repository_sql(|| {
         with_request_context(
             Duration::from_millis(metadata.deadline_ms),
             debug_events_enabled().then_some(request_id),
             || dispatch_legacy_client(&state.applications, capability, &operation_args),
         )
     });
-    emit_query_observation(capability, &outcome, sql_query_count);
+    emit_query_observation(capability, &outcome, sql_observation);
     let result = outcome?;
     record_semantic_mutation_result(
         capability,
@@ -196,7 +196,7 @@ fn start_public_maintenance_operation(
                     return;
                 }
                 let observed_at = Instant::now();
-                let (outcome, sql_query_count) = observe_repository_queries(|| {
+                let (outcome, sql_observation) = observe_repository_sql(|| {
                     with_request_context(
                         Duration::from_millis(work_deadline_ms),
                         debug_events_enabled().then_some(&request_id_for_worker),
@@ -209,7 +209,7 @@ fn start_public_maintenance_operation(
                         },
                     )
                 });
-                emit_query_observation(&capability_for_worker, &outcome, sql_query_count);
+                emit_query_observation(&capability_for_worker, &outcome, sql_observation);
                 if let Ok(result) = outcome.as_ref() {
                     record_semantic_mutation_result(
                         &capability_for_worker,
@@ -245,7 +245,11 @@ fn start_public_maintenance_operation(
     Ok(accepted_dto)
 }
 
-fn emit_query_observation(capability: &str, outcome: &Result<Value, String>, count: u64) {
+fn emit_query_observation(
+    capability: &str,
+    outcome: &Result<Value, String>,
+    observation: RepositorySqlObservation,
+) {
     emit_debug(|| {
         let event = NativeDiagnosticEvent::new(
             "operation",
@@ -257,7 +261,8 @@ fn emit_query_observation(capability: &str, outcome: &Result<Value, String>, cou
             },
         )
         .capability(capability)
-        .sql_query_count(count);
+        .sql_query_count(observation.query_count)
+        .sql_write_count(observation.write_count);
         match outcome {
             Ok(_) => event,
             Err(code) => event.code(code),

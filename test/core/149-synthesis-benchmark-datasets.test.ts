@@ -3,6 +3,7 @@ import { buildReferenceSidecarIndexRows } from "../../src/modules/synthesis/regi
 import {
   createSyntheticSynthesisBenchmarkDataset,
   createSyntheticSynthesisBenchmarkRegistryInputs,
+  createSyntheticSynthesisProductionRouteDataset,
 } from "../fixtures/synthesisSyntheticDatasets";
 
 describe("Synthesis benchmark datasets", function () {
@@ -49,6 +50,39 @@ describe("Synthesis benchmark datasets", function () {
     assert.includeMembers(
       firstPayloads.map((block) => block.payloadType),
       ["digest-markdown", "references-json", "citation-analysis-json"],
+    );
+  });
+
+  it("generates production-route setup DTOs instead of SQLite seed rows", function () {
+    const dataset = createSyntheticSynthesisProductionRouteDataset("10k");
+    const resolver = dataset.topicApplyRequest.assets.find(
+      ({ id }) => id === "asset/resolver",
+    );
+    const resolverValue = JSON.parse(String(resolver?.text || "{}")) as {
+      resolved_paper_set?: { papers?: unknown[] };
+    };
+    const staged = dataset.tagSuggestionRequest(7, 3) as {
+      expectedStagedRevision: number;
+      entries: Array<{ tag: string; parentBindingsJson: string }>;
+    };
+    const items = dataset.listItemsPage({ limit: 100 }).items;
+    const availableArtifacts = dataset
+      .scanArtifactsPage({ limit: 10_000 })
+      .artifacts.filter(({ status }) => status === "available");
+
+    assert.lengthOf(resolverValue.resolved_paper_set?.papers || [], 10_000);
+    assert.equal(staged.expectedStagedRevision, 3);
+    assert.equal(staged.entries[0].tag, "topic:production-route-effect-10k-7");
+    assert.lengthOf(JSON.parse(staged.entries[0].parentBindingsJson), 250);
+    assert.isTrue(
+      items.every(({ metadataHash }) =>
+        /^sha256:[a-f0-9]{64}$/.test(metadataHash),
+      ),
+    );
+    assert.isTrue(
+      availableArtifacts.every(({ payloadHash }) =>
+        /^sha256:[a-f0-9]{64}$/.test(String(payloadHash)),
+      ),
     );
   });
 });

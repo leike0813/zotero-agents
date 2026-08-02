@@ -6,6 +6,7 @@ import type {
   SynthesisCitationLightMetricsRecord,
   SynthesisCitationNodeRecord,
 } from "../../src/modules/synthesis/repository";
+import type { SynthesisTopicApplyRequest } from "../../packages/synthesis-contracts/src/workflow";
 
 export type SyntheticSynthesisBenchmarkDatasetName = "2k" | "10k" | "25k";
 
@@ -50,6 +51,11 @@ export type SyntheticSynthesisProductionRouteDataset = {
     itemKey: string;
     tags: string[];
   }>;
+  topicApplyRequest: SynthesisTopicApplyRequest;
+  tagSuggestionRequest(
+    ordinal: number,
+    expectedStagedRevision: number,
+  ): Record<string, unknown>;
   listItemsPage(request: {
     cursor?: string;
     limit?: number;
@@ -105,6 +111,16 @@ const ROLES = ["background", "method", "result", "dataset"];
 
 function padded(value: number, width: number) {
   return String(value).padStart(width, "0");
+}
+
+function fixtureHash(namespace: "metadata" | "digest" | "references" | "citation_analysis", index: number) {
+  const prefix = {
+    metadata: "1",
+    digest: "2",
+    references: "3",
+    citation_analysis: "4",
+  }[namespace];
+  return `sha256:${prefix}${(index + 1).toString(16).padStart(12, "0")}${"0".repeat(51)}`;
 }
 
 function paperTitle(index: number) {
@@ -384,6 +400,188 @@ function boundedPageLimit(limit: number | undefined) {
   return Math.max(1, Math.min(100, Math.floor(Number(limit) || 50)));
 }
 
+function syntheticTopicApplyRequest(args: {
+  name: SyntheticSynthesisBenchmarkDatasetName;
+  paperRefs: string[];
+}): SynthesisTopicApplyRequest {
+  const topicId = `topic:production-route:${args.name}`;
+  const sourcePaperRef = args.paperRefs[0];
+  const sectionValues: Record<string, unknown> = {
+    topic: {
+      id: topicId,
+      title: `Synthetic production-route ${args.name}`,
+      definition: "A governed native-route scale fixture",
+      discipline: "Information Science",
+      scope: "Production-route parity and scale evidence",
+    },
+    summary: { overview: "A deterministic governed benchmark Topic." },
+    taxonomy: {
+      summary: { text: "One deterministic benchmark route." },
+      nodes: [
+        {
+          id: "route:benchmark",
+          definition: "Native production-route evidence",
+          core_problem: "Keep route evidence non-vacuous",
+          mechanism: "Typed composition, Rust, SQLite, workers, and Host",
+          source_paper_refs: [sourcePaperRef],
+          strengths: ["deterministic"],
+          limitations: ["synthetic fixture"],
+          maturity: "validated",
+        },
+      ],
+    },
+    improvement_dimensions: [
+      {
+        id: "dimension:boundedness",
+        analysis: "The fixture exercises bounded production reads.",
+        source_paper_refs: [sourcePaperRef],
+      },
+    ],
+    claims: [
+      {
+        id: "claim:production-route",
+        text: "The governed fixture traverses the native route.",
+        analysis: "The result is materialized through production ownership.",
+        scope: "Synthetic benchmark",
+        source_paper_refs: [sourcePaperRef],
+      },
+    ],
+    timeline_events: {
+      summary: { text: "Setup precedes warmup and formal measurement." },
+      events: [
+        {
+          id: "event:setup",
+          description: "Dataset state is applied before measurement.",
+          phase: "setup",
+          source_paper_refs: [sourcePaperRef],
+        },
+      ],
+    },
+    source_papers: [
+      {
+        paper_ref: sourcePaperRef,
+        digest_ref: {
+          paper_ref: sourcePaperRef,
+          payload_type: "digest-markdown",
+        },
+      },
+    ],
+    debates: [],
+    coverage: {
+      coverage_verdict: "partial",
+      coverage_reason: "This is a bounded deterministic scale fixture.",
+      coverage_caveats: ["Synthetic inputs do not establish research claims."],
+      external_context_summary: "External context is outside the benchmark.",
+      suggested_collection_directions: [],
+    },
+    future_directions: [
+      { id: "future:parity", source_paper_refs: [sourcePaperRef] },
+    ],
+    review_outline: {
+      topic_importance: "Non-vacuous evidence protects migration decisions.",
+      writing_strategies: [
+        {
+          id: "strategy:evidence",
+          title: "Evidence",
+          review_thesis: "Production behavior must be measured directly.",
+          writing_strategy: "Follow the production data path.",
+          best_for: "Migration verification",
+          risks: "Synthetic fixture scope",
+          section_plan: ["Setup", "Measure", "Gate"],
+          source_paper_refs: [sourcePaperRef],
+        },
+      ],
+      recommended_strategy_id: "strategy:evidence",
+    },
+    statistics: {
+      paper_count: args.paperRefs.length,
+      time_span: { start_year: 2018, end_year: 2026 },
+      route_coverage: `${args.paperRefs.length} synthetic papers`,
+      coverage_verdict: "partial",
+    },
+    synthesis_report: {
+      title: "Synthetic production-route benchmark",
+      source_section_chapters: {
+        research_routes: "taxonomy.summary",
+        historical_progression: "timeline_events.summary",
+      },
+      body: [
+        "This deterministic benchmark fixture exists only to measure native production-route behavior. Its generated papers, references, tags, and Topic membership provide stable volume and relationship inputs so the benchmark can distinguish a populated bounded result from an empty response that happened to complete quickly. The fixture carries no research claim beyond those generated inputs, and its single purpose is to expose the cost and observable semantics of the production ownership path.",
+        "Setup is completed before warmup and formal sampling. Public grouped-client calls stage the Topic and other domain inputs, native composition applies the approved transfer policy, the authenticated HTTP route dispatches into Rust, and the resulting facts are stored by the production repository. Measurements therefore exclude fixture construction while still proving that every measured read depends on state materialized through the same route used by the plugin.",
+        "The formal samples record request and response bytes, repository query and write counts, reverse-Host calls, maintenance receipt latency, returned rows, and process memory. Empty Topic, Index, or Graph evidence is rejected unless the stress dataset reports an explicit structured degraded state. These constraints keep the report useful as migration evidence even while later implementation stages are still expected to reveal performance or parity failures.",
+      ].join("\n\n"),
+    },
+    source_artifacts: [],
+    diagnostics: { warnings: [] },
+  };
+  return {
+    bundle: {
+      kind: "topic_synthesis",
+      operation: "create",
+      mode: "create",
+      language: "en",
+      topic_definition: {
+        id: topicId,
+        title: `Synthetic production-route ${args.name}`,
+        definition: "A governed native-route scale fixture",
+      },
+      resolver_manifest_path: "asset/resolver",
+      analysis_manifest_path: "asset/manifest",
+      artifact_metadata: {},
+      markdown: "",
+    },
+    assets: [
+      {
+        id: "asset/manifest",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          schema_id: "synthesis.topic_analysis_manifest",
+          schema_version: "3.0.0",
+          operation: "create",
+          topic_id: topicId,
+          language: "en",
+          sections: Object.fromEntries(
+            Object.keys(sectionValues).map((name) => [
+              name,
+              { path: `asset/section/${name}`, content_type: "json" },
+            ]),
+          ),
+          sidecars: Object.fromEntries(
+            [
+              "topic_interest_metadata",
+              "concept_cards_proposal",
+              "topic_graph_relation_proposals",
+              "prospective_topic_relation_proposals",
+            ].map((name) => [
+              name,
+              {
+                path: `asset/sidecar/${name}`,
+                content_type: "json",
+                schema_id: `fixture.${name}`,
+              },
+            ]),
+          ),
+        }),
+      },
+      ...Object.entries(sectionValues).map(([name, value]) => ({
+        id: `asset/section/${name}`,
+        mediaType: "application/json" as const,
+        text: JSON.stringify(value),
+      })),
+      {
+        id: "asset/resolver",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          resolver: { query: `synthetic production route ${args.name}` },
+          resolved_paper_set: {
+            papers: args.paperRefs.map((paperRef) => ({ paper_ref: paperRef })),
+          },
+        }),
+      },
+    ],
+  };
+}
+
 export function createSyntheticSynthesisProductionRouteDataset(
   name: SyntheticSynthesisBenchmarkDatasetName,
 ): SyntheticSynthesisProductionRouteDataset {
@@ -402,7 +600,7 @@ export function createSyntheticSynthesisProductionRouteDataset(
     itemType: "journalArticle" as const,
     title: paperTitle(index),
     year: paperYear(index),
-    metadataHash: `sha256:metadata:${padded(index + 1, 7)}`,
+    metadataHash: fixtureHash("metadata", index),
   }));
   const artifacts = items.flatMap((item, index) =>
     ([
@@ -420,7 +618,7 @@ export function createSyntheticSynthesisProductionRouteDataset(
         ...(available
           ? {
               locator: `synthetic:${name}:${item.itemKey}:${artifactType}`,
-              payloadHash: `sha256:${artifactType}:${padded(index + 1, 7)}`,
+              payloadHash: fixtureHash(artifactType, index),
               estimatedSize: 512,
             }
           : {}),
@@ -428,16 +626,44 @@ export function createSyntheticSynthesisProductionRouteDataset(
       };
     }),
   );
+  const tagEffects = items.slice(0, Math.min(250, items.length)).map((item, index) => ({
+    libraryId: item.libraryId,
+    itemKey: item.itemKey,
+    tags: [TOPIC_TAGS[index % TOPIC_TAGS.length]],
+  }));
   return {
     name,
     paperCount,
     referenceFanout,
     changedPaperRefs,
-    tagEffects: items.slice(0, Math.min(250, items.length)).map((item, index) => ({
-      libraryId: item.libraryId,
-      itemKey: item.itemKey,
-      tags: [TOPIC_TAGS[index % TOPIC_TAGS.length]],
-    })),
+    tagEffects,
+    topicApplyRequest: syntheticTopicApplyRequest({
+      name,
+      paperRefs: items.map((item) => item.paperRef),
+    }),
+    tagSuggestionRequest(ordinal, expectedStagedRevision) {
+      const timestamp = "2026-08-02T00:00:00.000Z";
+      const tag = `topic:production-route-effect-${name}-${ordinal}`;
+      return {
+        expectedStagedRevision,
+        entries: [
+          {
+            tag,
+            facet: "topic",
+            note: "governed production-route batch fixture",
+            sourceFlow: "production-route-performance",
+            parentBindingsJson: JSON.stringify(
+              tagEffects.map(({ libraryId, itemKey }) => ({
+                libraryId,
+                itemKey,
+              })),
+            ),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      };
+    },
     listItemsPage(request) {
       const cursor = request.cursor || "";
       const offset = pageOffset(cursor);

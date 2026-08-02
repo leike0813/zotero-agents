@@ -10,7 +10,11 @@ import {
   type SynthesisProductionSurfaceCorpus,
 } from "../../scripts/synthesisProductionSurfaceCorpora";
 import type { SynthesisProductionRouteHarness } from "./synthesisProductionRouteHarness";
-import { captureSynthesisProductionRouteDurableState } from "./synthesisProductionRouteHarness";
+import {
+  captureSynthesisProductionRouteDurableState,
+  waitForSynthesisProductionRouteEvidence,
+  waitForSynthesisProductionRouteReceipt,
+} from "./synthesisProductionRouteHarness";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -44,17 +48,82 @@ export type SynthesisProductionRouteScenarioOutcome =
   | { kind: "result"; value: unknown }
   | { kind: "stable-error"; code: string };
 
-const stableSemantic = (outcome: SynthesisProductionRouteScenarioOutcome) => {
-  if (outcome.kind === "stable-error") {
-    if (!outcome.code) {
-      throw new Error("production_route_scenario_error_code_missing");
+type BaselineScenarioExpectations = {
+  resultTypes: {
+    boolean: SynthesisSidecarProductionClientCapability[];
+    array: SynthesisSidecarProductionClientCapability[];
+  };
+  stableErrors: Partial<
+    Record<SynthesisSidecarProductionClientCapability, string>
+  >;
+};
+
+function readBaselineScenarioExpectations(): BaselineScenarioExpectations {
+  const fixture = JSON.parse(
+    fs.readFileSync(
+      path.join(
+        ROOT,
+        "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
+      ),
+      "utf8",
+    ),
+  ) as { productionRouteScenario?: BaselineScenarioExpectations };
+  if (!fixture.productionRouteScenario) {
+    throw new Error("production route baseline expectations missing");
+  }
+  return fixture.productionRouteScenario;
+}
+
+function assertExpectedSemantic(args: {
+  operation: SynthesisSidecarProductionClientCapability;
+  outcome: SynthesisProductionRouteScenarioOutcome;
+  expectedError?: string;
+  resultType: "object" | "array" | "boolean";
+  receipt: boolean;
+}) {
+  if (args.expectedError) {
+    if (
+      args.outcome.kind !== "stable-error" ||
+      args.outcome.code !== args.expectedError
+    ) {
+      throw new Error(
+        `production route outcome mismatch for ${args.operation}: expected ${args.expectedError}`,
+      );
     }
     return;
   }
-  if (outcome.value === undefined) {
-    throw new Error("production_route_scenario_result_missing");
+  if (args.outcome.kind !== "result") {
+    throw new Error(
+      `production route unexpected error for ${args.operation}: ${args.outcome.code}`,
+    );
   }
-};
+  const value = args.outcome.value;
+  const actualType = Array.isArray(value) ? "array" : typeof value;
+  if (actualType !== args.resultType) {
+    throw new Error(
+      `production route result type mismatch for ${args.operation}: ${actualType}`,
+    );
+  }
+  if (
+    args.resultType === "object" &&
+    (!value || Object.keys(value as Record<string, unknown>).length === 0)
+  ) {
+    throw new Error(`production route empty result for ${args.operation}`);
+  }
+  if (args.receipt) {
+    const receipt = value as Record<string, unknown>;
+    if (
+      receipt.schema !== "synthesis.maintenance_operation.v1" ||
+      !["completed", "failed", "canceled", "timed_out"].includes(
+        String(receipt.status || ""),
+      )
+    ) {
+      throw new Error(
+        `production route receipt terminal mismatch for ${args.operation}`,
+      );
+    }
+  }
+}
 
 const literatureApplyRequest = {
   libraryId: 1,
@@ -332,6 +401,7 @@ export function readSynthesisProductionRouteInventory() {
 export function createSynthesisProductionRouteScenarios() {
   const { manifest, corpusOperations } =
     readSynthesisProductionRouteInventory();
+  const expectations = readBaselineScenarioExpectations();
   const errors: string[] = [];
   const operationIds = corpusOperations.map(({ operation }) => operation);
   const duplicates = operationIds.filter(
@@ -366,13 +436,43 @@ export function createSynthesisProductionRouteScenarios() {
       errors.push(`manifest operation outside corpus: ${operation}`);
     }
   }
+  const classified = new Set([
+    ...expectations.resultTypes.boolean,
+    ...expectations.resultTypes.array,
+    ...Object.keys(expectations.stableErrors),
+  ]);
+  for (const operation of classified) {
+    if (
+      !operationIds.includes(
+        operation as SynthesisSidecarProductionClientCapability,
+      )
+    ) {
+      errors.push(`baseline scenario outside corpus: ${operation}`);
+    }
+  }
   if (errors.length) {
     throw new Error(errors.sort().join("\n"));
   }
   return corpusOperations.map(({ operation }) => ({
     operation,
     invoke: GROUPED_INVOCATIONS[operation],
-    assertSemantic: stableSemantic,
+    assertSemantic: (outcome: SynthesisProductionRouteScenarioOutcome) => {
+      const policy = {
+        ...manifest.policyDefaults,
+        ...(manifest.policyOverrides[operation] || {}),
+      };
+      assertExpectedSemantic({
+        operation,
+        outcome,
+        expectedError: expectations.stableErrors[operation],
+        resultType: expectations.resultTypes.boolean.includes(operation)
+          ? "boolean"
+          : expectations.resultTypes.array.includes(operation)
+            ? "array"
+            : "object",
+        receipt: policy.receipt === "public-maintenance-operation",
+      });
+    },
   })) satisfies SynthesisProductionRouteScenario[];
 }
 
@@ -389,6 +489,7 @@ export async function executeSynthesisProductionRouteScenarios(
     await scenario.prelude?.(harness.client);
     const wireOffset = harness.recorder.wire.length;
     const hostOffset = harness.recorder.hostCalls.length;
+    const observationOffset = harness.observations().length;
     const durableBefore = captureSynthesisProductionRouteDurableState(
       harness.root,
     );
@@ -430,27 +531,46 @@ export async function executeSynthesisProductionRouteScenarios(
       const operationId = String(
         (outcome.value as Record<string, unknown>).operation_id,
       );
-      let terminalObserved = false;
-      for (let attempt = 0; attempt < 400; attempt += 1) {
-        const terminal = await harness.client.maintenance.getOperation({
-          operation_id: operationId,
-        });
-        if (
-          ["completed", "failed", "canceled", "timed_out"].includes(
-            terminal.status,
-          )
-        ) {
-          terminalObserved = true;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      if (!terminalObserved) {
-        throw new Error(`maintenance operation did not finish: ${operationId}`);
-      }
+      outcome = {
+        kind: "result",
+        value: await waitForSynthesisProductionRouteReceipt({
+          operationId,
+          attempts: 400,
+          getOperation: (candidate) =>
+            harness.client.maintenance.getOperation({
+              operation_id: candidate,
+            }),
+        }),
+      };
     }
     scenario.assertSemantic(outcome);
+    const queryTerminals = await waitForSynthesisProductionRouteEvidence({
+      read: () => harness.observations(),
+      offset: observationOffset,
+      attempts: 20,
+      intervalMs: 10,
+      matches: (event) =>
+        event.boundary === "operation" &&
+        event.phase === "query-terminal" &&
+        event.identities?.capability === scenario.operation,
+    });
+    if (!queryTerminals.length) {
+      throw new Error(
+        `production route SQL observation missing: ${scenario.operation}`,
+      );
+    }
     if (manifest.access[scenario.operation] === "read") {
+      if (
+        queryTerminals.some(
+          (event) =>
+            event.metrics?.sqlWriteCount !== 0 ||
+            !Number.isSafeInteger(event.metrics?.sqlQueryCount),
+        )
+      ) {
+        throw new Error(
+          `read scenario SQL observation invalid: ${scenario.operation}`,
+        );
+      }
       const durableAfter = captureSynthesisProductionRouteDurableState(
         harness.root,
       );

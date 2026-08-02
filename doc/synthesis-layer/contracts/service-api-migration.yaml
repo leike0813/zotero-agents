@@ -41,6 +41,30 @@ audit:
     - testGitSyncPrefsConfiguration
     - verifySynthesisCheckpoint
 
+production_native_route:
+  status: candidate_evidence
+  runtime_owner: rust_sidecar
+  database_owner: rust_sidecar_repository
+  canonical_file_owner: rust_sidecar_canonical_store
+  grouped_client_owner: typescript_native_composition
+  operation_manifest: packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json
+  operation_count: 95
+  transport_path: [typescript_native_composition, authenticated_http, rust_dispatch]
+  state_path: [rust_application, sqlite_repository]
+  external_paths: [child_worker, reverse_host, transfer, delivery]
+  evidence:
+    operation_matrix: test/core/229-synthesis-production-client-rust-route.test.ts
+    baseline_observables: test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json
+    route_harness: test/helpers/synthesisProductionRouteHarness.ts
+    scale_gate: scripts/check-synthesis-production-route-performance.ts
+  observations:
+    sql_queries: synthesis-sidecar-observation.v2:sqlQueryCount
+    sql_writes: synthesis-sidecar-observation.v2:sqlWriteCount
+    host_calls: synthesis-production-route-harness
+    receipt_latency: synthesis-production-route-performance.v1
+    rss: linux-proc-vmhwm
+  acceptance: blocked_until_all_parity_scale_and_real_machine_gates_pass
+
 isolated_repository:
   mode: isolated_shadow
   schema_version: synthesis-repository-foundation.v2

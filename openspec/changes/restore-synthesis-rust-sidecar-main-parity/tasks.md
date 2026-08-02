@@ -7,10 +7,10 @@
 
 ## 2. Add Failing Real-Route Evidence
 
-- [ ] 2.1 Extend the production-route test to execute every migrated operation through HTTP, Rust, SQLite, workers, and reverse Host
-- [ ] 2.2 Add table-driven differential assertions for DTO semantics, logical facts, canonical hashes, Host effects, idempotency, rollback, reopen, and read-only zero writes
-- [ ] 2.3 Move the governed 2k/10k/25k performance fixtures through native composition and record bytes, queries, Host calls, p50/p95, receipt latency, and RSS
-- [ ] 2.4 Add deterministic gates for Topic O(1) pages, Graph windowed queries, one-scan Reference refresh, and batched Tag effects
+- [x] 2.1 Extend the production-route test to execute every migrated operation through HTTP, Rust, SQLite, workers, and reverse Host
+- [x] 2.2 Add table-driven differential assertions for DTO semantics, logical facts, canonical hashes, Host effects, idempotency, rollback, reopen, and read-only zero writes
+- [x] 2.3 Move the governed 2k/10k/25k performance fixtures through native composition and record bytes, queries, Host calls, p50/p95, receipt latency, and RSS
+- [x] 2.4 Add deterministic gates for Topic O(1) pages, Graph windowed queries, one-scan Reference refresh, and batched Tag effects
 
 ## 3. Close Harmful and Placeholder Routes
 

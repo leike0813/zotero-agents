@@ -13,6 +13,41 @@
     "operationIds": "logical-case-id",
     "unorderedCollections": "canonical-key"
   },
+  "productionRouteScenario": {
+    "resultTypes": {
+      "boolean": ["client.isBuiltinTagPolicyInitialized"],
+      "array": [
+        "client.exportTagVocabularyForRegulator",
+        "client.listStagedTagSuggestions"
+      ]
+    },
+    "stableErrors": {
+      "client.validateTagVocabulary": "invalid_request",
+      "client.previewTagVocabularyImport": "invalid_request",
+      "client.saveTagVocabulary": "invalid_request",
+      "client.stageTagSuggestions": "invalid_request",
+      "client.updateStagedTagSuggestion": "invalid_request",
+      "client.updateTagVocabularyEntry": "invalid_request",
+      "client.deleteTagVocabularyEntry": "invalid_request",
+      "client.promoteStagedTagSuggestions": "unavailable",
+      "client.discardStagedTagSuggestions": "invalid_request",
+      "client.applyTagVocabularyImport": "invalid_request",
+      "client.replaceTagAuditRecords": "invalid_request",
+      "client.updateConceptDisplayText": "unavailable",
+      "client.applyConceptReviewAction": "unavailable",
+      "client.deleteConceptEntries": "unavailable",
+      "client.acceptTopicGraphRelation": "unavailable",
+      "client.rejectTopicGraphRelation": "unavailable",
+      "client.applyTopicGraphReviewAction": "unavailable",
+      "client.exportFilteredPaperArtifacts": "invalid_request",
+      "client.getLibraryIndex": "unavailable",
+      "client.getPaperArtifactManifest": "unavailable",
+      "client.readPaperArtifacts": "unavailable",
+      "client.resolveWebDavSyncConflict": "invalid_request",
+      "client.resetSynthesisDatabase": "unavailable",
+      "client.debugSynthesisCleanInstallReset": "unavailable"
+    }
+  },
   "surfaces": [
     {
       "id": "topic-workbench",
@@ -21,11 +56,18 @@
           "id": "case:topic-empty-page",
           "operation": "client.listTopics",
           "access": "read",
+          "request": { "args": [{}] },
           "expected": {
             "dtoSemantics": ["bounded-empty-topic-page"],
             "logicalFacts": ["repository-state-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "topics": [],
+              "returned": 0,
+              "total": 0,
+              "has_more": false
+            }
           },
           "comparison": { "unorderedCollections": ["topics:topic_id"] }
         }
@@ -38,11 +80,21 @@
           "id": "case:citation-empty-window",
           "operation": "client.queryCitationGraph",
           "access": "read",
+          "request": { "args": [{}] },
           "expected": {
             "dtoSemantics": ["bounded-empty-graph-window"],
             "logicalFacts": ["graph-basis-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "nodes": [],
+              "edges": [],
+              "diagnostics": {
+                "bounded": true,
+                "storage": "sqlite",
+                "truncated": false
+              }
+            }
           },
           "comparison": {
             "unorderedCollections": ["nodes:paper_ref", "edges:edge_key"]
@@ -57,11 +109,18 @@
           "id": "case:reference-empty-index",
           "operation": "client.getReferenceSidecarIndex",
           "access": "read",
+          "request": { "args": [{}] },
           "expected": {
             "dtoSemantics": ["bounded-empty-reference-index"],
             "logicalFacts": ["canonical-basis-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "rows": [],
+              "returned": 0,
+              "total": 0,
+              "has_more": false
+            }
           },
           "comparison": { "unorderedCollections": ["sources:source_ref"] }
         }
@@ -74,11 +133,19 @@
           "id": "case:tag-empty-vocabulary",
           "operation": "client.loadTagVocabulary",
           "access": "read",
+          "request": { "args": [] },
           "expected": {
             "dtoSemantics": ["bounded-empty-tag-vocabulary"],
             "logicalFacts": ["tag-policy-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "entryCount": 0,
+              "stagedCount": 0,
+              "entries": [],
+              "staged": [],
+              "effects": []
+            }
           },
           "comparison": { "unorderedCollections": ["entries:tag"] }
         }
@@ -91,11 +158,18 @@
           "id": "case:concept-empty-query",
           "operation": "client.queryConceptKb",
           "access": "read",
+          "request": { "args": [{}] },
           "expected": {
             "dtoSemantics": ["bounded-empty-concept-page"],
             "logicalFacts": ["concept-basis-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "ok": true,
+              "labels": [],
+              "matches": [],
+              "truncated": false
+            }
           },
           "comparison": { "unorderedCollections": ["concepts:concept_id"] }
         }
@@ -108,11 +182,18 @@
           "id": "case:library-empty-index",
           "operation": "client.getLibraryIndex",
           "access": "read",
+          "request": { "args": [{}] },
           "expected": {
             "dtoSemantics": ["bounded-empty-library-index"],
             "logicalFacts": ["artifact-state-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "papers": [],
+              "returned": 0,
+              "total_papers": 0,
+              "has_more": false
+            }
           },
           "comparison": { "unorderedCollections": ["papers:paper_ref"] }
         }
@@ -125,11 +206,17 @@
           "id": "case:maintenance-operation-absent",
           "operation": "client.getPublicMaintenanceOperation",
           "access": "read",
+          "request": { "args": [{ "operation_id": "baseline:missing" }] },
           "expected": {
             "dtoSemantics": ["stable-absent-operation"],
             "logicalFacts": ["operation-state-preserved"],
             "hostEffects": [],
-            "writeExpectation": "zero"
+            "writeExpectation": "zero",
+            "projection": {
+              "schema": "synthesis.maintenance_operation.v1",
+              "operation_id": "baseline:missing",
+              "status": "not_found"
+            }
           },
           "comparison": { "unorderedCollections": ["operations:operation_id"] }
         }

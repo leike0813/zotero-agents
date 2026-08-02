@@ -269,6 +269,51 @@ export function captureSynthesisProductionRouteDurableState(root: string) {
   return { files, sha256: hash.digest("hex") };
 }
 
+export async function waitForSynthesisProductionRouteReceipt<
+  T extends {
+    status: string;
+  },
+>(args: {
+  operationId: string;
+  getOperation: (operationId: string) => Promise<T>;
+  attempts?: number;
+  intervalMs?: number;
+}): Promise<T> {
+  const attempts = args.attempts ?? 6_000;
+  const intervalMs = args.intervalMs ?? 10;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const operation = await args.getOperation(args.operationId);
+    if (
+      ["completed", "failed", "canceled", "timed_out"].includes(
+        operation.status,
+      )
+    ) {
+      return operation;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`maintenance operation did not finish: ${args.operationId}`);
+}
+
+export async function waitForSynthesisProductionRouteEvidence<T>(args: {
+  read: () => readonly T[];
+  offset: number;
+  matches: (value: T) => boolean;
+  expectedCount?: number;
+  attempts?: number;
+  intervalMs?: number;
+}): Promise<T[]> {
+  const expectedCount = args.expectedCount ?? 1;
+  const attempts = args.attempts ?? 200;
+  const intervalMs = args.intervalMs ?? 5;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const matching = args.read().slice(args.offset).filter(args.matches);
+    if (matching.length >= expectedCount) return matching;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return args.read().slice(args.offset).filter(args.matches);
+}
+
 export function readProcessPeakRss(pid: number | undefined) {
   if (process.platform !== "linux" || !pid) {
     return { rssBytes: null, rssSupported: false } as const;

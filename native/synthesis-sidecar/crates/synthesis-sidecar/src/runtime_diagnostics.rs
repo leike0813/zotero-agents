@@ -247,6 +247,11 @@ impl NativeDiagnosticEvent {
         self
     }
 
+    pub(crate) fn sql_write_count(mut self, value: u64) -> Self {
+        self.metrics.insert("sqlWriteCount", json!(value));
+        self
+    }
+
     pub(crate) fn http_status(self, _value: u16) -> Self {
         self
     }
@@ -370,6 +375,7 @@ mod tests {
             .request_bytes(10)
             .response_bytes(20)
             .sql_query_count(0)
+            .sql_write_count(0)
             .http_status(200)
             .returned(1)
             .total(2)
@@ -383,6 +389,7 @@ mod tests {
         assert!(source.contains("\"proposalCount\":0"));
         assert!(source.contains("\"durationMs\":0"));
         assert!(source.contains("\"sqlQueryCount\":0"));
+        assert!(source.contains("\"sqlWriteCount\":0"));
         for forbidden in [
             "payload",
             "authorization",

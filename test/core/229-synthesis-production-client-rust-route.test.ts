@@ -17,6 +17,7 @@ import {
   startSynthesisProductionRouteSidecar as start,
   stopSynthesisProductionRouteSidecar as stop,
   synthesisProductionRouteConfig as config,
+  waitForSynthesisProductionRouteReceipt,
 } from "../helpers/synthesisProductionRouteHarness";
 import { executeSynthesisProductionRouteScenarios } from "../helpers/synthesisProductionRouteScenarios";
 
@@ -37,10 +38,12 @@ const BASELINE_PRODUCTION_OBSERVABLES = JSON.parse(
       id: string;
       operation: string;
       access: "read" | "mutation";
+      request: unknown;
       expected: {
         dtoSemantics: string[];
         hostEffects: string[];
         writeExpectation: "zero" | "mutation";
+        projection: Record<string, unknown>;
       };
     }>;
   }>;
@@ -66,84 +69,21 @@ const TOPIC_WORKBENCH_OPERATIONS = [
   "client.restoreTopicDiscoveryHint",
 ] as const;
 
-function assertBaselineDtoSemantics(caseId: string, data: Record<string, any>) {
-  switch (caseId) {
-    case "case:topic-empty-page":
-      assert.deepInclude(data, {
-        topics: [],
-        returned: 0,
-        total: 0,
-        has_more: false,
-      });
-      break;
-    case "case:citation-empty-window":
-      assert.deepInclude(data, {
-        nodes: [],
-        edges: [],
-      });
-      assert.equal(data.diagnostics?.bounded, true);
-      break;
-    case "case:reference-empty-index":
-      assert.deepInclude(data, {
-        rows: [],
-        returned: 0,
-        total: 0,
-        has_more: false,
-      });
-      break;
-    case "case:tag-empty-vocabulary":
-      assert.deepInclude(data, {
-        entryCount: 0,
-        stagedCount: 0,
-        entries: [],
-        staged: [],
-        effects: [],
-      });
-      break;
-    case "case:concept-empty-query":
-      assert.deepInclude(data, {
-        ok: true,
-        labels: [],
-        matches: [],
-        truncated: false,
-      });
-      break;
-    case "case:library-empty-index":
-      assert.deepInclude(data, {
-        papers: [],
-        returned: 0,
-        total_papers: 0,
-        has_more: false,
-      });
-      break;
-    case "case:maintenance-operation-absent":
-      assert.deepInclude(data, {
-        schema: "synthesis.maintenance_operation.v1",
-        operation_id: "baseline:missing",
-        status: "not_found",
-      });
-      break;
-    default:
-      assert.fail(`missing production DTO assertion for ${caseId}`);
-  }
-}
-
 async function waitForMaintenanceOperation(port: number, operationId: string) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const response = await call(port, "client.getPublicMaintenanceOperation", {
-      args: [{ operation_id: operationId }],
-    });
-    assert.equal(response.status, 200, JSON.stringify(response.body));
-    if (
-      ["completed", "failed", "canceled", "timed_out"].includes(
-        String(response.body.data.status),
-      )
-    ) {
-      return response.body.data as Record<string, any>;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`maintenance operation did not finish: ${operationId}`);
+  return waitForSynthesisProductionRouteReceipt({
+    operationId,
+    attempts: 200,
+    intervalMs: 25,
+    getOperation: async (candidate) => {
+      const response = await call(
+        port,
+        "client.getPublicMaintenanceOperation",
+        { args: [{ operation_id: candidate }] },
+      );
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+      return response.body.data as Record<string, any> & { status: string };
+    },
+  });
 }
 
 function topicApplyRequest(topicId: string) {
@@ -440,25 +380,18 @@ describe("Synthesis Rust production client route", function () {
       );
       assert.equal(warmup.status, 200, JSON.stringify(warmup.body));
 
-      const requests: Record<string, unknown> = {
-        "case:topic-empty-page": { args: [{}] },
-        "case:citation-empty-window": { args: [{}] },
-        "case:reference-empty-index": { args: [{}] },
-        "case:tag-empty-vocabulary": { args: [] },
-        "case:concept-empty-query": { args: [{}] },
-        "case:library-empty-index": { args: [{}] },
-        "case:maintenance-operation-absent": {
-          args: [{ operation_id: "baseline:missing" }],
-        },
-      };
       const observed: string[] = [];
       for (const entry of cases) {
         const before = captureDurableState(root);
-        const response = await call(port, entry.operation, requests[entry.id]);
+        const response = await call(port, entry.operation, entry.request);
         assert.equal(response.status, 200, entry.id);
         assert.isAbove(response.metrics.requestBytes, 0, entry.id);
         assert.isAbove(response.metrics.responseBytes, 0, entry.id);
-        assertBaselineDtoSemantics(entry.id, response.body.data);
+        assert.deepInclude(
+          response.body.data,
+          entry.expected.projection,
+          entry.id,
+        );
         assert.deepEqual(captureDurableState(root), before, entry.id);
         observed.push(entry.id);
       }
@@ -711,7 +644,9 @@ describe("Synthesis Rust production client route", function () {
         queryTerminals.every(
           (event) =>
             Number.isSafeInteger(event.metrics?.sqlQueryCount) &&
-            Number(event.metrics?.sqlQueryCount) >= 0,
+            Number(event.metrics?.sqlQueryCount) >= 0 &&
+            Number.isSafeInteger(event.metrics?.sqlWriteCount) &&
+            Number(event.metrics?.sqlWriteCount) >= 0,
         ),
       );
     } finally {

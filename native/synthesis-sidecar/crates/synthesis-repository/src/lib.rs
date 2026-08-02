@@ -25,52 +25,73 @@ const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
 const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
-thread_local! {
-    static SQL_QUERY_OBSERVATION_COUNT: Cell<Option<u64>> = const { Cell::new(None) };
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RepositorySqlObservation {
+    pub query_count: u64,
+    pub write_count: u64,
 }
 
-struct SqlQueryObservationScope {
-    previous: Option<u64>,
+thread_local! {
+    static SQL_OBSERVATION: Cell<Option<RepositorySqlObservation>> = const { Cell::new(None) };
+}
+
+struct SqlObservationScope {
+    previous: Option<RepositorySqlObservation>,
     active: bool,
 }
 
-impl SqlQueryObservationScope {
+impl SqlObservationScope {
     fn enter() -> Self {
-        let previous = SQL_QUERY_OBSERVATION_COUNT.with(|count| count.replace(Some(0)));
+        let previous = SQL_OBSERVATION
+            .with(|observation| observation.replace(Some(RepositorySqlObservation::default())));
         Self {
             previous,
             active: true,
         }
     }
 
-    fn finish(mut self) -> u64 {
-        let observed = SQL_QUERY_OBSERVATION_COUNT
-            .with(|count| count.replace(self.previous))
+    fn finish(mut self) -> RepositorySqlObservation {
+        let observed = SQL_OBSERVATION
+            .with(|observation| observation.replace(self.previous))
             .unwrap_or_default();
         self.active = false;
         observed
     }
 }
 
-impl Drop for SqlQueryObservationScope {
+impl Drop for SqlObservationScope {
     fn drop(&mut self) {
         if self.active {
-            SQL_QUERY_OBSERVATION_COUNT.with(|count| count.set(self.previous));
+            SQL_OBSERVATION.with(|observation| observation.set(self.previous));
         }
     }
 }
 
-pub fn observe_repository_queries<T>(operation: impl FnOnce() -> T) -> (T, u64) {
-    let scope = SqlQueryObservationScope::enter();
+pub fn observe_repository_sql<T>(operation: impl FnOnce() -> T) -> (T, RepositorySqlObservation) {
+    let scope = SqlObservationScope::enter();
     let result = operation();
-    let count = scope.finish();
-    (result, count)
+    let observation = scope.finish();
+    (result, observation)
 }
 
 fn record_observed_repository_query() {
-    SQL_QUERY_OBSERVATION_COUNT.with(|count| {
-        if let Some(current) = count.get() {
-            count.set(Some(current.saturating_add(1)));
+    SQL_OBSERVATION.with(|observation| {
+        if let Some(current) = observation.get() {
+            observation.set(Some(RepositorySqlObservation {
+                query_count: current.query_count.saturating_add(1),
+                ..current
+            }));
+        }
+    });
+}
+
+fn record_observed_repository_write() {
+    SQL_OBSERVATION.with(|observation| {
+        if let Some(current) = observation.get() {
+            observation.set(Some(RepositorySqlObservation {
+                write_count: current.write_count.saturating_add(1),
+                ..current
+            }));
         }
     });
 }
@@ -874,6 +895,7 @@ impl Repository {
     }
 
     pub fn execute(&self, sql: &str, values: &[Value]) -> Result<usize, String> {
+        record_observed_repository_write();
         let values = values
             .iter()
             .map(sql_value)
@@ -1086,6 +1108,7 @@ impl Repository {
         {
             return Err("repository_sqlite_integer_unsafe".into());
         }
+        record_observed_repository_write();
         self.connection()?
             .execute(
                 "INSERT INTO synt_operation(
@@ -1240,6 +1263,7 @@ impl Repository {
     pub fn upsert_cache_basis(&self, record: &CacheBasisRecord) -> Result<(), String> {
         validate_identity_part(&record.cache_key)?;
         validate_identity_part(&record.cache_kind)?;
+        record_observed_repository_write();
         self.connection()?
             .execute(
                 "INSERT INTO synt_cache_basis(
@@ -1369,6 +1393,7 @@ impl Repository {
         record: &TopicApplicationStateRecord,
     ) -> Result<(), String> {
         validate_topic_state(record)?;
+        record_observed_repository_write();
         self.connection()?
             .execute(
                 "INSERT INTO synt_topic_application_state(
@@ -1433,6 +1458,7 @@ impl Repository {
         record: &TopicApplicationProjectionRecord,
     ) -> Result<(), String> {
         validate_identity_part(&record.topic_id)?;
+        record_observed_repository_write();
         self.connection()?
             .execute(
                 "INSERT INTO synt_topic_application_projection(
@@ -1510,6 +1536,7 @@ impl Repository {
             {
                 return Err("topic_not_found".into());
             }
+            record_observed_repository_write();
             repository
                 .connection()?
                 .execute(
@@ -1531,6 +1558,7 @@ impl Repository {
                     ],
                 )
                 .map_err(map_sqlite_error)?;
+            record_observed_repository_write();
             repository
                 .connection()?
                 .execute(
@@ -1538,6 +1566,7 @@ impl Repository {
                     [&record.topic_id],
                 )
                 .map_err(map_sqlite_error)?;
+            record_observed_repository_write();
             repository
                 .connection()?
                 .execute(
@@ -1557,6 +1586,7 @@ impl Repository {
             let mut purged = 0;
             for record in records {
                 validate_deleted_topic_artifact(record)?;
+                record_observed_repository_write();
                 purged += repository
                     .connection()?
                     .execute(
@@ -2307,57 +2337,62 @@ mod tests {
     }
 
     #[test]
-    fn query_observation_counts_only_repository_queries() {
+    fn sql_observation_counts_repository_queries_and_writes_separately() {
         let root = root("query-observation");
         let repository = Repository::open(&root, identity()).expect("open");
-        let (rows, query_count) = observe_repository_queries(|| {
+        let (rows, observation) = observe_repository_sql(|| {
             repository
                 .query("SELECT 1 AS value", &[])
                 .expect("observed query")
         });
         assert_eq!(rows, vec![json!({"value":1})]);
-        assert_eq!(query_count, 1);
+        assert_eq!(observation.query_count, 1);
+        assert_eq!(observation.write_count, 0);
 
-        let (_, write_only_count) = observe_repository_queries(|| {
+        let (_, observation) = observe_repository_sql(|| {
             repository
                 .execute(
                     "INSERT INTO synt_schema_meta(key,value) VALUES('observation-write','1')",
                     &[],
                 )
-                .expect("unobserved write");
+                .expect("observed write");
         });
-        assert_eq!(write_only_count, 0);
+        assert_eq!(observation.query_count, 0);
+        assert_eq!(observation.write_count, 1);
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
-    fn nested_query_observation_restores_the_outer_scope() {
+    fn nested_sql_observation_restores_the_outer_scope() {
         let root = root("nested-query-observation");
         let repository = Repository::open(&root, identity()).expect("open");
-        let ((inner_count, final_rows), outer_count) = observe_repository_queries(|| {
+        let ((inner_observation, final_rows), outer_observation) = observe_repository_sql(|| {
             repository.query("SELECT 1", &[]).expect("outer first");
-            let (_, inner_count) = observe_repository_queries(|| {
+            let (_, inner_observation) = observe_repository_sql(|| {
                 repository.query("SELECT 2", &[]).expect("inner");
             });
             let final_rows = repository.query("SELECT 3", &[]).expect("outer second");
-            (inner_count, final_rows)
+            (inner_observation, final_rows)
         });
-        assert_eq!(inner_count, 1);
-        assert_eq!(outer_count, 2);
+        assert_eq!(inner_observation.query_count, 1);
+        assert_eq!(inner_observation.write_count, 0);
+        assert_eq!(outer_observation.query_count, 2);
+        assert_eq!(outer_observation.write_count, 0);
         assert_eq!(final_rows, vec![json!({"3":3})]);
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
-    fn panicking_query_observation_restores_the_previous_scope() {
+    fn panicking_sql_observation_restores_the_previous_scope() {
         let panic = std::panic::catch_unwind(|| {
-            observe_repository_queries(|| panic!("fixture panic"));
+            observe_repository_sql(|| panic!("fixture panic"));
         });
         assert!(panic.is_err());
-        let (_, count) = observe_repository_queries(record_observed_repository_query);
-        assert_eq!(count, 1);
+        let (_, observation) = observe_repository_sql(record_observed_repository_query);
+        assert_eq!(observation.query_count, 1);
+        assert_eq!(observation.write_count, 0);
     }
 
     #[test]
