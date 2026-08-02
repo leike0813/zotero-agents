@@ -16,7 +16,7 @@
         "outcome": "succeeded",
         "occurredAtMs": 0,
         "identities": { "operation": "advanced_reference_matching" },
-        "metrics": { "durationMs": 0 },
+        "metrics": { "durationMs": 0, "sqlQueryCount": 0 },
         "facts": {
           "semanticStatus": "promoted",
           "matchingHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",

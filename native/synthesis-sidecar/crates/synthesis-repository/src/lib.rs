@@ -3,6 +3,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, ToSql, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,56 @@ pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
 const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
+
+thread_local! {
+    static SQL_QUERY_OBSERVATION_COUNT: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+struct SqlQueryObservationScope {
+    previous: Option<u64>,
+    active: bool,
+}
+
+impl SqlQueryObservationScope {
+    fn enter() -> Self {
+        let previous = SQL_QUERY_OBSERVATION_COUNT.with(|count| count.replace(Some(0)));
+        Self {
+            previous,
+            active: true,
+        }
+    }
+
+    fn finish(mut self) -> u64 {
+        let observed = SQL_QUERY_OBSERVATION_COUNT
+            .with(|count| count.replace(self.previous))
+            .unwrap_or_default();
+        self.active = false;
+        observed
+    }
+}
+
+impl Drop for SqlQueryObservationScope {
+    fn drop(&mut self) {
+        if self.active {
+            SQL_QUERY_OBSERVATION_COUNT.with(|count| count.set(self.previous));
+        }
+    }
+}
+
+pub fn observe_repository_queries<T>(operation: impl FnOnce() -> T) -> (T, u64) {
+    let scope = SqlQueryObservationScope::enter();
+    let result = operation();
+    let count = scope.finish();
+    (result, count)
+}
+
+fn record_observed_repository_query() {
+    SQL_QUERY_OBSERVATION_COUNT.with(|count| {
+        if let Some(current) = count.get() {
+            count.set(Some(current.saturating_add(1)));
+        }
+    });
+}
 
 const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     ("repository_foundation_schema_version", SCHEMA_VERSION),
@@ -837,6 +888,7 @@ impl Repository {
     }
 
     pub fn query(&self, sql: &str, values: &[Value]) -> Result<Vec<Value>, String> {
+        record_observed_repository_query();
         let values = values
             .iter()
             .map(sql_value)
@@ -2252,6 +2304,60 @@ mod tests {
         );
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn query_observation_counts_only_repository_queries() {
+        let root = root("query-observation");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let (rows, query_count) = observe_repository_queries(|| {
+            repository
+                .query("SELECT 1 AS value", &[])
+                .expect("observed query")
+        });
+        assert_eq!(rows, vec![json!({"value":1})]);
+        assert_eq!(query_count, 1);
+
+        let (_, write_only_count) = observe_repository_queries(|| {
+            repository
+                .execute(
+                    "INSERT INTO synt_schema_meta(key,value) VALUES('observation-write','1')",
+                    &[],
+                )
+                .expect("unobserved write");
+        });
+        assert_eq!(write_only_count, 0);
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn nested_query_observation_restores_the_outer_scope() {
+        let root = root("nested-query-observation");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let ((inner_count, final_rows), outer_count) = observe_repository_queries(|| {
+            repository.query("SELECT 1", &[]).expect("outer first");
+            let (_, inner_count) = observe_repository_queries(|| {
+                repository.query("SELECT 2", &[]).expect("inner");
+            });
+            let final_rows = repository.query("SELECT 3", &[]).expect("outer second");
+            (inner_count, final_rows)
+        });
+        assert_eq!(inner_count, 1);
+        assert_eq!(outer_count, 2);
+        assert_eq!(final_rows, vec![json!({"3":3})]);
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn panicking_query_observation_restores_the_previous_scope() {
+        let panic = std::panic::catch_unwind(|| {
+            observe_repository_queries(|| panic!("fixture panic"));
+        });
+        assert!(panic.is_err());
+        let (_, count) = observe_repository_queries(record_observed_repository_query);
+        assert_eq!(count, 1);
     }
 
     #[test]

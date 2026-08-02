@@ -75,6 +75,7 @@
             "queueWaitMs": { "type": "integer", "minimum": 0 },
             "requestBytes": { "type": "integer", "minimum": 0 },
             "responseBytes": { "type": "integer", "minimum": 0 },
+            "sqlQueryCount": { "type": "integer", "minimum": 0 },
             "budgetBytes": { "type": "integer", "minimum": 0 },
             "returnedCount": { "type": "integer", "minimum": 0 },
             "totalCount": { "type": "integer", "minimum": 0 },

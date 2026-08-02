@@ -16,6 +16,70 @@ export type SyntheticSynthesisBenchmarkDataset = {
   registryInputs: ReferenceSidecarInput[];
 };
 
+export type SyntheticSynthesisProductionRouteItem = {
+  paperRef: string;
+  libraryId: number;
+  itemKey: string;
+  itemType: "journalArticle";
+  title: string;
+  year: string;
+  metadataHash: string;
+};
+
+export type SyntheticSynthesisProductionRouteArtifact = {
+  paperRef: string;
+  artifactType: "digest" | "references" | "citation_analysis";
+  payloadType:
+    | "digest-markdown"
+    | "references-json"
+    | "citation-analysis-json";
+  status: "available" | "missing";
+  locator?: string;
+  payloadHash?: string;
+  estimatedSize?: number;
+  diagnostics: string[];
+};
+
+export type SyntheticSynthesisProductionRouteDataset = {
+  name: SyntheticSynthesisBenchmarkDatasetName;
+  paperCount: number;
+  referenceFanout: number;
+  changedPaperRefs: string[];
+  tagEffects: Array<{
+    libraryId: number;
+    itemKey: string;
+    tags: string[];
+  }>;
+  listItemsPage(request: {
+    cursor?: string;
+    limit?: number;
+  }): {
+    items: SyntheticSynthesisProductionRouteItem[];
+    cursor: string;
+    nextCursor: string;
+    hasMore: boolean;
+    returned: number;
+    limit: number;
+    snapshotRevision: string;
+  };
+  scanArtifactsPage(request: {
+    cursor?: string;
+    limit?: number;
+  }): {
+    artifacts: SyntheticSynthesisProductionRouteArtifact[];
+    cursor: string;
+    nextCursor: string;
+    hasMore: boolean;
+    returned: number;
+    limit: number;
+    snapshotRevision: string;
+  };
+  readArtifact(request: {
+    locator?: string;
+    expectedHash?: string;
+  }): Record<string, unknown>;
+};
+
 export type SyntheticSynthesisBenchmarkRepositoryState = {
   citationGraphState: SynthesisCitationGraphStateReplacement;
 };
@@ -307,5 +371,134 @@ export function createSyntheticSynthesisBenchmarkDataset(
       paperCount,
       referenceFanout,
     }),
+  };
+}
+
+function pageOffset(cursor: string | undefined) {
+  if (!cursor) return 0;
+  const parsed = Number(cursor.replace(/^offset:/, ""));
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function boundedPageLimit(limit: number | undefined) {
+  return Math.max(1, Math.min(100, Math.floor(Number(limit) || 50)));
+}
+
+export function createSyntheticSynthesisProductionRouteDataset(
+  name: SyntheticSynthesisBenchmarkDatasetName,
+): SyntheticSynthesisProductionRouteDataset {
+  const paperCount = DATASET_SIZES[name];
+  const referenceFanout = 3;
+  const changedPaperRefs = Array.from(
+    { length: Math.min(50, paperCount) },
+    (_, index) => sourceRef(index, 1),
+  );
+  const changed = new Set(changedPaperRefs);
+  const snapshotRevision = `synthetic-production-route:${name}:v1`;
+  const items = Array.from({ length: paperCount }, (_, index) => ({
+    paperRef: sourceRef(index, 1),
+    libraryId: 1,
+    itemKey: itemKey(index),
+    itemType: "journalArticle" as const,
+    title: paperTitle(index),
+    year: paperYear(index),
+    metadataHash: `sha256:metadata:${padded(index + 1, 7)}`,
+  }));
+  const artifacts = items.flatMap((item, index) =>
+    ([
+      ["digest", "digest-markdown"],
+      ["references", "references-json"],
+      ["citation_analysis", "citation-analysis-json"],
+    ] as const).map(([artifactType, payloadType]) => {
+      const available =
+        changed.has(item.paperRef) && artifactType !== "digest";
+      return {
+        paperRef: item.paperRef,
+        artifactType,
+        payloadType,
+        status: available ? ("available" as const) : ("missing" as const),
+        ...(available
+          ? {
+              locator: `synthetic:${name}:${item.itemKey}:${artifactType}`,
+              payloadHash: `sha256:${artifactType}:${padded(index + 1, 7)}`,
+              estimatedSize: 512,
+            }
+          : {}),
+        diagnostics: [],
+      };
+    }),
+  );
+  return {
+    name,
+    paperCount,
+    referenceFanout,
+    changedPaperRefs,
+    tagEffects: items.slice(0, Math.min(250, items.length)).map((item, index) => ({
+      libraryId: item.libraryId,
+      itemKey: item.itemKey,
+      tags: [TOPIC_TAGS[index % TOPIC_TAGS.length]],
+    })),
+    listItemsPage(request) {
+      const cursor = request.cursor || "";
+      const offset = pageOffset(cursor);
+      const limit = boundedPageLimit(request.limit);
+      const page = items.slice(offset, offset + limit);
+      const nextOffset = offset + page.length;
+      return {
+        items: page,
+        cursor,
+        nextCursor: nextOffset < items.length ? `offset:${nextOffset}` : "",
+        hasMore: nextOffset < items.length,
+        returned: page.length,
+        limit,
+        snapshotRevision,
+      };
+    },
+    scanArtifactsPage(request) {
+      const cursor = request.cursor || "";
+      const offset = pageOffset(cursor);
+      const limit = boundedPageLimit(request.limit);
+      const page = artifacts.slice(offset, offset + limit);
+      const nextOffset = offset + page.length;
+      return {
+        artifacts: page,
+        cursor,
+        nextCursor:
+          nextOffset < artifacts.length ? `offset:${nextOffset}` : "",
+        hasMore: nextOffset < artifacts.length,
+        returned: page.length,
+        limit,
+        snapshotRevision,
+      };
+    },
+    readArtifact(request) {
+      const locator = String(request.locator || "");
+      const item = items.find((candidate) => locator.includes(candidate.itemKey));
+      if (!item) return { status: "missing", diagnostics: [] };
+      if (locator.endsWith(":references")) {
+        const index = items.indexOf(item);
+        return {
+          status: "available",
+          payloadHash: request.expectedHash,
+          content: {
+            kind: "json",
+            value: {
+              references: referencePayload({
+                sourceIndex: index,
+                count: paperCount,
+                fanout: referenceFanout,
+              }),
+            },
+          },
+          diagnostics: [],
+        };
+      }
+      return {
+        status: "available",
+        payloadHash: request.expectedHash,
+        content: { kind: "json", value: { citations: [] } },
+        diagnostics: [],
+      };
+    },
   };
 }

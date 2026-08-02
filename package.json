@@ -42,6 +42,7 @@
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:synthesis-service-boundary": "tsx scripts/check-synthesis-service-boundary.ts",
     "check:synthesis-production-capabilities": "tsx scripts/check-synthesis-production-capabilities.ts",
+    "check:synthesis-production-route-performance": "tsx scripts/check-synthesis-production-route-performance.ts",
     "check:synthesis-tag-surface-parity": "tsx scripts/check-synthesis-tag-surface-parity.ts",
     "check:synthesis-engine": "tsc -p packages/synthesis-engine/tsconfig.json --noEmit",
     "check:synthesis-contracts": "tsc -p packages/synthesis-contracts/tsconfig.json --noEmit",

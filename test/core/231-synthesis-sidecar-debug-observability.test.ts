@@ -50,6 +50,7 @@ describe("Synthesis sidecar debug observability", function () {
       phase: "terminal",
       outcome: "succeeded",
       occurredAtMs: 0,
+      metrics: { sqlQueryCount: 0 },
       facts: {
         semanticStatus: "promoted",
         matchingHash: `sha256:${"c".repeat(64)}`,
@@ -65,6 +66,7 @@ describe("Synthesis sidecar debug observability", function () {
       factCount: 2,
       warningCount: 0,
     });
+    assert.deepEqual(event.metrics, { sqlQueryCount: 0 });
     for (const invalid of [
       { ...event, payload: { title: "private" } },
       { ...event, code: "private error at /tmp/library" },

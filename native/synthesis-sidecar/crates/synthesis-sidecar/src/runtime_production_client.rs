@@ -17,6 +17,7 @@ use crate::runtime_webdav_maintenance_surface::{
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::utc_now_iso8601;
+use synthesis_repository::observe_repository_queries;
 use synthesis_sidecar::production_capabilities::{
     ProductionClientDataPlane, ProductionClientReceipt, ProductionClientSemanticSuccess,
 };
@@ -94,11 +95,15 @@ pub(crate) fn dispatch_production_client(
         );
     }
     let started_at = Instant::now();
-    let result = with_request_context(
-        Duration::from_millis(metadata.deadline_ms),
-        debug_events_enabled().then_some(request_id),
-        || dispatch_legacy_client(&state.applications, capability, &operation_args),
-    )?;
+    let (outcome, sql_query_count) = observe_repository_queries(|| {
+        with_request_context(
+            Duration::from_millis(metadata.deadline_ms),
+            debug_events_enabled().then_some(request_id),
+            || dispatch_legacy_client(&state.applications, capability, &operation_args),
+        )
+    });
+    emit_query_observation(capability, &outcome, sql_query_count);
+    let result = outcome?;
     record_semantic_mutation_result(
         capability,
         metadata.semantic_success.as_ref(),
@@ -191,17 +196,20 @@ fn start_public_maintenance_operation(
                     return;
                 }
                 let observed_at = Instant::now();
-                let outcome = with_request_context(
-                    Duration::from_millis(work_deadline_ms),
-                    debug_events_enabled().then_some(&request_id_for_worker),
-                    || {
-                        dispatch_legacy_client(
-                            applications.as_ref(),
-                            &capability_for_worker,
-                            &operation_args,
-                        )
-                    },
-                );
+                let (outcome, sql_query_count) = observe_repository_queries(|| {
+                    with_request_context(
+                        Duration::from_millis(work_deadline_ms),
+                        debug_events_enabled().then_some(&request_id_for_worker),
+                        || {
+                            dispatch_legacy_client(
+                                applications.as_ref(),
+                                &capability_for_worker,
+                                &operation_args,
+                            )
+                        },
+                    )
+                });
+                emit_query_observation(&capability_for_worker, &outcome, sql_query_count);
                 if let Ok(result) = outcome.as_ref() {
                     record_semantic_mutation_result(
                         &capability_for_worker,
@@ -235,6 +243,26 @@ fn start_public_maintenance_operation(
         return public_maintenance_operation_dto(&row);
     }
     Ok(accepted_dto)
+}
+
+fn emit_query_observation(capability: &str, outcome: &Result<Value, String>, count: u64) {
+    emit_debug(|| {
+        let event = NativeDiagnosticEvent::new(
+            "operation",
+            "query-terminal",
+            if outcome.is_ok() {
+                "succeeded"
+            } else {
+                "failed"
+            },
+        )
+        .capability(capability)
+        .sql_query_count(count);
+        match outcome {
+            Ok(_) => event,
+            Err(code) => event.code(code),
+        }
+    });
 }
 
 fn record_semantic_mutation_result(
