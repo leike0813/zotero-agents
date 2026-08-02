@@ -241,6 +241,9 @@ export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_build",
   "compute.citation_graph_build_transfer",
 ] as const;
+export const SYNTHESIS_SIDECAR_TRANSFER_CAPABILITIES = [
+  "transfer.content",
+] as const;
 export const SYNTHESIS_SIDECAR_WORKER_CAPABILITIES = [
   "compute.citation_graph_layout",
   "compute.citation_graph_metrics",
@@ -249,6 +252,7 @@ export const SYNTHESIS_SIDECAR_WORKER_CAPABILITIES = [
 export const SYNTHESIS_SIDECAR_CAPABILITIES = [
   ...SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES,
   ...SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES,
+  ...SYNTHESIS_SIDECAR_TRANSFER_CAPABILITIES,
   ...SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES,
 ] as const;
 
@@ -274,6 +278,8 @@ export type SynthesisSidecarProductionClientCapability =
   (typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES)[number];
 export type SynthesisSidecarComputeCapability =
   (typeof SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES)[number];
+export type SynthesisSidecarTransferCapability =
+  (typeof SYNTHESIS_SIDECAR_TRANSFER_CAPABILITIES)[number];
 export type SynthesisSidecarWorkerCapability =
   (typeof SYNTHESIS_SIDECAR_WORKER_CAPABILITIES)[number];
 export type SynthesisSidecarCapability =

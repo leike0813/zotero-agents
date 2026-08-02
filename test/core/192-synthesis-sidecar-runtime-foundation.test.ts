@@ -273,6 +273,7 @@ describe("Synthesis sidecar runtime foundation", function () {
       "system.shutdown",
       "workbench.chrome.read",
       "topics.canonical.inspect",
+      "transfer.content",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
       "compute.citation_graph_build",

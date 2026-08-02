@@ -28,10 +28,44 @@ type OperationManifest = {
   resultCodec: string;
   requestBytes: number;
   responseBytes: number;
+  controlTargetBytes: number;
   deadlineMs: number;
   deadlineOverridesMs: Record<string, number>;
+  receiptQueryCapability: string;
+  policyDefaults: OperationPolicy;
+  policyOverrides: Record<string, Partial<OperationPolicy>>;
   access: Record<string, string>;
+  semanticSuccess?: Record<string, { field: string; values: string[] }>;
 };
+
+type OperationPolicy = {
+  requestPlane: string;
+  resultPlane: string;
+  workModel: string;
+  receipt: string;
+};
+
+const OPERATION_MANIFEST_FIELDS = [
+  "schema",
+  "requestCodec",
+  "resultCodec",
+  "requestBytes",
+  "responseBytes",
+  "controlTargetBytes",
+  "deadlineMs",
+  "deadlineOverridesMs",
+  "receiptQueryCapability",
+  "policyDefaults",
+  "policyOverrides",
+  "access",
+  "semanticSuccess",
+] as const;
+const OPERATION_POLICY_FIELDS = [
+  "requestPlane",
+  "resultPlane",
+  "workModel",
+  "receipt",
+] as const;
 
 const ROOT = process.cwd();
 const MANIFEST_PATH = path.join(
@@ -73,6 +107,44 @@ function duplicateValues(values: readonly string[]) {
       values.filter((value, index) => values.indexOf(value) !== index),
     ),
   ].sort();
+}
+
+function operationPolicy(
+  operations: OperationManifest,
+  capability: string,
+): OperationPolicy {
+  return {
+    ...operations.policyDefaults,
+    ...(operations.policyOverrides?.[capability] || {}),
+  };
+}
+
+function validOperationPolicy(
+  operations: OperationManifest,
+  capability: string,
+) {
+  const override = operations.policyOverrides?.[capability];
+  if (
+    !override ||
+    Object.keys(override).every((field) =>
+      OPERATION_POLICY_FIELDS.includes(
+        field as (typeof OPERATION_POLICY_FIELDS)[number],
+      ),
+    )
+  ) {
+    const policy = operationPolicy(operations, capability);
+    return (
+      ["control", "transfer"].includes(policy.requestPlane) &&
+      ["control", "locator", "delivery"].includes(policy.resultPlane) &&
+      ["bounded", "receipt"].includes(policy.workModel) &&
+      ["inline", "public-maintenance-operation"].includes(policy.receipt) &&
+      (policy.workModel === "receipt") ===
+        (policy.receipt === "public-maintenance-operation") &&
+      (policy.workModel !== "receipt" ||
+        operations.access[capability] === "mutation")
+    );
+  }
+  return false;
 }
 
 function extractPortCapabilities() {
@@ -283,7 +355,9 @@ export function inspectSynthesisProductionCapabilities(
       ),
       missingSurfaceEvidence: evidenceGaps,
       operationMetadata:
-        operations.schema === "synthesis-production-client-operations.v1" &&
+        sorted(Object.keys(operations)).join("\n") ===
+          sorted(OPERATION_MANIFEST_FIELDS).join("\n") &&
+        operations.schema === "synthesis-production-client-operations.v2" &&
         operations.requestCodec === "synthesis-client-args.v1" &&
         operations.resultCodec === "synthesis-client-result.v1" &&
         Number.isSafeInteger(operations.requestBytes) &&
@@ -292,6 +366,10 @@ export function inspectSynthesisProductionCapabilities(
         Number.isSafeInteger(operations.responseBytes) &&
         operations.responseBytes > 0 &&
         operations.responseBytes <= 8 * 1024 * 1024 &&
+        Number.isSafeInteger(operations.controlTargetBytes) &&
+        operations.controlTargetBytes > 0 &&
+        operations.controlTargetBytes <= operations.requestBytes &&
+        operations.controlTargetBytes <= operations.responseBytes &&
         Number.isSafeInteger(operations.deadlineMs) &&
         operations.deadlineMs >= 100 &&
         operations.deadlineMs <= 60_000 &&
@@ -302,10 +380,24 @@ export function inspectSynthesisProductionCapabilities(
             deadline >= 100 &&
             deadline <= 60_000,
         ) &&
+        operations.receiptQueryCapability ===
+          "client.getPublicMaintenanceOperation" &&
+        operations.policyDefaults?.requestPlane === "control" &&
+        operations.policyDefaults?.resultPlane === "control" &&
+        operations.policyDefaults?.workModel === "bounded" &&
+        operations.policyDefaults?.receipt === "inline" &&
+        sorted(Object.keys(operations.policyDefaults || {})).join("\n") ===
+          sorted(OPERATION_POLICY_FIELDS).join("\n") &&
+        Object.keys(operations.policyOverrides || {}).every(
+          (capability) => capability in operations.access,
+        ) &&
         difference(manifestCapabilities, operationCapabilities).length === 0 &&
         difference(operationCapabilities, manifestCapabilities).length === 0 &&
         operationCapabilities.every((capability) =>
           ["read", "mutation"].includes(operations.access[capability]!),
+        ) &&
+        operationCapabilities.every((capability) =>
+          validOperationPolicy(operations, capability),
         )
           ? []
           : ["invalid production operation metadata"],

@@ -130,7 +130,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         config,
         repository_id,
         repository,
-        applications,
+        applications: Arc::new(applications),
         production_client_operations,
         runtime_ownership: Arc::clone(&ownership),
         canonical: canonical_port,

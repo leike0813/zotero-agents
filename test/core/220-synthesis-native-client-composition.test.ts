@@ -10,7 +10,12 @@ import {
 import { beginSynthesisSidecarBusinessAudit } from "../../src/modules/synthesisSidecarBusinessAudit";
 import {
   SynthesisClientError,
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+  canonicalizeSynthesisContractJsonArtifact,
+  hashSynthesisContractCanonicalJson,
   type SynthesisSidecarProductionClientCapability,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisProductionCapabilities } from "../../scripts/check-synthesis-production-capabilities";
@@ -24,6 +29,7 @@ import { createNativeSynthesisClientComposition } from "../../src/modules/synthe
 import { SynthesisSidecarRpcError } from "../../src/modules/synthesisSidecarRpcClient";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+  synthesisProductionOperationPolicy,
   synthesisProductionOperationDeadlineMs,
   synthesisProductionTransportDeadlineMs,
 } from "../../src/modules/synthesisProductionRpcPolicy";
@@ -368,6 +374,256 @@ describe("Synthesis native client composition", function () {
         60_000 + SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
       );
     }
+  });
+
+  it("resolves control, content, and receipt policy from the shared operation manifest", function () {
+    assert.deepEqual(synthesisProductionOperationPolicy("client.listTopics"), {
+      requestPlane: "control",
+      resultPlane: "control",
+      workModel: "bounded",
+      receipt: "inline",
+      controlTargetBytes: 768 * 1024,
+      requestBytes: 1024 * 1024,
+      responseBytes: 1024 * 1024,
+    });
+    assert.include(
+      synthesisProductionOperationPolicy("client.applyTopicSynthesisResult"),
+      { requestPlane: "transfer" },
+    );
+    for (const capability of [
+      "client.readPaperArtifacts",
+      "client.getReviewInput",
+    ] as const) {
+      assert.include(synthesisProductionOperationPolicy(capability), {
+        resultPlane: "locator",
+      });
+    }
+    assert.include(
+      synthesisProductionOperationPolicy(
+        "client.exportFilteredPaperArtifacts",
+      ),
+      { resultPlane: "delivery" },
+    );
+    const receiptCapabilities = [
+      "client.startReferenceSidecarRefresh",
+      "client.refreshReferenceSidecarNow",
+      "client.retryReferenceSidecarRefresh",
+      "client.runAdvancedReferenceMatchingNow",
+      "client.retryAdvancedReferenceMatching",
+      "client.startCitationGraphUpdate",
+      "client.rebuildCitationGraphCacheNow",
+      "client.refreshCitationGraphCacheIncrementalNow",
+      "client.retryCitationGraphCacheRebuild",
+      "client.refreshCitationGraphMetricsNow",
+      "client.recomputeCitationGraphLayout",
+      "client.rebuildTagVocabularyIndex",
+      "client.rebuildConceptKbIndex",
+      "client.rebuildTopicGraphIndex",
+      "client.syncWebDavNow",
+      "client.retryWebDavSync",
+    ] as const;
+    for (const capability of receiptCapabilities) {
+      assert.include(synthesisProductionOperationPolicy(capability), {
+        workModel: "receipt",
+        receipt: "public-maintenance-operation",
+      });
+    }
+    assert.deepEqual(
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
+        (capability) =>
+          synthesisProductionOperationPolicy(capability).workModel ===
+          "receipt",
+      ).sort(),
+      [...receiptCapabilities].sort(),
+    );
+    assert.deepEqual(
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter((capability) => {
+        const policy = synthesisProductionOperationPolicy(capability);
+        return (
+          policy.requestPlane !== "control" ||
+          policy.resultPlane !== "control"
+        );
+      }).sort(),
+      [
+        "client.applyTopicSynthesisResult",
+        "client.exportFilteredPaperArtifacts",
+        "client.getReviewInput",
+        "client.readPaperArtifacts",
+      ],
+    );
+  });
+
+  it("stages large Topic assets before sending the bounded apply control request", async function () {
+    const calls: Array<{ capability: string; payload: any }> = [];
+    const transferStatus = (state: "receiving_input" | "input_sealed") => ({
+      sessionId: "native-transfer:1",
+      state,
+      input: { receivedPages: state === "receiving_input" ? 0 : 1, totalPages: 1, stagedBytes: 900_000 },
+      execution: { attempts: 0 },
+      stagedBytes: 900_000,
+      createdAtMs: 1,
+      lastActivityAtMs: 2,
+    });
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          const action = (args.payload as { action?: string }).action;
+          if (action === "begin") {
+            return args.rebuildResult(transferStatus("receiving_input"));
+          }
+          if (action === "put_input_page") {
+            return args.rebuildResult(transferStatus("receiving_input"));
+          }
+          if (action === "seal_input") {
+            return args.rebuildResult(transferStatus("input_sealed"));
+          }
+          if (action === "cancel") {
+            return args.rebuildResult({ canceled: true });
+          }
+          return args.rebuildResult({ ok: true, status: "promoted" });
+        },
+      },
+    });
+
+    const largeText = "x".repeat(900_000);
+    await composition.client.workflowApply.applyTopicSynthesisResult({
+      bundle: { topicId: "topic:large" },
+      assets: [
+        { id: "asset/0001", mediaType: "text/markdown", text: largeText },
+      ],
+    });
+
+    const transferActions = calls
+      .filter(
+        (call) => call.capability === "transfer.content",
+      )
+      .map((call) => call.payload.action);
+    assert.equal(transferActions[0], "begin");
+    assert.isAbove(
+      transferActions.filter((action) => action === "put_input_page").length,
+      1,
+    );
+    assert.deepEqual(transferActions.slice(-2), ["seal_input", "cancel"]);
+    const control = calls.find(
+      (call) => call.capability === "client.applyTopicSynthesisResult",
+    )!;
+    assert.equal(control.capability, "client.applyTopicSynthesisResult");
+    assert.notInclude(JSON.stringify(control.payload), largeText.slice(0, 100));
+    assert.deepEqual(control.payload, {
+      args: [
+        {
+          bundle: { topicId: "topic:large" },
+          assetTransfer: { sessionId: "native-transfer:1" },
+        },
+      ],
+    });
+  });
+
+  it("resolves a content-transfer locator without exposing transport authority", async function () {
+    const publicResult = {
+      artifacts: [
+        {
+          paper_ref: "1:AAAA1111",
+          artifact_type: "references",
+          payload_type: "references-json",
+          status: "available",
+          payload: { references: [{ title: "Large reference" }] },
+          diagnostics: [],
+        },
+      ],
+      diagnostics: [],
+      total: 1,
+    };
+    const content = JSON.stringify(publicResult);
+    const rowsArtifact = canonicalizeSynthesisContractJsonArtifact([content]);
+    const page = {
+      descriptor: {
+        kind: "content",
+        pageIndex: 0,
+        rowCount: 1,
+        byteLength: rowsArtifact.byteLength,
+        sha256: rowsArtifact.sha256,
+      },
+      rows: [content],
+    };
+    const manifest = (capability: string) => {
+      const body = {
+        transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+        encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+        direction: "output",
+        header: {
+          target: "production_client_result",
+          capability,
+          byteLength: new TextEncoder().encode(content).byteLength,
+          sha256: hashSynthesisContractCanonicalJson(content),
+        },
+        pages: [page.descriptor],
+      };
+      return {
+        ...body,
+        rootSha256: hashSynthesisContractCanonicalJson(body),
+      };
+    };
+    const actions: string[] = [];
+    let activeCapability = "";
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          const action = (args.payload as { action?: string }).action;
+          if (!action) {
+            activeCapability = args.capability;
+            return args.rebuildResult({
+              contentTransfer: { sessionId: "native-transfer:result" },
+            });
+          }
+          actions.push(action);
+          if (action === "get_output_manifest") {
+            return args.rebuildResult(manifest(activeCapability));
+          }
+          if (action === "get_output_page") {
+            return args.rebuildResult(page);
+          }
+          return args.rebuildResult({ canceled: true });
+        },
+      },
+    });
+
+    const result = await composition.client.artifacts.readPaperArtifacts({
+      paper_refs: ["1:AAAA1111"],
+    });
+    assert.deepEqual(result, publicResult);
+    assert.deepEqual(
+      await composition.client.workflowReview.getInput({}),
+      publicResult,
+    );
+    assert.deepEqual(actions, [
+      "get_output_manifest",
+      "get_output_page",
+      "cancel",
+      "get_output_manifest",
+      "get_output_page",
+      "cancel",
+    ]);
+    assert.notInclude(JSON.stringify(result), "native-transfer:");
   });
 
   it("fails closed after invalidation without resolving another owner", async function () {

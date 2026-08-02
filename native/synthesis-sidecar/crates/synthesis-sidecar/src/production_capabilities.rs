@@ -124,6 +124,47 @@ pub enum ProductionClientAccess {
     Mutation,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProductionClientDataPlane {
+    Control,
+    Transfer,
+    Locator,
+    Delivery,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProductionClientWorkModel {
+    Bounded,
+    Receipt,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProductionClientReceipt {
+    Inline,
+    PublicMaintenanceOperation,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientPolicy {
+    request_plane: ProductionClientDataPlane,
+    result_plane: ProductionClientDataPlane,
+    work_model: ProductionClientWorkModel,
+    receipt: ProductionClientReceipt,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientPolicyOverride {
+    request_plane: Option<ProductionClientDataPlane>,
+    result_plane: Option<ProductionClientDataPlane>,
+    work_model: Option<ProductionClientWorkModel>,
+    receipt: Option<ProductionClientReceipt>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProductionClientOperationManifest {
@@ -132,8 +173,12 @@ struct ProductionClientOperationManifest {
     result_codec: String,
     request_bytes: usize,
     response_bytes: usize,
+    control_target_bytes: usize,
     deadline_ms: u64,
     deadline_overrides_ms: BTreeMap<String, u64>,
+    receipt_query_capability: String,
+    policy_defaults: ProductionClientPolicy,
+    policy_overrides: BTreeMap<String, ProductionClientPolicyOverride>,
     access: BTreeMap<String, ProductionClientAccess>,
     #[serde(default)]
     semantic_success: BTreeMap<String, ProductionClientSemanticSuccess>,
@@ -149,23 +194,86 @@ pub struct ProductionClientSemanticSuccess {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProductionClientOperationMetadata {
     pub access: ProductionClientAccess,
+    pub request_plane: ProductionClientDataPlane,
+    pub result_plane: ProductionClientDataPlane,
+    pub work_model: ProductionClientWorkModel,
+    pub receipt: ProductionClientReceipt,
+    pub control_target_bytes: usize,
     pub request_bytes: usize,
     pub response_bytes: usize,
     pub deadline_ms: u64,
     pub semantic_success: Option<ProductionClientSemanticSuccess>,
 }
 
+fn resolved_policy(
+    manifest: &ProductionClientOperationManifest,
+    capability: &str,
+) -> ProductionClientPolicy {
+    let defaults = manifest.policy_defaults;
+    let policy = manifest
+        .policy_overrides
+        .get(capability)
+        .copied()
+        .unwrap_or_default();
+    ProductionClientPolicy {
+        request_plane: policy.request_plane.unwrap_or(defaults.request_plane),
+        result_plane: policy.result_plane.unwrap_or(defaults.result_plane),
+        work_model: policy.work_model.unwrap_or(defaults.work_model),
+        receipt: policy.receipt.unwrap_or(defaults.receipt),
+    }
+}
+
+fn valid_policy(access: ProductionClientAccess, policy: ProductionClientPolicy) -> bool {
+    matches!(
+        policy.request_plane,
+        ProductionClientDataPlane::Control | ProductionClientDataPlane::Transfer
+    ) && matches!(
+        policy.result_plane,
+        ProductionClientDataPlane::Control
+            | ProductionClientDataPlane::Locator
+            | ProductionClientDataPlane::Delivery
+    ) && matches!(
+        (policy.work_model, policy.receipt),
+        (
+            ProductionClientWorkModel::Bounded,
+            ProductionClientReceipt::Inline
+        ) | (
+            ProductionClientWorkModel::Receipt,
+            ProductionClientReceipt::PublicMaintenanceOperation
+        )
+    ) && (policy.work_model != ProductionClientWorkModel::Receipt
+        || access == ProductionClientAccess::Mutation)
+}
+
 fn production_client_operation_manifest() -> Result<ProductionClientOperationManifest, String> {
     let manifest: ProductionClientOperationManifest =
         serde_json::from_str(PRODUCTION_CLIENT_OPERATION_MANIFEST)
             .map_err(|_| "invalid_production_operation_manifest".to_owned())?;
-    if manifest.schema != "synthesis-production-client-operations.v1"
+    if manifest.schema != "synthesis-production-client-operations.v2"
         || manifest.request_codec != "synthesis-client-args.v1"
         || manifest.result_codec != "synthesis-client-result.v1"
         || manifest.request_bytes == 0
         || manifest.request_bytes > 8 * 1024 * 1024
         || manifest.response_bytes == 0
         || manifest.response_bytes > 8 * 1024 * 1024
+        || manifest.control_target_bytes == 0
+        || manifest.control_target_bytes > manifest.request_bytes
+        || manifest.control_target_bytes > manifest.response_bytes
+        || manifest.receipt_query_capability != "client.getPublicMaintenanceOperation"
+        || manifest.policy_defaults
+            != (ProductionClientPolicy {
+                request_plane: ProductionClientDataPlane::Control,
+                result_plane: ProductionClientDataPlane::Control,
+                work_model: ProductionClientWorkModel::Bounded,
+                receipt: ProductionClientReceipt::Inline,
+            })
+        || manifest
+            .policy_overrides
+            .keys()
+            .any(|capability| !manifest.access.contains_key(capability))
+        || manifest.access.iter().any(|(capability, access)| {
+            !valid_policy(*access, resolved_policy(&manifest, capability))
+        })
         || !(100..=60_000).contains(&manifest.deadline_ms)
         || manifest
             .deadline_overrides_ms
@@ -198,18 +306,24 @@ pub fn production_client_operation_metadata()
     let manifest = production_client_operation_manifest()?;
     Ok(manifest
         .access
-        .into_iter()
+        .iter()
         .map(|(capability, access)| {
+            let policy = resolved_policy(&manifest, capability);
             let deadline_ms = manifest
                 .deadline_overrides_ms
-                .get(&capability)
+                .get(capability)
                 .copied()
                 .unwrap_or(manifest.deadline_ms);
-            let semantic_success = manifest.semantic_success.get(&capability).cloned();
+            let semantic_success = manifest.semantic_success.get(capability).cloned();
             (
-                capability,
+                capability.clone(),
                 ProductionClientOperationMetadata {
-                    access,
+                    access: *access,
+                    request_plane: policy.request_plane,
+                    result_plane: policy.result_plane,
+                    work_model: policy.work_model,
+                    receipt: policy.receipt,
+                    control_target_bytes: manifest.control_target_bytes,
                     request_bytes: manifest.request_bytes,
                     response_bytes: manifest.response_bytes,
                     deadline_ms,
@@ -286,6 +400,55 @@ mod tests {
         );
         let metadata = production_client_operation_metadata().unwrap();
         assert_eq!(metadata["client.listTopics"].deadline_ms, 10_000);
+        assert_eq!(
+            metadata["client.listTopics"].request_plane,
+            ProductionClientDataPlane::Control
+        );
+        assert_eq!(
+            metadata["client.listTopics"].work_model,
+            ProductionClientWorkModel::Bounded
+        );
+        assert_eq!(
+            metadata["client.listTopics"].control_target_bytes,
+            768 * 1024
+        );
+        assert_eq!(
+            metadata["client.applyTopicSynthesisResult"].request_plane,
+            ProductionClientDataPlane::Transfer
+        );
+        assert_eq!(
+            metadata["client.readPaperArtifacts"].result_plane,
+            ProductionClientDataPlane::Locator
+        );
+        assert_eq!(
+            metadata["client.exportFilteredPaperArtifacts"].result_plane,
+            ProductionClientDataPlane::Delivery
+        );
+        assert_eq!(
+            metadata["client.syncWebDavNow"].work_model,
+            ProductionClientWorkModel::Receipt
+        );
+        assert_eq!(
+            metadata["client.syncWebDavNow"].receipt,
+            ProductionClientReceipt::PublicMaintenanceOperation
+        );
+        assert_eq!(
+            metadata
+                .values()
+                .filter(|entry| entry.work_model == ProductionClientWorkModel::Receipt)
+                .count(),
+            16
+        );
+        assert_eq!(
+            metadata
+                .values()
+                .filter(|entry| {
+                    entry.request_plane != ProductionClientDataPlane::Control
+                        || entry.result_plane != ProductionClientDataPlane::Control
+                })
+                .count(),
+            4
+        );
         for capability in [
             "client.startReferenceSidecarRefresh",
             "client.refreshReferenceSidecarNow",

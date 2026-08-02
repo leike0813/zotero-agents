@@ -1,7 +1,11 @@
 import { config } from "../../package.json";
 import {
   SynthesisClientError,
+  type SynthesisClient,
   type SynthesisCitationGraphPageMetadata,
+  type SynthesisGraphCommandResult,
+  type SynthesisJsonObject,
+  type SynthesisPublicMaintenanceOperation,
   type SynthesisReferenceMatchProposalDecision,
   type SynthesisSyncConflictResolutionAction,
 } from "../../packages/synthesis-contracts/src/index";
@@ -75,7 +79,7 @@ import {
   type SynthesisCitationGraphWindow,
 } from "../shared/synthesisCitationGraphWindow";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
-import { yieldToEventLoop } from "../utils/runtimeCompatibility";
+import { delay, yieldToEventLoop } from "../utils/runtimeCompatibility";
 import {
   BUILTIN_STATUS_FACET,
   isBuiltinStatusTag,
@@ -1065,6 +1069,31 @@ function runWorkbenchCommandOnce(
     return;
   }
   void start();
+}
+
+async function observePublicMaintenanceOperation(
+  client: Pick<SynthesisClient, "maintenance">,
+  accepted: SynthesisPublicMaintenanceOperation,
+): Promise<SynthesisJsonObject> {
+  let operation = accepted;
+  while (operation.status === "pending" || operation.status === "running") {
+    await delay(250);
+    operation = await client.maintenance.getOperation({
+      operation_id: operation.operation_id,
+    });
+  }
+  if (operation.status === "completed") {
+    return operation.receipt && typeof operation.receipt === "object"
+      ? (operation.receipt as SynthesisJsonObject)
+      : {};
+  }
+  if (operation.receipt && typeof operation.receipt === "object") {
+    failOnDiagnostic(operation.receipt);
+    failOnSyncFailureState(operation.receipt);
+  }
+  throw new Error(
+    `Synthesis maintenance operation ${operation.operation_id} ended with ${operation.status}.`,
+  );
 }
 
 function failOnDiagnostic<T>(result: T): T {
@@ -2459,10 +2488,13 @@ async function recomputeWorkbenchCitationGraphLayout(
   try {
     const client = await getDefaultSynthesisClient();
     const result = classifySynthesisWorkbenchGraphMutationResult(
-      await client.graph.recomputeCitationGraphLayout({
-        algorithm: layoutAlgorithm,
-        ...(force ? { force: true } : {}),
-      }),
+      (await observePublicMaintenanceOperation(
+        client,
+        await client.graph.recomputeCitationGraphLayout({
+          algorithm: layoutAlgorithm,
+          ...(force ? { force: true } : {}),
+        }),
+      )) as SynthesisGraphCommandResult,
     );
     runtime.graphLayoutFailure = undefined;
     return result;
@@ -2752,7 +2784,10 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
-          await client.graph.rebuildCitationGraphCacheNow(),
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.rebuildCitationGraphCacheNow(),
+          )) as SynthesisGraphCommandResult,
         );
       },
       { deferStart: true },
@@ -2769,7 +2804,10 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
-          await client.graph.refreshCitationGraphCacheIncrementalNow(),
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.refreshCitationGraphCacheIncrementalNow(),
+          )) as SynthesisGraphCommandResult,
         );
       },
       { deferStart: true },
@@ -2784,7 +2822,10 @@ function handleAction(
       async () => {
         const client = await getDefaultSynthesisClient();
         return classifySynthesisWorkbenchGraphMutationResult(
-          await client.graph.retryCitationGraphCacheRebuild(),
+          (await observePublicMaintenanceOperation(
+            client,
+            await client.graph.retryCitationGraphCacheRebuild(),
+          )) as SynthesisGraphCommandResult,
         );
       },
       { deferStart: true },
@@ -2805,7 +2846,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.tags.rebuildTagVocabularyIndex();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.tags.rebuildTagVocabularyIndex(),
+        );
       },
       { deferStart: true },
     );
@@ -2818,7 +2862,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.concepts.rebuildConceptKbIndex();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.concepts.rebuildConceptKbIndex(),
+        );
       },
       { deferStart: true },
     );
@@ -2831,7 +2878,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.topicGraph.rebuildTopicGraphIndex();
+        return observePublicMaintenanceOperation(
+          client,
+          await client.topicGraph.rebuildTopicGraphIndex(),
+        );
       },
       { deferStart: true },
     );
@@ -2989,9 +3039,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references
-          .refreshReferenceSidecarNow()
-          .then(failOnDiagnostic);
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.refreshReferenceSidecarNow(),
+        ).then(failOnDiagnostic);
       },
       { deferStart: true },
     );
@@ -3004,9 +3055,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references
-          .retryReferenceSidecarRefresh()
-          .then(failOnDiagnostic);
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.retryReferenceSidecarRefresh(),
+        ).then(failOnDiagnostic);
       },
     );
     return;
@@ -3018,9 +3070,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references
-          .runAdvancedReferenceMatchingNow()
-          .then(failOnDiagnostic);
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.runAdvancedReferenceMatchingNow(),
+        ).then(failOnDiagnostic);
       },
       { deferStart: true },
     );
@@ -3033,9 +3086,10 @@ function handleAction(
       {},
       async () => {
         const client = await getDefaultSynthesisClient();
-        return client.references
-          .retryAdvancedReferenceMatching()
-          .then(failOnDiagnostic);
+        return observePublicMaintenanceOperation(
+          client,
+          await client.references.retryAdvancedReferenceMatching(),
+        ).then(failOnDiagnostic);
       },
       { deferStart: true },
     );
@@ -3317,7 +3371,10 @@ function handleAction(
       {},
       async () => {
         const client = await getFreshDefaultSynthesisClient();
-        return client.sync.webDav.runNow().then(failOnSyncFailureState);
+        return observePublicMaintenanceOperation(
+          client,
+          await client.sync.webDav.runNow(),
+        ).then(failOnSyncFailureState);
       },
       { deferStart: true },
     );
@@ -3340,7 +3397,10 @@ function handleAction(
   if (result.hostCommand?.command === "retryWebDavSync") {
     runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, async () => {
       const client = await getFreshDefaultSynthesisClient();
-      return client.sync.webDav.retry().then(failOnSyncFailureState);
+      return observePublicMaintenanceOperation(
+        client,
+        await client.sync.webDav.retry(),
+      ).then(failOnSyncFailureState);
     });
     return;
   }

@@ -1,12 +1,26 @@
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::runtime_capabilities::ServeState;
 use crate::runtime_deadline::with_request_context;
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, debug_events_enabled, emit_debug};
+use crate::runtime_diagnostics::{
+    NativeDiagnosticEvent, child_observation_context, debug_events_enabled, emit_debug,
+    with_observation_context,
+};
 use crate::runtime_production_compat::dispatch_legacy_client;
-use synthesis_sidecar::production_capabilities::ProductionClientSemanticSuccess;
+use crate::runtime_webdav_maintenance_surface::{
+    begin_public_maintenance_operation, finish_public_maintenance_operation,
+    mark_public_maintenance_running, public_maintenance_operation_dto,
+};
+use synthesis_canonical_store::canonical_json_hash;
+use synthesis_protocol::utc_now_iso8601;
+use synthesis_sidecar::production_capabilities::{
+    ProductionClientDataPlane, ProductionClientReceipt, ProductionClientSemanticSuccess,
+};
+use synthesis_sidecar::runtime_contract::current_time_ms;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14,8 +28,21 @@ struct ClientArguments {
     args: Vec<Value>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicApplyTransferControl {
+    bundle: Value,
+    asset_transfer: TopicApplyTransferReference,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicApplyTransferReference {
+    session_id: String,
+}
+
 pub(crate) fn dispatch_production_client(
-    state: &ServeState,
+    state: &Arc<ServeState>,
     request_id: &str,
     capability: &str,
     payload: Value,
@@ -24,20 +51,53 @@ pub(crate) fn dispatch_production_client(
         .production_client_operations
         .get(capability)
         .ok_or_else(|| "invalid_request".to_owned())?;
-    if serde_json::to_vec(&payload)
+    let payload_bytes = serde_json::to_vec(&payload)
         .map_err(|_| "invalid_request".to_owned())?
-        .len()
-        > metadata.request_bytes
-    {
+        .len();
+    if payload_bytes > metadata.request_bytes {
         return Err("request_too_large".into());
     }
     let envelope: ClientArguments =
         serde_json::from_value(payload).map_err(|_| "invalid_request".to_owned())?;
+    let operation_args = if metadata.request_plane == ProductionClientDataPlane::Transfer
+        && envelope
+            .args
+            .first()
+            .is_some_and(|value| value.get("assetTransfer").is_some())
+    {
+        if capability != "client.applyTopicSynthesisResult" || envelope.args.len() != 1 {
+            return Err("invalid_request".to_owned());
+        }
+        let control: TopicApplyTransferControl = serde_json::from_value(envelope.args[0].clone())
+            .map_err(|_| "invalid_request".to_owned())?;
+        let assets = state
+            .transfer
+            .lock()
+            .map_err(|_| "transfer_unavailable".to_owned())?
+            .topic_apply_assets(&control.asset_transfer.session_id)?;
+        vec![json!({"bundle":control.bundle,"assets":assets})]
+    } else if metadata.request_plane == ProductionClientDataPlane::Transfer
+        && payload_bytes > metadata.control_target_bytes
+    {
+        return Err("request_too_large".to_owned());
+    } else {
+        envelope.args
+    };
+    if metadata.receipt == ProductionClientReceipt::PublicMaintenanceOperation {
+        return start_public_maintenance_operation(
+            state,
+            request_id,
+            capability,
+            operation_args,
+            metadata.deadline_ms,
+            metadata.semantic_success.clone(),
+        );
+    }
     let started_at = Instant::now();
     let result = with_request_context(
         Duration::from_millis(metadata.deadline_ms),
         debug_events_enabled().then_some(request_id),
-        || dispatch_legacy_client(&state.applications, capability, &envelope.args),
+        || dispatch_legacy_client(&state.applications, capability, &operation_args),
     )?;
     record_semantic_mutation_result(
         capability,
@@ -48,14 +108,133 @@ pub(crate) fn dispatch_production_client(
     if started_at.elapsed() > Duration::from_millis(metadata.deadline_ms) {
         return Err("operation_timeout".into());
     }
-    if serde_json::to_vec(&result)
+    let result_bytes = serde_json::to_vec(&result)
+        .map_err(|_| "production_projection_invalid".to_owned())?
+        .len();
+    let wire_result = if metadata.result_plane == ProductionClientDataPlane::Locator
+        && result_bytes > metadata.control_target_bytes
+    {
+        state
+            .transfer
+            .lock()
+            .map_err(|_| "transfer_unavailable".to_owned())?
+            .publish_client_result(capability, &result, current_time_ms()?)?
+    } else {
+        result
+    };
+    if serde_json::to_vec(&wire_result)
         .map_err(|_| "production_projection_invalid".to_owned())?
         .len()
         > metadata.response_bytes
     {
         return Err("response_too_large".into());
     }
-    Ok(result)
+    Ok(wire_result)
+}
+
+fn start_public_maintenance_operation(
+    state: &Arc<ServeState>,
+    request_id: &str,
+    capability: &str,
+    operation_args: Vec<Value>,
+    work_deadline_ms: u64,
+    semantic_success: Option<ProductionClientSemanticSuccess>,
+) -> Result<Value, String> {
+    let accepted_at = utc_now_iso8601();
+    let source_hash = canonical_json_hash(&json!({
+        "capability":capability,
+        "args":operation_args,
+    }))?;
+    let identity_hash = canonical_json_hash(&json!({
+        "capability":capability,
+        "requestId":request_id,
+        "acceptedAt":accepted_at,
+    }))?;
+    let operation_id = format!(
+        "maintenance:{}:{}",
+        capability.trim_start_matches("client."),
+        &identity_hash["sha256:".len().."sha256:".len() + 24]
+    );
+    let accepted = begin_public_maintenance_operation(
+        state.applications.as_ref(),
+        &operation_id,
+        capability,
+        &operation_args,
+        &source_hash,
+        &accepted_at,
+    )?;
+    let accepted_dto = public_maintenance_operation_dto(&accepted)?;
+    let applications = Arc::clone(&state.applications);
+    let operation_id_for_worker = operation_id.clone();
+    let capability_for_worker = capability.to_owned();
+    let request_id_for_worker = request_id.to_owned();
+    let worker_trace = child_observation_context();
+    let spawn_result = thread::Builder::new()
+        .name(format!(
+            "synthesis-maintenance-{}",
+            &identity_hash["sha256:".len().."sha256:".len() + 8]
+        ))
+        .spawn(move || {
+            with_observation_context(worker_trace.as_ref(), || {
+                let started_at = utc_now_iso8601();
+                if let Err(error) = mark_public_maintenance_running(
+                    applications.as_ref(),
+                    &operation_id_for_worker,
+                    &started_at,
+                ) {
+                    let _ = finish_public_maintenance_operation(
+                        applications.as_ref(),
+                        &operation_id_for_worker,
+                        Err(&error),
+                        &utc_now_iso8601(),
+                    );
+                    return;
+                }
+                let observed_at = Instant::now();
+                let outcome = with_request_context(
+                    Duration::from_millis(work_deadline_ms),
+                    debug_events_enabled().then_some(&request_id_for_worker),
+                    || {
+                        dispatch_legacy_client(
+                            applications.as_ref(),
+                            &capability_for_worker,
+                            &operation_args,
+                        )
+                    },
+                );
+                if let Ok(result) = outcome.as_ref() {
+                    record_semantic_mutation_result(
+                        &capability_for_worker,
+                        semantic_success.as_ref(),
+                        result,
+                        observed_at.elapsed(),
+                    );
+                }
+                let _ = finish_public_maintenance_operation(
+                    applications.as_ref(),
+                    &operation_id_for_worker,
+                    outcome.as_ref().map_err(String::as_str),
+                    &utc_now_iso8601(),
+                );
+            })
+        });
+    if let Err(error) = spawn_result {
+        let code = format!("operation_spawn_failed:{error}");
+        finish_public_maintenance_operation(
+            state.applications.as_ref(),
+            &operation_id,
+            Err(&code),
+            &utc_now_iso8601(),
+        )?;
+        let row = state
+            .repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_operation(&operation_id)?
+            .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+        return public_maintenance_operation_dto(&row);
+    }
+    Ok(accepted_dto)
 }
 
 fn record_semantic_mutation_result(

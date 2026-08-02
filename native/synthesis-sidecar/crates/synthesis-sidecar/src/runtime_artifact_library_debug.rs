@@ -259,7 +259,18 @@ fn manifest(apps: &ProductionApplications, args: &[Value]) -> Result<Value, Stri
 }
 
 fn export(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
+    let request = match args {
+        [request] if request.is_object() => request.clone(),
+        [request, delivery]
+            if request.is_object()
+                && delivery.as_object().is_some_and(|delivery| {
+                    delivery.len() == 1 && delivery.get("mode") == Some(&json!("remote"))
+                }) =>
+        {
+            request.clone()
+        }
+        _ => return Err("invalid_request".into()),
+    };
     let paper_refs = string_list(
         &request,
         &["paper_refs", "paperRefs", "paper_ref", "paperRef"],

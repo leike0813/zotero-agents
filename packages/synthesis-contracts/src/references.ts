@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject } from "./common";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export const SYNTHESIS_CANONICAL_REVISION_REVIEW_ACTIONS = [
   "accept",
@@ -98,7 +99,7 @@ export type SynthesisReferenceQueryResult = SynthesisJsonObject;
 export interface SynthesisReferencesClient {
   startRefresh(
     request?: SynthesisReferenceQueryRequest,
-  ): Promise<SynthesisReferenceCommandResult>;
+  ): Promise<SynthesisPublicMaintenanceOperation>;
   getSidecarIndex(
     request?: SynthesisReferenceQueryRequest,
   ): Promise<SynthesisReferenceQueryResult>;
@@ -108,10 +109,10 @@ export interface SynthesisReferencesClient {
   getAttentionQueue(
     request?: SynthesisReferenceQueryRequest,
   ): Promise<SynthesisReferenceQueryResult>;
-  refreshReferenceSidecarNow(): Promise<SynthesisReferenceCommandResult>;
-  retryReferenceSidecarRefresh(): Promise<SynthesisReferenceCommandResult>;
-  runAdvancedReferenceMatchingNow(): Promise<SynthesisReferenceCommandResult>;
-  retryAdvancedReferenceMatching(): Promise<SynthesisReferenceCommandResult>;
+  refreshReferenceSidecarNow(): Promise<SynthesisPublicMaintenanceOperation>;
+  retryReferenceSidecarRefresh(): Promise<SynthesisPublicMaintenanceOperation>;
+  runAdvancedReferenceMatchingNow(): Promise<SynthesisPublicMaintenanceOperation>;
+  retryAdvancedReferenceMatching(): Promise<SynthesisPublicMaintenanceOperation>;
   applyCanonicalRevisionReviewAction(
     request: SynthesisCanonicalRevisionReviewRequest,
   ): Promise<SynthesisReferenceCommandResult>;

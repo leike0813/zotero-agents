@@ -1,3 +1,5 @@
+import type { SynthesisJsonObject, SynthesisJsonValue } from "./common";
+
 export type SynthesisStartupReconcileResult = {
   canceledCount: number;
   canceledOperationIds: string[];
@@ -18,8 +20,45 @@ export type SynthesisDatabaseResetResult = {
   resetAt?: string;
 };
 
+export type SynthesisPublicMaintenanceOperationStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "canceled"
+  | "timed_out"
+  | "not_found";
+
+export type SynthesisPublicMaintenanceOperation = {
+  schema: "synthesis.maintenance_operation.v1";
+  operation_id: string;
+  status: SynthesisPublicMaintenanceOperationStatus;
+  operation_type?: string;
+  library_id?: number;
+  scope?: {
+    kind: string;
+    paper_refs: string[];
+  };
+  phase?: string;
+  processed_count?: number;
+  skipped_count?: number;
+  failed_count?: number;
+  total_count?: number;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  updated_at?: string;
+  receipt?: SynthesisJsonValue;
+};
+
+export type SynthesisPublicMaintenanceOperationRequest =
+  | { operation_id: string; operationId?: never }
+  | { operationId: string; operation_id?: never };
+
 export interface SynthesisMaintenanceClient {
-  getOperation(request: SynthesisJsonObject): Promise<SynthesisJsonObject>;
+  getOperation(
+    request: SynthesisPublicMaintenanceOperationRequest,
+  ): Promise<SynthesisPublicMaintenanceOperation>;
   getSchemas(request?: SynthesisJsonObject): Promise<SynthesisJsonObject>;
   resetDatabase(
     request: SynthesisDatabaseResetRequest,
@@ -41,4 +80,3 @@ export interface SynthesisNotificationsClient {
     request: SynthesisRelatedItemsEchoRequest,
   ): Promise<SynthesisRelatedItemsEchoReceipt>;
 }
-import type { SynthesisJsonObject } from "./common";

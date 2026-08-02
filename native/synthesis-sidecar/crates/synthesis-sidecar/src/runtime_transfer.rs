@@ -14,10 +14,13 @@ use synthesis_protocol::{
 
 const TRANSFER_VERSION: &str = "synthesis-citation-graph-build-transfer.v1";
 const TRANSFER_ENCODING: &str = "canonical_json_rows.v1";
+const CONTENT_TRANSFER_VERSION: &str = "synthesis-production-content-transfer.v1";
+const CONTENT_TRANSFER_ENCODING: &str = "canonical_json_text_chunks.v1";
 const MAX_SESSIONS: usize = 2;
 const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DIRECTION_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_SERVICE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const CONTENT_CHUNK_TARGET_BYTES: usize = 48 * 1024;
 const IDLE_TTL_MS: u64 = 5 * 60 * 1000;
 const ABSOLUTE_TTL_MS: u64 = 30 * 60 * 1000;
 
@@ -176,6 +179,29 @@ impl NativeTransferOwner {
         }
     }
 
+    pub(crate) fn handle_content(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
+        let action_name = bounded_string(&action["action"], 64)?;
+        if action_name == "execute" {
+            return Err("invalid_request".to_owned());
+        }
+        if action_name == "begin" {
+            if action["manifest"]["transferVersion"] != CONTENT_TRANSFER_VERSION {
+                return Err("invalid_request".to_owned());
+            }
+        } else {
+            let session_id = bounded_string(&action["sessionId"], 128)?;
+            if self.sessions.get(session_id).is_none_or(|session| {
+                session.manifest["transferVersion"] != CONTENT_TRANSFER_VERSION
+            }) {
+                return Err("transfer_not_found".to_owned());
+            }
+        }
+        match self.handle(action, now_ms)? {
+            TransferDispatch::Response(value) => Ok(value),
+            TransferDispatch::Execute(_) => Err("invalid_request".to_owned()),
+        }
+    }
+
     pub(crate) fn mark_executing(&mut self, session_id: &str, attempt: u64, now_ms: u64) {
         if let Some(session) = self.sessions.get_mut(session_id)
             && session.active_attempt == Some(attempt)
@@ -232,6 +258,261 @@ impl NativeTransferOwner {
             }
             Err(code) => fail_attempt(session, &code, now_ms),
         }
+    }
+
+    pub(crate) fn topic_apply_assets(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<synthesis_application::TopicAsset>, String> {
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| "transfer_not_found".to_owned())?;
+        if session.state != "input_sealed"
+            || session.manifest["transferVersion"] != CONTENT_TRANSFER_VERSION
+            || session.manifest["encoding"] != CONTENT_TRANSFER_ENCODING
+            || session.manifest["direction"] != "input"
+            || session.manifest["header"]["target"] != "topic_apply_assets"
+        {
+            return Err("transfer_conflict".to_owned());
+        }
+        let descriptors = descriptors(&session.manifest)?;
+        if descriptors.iter().enumerate().any(|(index, descriptor)| {
+            descriptor.kind != "content" || descriptor.page_index != index as u64
+        }) {
+            return Err("transfer_conflict".to_owned());
+        }
+        let assets = session.manifest["header"]["assets"]
+            .as_array()
+            .filter(|assets| assets.len() <= 256)
+            .ok_or_else(|| "transfer_conflict".to_owned())?;
+        let mut next_page = 0_usize;
+        let mut result = Vec::with_capacity(assets.len());
+        for asset in assets {
+            exact(
+                asset,
+                &[
+                    "id",
+                    "mediaType",
+                    "byteLength",
+                    "sha256",
+                    "firstPage",
+                    "pageCount",
+                ],
+            )?;
+            let id = bounded_string(&asset["id"], 128)?.to_owned();
+            let media_type = bounded_string(&asset["mediaType"], 64)?.to_owned();
+            if !matches!(
+                media_type.as_str(),
+                "application/json" | "text/markdown" | "text/plain"
+            ) {
+                return Err("transfer_conflict".to_owned());
+            }
+            let byte_length = asset["byteLength"]
+                .as_u64()
+                .ok_or_else(|| "transfer_conflict".to_owned())?;
+            let expected_hash = asset["sha256"]
+                .as_str()
+                .filter(|value| value.len() == 71 && value.starts_with("sha256:"))
+                .ok_or_else(|| "transfer_conflict".to_owned())?;
+            let first_page = asset["firstPage"]
+                .as_u64()
+                .map(|value| value as usize)
+                .ok_or_else(|| "transfer_conflict".to_owned())?;
+            let page_count = asset["pageCount"]
+                .as_u64()
+                .map(|value| value as usize)
+                .filter(|value| *value > 0)
+                .ok_or_else(|| "transfer_conflict".to_owned())?;
+            if first_page != next_page || first_page.saturating_add(page_count) > descriptors.len()
+            {
+                return Err("transfer_conflict".to_owned());
+            }
+            let mut text = String::new();
+            for descriptor in &descriptors[first_page..first_page + page_count] {
+                let staged = session
+                    .pages
+                    .get(&(descriptor.kind.clone(), descriptor.page_index))
+                    .ok_or_else(|| "transfer_incomplete".to_owned())?;
+                let page = read_value(&staged.path)?;
+                page_identity(&page)?;
+                let rows = page["rows"]
+                    .as_array()
+                    .filter(|rows| rows.len() == 1)
+                    .ok_or_else(|| "transfer_conflict".to_owned())?;
+                text.push_str(
+                    rows[0]
+                        .as_str()
+                        .ok_or_else(|| "transfer_conflict".to_owned())?,
+                );
+            }
+            if text.len() as u64 != byte_length
+                || canonical_sha256(&text).map_err(|_| "transfer_conflict".to_owned())?
+                    != expected_hash
+            {
+                return Err("transfer_conflict".to_owned());
+            }
+            result.push(synthesis_application::TopicAsset {
+                id,
+                media_type,
+                text,
+            });
+            next_page += page_count;
+        }
+        if next_page != descriptors.len() {
+            return Err("transfer_conflict".to_owned());
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn publish_client_result(
+        &mut self,
+        capability: &str,
+        result: &Value,
+        now_ms: u64,
+    ) -> Result<Value, String> {
+        self.reap(now_ms);
+        if self.stopping {
+            return Err("transfer_stopping".to_owned());
+        }
+        if self.sessions.len() >= MAX_SESSIONS {
+            return Err("transfer_busy".to_owned());
+        }
+        if !capability.starts_with("client.") || capability.len() > 128 {
+            return Err("invalid_request".to_owned());
+        }
+        let content = canonical_json(result).map_err(|_| "production_projection_invalid")?;
+        if content.len() as u64 > MAX_DIRECTION_BYTES {
+            return Err("transfer_limit_exceeded".to_owned());
+        }
+        let id = format!("native-transfer:{}", self.next_id);
+        let session_root = self.root.join(format!("session-{}", self.next_id));
+        self.next_id += 1;
+        let output_root = session_root.join("output");
+        secure_directory(&output_root)?;
+        let mut reserved_bytes = 0_u64;
+        let published = (|| {
+            let mut output_pages = BTreeMap::new();
+            let mut output_descriptors = Vec::new();
+            for (page_index, chunk) in content_text_chunks(&content).into_iter().enumerate() {
+                let rows = json!([chunk]);
+                let canonical_rows = canonical_json(&rows)
+                    .map_err(|_| "production_projection_invalid".to_owned())?;
+                if canonical_rows.len() as u64 > MAX_PAGE_BYTES {
+                    return Err("transfer_limit_exceeded".to_owned());
+                }
+                reserve_bytes(&self.service_bytes, canonical_rows.len() as u64)?;
+                reserved_bytes += canonical_rows.len() as u64;
+                let descriptor = Descriptor {
+                    kind: "content".into(),
+                    page_index: page_index as u64,
+                    row_count: 1,
+                    byte_length: canonical_rows.len() as u64,
+                    sha256: canonical_sha256(&rows)
+                        .map_err(|_| "production_projection_invalid".to_owned())?,
+                };
+                let page = json!({
+                    "descriptor":descriptor_value(&descriptor),
+                    "rows":rows,
+                });
+                let path = output_root.join(page_filename("content", page_index as u64));
+                atomic_write(
+                    &path,
+                    canonical_json(&page)
+                        .map_err(|_| "production_projection_invalid".to_owned())?
+                        .as_bytes(),
+                )?;
+                output_pages.insert(
+                    ("content".into(), page_index as u64),
+                    StagedPage {
+                        path,
+                        byte_length: descriptor.byte_length,
+                    },
+                );
+                output_descriptors.push(descriptor_value(&descriptor));
+            }
+            let output_body = json!({
+                "transferVersion":CONTENT_TRANSFER_VERSION,
+                "encoding":CONTENT_TRANSFER_ENCODING,
+                "direction":"output",
+                "header":{
+                    "target":"production_client_result",
+                    "capability":capability,
+                    "byteLength":content.len(),
+                    "sha256":canonical_sha256(&content)
+                        .map_err(|_| "production_projection_invalid".to_owned())?,
+                },
+                "pages":output_descriptors,
+            });
+            let mut output_manifest = output_body.clone();
+            output_manifest
+                .as_object_mut()
+                .expect("output manifest")
+                .insert(
+                    "rootSha256".into(),
+                    Value::String(
+                        canonical_sha256(&output_body)
+                            .map_err(|_| "production_projection_invalid".to_owned())?,
+                    ),
+                );
+            atomic_write(
+                &session_root.join("output-manifest.json"),
+                canonical_json(&output_manifest)
+                    .map_err(|_| "production_projection_invalid".to_owned())?
+                    .as_bytes(),
+            )?;
+            Ok((output_manifest, output_pages))
+        })();
+        let (output_manifest, output_pages) = match published {
+            Ok(value) => value,
+            Err(code) => {
+                self.service_bytes
+                    .fetch_sub(reserved_bytes, Ordering::AcqRel);
+                let _ = fs::remove_dir_all(&session_root);
+                return Err(code);
+            }
+        };
+        let input_body = json!({
+            "transferVersion":CONTENT_TRANSFER_VERSION,
+            "encoding":CONTENT_TRANSFER_ENCODING,
+            "direction":"input",
+            "header":{"target":"production_client_result"},
+            "pages":[],
+        });
+        let mut input_manifest = input_body.clone();
+        input_manifest
+            .as_object_mut()
+            .expect("input manifest")
+            .insert(
+                "rootSha256".into(),
+                Value::String(
+                    canonical_sha256(&input_body)
+                        .map_err(|_| "production_projection_invalid".to_owned())?,
+                ),
+            );
+        let idempotency_key = format!("result:{id}");
+        self.idempotency.insert(idempotency_key.clone(), id.clone());
+        self.sessions.insert(
+            id.clone(),
+            Session {
+                id: id.clone(),
+                idempotency_key,
+                root: session_root,
+                manifest: input_manifest,
+                pages: BTreeMap::new(),
+                state: "completed",
+                staged_bytes: 0,
+                created_at_ms: now_ms,
+                last_activity_at_ms: now_ms,
+                attempts: 0,
+                active_attempt: None,
+                last_failure: None,
+                output_manifest: Some(output_manifest),
+                output_pages,
+                canceled: Arc::new(AtomicBool::new(false)),
+            },
+        );
+        Ok(json!({"contentTransfer":{"sessionId":id}}))
     }
 
     fn begin(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
@@ -377,6 +658,9 @@ impl NativeTransferOwner {
             .sessions
             .get_mut(&session_id)
             .ok_or_else(|| "transfer_not_found".to_owned())?;
+        if session.manifest["transferVersion"] != TRANSFER_VERSION {
+            return Err("invalid_request".to_owned());
+        }
         if matches!(
             session.state,
             "queued" | "executing" | "publishing" | "completed"
@@ -755,6 +1039,14 @@ fn descriptors_direction(
     direction: &str,
 ) -> Result<Vec<Descriptor>, &'static str> {
     let object = manifest.as_object().ok_or("invalid_request")?;
+    let citation_transfer = manifest["transferVersion"] == TRANSFER_VERSION
+        && manifest["encoding"] == TRANSFER_ENCODING;
+    let content_transfer = manifest["transferVersion"] == CONTENT_TRANSFER_VERSION
+        && manifest["encoding"] == CONTENT_TRANSFER_ENCODING
+        && matches!(
+            manifest["header"]["target"].as_str(),
+            Some("topic_apply_assets" | "production_client_result")
+        );
     if object.len() != 6
         || [
             "transferVersion",
@@ -766,8 +1058,7 @@ fn descriptors_direction(
         ]
         .iter()
         .any(|field| !object.contains_key(*field))
-        || manifest["transferVersion"] != TRANSFER_VERSION
-        || manifest["encoding"] != TRANSFER_ENCODING
+        || (!citation_transfer && !content_transfer)
         || manifest["direction"] != direction
         || !manifest["header"].is_object()
     {
@@ -949,6 +1240,23 @@ fn page_filename(kind: &str, page_index: u64) -> String {
     format!("{kind}-{page_index}.json")
 }
 
+fn content_text_chunks(content: &str) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut chunk = String::new();
+    for character in content.chars() {
+        if !chunk.is_empty()
+            && chunk.len().saturating_add(character.len_utf8()) > CONTENT_CHUNK_TARGET_BYTES
+        {
+            chunks.push(std::mem::take(&mut chunk));
+        }
+        chunk.push(character);
+    }
+    if !chunk.is_empty() || chunks.is_empty() {
+        chunks.push(chunk);
+    }
+    chunks
+}
+
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let temporary = path.with_extension("tmp");
     fs::write(&temporary, bytes).map_err(|_| "transfer_unavailable".to_owned())?;
@@ -1054,6 +1362,130 @@ mod tests {
             Value::String(canonical_sha256(&body).expect("manifest hash")),
         );
         manifest
+    }
+
+    fn topic_assets_manifest(pages: &[Value], text: &str) -> Value {
+        let body = json!({
+            "transferVersion":"synthesis-production-content-transfer.v1",
+            "encoding":"canonical_json_text_chunks.v1",
+            "direction":"input",
+            "header":{
+                "target":"topic_apply_assets",
+                "assets":[{
+                    "id":"asset/0001",
+                    "mediaType":"text/markdown",
+                    "byteLength":text.len(),
+                    "sha256":canonical_sha256(&text).expect("asset hash"),
+                    "firstPage":0,
+                    "pageCount":pages.len(),
+                }],
+            },
+            "pages":pages.iter().map(|page| page["descriptor"].clone()).collect::<Vec<_>>(),
+        });
+        let mut manifest = body.clone();
+        manifest.as_object_mut().expect("manifest").insert(
+            "rootSha256".to_owned(),
+            Value::String(canonical_sha256(&body).expect("manifest hash")),
+        );
+        manifest
+    }
+
+    #[test]
+    fn materializes_hash_bound_topic_assets_from_a_sealed_content_session() {
+        let root = temporary_root("topic-content");
+        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let text = "large topic body";
+        let pages = [page("content", json!([text]))];
+        let TransferDispatch::Response(begun) = owner
+            .handle(
+                json!({
+                    "action":"begin",
+                    "idempotencyKey":"topic-assets",
+                    "manifest":topic_assets_manifest(&pages, text),
+                }),
+                1,
+            )
+            .expect("begin")
+        else {
+            panic!("begin response");
+        };
+        let session_id = begun["sessionId"].as_str().expect("session id");
+        owner
+            .handle(
+                json!({"action":"put_input_page","sessionId":session_id,"page":pages[0]}),
+                2,
+            )
+            .expect("put page");
+        owner
+            .handle(json!({"action":"seal_input","sessionId":session_id}), 3)
+            .expect("seal");
+
+        assert_eq!(
+            owner.topic_apply_assets(session_id).expect("topic assets"),
+            vec![synthesis_application::TopicAsset {
+                id: "asset/0001".into(),
+                media_type: "text/markdown".into(),
+                text: text.into(),
+            }]
+        );
+        assert!(
+            owner
+                .handle(json!({"action":"execute","sessionId":session_id}), 4)
+                .is_err()
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publishes_large_client_results_as_hash_bound_output_pages() {
+        let root = temporary_root("client-result");
+        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let result =
+            json!({"artifacts":[{"payload":"x".repeat(100_000)}],"diagnostics":[],"total":1});
+        let locator = owner
+            .publish_client_result("client.readPaperArtifacts", &result, 10)
+            .expect("publish result");
+        let session_id = locator["contentTransfer"]["sessionId"]
+            .as_str()
+            .expect("session id");
+        let TransferDispatch::Response(manifest) = owner
+            .handle(
+                json!({"action":"get_output_manifest","sessionId":session_id}),
+                11,
+            )
+            .expect("manifest")
+        else {
+            panic!("manifest response");
+        };
+        assert_eq!(manifest["header"]["target"], "production_client_result");
+        assert_eq!(
+            manifest["header"]["capability"],
+            "client.readPaperArtifacts"
+        );
+        assert!(manifest["pages"].as_array().expect("pages").len() > 1);
+        let mut content = String::new();
+        for descriptor in manifest["pages"].as_array().expect("pages") {
+            let TransferDispatch::Response(page) = owner
+                .handle(
+                    json!({
+                        "action":"get_output_page",
+                        "sessionId":session_id,
+                        "kind":descriptor["kind"],
+                        "pageIndex":descriptor["pageIndex"],
+                    }),
+                    12,
+                )
+                .expect("page")
+            else {
+                panic!("page response");
+            };
+            content.push_str(page["rows"][0].as_str().expect("content"));
+        }
+        assert_eq!(
+            serde_json::from_str::<Value>(&content).expect("json"),
+            result
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

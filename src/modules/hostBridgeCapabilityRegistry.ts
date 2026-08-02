@@ -2097,7 +2097,12 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "synthesis.operation.get",
     "diagnostic",
     "Read one persistent public Synthesis maintenance operation and its terminal receipt without mutating operation state.",
-    (client, input) => client.maintenance.getOperation(input),
+    (client, input) =>
+      client.maintenance.getOperation(
+        input as unknown as
+          | { operation_id: string; operationId?: never }
+          | { operationId: string; operation_id?: never },
+      ),
     {
       type: "object",
       required: true,

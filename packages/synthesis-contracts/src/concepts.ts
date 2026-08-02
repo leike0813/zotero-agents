@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject } from "./common";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export const SYNTHESIS_CONCEPT_REVIEW_ACTIONS = [
   "approve_create",
@@ -39,7 +40,7 @@ export interface SynthesisConceptsClient {
   query(
     request?: SynthesisConceptQueryRequest,
   ): Promise<SynthesisConceptQueryResult>;
-  rebuildConceptKbIndex(): Promise<SynthesisConceptCommandResult>;
+  rebuildConceptKbIndex(): Promise<SynthesisPublicMaintenanceOperation>;
   updateConceptDisplayText(
     request: SynthesisConceptDisplayTextUpdateRequest,
   ): Promise<SynthesisConceptCommandResult>;

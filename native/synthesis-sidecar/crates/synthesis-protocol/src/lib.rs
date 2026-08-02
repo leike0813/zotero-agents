@@ -65,6 +65,12 @@ pub fn utc_now_iso8601() -> String {
     utc_iso8601_from_unix_millis(unix_millis)
 }
 
+pub fn utc_iso8601_after_millis(value: &str, delay_millis: u64) -> Option<String> {
+    let base = unix_millis_from_utc_iso8601(value)?;
+    let delay = i64::try_from(delay_millis).ok()?;
+    Some(utc_iso8601_from_unix_millis(base.checked_add(delay)?))
+}
+
 pub fn unix_millis_from_utc_iso8601(value: &str) -> Option<i64> {
     if value.len() != 24
         || value.as_bytes().get(4) != Some(&b'-')
@@ -1483,6 +1489,11 @@ mod tests {
             None
         );
         assert_eq!(unix_millis_from_utc_iso8601("1767225600000"), None);
+        assert_eq!(
+            utc_iso8601_after_millis("2026-01-01T00:00:00.000Z", 5_000),
+            Some("2026-01-01T00:00:05.000Z".into())
+        );
+        assert_eq!(utc_iso8601_after_millis("1767225600000", 5_000), None);
     }
 
     #[test]

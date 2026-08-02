@@ -12,6 +12,7 @@ import {
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 import { buildSynthesisUiSnapshot } from "../../src/modules/synthesis/uiModel";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const EXECUTABLE = path.join(
@@ -21,19 +22,26 @@ const EXECUTABLE = path.join(
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
+const PRODUCTION_OPERATION_MANIFEST = JSON.parse(
+  fs.readFileSync(
+    path.join(
+      ROOT,
+      "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
+    ),
+    "utf8",
+  ),
+) as {
+  access: Record<string, "read" | "mutation">;
+  policyOverrides: Record<string, { receipt?: string }>;
+};
 const ALL_PRODUCTION_OPERATIONS = Object.keys(
-  (
-    JSON.parse(
-      fs.readFileSync(
-        path.join(
-          ROOT,
-          "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
-        ),
-        "utf8",
-      ),
-    ) as { access: Record<string, "read" | "mutation"> }
-  ).access,
+  PRODUCTION_OPERATION_MANIFEST.access,
 ).sort();
+const RECEIPT_PRODUCTION_OPERATIONS = new Set(
+  Object.entries(PRODUCTION_OPERATION_MANIFEST.policyOverrides)
+    .filter(([, policy]) => policy.receipt === "public-maintenance-operation")
+    .map(([capability]) => capability),
+);
 const TOPIC_WORKBENCH_OPERATIONS = [
   "client.applyLiteratureDigestSidecar",
   "client.applyTopicSynthesisResult",
@@ -156,6 +164,29 @@ async function call(
     status: response.status,
     body: (await response.json()) as Record<string, any>,
   };
+}
+
+async function waitForMaintenanceOperation(
+  port: number,
+  operationId: string,
+) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const response = await call(
+      port,
+      "client.getPublicMaintenanceOperation",
+      { args: [{ operation_id: operationId }] },
+    );
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    if (
+      ["completed", "failed", "canceled", "timed_out"].includes(
+        String(response.body.data.status),
+      )
+    ) {
+      return response.body.data as Record<string, any>;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`maintenance operation did not finish: ${operationId}`);
 }
 
 function topicApplyRequest(topicId: string) {
@@ -351,6 +382,183 @@ describe("Synthesis Rust production client route", function () {
     });
   });
 
+  it("moves large Topic and artifact content outside the production control envelope", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-content-route-"));
+    const hostCalls: string[] = [];
+    const reverseHost = http.createServer((request, response) => {
+      let source = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        source += chunk;
+      });
+      request.on("end", () => {
+        const requestCall = JSON.parse(source) as {
+          capability: string;
+          payload: Record<string, unknown>;
+        };
+        hostCalls.push(requestCall.capability);
+        let result: Record<string, unknown>;
+        if (requestCall.capability === "library.artifacts.scan_page") {
+          result = {
+            artifacts: [
+              {
+                paperRef: "1:CONTENT1",
+                artifactType: "references",
+                payloadType: "references-json",
+                status: "available",
+                locator: "fixture:references:CONTENT1",
+                payloadHash: `sha256:${"a".repeat(64)}`,
+                estimatedSize: 900_000,
+                diagnostics: [],
+              },
+            ],
+            cursor: "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 1,
+            limit: 50,
+          };
+        } else if (requestCall.capability === "library.artifacts.read") {
+          result = {
+            status: "available",
+            payloadHash: requestCall.payload.expectedHash,
+            content: {
+              kind: "json",
+              value: {
+                padding: "x".repeat(900_000),
+                references: [{ title: "Transferred reference" }],
+              },
+            },
+            diagnostics: [],
+          };
+        } else if (
+          requestCall.capability === "delivery.export.publish_archive"
+        ) {
+          result = {
+            status: "available",
+            capability: "paper_artifacts.export_filtered",
+            delivery: {
+              mode: "bridge-download",
+              bundle: {
+                fileId: "file-content-1",
+                sourceKind: "bridge-export",
+                displayName: "paper-artifacts.zip",
+                contentType: "application/zip",
+                size: 1,
+                sha256: `sha256:${"b".repeat(64)}`,
+                createdAt: "2026-08-02T00:00:00.000Z",
+                expiresAt: "2026-08-02T01:00:00.000Z",
+                owner: { capability: "paper_artifacts.export_filtered" },
+              },
+            },
+            diagnostics: [],
+          };
+        } else {
+          result = {};
+        }
+        const body = JSON.stringify({ ok: true, result });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "content");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-content-route",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    const sidecar = start(configPath);
+    try {
+      const { port } = await sidecar.listening;
+      const health = (await (
+        await fetch(`http://127.0.0.1:${port}/synthesis/v1/health`)
+      ).json()) as { serviceInstanceId: string };
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port,
+            profileId: "1".repeat(64),
+            serviceInstanceId: health.serviceInstanceId,
+          },
+          clientToken: CLIENT_TOKEN,
+        }),
+      });
+      const applyRequest = topicApplyRequest("topic-content-transfer");
+      applyRequest.assets.push({
+        id: "asset/large-padding",
+        mediaType: "text/plain",
+        text: "p".repeat(900_000),
+      });
+      const applied = await composition.client.workflowApply.applyTopicSynthesisResult(
+        applyRequest,
+      );
+      assert.equal(applied.status, "persisted");
+
+      const artifacts = await composition.client.artifacts.readPaperArtifacts({
+        paper_refs: ["1:CONTENT1"],
+        artifact_types: ["references"],
+      });
+      assert.equal(
+        (artifacts.artifacts[0].payload as any).value.padding.length,
+        900_000,
+      );
+      assert.notInclude(JSON.stringify(artifacts), "native-transfer:");
+
+      const exported = await composition.client.artifacts.exportFiltered(
+        { paper_refs: ["1:CONTENT1"], artifact_types: ["references"] },
+        { mode: "remote" },
+      );
+      assert.deepEqual(exported.delivery, {
+        status: "available",
+        capability: "paper_artifacts.export_filtered",
+        delivery: {
+          mode: "bridge-download",
+          bundle: {
+            fileId: "file-content-1",
+            sourceKind: "bridge-export",
+            displayName: "paper-artifacts.zip",
+            contentType: "application/zip",
+            size: 1,
+            sha256: `sha256:${"b".repeat(64)}`,
+            createdAt: "2026-08-02T00:00:00.000Z",
+            expiresAt: "2026-08-02T01:00:00.000Z",
+            owner: { capability: "paper_artifacts.export_filtered" },
+          },
+        },
+        diagnostics: [],
+      });
+      assert.include(hostCalls, "delivery.export.publish_archive");
+      assert.notInclude(JSON.stringify(exported), "900000");
+      await composition.dispose();
+    } finally {
+      if (sidecar.child.exitCode === null) {
+        await stop(sidecar.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("dispatches the closed 95-operation roster through the real production route", async function () {
     this.timeout(60_000);
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
@@ -493,6 +701,20 @@ describe("Synthesis Rust production client route", function () {
           errorCode,
           operation,
         );
+        if (RECEIPT_PRODUCTION_OPERATIONS.has(operation)) {
+          assert.equal(response.status, 200, operation);
+          assert.equal(
+            response.body.data.schema,
+            "synthesis.maintenance_operation.v1",
+            operation,
+          );
+          assert.equal(response.body.data.operation_type, operation, operation);
+          assert.include(
+            ["pending", "running"],
+            response.body.data.status,
+            operation,
+          );
+        }
         observed.push(operation);
       }
       assert.deepEqual(observed, ALL_PRODUCTION_OPERATIONS);
@@ -907,6 +1129,7 @@ describe("Synthesis Rust production client route", function () {
         spanId: "b".repeat(16),
         attempt: 0,
       } as const;
+      const receiptStartedAt = Date.now();
       const refresh = await call(
         port,
         "client.refreshReferenceSidecarNow",
@@ -914,7 +1137,17 @@ describe("Synthesis Rust production client route", function () {
         refreshTrace,
       );
       assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
-      assert.equal(refresh.body.data.ok, true);
+      assert.isBelow(
+        Date.now() - receiptStartedAt,
+        1_000,
+        "the control RPC must return before the delayed Host artifact page",
+      );
+      const refreshCompleted = await waitForMaintenanceOperation(
+        port,
+        refresh.body.data.operation_id,
+      );
+      assert.equal(refreshCompleted.status, "completed");
+      assert.equal(refreshCompleted.receipt.ok, true);
 
       const matching = await call(
         port,
@@ -927,11 +1160,19 @@ describe("Synthesis Rust production client route", function () {
         },
       );
       assert.equal(matching.status, 200, JSON.stringify(matching.body));
-      assert.equal(matching.body.data.ok, true, JSON.stringify(matching.body));
+      const matchingCompleted = await waitForMaintenanceOperation(
+        port,
+        matching.body.data.operation_id,
+      );
       assert.equal(
-        matching.body.data.status,
+        matchingCompleted.receipt.ok,
+        true,
+        JSON.stringify(matchingCompleted),
+      );
+      assert.equal(
+        matchingCompleted.receipt.status,
         "promoted",
-        JSON.stringify(matching.body),
+        JSON.stringify(matchingCompleted),
       );
 
       const chrome = await call(
@@ -1032,6 +1273,11 @@ describe("Synthesis Rust production client route", function () {
         { args: [] },
       );
       assert.equal(rebuildGraph.status, 200, JSON.stringify(rebuildGraph.body));
+      const rebuildGraphCompleted = await waitForMaintenanceOperation(
+        port,
+        rebuildGraph.body.data.operation_id,
+      );
+      assert.equal(rebuildGraphCompleted.status, "completed");
 
       const graphSurface = await call(
         port,
@@ -1073,7 +1319,12 @@ describe("Synthesis Rust production client route", function () {
         JSON.stringify(recomputeLayout.body),
       );
       assert.equal(
-        recomputeLayout.body.data.status,
+        (
+          await waitForMaintenanceOperation(
+            port,
+            recomputeLayout.body.data.operation_id,
+          )
+        ).receipt.status,
         "promoted",
         JSON.stringify(recomputeLayout.body),
       );
@@ -1152,7 +1403,12 @@ describe("Synthesis Rust production client route", function () {
         JSON.stringify(refreshMetrics.body),
       );
       assert.equal(
-        refreshMetrics.body.data.status,
+        (
+          await waitForMaintenanceOperation(
+            port,
+            refreshMetrics.body.data.operation_id,
+          )
+        ).receipt.status,
         "promoted",
         JSON.stringify(refreshMetrics.body),
       );
@@ -1448,7 +1704,40 @@ describe("Synthesis Rust production client route", function () {
         args: [],
       });
       assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
-      assert.equal(refresh.body.data.ok, true);
+      assert.equal(
+        refresh.body.data.schema,
+        "synthesis.maintenance_operation.v1",
+      );
+      assert.include(["pending", "running"], refresh.body.data.status);
+      assert.equal(
+        refresh.body.data.operation_type,
+        "client.refreshReferenceSidecarNow",
+      );
+      const completed = await waitForMaintenanceOperation(
+        port,
+        refresh.body.data.operation_id,
+      );
+      assert.equal(completed.status, "completed");
+      assert.equal(completed.receipt.ok, true);
+
+      const missing = await call(
+        port,
+        "client.getPublicMaintenanceOperation",
+        { args: [{ operation_id: "maintenance:missing" }] },
+      );
+      assert.equal(missing.status, 200, JSON.stringify(missing.body));
+      assert.deepEqual(missing.body.data, {
+        schema: "synthesis.maintenance_operation.v1",
+        operation_id: "maintenance:missing",
+        status: "not_found",
+      });
+      const internal = await call(
+        port,
+        "client.getPublicMaintenanceOperation",
+        { args: [{ operation_id: "reference-job:refresh" }] },
+      );
+      assert.equal(internal.status, 200, JSON.stringify(internal.body));
+      assert.equal(internal.body.data.status, "not_found");
 
       const index = await call(
         port,

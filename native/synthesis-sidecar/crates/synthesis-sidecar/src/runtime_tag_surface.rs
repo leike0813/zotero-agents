@@ -420,17 +420,27 @@ mod tests {
 
         let single = collect_staged_pages(|cursor, _| {
             Ok(TagStagedPage {
-                items: vec![staged("topic:one", "2")],
+                items: vec![staged("topic:one", "2026-07-26T00:00:02.000Z")],
                 cursor,
                 next_cursor: None,
                 has_more: false,
             })
         })
         .expect("single page");
-        assert_eq!(single, vec![staged("topic:one", "2")]);
+        assert_eq!(
+            single,
+            vec![staged("topic:one", "2026-07-26T00:00:02.000Z")]
+        );
 
         let entries = (0..205)
-            .map(|index| staged(&format!("topic:{index:03}"), &format!("{:03}", 205 - index)))
+            .map(|index| {
+                staged(
+                    &format!("topic:{index:03}"),
+                    &synthesis_protocol::utc_iso8601_from_unix_millis(
+                        1_753_488_000_000 + i64::from(205 - index),
+                    ),
+                )
+            })
             .collect::<Vec<_>>();
         let collected = collect_staged_pages(|cursor, limit| {
             let page = entries
@@ -451,11 +461,11 @@ mod tests {
         assert_eq!(collected.len(), 205);
         assert_eq!(
             collected.first().map(|row| row.updated_at.as_str()),
-            Some("205")
+            Some("2025-07-26T00:00:00.205Z")
         );
         assert_eq!(
             collected.last().map(|row| row.updated_at.as_str()),
-            Some("001")
+            Some("2025-07-26T00:00:00.001Z")
         );
     }
 

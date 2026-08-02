@@ -21,6 +21,18 @@ export const SYNTHESIS_SIDECAR_TRANSFER_LIMITS = {
   shutdownBudgetMs: 500,
 } as const;
 
+export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION =
+  "synthesis-production-content-transfer.v1" as const;
+export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING =
+  "canonical_json_text_chunks.v1" as const;
+export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_TARGETS = [
+  "topic_apply_assets",
+  "production_client_result",
+] as const;
+
+export type SynthesisProductionContentTransferTarget =
+  (typeof SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_TARGETS)[number];
+
 export type SynthesisSidecarTransferDirection = "input" | "output";
 export type SynthesisSidecarTransferPageDescriptor = {
   kind: string;

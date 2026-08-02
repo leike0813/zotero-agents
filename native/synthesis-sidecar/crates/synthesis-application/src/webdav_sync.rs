@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const WEBDAV_RETRY_DELAYS_MS: [u64; 4] = [1_000, 5_000, 30_000, 120_000];
+const WEBDAV_STALE_SYNCING_MS: i64 = 5 * 60 * 1_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -254,7 +255,8 @@ impl WebDavSyncApplication {
         let timestamp = (self.now)();
         let host = self.describe_host();
         let configured = host.status == "available" && host.config_status == "configured";
-        let mut state = self.state_store.load()?.unwrap_or(WebDavSyncState {
+        let loaded = self.state_store.load()?;
+        let mut state = loaded.clone().unwrap_or(WebDavSyncState {
             schema_id: "synthesis.webdav_sync_state".into(),
             schema_version: "1.0.0".into(),
             queue_state: if configured { "idle" } else { "disabled" }.into(),
@@ -273,6 +275,9 @@ impl WebDavSyncApplication {
             updated_at: timestamp.clone(),
             ..WebDavSyncState::default()
         });
+        if loaded.is_some() {
+            normalize_legacy_retry_timestamp(&mut state)?;
+        }
         validate_state(&state)?;
         state.adapter_configured = configured;
         state.config_status = host.config_status;
@@ -281,7 +286,7 @@ impl WebDavSyncApplication {
         state.username = host.username;
         state.credential_updated_at = host.credential_updated_at;
         state.connection_test = host.connection_test;
-        if state.queue_state == "syncing" && state.updated_at != timestamp {
+        if stale_syncing(&state, &timestamp)? {
             state.queue_state = "failed_retryable".into();
             state.diagnostics = vec![diagnostic("webdav_sync_stale_running_recovered", "warning")];
         }
@@ -306,7 +311,9 @@ impl WebDavSyncApplication {
                 break;
             }
             state.retry_attempt = index + 1;
-            state.next_retry_at = format!("{}+{}ms", (self.now)(), delay);
+            state.next_retry_at =
+                synthesis_protocol::utc_iso8601_after_millis(&(self.now)(), delay)
+                    .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
             state = self.save(state)?;
             if !self.scheduler.wait(delay, generation)? || self.generation()? != generation {
                 break;
@@ -759,10 +766,37 @@ impl DurableBundleSourcePort for RemoteBundleSource {
 }
 
 fn validate_state(state: &WebDavSyncState) -> Result<(), String> {
+    let timestamp = |value: &str| synthesis_protocol::unix_millis_from_utc_iso8601(value);
+    let optional_timestamp = |value: &str| value.is_empty() || timestamp(value).is_some();
+    let progress_timestamp = match &state.progress {
+        Value::Null => true,
+        Value::Object(progress) => progress
+            .get("updated_at")
+            .map(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|value| timestamp(value).is_some())
+            })
+            .unwrap_or(true),
+        _ => false,
+    };
+    let last_run_timestamps = state.last_run.as_ref().is_none_or(|last_run| {
+        let Some(started_at) = timestamp(&last_run.started_at) else {
+            return false;
+        };
+        let Some(completed_at) = timestamp(&last_run.completed_at) else {
+            return false;
+        };
+        completed_at >= started_at
+    });
     if state.schema_id != "synthesis.webdav_sync_state"
         || state.schema_version != "1.0.0"
         || state.retry_attempt > 4
-        || state.updated_at.is_empty()
+        || timestamp(&state.updated_at).is_none()
+        || !optional_timestamp(&state.next_retry_at)
+        || !optional_timestamp(&state.credential_updated_at)
+        || !progress_timestamp
+        || !last_run_timestamps
     {
         Err("webdav_sync_state_invalid".into())
     } else {
@@ -775,11 +809,48 @@ fn validate_head(head: &WebDavHead) -> Result<(), Failure> {
         || head.schema_version != "1.0.0"
         || head.snapshot_id.is_empty()
         || !head.manifest_hash.starts_with("sha256:")
+        || synthesis_protocol::unix_millis_from_utc_iso8601(&head.updated_at).is_none()
     {
         Err(Failure::Code("webdav_sync_head_invalid".into(), false))
     } else {
         Ok(())
     }
+}
+
+fn normalize_legacy_retry_timestamp(state: &mut WebDavSyncState) -> Result<(), String> {
+    if state.next_retry_at.is_empty()
+        || synthesis_protocol::unix_millis_from_utc_iso8601(&state.next_retry_at).is_some()
+    {
+        return Ok(());
+    }
+    let (base, delay) = state
+        .next_retry_at
+        .rsplit_once('+')
+        .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+    let delay = delay
+        .strip_suffix("ms")
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+    state.next_retry_at = synthesis_protocol::utc_iso8601_after_millis(base, delay)
+        .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+    Ok(())
+}
+
+fn stale_syncing(state: &WebDavSyncState, observed_at: &str) -> Result<bool, String> {
+    if state.queue_state != "syncing" {
+        return Ok(false);
+    }
+    let updated_at = state
+        .progress
+        .as_object()
+        .and_then(|progress| progress.get("updated_at"))
+        .and_then(Value::as_str)
+        .unwrap_or(&state.updated_at);
+    let updated_at = synthesis_protocol::unix_millis_from_utc_iso8601(updated_at)
+        .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+    let observed_at = synthesis_protocol::unix_millis_from_utc_iso8601(observed_at)
+        .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+    Ok(observed_at.saturating_sub(updated_at) > WEBDAV_STALE_SYNCING_MS)
 }
 
 fn allowed_actions(state: &WebDavSyncState) -> Vec<String> {
@@ -949,6 +1020,56 @@ mod tests {
         }
     }
 
+    struct UnavailableHost;
+
+    impl WebDavHostPort for UnavailableHost {
+        fn describe(&self) -> Result<WebDavHostDescription, String> {
+            Ok(WebDavHostDescription {
+                status: "available".into(),
+                config_status: "configured".into(),
+                auto_retry_enabled: true,
+                base_url: "https://example.test".into(),
+                remote_path: "synthesis".into(),
+                ..WebDavHostDescription::default()
+            })
+        }
+
+        fn read_text(&self, _path: &str) -> Result<WebDavReadResult, String> {
+            Ok(WebDavReadResult {
+                status: "unavailable".into(),
+                diagnostics: vec!["webdav_sync_transport_unavailable".into()],
+                ..WebDavReadResult::default()
+            })
+        }
+
+        fn ensure_collection(&self, _path: &str) -> Result<WebDavWriteResult, String> {
+            Err("unexpected_write".into())
+        }
+
+        fn write_text(
+            &self,
+            _path: &str,
+            _text: &str,
+            _if_match: Option<&str>,
+        ) -> Result<WebDavWriteResult, String> {
+            Err("unexpected_write".into())
+        }
+    }
+
+    fn persisted_state(updated_at: &str) -> WebDavSyncState {
+        WebDavSyncState {
+            schema_id: "synthesis.webdav_sync_state".into(),
+            schema_version: "1.0.0".into(),
+            queue_state: "idle".into(),
+            adapter_configured: true,
+            config_status: "configured".into(),
+            base_url: "https://example.test".into(),
+            remote_path: "synthesis".into(),
+            updated_at: updated_at.into(),
+            ..WebDavSyncState::default()
+        }
+    }
+
     struct Durable;
 
     impl WebDavDurablePort for Durable {
@@ -1003,5 +1124,100 @@ mod tests {
         application.abort().expect("abort");
 
         assert_eq!(*scheduler.0.lock().expect("cancellations"), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn canonicalizes_legacy_retry_timestamp_when_reopening_state() {
+        let mut legacy = persisted_state("2026-07-26T00:00:00.000Z");
+        legacy.next_retry_at = "2026-07-26T00:00:00.000Z+5000ms".into();
+        let state = Arc::new(MemoryState(Mutex::new(Some(legacy))));
+        let application = WebDavSyncApplication::new(
+            Arc::new(Host),
+            state.clone(),
+            Arc::new(Scheduler),
+            Arc::new(Durable),
+            Arc::new(|| "2026-07-26T00:01:00.000Z".into()),
+        );
+
+        let reopened = application.load_webdav_sync_state().expect("reopen");
+        assert_eq!(reopened.next_retry_at, "2026-07-26T00:00:05.000Z");
+        assert_eq!(
+            state
+                .0
+                .lock()
+                .expect("state")
+                .as_ref()
+                .expect("persisted")
+                .next_retry_at,
+            "2026-07-26T00:00:05.000Z"
+        );
+    }
+
+    #[test]
+    fn schedules_retry_with_a_canonical_future_timestamp() {
+        let application = WebDavSyncApplication::new(
+            Arc::new(UnavailableHost),
+            Arc::new(MemoryState::default()),
+            Arc::new(Scheduler),
+            Arc::new(Durable),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+        )
+        .with_policy(false, vec![5_000]);
+
+        let result = application.trigger_webdav_sync().expect("trigger");
+        assert_eq!(result.retry_attempt, 1);
+        assert_eq!(result.next_retry_at, "2026-07-26T00:00:05.000Z");
+    }
+
+    #[test]
+    fn rejects_invalid_and_reversed_persisted_timestamps() {
+        for mut state in [
+            persisted_state("1761436800000"),
+            persisted_state("2026-07-26T00:00:00.000Z"),
+        ] {
+            if state.updated_at.starts_with("2026") {
+                state.last_run = Some(WebDavLastRun {
+                    run_id: "run:reversed".into(),
+                    status: "completed".into(),
+                    started_at: "2026-07-26T00:00:01.000Z".into(),
+                    completed_at: "2026-07-26T00:00:00.000Z".into(),
+                    diagnostics: Vec::new(),
+                    ..WebDavLastRun::default()
+                });
+            }
+            assert_eq!(
+                validate_state(&state),
+                Err("webdav_sync_state_invalid".into())
+            );
+        }
+    }
+
+    #[test]
+    fn recovers_only_stale_running_state() {
+        for (now, expected) in [
+            ("2026-07-26T00:04:59.999Z", "syncing"),
+            ("2026-07-26T00:05:00.001Z", "failed_retryable"),
+        ] {
+            let mut persisted = persisted_state("2026-07-26T00:00:00.000Z");
+            persisted.queue_state = "syncing".into();
+            let application = WebDavSyncApplication::new(
+                Arc::new(Host),
+                Arc::new(MemoryState(Mutex::new(Some(persisted)))),
+                Arc::new(Scheduler),
+                Arc::new(Durable),
+                Arc::new({
+                    let now = now.to_owned();
+                    move || now.clone()
+                }),
+            );
+
+            assert_eq!(
+                application
+                    .load_webdav_sync_state()
+                    .expect("load")
+                    .queue_state,
+                expected
+            );
+        }
     }
 }

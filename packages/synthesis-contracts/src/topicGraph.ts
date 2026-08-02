@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject } from "./common";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export const SYNTHESIS_TOPIC_GRAPH_REVIEW_ACTIONS = [
   "approve_suggested",
@@ -20,7 +21,7 @@ export type SynthesisTopicGraphReviewActionRequest = {
 export type SynthesisTopicGraphCommandResult = SynthesisJsonObject;
 
 export interface SynthesisTopicGraphClient {
-  rebuildTopicGraphIndex(): Promise<SynthesisTopicGraphCommandResult>;
+  rebuildTopicGraphIndex(): Promise<SynthesisPublicMaintenanceOperation>;
   acceptTopicGraphRelation(
     request: SynthesisTopicGraphEdgeDecisionRequest,
   ): Promise<SynthesisTopicGraphCommandResult>;

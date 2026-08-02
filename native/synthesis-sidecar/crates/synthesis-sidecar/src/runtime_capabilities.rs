@@ -50,7 +50,7 @@ pub(crate) struct ServeState {
     pub(crate) profile: String,
     pub(crate) repository_id: String,
     pub(crate) repository: Arc<Mutex<Repository>>,
-    pub(crate) applications: ProductionApplications,
+    pub(crate) applications: Arc<ProductionApplications>,
     pub(crate) production_client_operations: BTreeMap<String, ProductionClientOperationMetadata>,
     pub(crate) runtime_ownership: Arc<RuntimeOwnership>,
     pub(crate) canonical: CanonicalStorePort,
@@ -377,6 +377,34 @@ pub(crate) fn handle_connection(
                         if code == "invalid_request" { 400 } else { 503 },
                         error_response(&code),
                     ),
+                }
+            }
+            "transfer.content" => {
+                let result = state
+                    .transfer
+                    .lock()
+                    .map_err(|_| "transfer_unavailable".to_owned())?
+                    .handle_content(call.payload, current_time_ms()?);
+                match result {
+                    Ok(data) => bounded_response(
+                        &mut stream,
+                        200,
+                        call_response(&call.request_id, &state.service_instance_id, data),
+                        MAX_READ_RESPONSE_BYTES,
+                    ),
+                    Err(code) => {
+                        let status = match code.as_str() {
+                            "transfer_busy" => 429,
+                            "transfer_not_found" => 404,
+                            "transfer_conflict"
+                            | "transfer_incomplete"
+                            | "transfer_output_not_ready" => 409,
+                            "transfer_limit_exceeded" => 413,
+                            "transfer_stopping" => 503,
+                            _ => 400,
+                        };
+                        response(&mut stream, status, error_response(&code))
+                    }
                 }
             }
             "compute.citation_graph_build_transfer" => {

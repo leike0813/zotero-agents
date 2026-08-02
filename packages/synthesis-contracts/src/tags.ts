@@ -1,5 +1,6 @@
 import type { SynthesisJsonObject, SynthesisJsonValue } from "./common";
 import type { SynthesisHostItemRef } from "./itemRef";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export type SynthesisTagVocabularySnapshot = SynthesisJsonObject;
 
@@ -65,7 +66,7 @@ export interface SynthesisTagsClient {
   loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot>;
   saveTagVocabulary(request: SynthesisJsonObject): Promise<SynthesisJsonValue>;
   validateTagVocabulary(): Promise<SynthesisJsonValue>;
-  rebuildTagVocabularyIndex(): Promise<SynthesisJsonObject>;
+  rebuildTagVocabularyIndex(): Promise<SynthesisPublicMaintenanceOperation>;
   exportTagVocabularyForRegulator(): Promise<string[]>;
   listStagedTagSuggestions(): Promise<SynthesisTagStagedSuggestion[]>;
   stageTagSuggestions(

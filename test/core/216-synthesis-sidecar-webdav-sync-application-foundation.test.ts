@@ -119,6 +119,7 @@ describe("Synthesis sidecar WebDAV Sync application foundation", function () {
     for (const invalid of [
       { snapshot_id: "../escape" },
       { manifest_hash: "sha256:short" },
+      { updated_at: "1760788800000" },
       { ignored: true },
     ]) {
       assert.throws(() =>
@@ -152,6 +153,24 @@ describe("Synthesis sidecar WebDAV Sync application foundation", function () {
     assert.throws(() =>
       rebuildSynthesisWebDavSyncState({ ...state, unknown_field: true }),
     );
+    for (const invalid of [
+      { updated_at: "1760788800000" },
+      { next_retry_at: `${NOW}+60000ms` },
+      {
+        last_run: {
+          run_id: "run:invalid-order",
+          status: "completed",
+          started_at: "2026-07-18T12:00:01.000Z",
+          completed_at: NOW,
+          diagnostics: [],
+        },
+      },
+      { progress: { updated_at: "2026-07-18" } },
+    ]) {
+      assert.throws(() =>
+        rebuildSynthesisWebDavSyncState({ ...state, ...invalid }),
+      );
+    }
     assert.throws(() =>
       rebuildSynthesisWebDavSyncState({
         ...state,

@@ -2363,11 +2363,11 @@ mod tests {
     fn restart_cancels_only_running_operations() {
         let root = root("restart");
         let repository = Repository::open(&root, identity()).expect("open");
-        for (id, status) in [
-            ("running", "running"),
-            ("succeeded", "succeeded"),
-            ("failed", "failed"),
-            ("canceled", "canceled"),
+        for (id, status, updated_at) in [
+            ("running", "running", "2026-01-01T00:00:03.000Z"),
+            ("succeeded", "succeeded", "2026-01-01T00:00:02.000Z"),
+            ("failed", "failed", "2026-01-01T00:00:01.000Z"),
+            ("canceled", "canceled", "2026-01-01T00:00:01.000Z"),
         ] {
             repository
                 .upsert_operation(&OperationRecord {
@@ -2378,8 +2378,8 @@ mod tests {
                     label: String::new(),
                     phase: String::new(),
                     message: String::new(),
-                    created_at: "2026-01-01".into(),
-                    updated_at: "2026-01-01".into(),
+                    created_at: "2026-01-01T00:00:00.000Z".into(),
+                    updated_at: updated_at.into(),
                     ..OperationRecord::default()
                 })
                 .expect("operation");
@@ -2400,6 +2400,19 @@ mod tests {
                 json!({"operation_id":"running","status":"canceled"}),
                 json!({"operation_id":"succeeded","status":"succeeded"}),
             ]
+        );
+        assert_eq!(
+            repository
+                .list_operations(&OperationQuery {
+                    include_completed: true,
+                    limit: 10,
+                    ..OperationQuery::default()
+                })
+                .expect("ordered operations")
+                .into_iter()
+                .map(|row| row.operation_id)
+                .collect::<Vec<_>>(),
+            vec!["running", "succeeded", "canceled", "failed"]
         );
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");

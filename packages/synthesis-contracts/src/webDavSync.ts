@@ -24,6 +24,7 @@ export const SYNTHESIS_WEBDAV_SYNC_RETRY_DELAYS_MS = [
 ] as const;
 
 const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const UTC_ISO_8601_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const STRING_MAX = 4096;
 const STATE_COLLECTION_MAX = 20;
@@ -240,6 +241,23 @@ function boundedString(value: unknown, code: string) {
 
 function boundedOptionalString(value: unknown, code: string) {
   return value === undefined ? undefined : boundedString(value, code);
+}
+
+function utcIso8601(value: unknown, code: string) {
+  const timestamp = boundedString(value, code);
+  const parsed = Date.parse(timestamp);
+  if (
+    !UTC_ISO_8601_PATTERN.test(timestamp) ||
+    !Number.isFinite(parsed) ||
+    new Date(parsed).toISOString() !== timestamp
+  ) {
+    throw new Error(code);
+  }
+  return timestamp;
+}
+
+function optionalUtcIso8601(value: unknown, code: string) {
+  return value === undefined ? undefined : utcIso8601(value, code);
 }
 
 function boundedMaybeEmptyString(value: unknown, code: string) {
@@ -526,8 +544,17 @@ export function rebuildSynthesisWebDavSyncState(
       throw new Error("webdav_sync_last_run_status_invalid");
     }
     boundedString(entry.run_id, "webdav_sync_run_id_invalid");
-    boundedString(entry.started_at, "webdav_sync_started_at_invalid");
-    boundedString(entry.completed_at, "webdav_sync_completed_at_invalid");
+    const startedAt = utcIso8601(
+      entry.started_at,
+      "webdav_sync_started_at_invalid",
+    );
+    const completedAt = utcIso8601(
+      entry.completed_at,
+      "webdav_sync_completed_at_invalid",
+    );
+    if (completedAt < startedAt) {
+      throw new Error("webdav_sync_completed_at_invalid");
+    }
     diagnosticCollection(
       entry.diagnostics,
       "webdav_sync_last_run_diagnostics_invalid",
@@ -556,9 +583,13 @@ export function rebuildSynthesisWebDavSyncState(
       [],
       "webdav_sync_progress_fields_invalid",
     );
-    for (const field of ["phase", "phase_label", "message", "updated_at"]) {
+    for (const field of ["phase", "phase_label", "message"]) {
       boundedOptionalString(progress[field], "webdav_sync_progress_invalid");
     }
+    optionalUtcIso8601(
+      progress.updated_at,
+      "webdav_sync_progress_updated_at_invalid",
+    );
     for (const field of [
       "processed_count",
       "total_count",
@@ -574,16 +605,16 @@ export function rebuildSynthesisWebDavSyncState(
   boundedMaybeEmptyString(json.base_url, "webdav_sync_base_url_invalid");
   boundedMaybeEmptyString(json.remote_path, "webdav_sync_remote_path_invalid");
   boundedOptionalString(json.username, "webdav_sync_username_invalid");
-  boundedOptionalString(
+  optionalUtcIso8601(
     json.credential_updated_at,
     "webdav_sync_credential_updated_at_invalid",
   );
-  boundedOptionalString(
+  optionalUtcIso8601(
     json.next_retry_at,
     "webdav_sync_next_retry_at_invalid",
   );
   boundedOptionalString(json.last_phase, "webdav_sync_last_phase_invalid");
-  boundedString(json.updated_at, "webdav_sync_updated_at_invalid");
+  utcIso8601(json.updated_at, "webdav_sync_updated_at_invalid");
   if (json.connection_test !== undefined) {
     boundedJson(json.connection_test, "webdav_sync_connection_test_invalid");
   }
@@ -646,7 +677,7 @@ export function rebuildSynthesisWebDavSnapshotPointer(
   if (!HASH_PATTERN.test(manifestHash)) {
     throw new Error("webdav_sync_manifest_hash_invalid");
   }
-  const updatedAt = boundedString(
+  const updatedAt = utcIso8601(
     json.updated_at,
     "webdav_sync_updated_at_invalid",
   );

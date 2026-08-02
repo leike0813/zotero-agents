@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject } from "./common";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export const SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS = [
   "keep_local",
@@ -20,10 +21,10 @@ export type SynthesisSyncConflictResolutionRequest = {
 export type SynthesisSyncCommandResult = SynthesisJsonObject;
 
 export interface SynthesisSyncTransportClient {
-  runNow(): Promise<SynthesisSyncCommandResult>;
+  runNow(): Promise<SynthesisPublicMaintenanceOperation>;
   pause(): Promise<SynthesisSyncCommandResult>;
   resume(): Promise<SynthesisSyncCommandResult>;
-  retry(): Promise<SynthesisSyncCommandResult>;
+  retry(): Promise<SynthesisPublicMaintenanceOperation>;
   resolveConflict(
     request: SynthesisSyncConflictResolutionRequest,
   ): Promise<SynthesisSyncCommandResult>;

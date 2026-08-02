@@ -1,14 +1,100 @@
 {
-  "schema": "synthesis-production-client-operations.v1",
+  "schema": "synthesis-production-client-operations.v2",
   "requestCodec": "synthesis-client-args.v1",
   "resultCodec": "synthesis-client-result.v1",
   "requestBytes": 1048576,
   "responseBytes": 1048576,
+  "controlTargetBytes": 786432,
   "deadlineMs": 10000,
   "deadlineOverridesMs": {
     "client.startReferenceSidecarRefresh": 60000,
     "client.refreshReferenceSidecarNow": 60000,
     "client.retryReferenceSidecarRefresh": 60000
+  },
+  "receiptQueryCapability": "client.getPublicMaintenanceOperation",
+  "policyDefaults": {
+    "requestPlane": "control",
+    "resultPlane": "control",
+    "workModel": "bounded",
+    "receipt": "inline"
+  },
+  "policyOverrides": {
+    "client.applyTopicSynthesisResult": {
+      "requestPlane": "transfer"
+    },
+    "client.readPaperArtifacts": {
+      "resultPlane": "locator"
+    },
+    "client.getReviewInput": {
+      "resultPlane": "locator"
+    },
+    "client.exportFilteredPaperArtifacts": {
+      "resultPlane": "delivery"
+    },
+    "client.startReferenceSidecarRefresh": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.refreshReferenceSidecarNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryReferenceSidecarRefresh": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.runAdvancedReferenceMatchingNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryAdvancedReferenceMatching": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.startCitationGraphUpdate": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildCitationGraphCacheNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.refreshCitationGraphCacheIncrementalNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryCitationGraphCacheRebuild": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.refreshCitationGraphMetricsNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.recomputeCitationGraphLayout": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildTagVocabularyIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildConceptKbIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.rebuildTopicGraphIndex": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.syncWebDavNow": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    },
+    "client.retryWebDavSync": {
+      "workModel": "receipt",
+      "receipt": "public-maintenance-operation"
+    }
   },
   "access": {
     "client.listTopics": "read",

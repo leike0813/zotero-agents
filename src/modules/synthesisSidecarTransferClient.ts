@@ -18,6 +18,11 @@ import {
   type SynthesisSidecarRpcConnection,
 } from "./synthesisSidecarRpcClient";
 
+type TransferRpcClient = Pick<
+  ReturnType<typeof createSynthesisSidecarRpcClient>,
+  "call"
+>;
+
 export type SynthesisSidecarTransferConnection = SynthesisSidecarRpcConnection;
 export type SynthesisSidecarTransferCallOptions = {
   signal?: AbortSignal;
@@ -31,50 +36,28 @@ export class SynthesisSidecarTransferClientError extends Error {
   }
 }
 
-function strictManifest(value: unknown): SynthesisSidecarTransferManifest {
-  const generic = rebuildSynthesisSidecarTransferManifest(value);
-  return rebuildSynthesisCitationGraphBuildTransferManifest(
-    generic,
-  ) as unknown as SynthesisSidecarTransferManifest;
-}
-
-function strictPage(value: unknown): SynthesisSidecarTransferPage {
-  const generic = rebuildSynthesisSidecarTransferPage(value);
-  return rebuildSynthesisCitationGraphBuildTransferPage(
-    generic,
-  ) as unknown as SynthesisSidecarTransferPage;
-}
-
-export function createSynthesisSidecarTransferClient(options?: {
-  fetch?: typeof fetch;
-  deadlineMs?: number;
+function createTransferActions(args: {
+  rpc: TransferRpcClient;
+  capability:
+    | "compute.citation_graph_build_transfer"
+    | "transfer.content";
+  strictManifest(value: unknown): SynthesisSidecarTransferManifest;
+  strictPage(value: unknown): SynthesisSidecarTransferPage;
 }) {
-  const rpc = createSynthesisSidecarRpcClient({
-    fetch: options?.fetch,
-    deadlineMs: options?.deadlineMs ?? 5_000,
-    requestIdPrefix: "transfer",
-    transportErrors: {
-      canceled: "worker_canceled",
-      timeout: "worker_timeout",
-      invalidResponse: "worker_result_invalid",
-      unavailable: "worker_unavailable",
-    },
-  });
-
-  const call = async <Result>(args: {
+  const call = async <Result>(callArgs: {
     connection: SynthesisSidecarTransferConnection;
     action: unknown;
     rebuildResult(value: unknown): Result;
     callOptions?: SynthesisSidecarTransferCallOptions;
   }) => {
     try {
-      return await rpc.call({
-        connection: args.connection,
-        capability: "compute.citation_graph_build_transfer",
-        payload: rebuildSynthesisSidecarTransferAction(args.action),
-        rebuildResult: args.rebuildResult,
-        signal: args.callOptions?.signal,
-        deadlineMs: args.callOptions?.deadlineMs,
+      return await args.rpc.call({
+        connection: callArgs.connection,
+        capability: args.capability,
+        payload: rebuildSynthesisSidecarTransferAction(callArgs.action),
+        rebuildResult: callArgs.rebuildResult,
+        signal: callArgs.callOptions?.signal,
+        deadlineMs: callArgs.callOptions?.deadlineMs,
       });
     } catch (error) {
       if (error instanceof SynthesisSidecarRpcError) {
@@ -96,7 +79,7 @@ export function createSynthesisSidecarTransferClient(options?: {
         action: {
           action: "begin",
           idempotencyKey,
-          manifest: strictManifest(manifest),
+          manifest: args.strictManifest(manifest),
         },
         rebuildResult: rebuildSynthesisSidecarTransferStatus,
         callOptions,
@@ -110,7 +93,11 @@ export function createSynthesisSidecarTransferClient(options?: {
     ): Promise<SynthesisSidecarTransferStatus> {
       return call({
         connection,
-        action: { action: "put_input_page", sessionId, page: strictPage(page) },
+        action: {
+          action: "put_input_page",
+          sessionId,
+          page: args.strictPage(page),
+        },
         rebuildResult: rebuildSynthesisSidecarTransferStatus,
         callOptions,
       });
@@ -159,7 +146,7 @@ export function createSynthesisSidecarTransferClient(options?: {
       return call({
         connection,
         action: { action: "get_output_manifest", sessionId },
-        rebuildResult: strictManifest,
+        rebuildResult: args.strictManifest,
         callOptions,
       });
     },
@@ -173,7 +160,7 @@ export function createSynthesisSidecarTransferClient(options?: {
       return call({
         connection,
         action: { action: "get_output_page", sessionId, kind, pageIndex },
-        rebuildResult: strictPage,
+        rebuildResult: args.strictPage,
         callOptions,
       });
     },
@@ -201,4 +188,53 @@ export function createSynthesisSidecarTransferClient(options?: {
       });
     },
   };
+}
+
+function strictManifest(value: unknown): SynthesisSidecarTransferManifest {
+  const generic = rebuildSynthesisSidecarTransferManifest(value);
+  return rebuildSynthesisCitationGraphBuildTransferManifest(
+    generic,
+  ) as unknown as SynthesisSidecarTransferManifest;
+}
+
+function strictPage(value: unknown): SynthesisSidecarTransferPage {
+  const generic = rebuildSynthesisSidecarTransferPage(value);
+  return rebuildSynthesisCitationGraphBuildTransferPage(
+    generic,
+  ) as unknown as SynthesisSidecarTransferPage;
+}
+
+export function createSynthesisSidecarTransferClient(options?: {
+  fetch?: typeof fetch;
+  deadlineMs?: number;
+}) {
+  const rpc = createSynthesisSidecarRpcClient({
+    fetch: options?.fetch,
+    deadlineMs: options?.deadlineMs ?? 5_000,
+    requestIdPrefix: "transfer",
+    transportErrors: {
+      canceled: "worker_canceled",
+      timeout: "worker_timeout",
+      invalidResponse: "worker_result_invalid",
+      unavailable: "worker_unavailable",
+    },
+  });
+
+  return createTransferActions({
+    rpc,
+    capability: "compute.citation_graph_build_transfer",
+    strictManifest,
+    strictPage,
+  });
+}
+
+export function createSynthesisSidecarContentTransferClient(options: {
+  rpcClient: TransferRpcClient;
+}) {
+  return createTransferActions({
+    rpc: options.rpcClient,
+    capability: "transfer.content",
+    strictManifest: rebuildSynthesisSidecarTransferManifest,
+    strictPage: rebuildSynthesisSidecarTransferPage,
+  });
 }

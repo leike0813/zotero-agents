@@ -18,13 +18,13 @@
 - [x] 3.2 Implement library-backed resolver semantics and strict Topic apply validation without empty-asset fallback
 - [x] 3.3 Restore domain-specific Workbench Home, Topics, Review, Tags, Concepts, Reader, Index, and Graph projections
 - [x] 3.4 Restore Topic digest/delete/purge lifecycle and replace fake debug/profiler/paper/diff projections with real data or stable unavailable terminals
-- [ ] 3.5 Normalize persisted/public timestamps to ISO-8601 and cover freshness, retry, and ordering semantics
+- [x] 3.5 Normalize persisted/public timestamps to ISO-8601 and cover freshness, retry, and ordering semantics
 
 ## 4. Restore Wire and Operation Contracts
 
-- [ ] 4.1 Extend the operation manifest with operation-specific control/content and receipt policies and keep TypeScript/Rust resolution exact
-- [ ] 4.2 Reuse the existing authenticated transfer path for large Topic apply assets and artifact/review/export content
-- [ ] 4.3 Return the existing maintenance-operation receipt for all approved long mutations and update every grouped-client consumer
+- [x] 4.1 Extend the operation manifest with operation-specific control/content and receipt policies and keep TypeScript/Rust resolution exact
+- [x] 4.2 Reuse the existing authenticated transfer path for large Topic apply assets and artifact/review/export content
+- [x] 4.3 Return the existing maintenance-operation receipt for all approved long mutations and update every grouped-client consumer
 - [ ] 4.4 Implement bounded phase progress, cancellation, retry, timeout, and single terminal behavior without a global queue
 
 ## 5. Replace Compatibility Routing

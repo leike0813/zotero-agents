@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject } from "./common";
+import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_ALGORITHMS = [
   "force",
@@ -209,7 +210,7 @@ export type SynthesisCitationGraphMetricsResult = {
 export interface SynthesisGraphClient {
   startUpdate(
     request?: SynthesisGraphCommandRequest,
-  ): Promise<SynthesisGraphCommandResult>;
+  ): Promise<SynthesisPublicMaintenanceOperation>;
   queryCluster(
     request?: SynthesisGraphQueryRequest,
   ): Promise<SynthesisGraphQueryResult>;
@@ -230,11 +231,11 @@ export interface SynthesisGraphClient {
   ): Promise<SynthesisCitationGraphMetricsResult>;
   refreshMetricsNow(
     request?: SynthesisGraphCommandRequest,
-  ): Promise<SynthesisGraphCommandResult>;
+  ): Promise<SynthesisPublicMaintenanceOperation>;
   recomputeCitationGraphLayout(
     request: SynthesisCitationGraphLayoutRequest,
-  ): Promise<SynthesisGraphCommandResult>;
-  rebuildCitationGraphCacheNow(): Promise<SynthesisGraphCommandResult>;
-  refreshCitationGraphCacheIncrementalNow(): Promise<SynthesisGraphCommandResult>;
-  retryCitationGraphCacheRebuild(): Promise<SynthesisGraphCommandResult>;
+  ): Promise<SynthesisPublicMaintenanceOperation>;
+  rebuildCitationGraphCacheNow(): Promise<SynthesisPublicMaintenanceOperation>;
+  refreshCitationGraphCacheIncrementalNow(): Promise<SynthesisPublicMaintenanceOperation>;
+  retryCitationGraphCacheRebuild(): Promise<SynthesisPublicMaintenanceOperation>;
 }
