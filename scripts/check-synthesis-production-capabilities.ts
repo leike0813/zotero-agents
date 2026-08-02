@@ -10,6 +10,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarSystem";
 import {
   SYNTHESIS_PRODUCTION_SURFACES,
+  inspectSynthesisProductionBaselineEvidence,
   readSynthesisProductionSurfaceCorpora,
   synthesisProductionSurfaceOperationFingerprint,
 } from "./synthesisProductionSurfaceCorpora";
@@ -250,6 +251,10 @@ export function inspectSynthesisProductionCapabilities(
         ),
       ],
       surfaceCorpusDuplicates: duplicateValues(corpusCapabilities),
+      surfaceBaselineEvidence: inspectSynthesisProductionBaselineEvidence(
+        surfaceCorpora,
+        ROOT,
+      ),
       missingFromSurfaceCorpora: difference(
         manifestCapabilities,
         corpusCapabilities,

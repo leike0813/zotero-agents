@@ -16,6 +16,31 @@ const FIXTURE_ROOT = path.join(
   ROOT_DIR,
   "test/fixtures/synthesis-sidecar-migration",
 );
+const APPROVED_RETIRED_METHODS = [
+  "applySynthesisJsonImport",
+  "clearGitSyncAccessToken",
+  "exportConceptKbCheckpoint",
+  "exportSynthesisCheckpoint",
+  "exportTagVocabularyCheckpoint",
+  "exportTopicGraphCheckpoint",
+  "getGitSyncPrefsConfigurationStatus",
+  "loadGitSyncState",
+  "pauseGitSync",
+  "previewSynthesisJsonImport",
+  "readGitSyncDiagnostics",
+  "rebuildMirrorFromCanonical",
+  "recoverCanonicalFromMirror",
+  "refreshMirror",
+  "resolveGitSyncConflict",
+  "resumeGitSync",
+  "retryGitSync",
+  "saveGitSyncAccessToken",
+  "saveGitSyncPrefsConfiguration",
+  "syncNow",
+  "syncRelatedItemsNow",
+  "testGitSyncPrefsConfiguration",
+  "verifySynthesisCheckpoint",
+].sort();
 
 async function loadBoundaryChecker() {
   assert.isTrue(
@@ -43,7 +68,10 @@ describe("Synthesis sidecar migration boundary", function () {
       fingerprint_sha256:
         "86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e",
     });
-    assert.deepEqual(report.inventory.audit.deletion_authorization, []);
+    assert.deepEqual(
+      [...report.inventory.audit.deletion_authorization].sort(),
+      APPROVED_RETIRED_METHODS,
+    );
     assert.equal(report.inventory.audit.source_public_method_count, 113);
     assert.equal(report.inventory.audit.wire_operation_count, 95);
     assert.lengthOf(report.baselineMethods, 131);
@@ -58,6 +86,21 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(report.baselineMethodsMissingFromInventory, []);
     assert.deepEqual(report.currentMethodsMissingFromInventory, []);
     assert.deepEqual(report.unknownInventoryMethods, []);
+  });
+
+  it("maps the closed baseline to wire, Host ownership, or the approved retirement list", async function () {
+    const checker = await loadBoundaryChecker();
+    const report = checker.inspectSynthesisServiceBoundary();
+
+    assert.deepEqual(report.pendingMigrations, []);
+    assert.deepEqual(report.missingProductionOperations, []);
+    assert.deepEqual(report.unknownProductionOperations, []);
+    assert.deepEqual(report.invalidMergedTargets, []);
+    assert.deepEqual(report.invalidHostOwnedTargets, []);
+    assert.deepEqual(report.unauthorizedRetirements, []);
+    assert.deepEqual(report.authorizedRetirementsNotMapped, []);
+    assert.deepEqual(report.retiredMethodsWithProductionConsumers, []);
+    assert.deepEqual(report.retiredMigrations, APPROVED_RETIRED_METHODS);
   });
 
   it("keeps the service API inventory synchronized with the public return surface", async function () {
@@ -623,7 +666,7 @@ describe("Synthesis sidecar migration boundary", function () {
       );
       assert.match(
         method.migration,
-        /^(direct|merged|host_owned|internal|pending)$/,
+        /^(direct|merged|host_owned|internal|pending|retired)$/,
       );
       assert.isNotEmpty(method.target_capability);
     }

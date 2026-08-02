@@ -31,6 +31,7 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
     schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
+    libraryId: 1,
     profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-capacity"),
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),

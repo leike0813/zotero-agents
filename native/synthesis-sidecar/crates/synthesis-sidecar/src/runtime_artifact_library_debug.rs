@@ -551,22 +551,20 @@ fn page_debug(items: Vec<Value>, request: &Value) -> Result<Value, String> {
         json!({"rows":page,"total":items.len(),"truncated":next<items.len(),"cursor":start.to_string(),"next_cursor":if next<items.len(){next.to_string()}else{String::new()},"has_more":next<items.len(),"limit":limit}),
     )
 }
-fn debug_profiler(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+fn debug_profiler(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let _ = one_object(args)?;
-    Err("operation_unavailable".into())
+    serde_json::to_value(apps.debug.inspect_profiler()?)
+        .map_err(|_| "production_projection_invalid".into())
 }
-fn debug_paper(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+fn debug_paper(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one_object(args)?;
-    let paper_ref = request
+    request
         .get("paperRef")
         .or_else(|| request.get("paper_ref"))
         .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "invalid_request".to_owned())?;
-    let result = apps.call_host("library.items.get_by_ref", json!({"paperRefs":[paper_ref]}))?;
-    let artifacts = scan_descriptors(apps, &json!({"paperRefs":[paper_ref]}))?;
-    Ok(
-        json!({"paperRef":paper_ref,"zotero":{"registryInputAvailable":result.pointer("/items/0").is_some(),"literatureMatchingMetadataAvailable":false,"payloadTypes":artifacts.iter().filter_map(|row|row.get("payloadType").and_then(Value::as_str)).collect::<Vec<_>>()},"repository":{"artifactSidecars":[],"rawReferences":[],"canonicalReferences":[],"referenceBindings":[],"citationNode":Value::Null},"diff":{"matchingMetadataPayloadMissingInZotero":true,"referencesArtifactAvailableWithoutRawRows":false},"truncated":false}),
-    )
+    Ok(json!({"status":"unavailable","diagnostics":[]}))
 }
 fn debug_topic(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one_object(args)?;
@@ -579,25 +577,8 @@ fn debug_topic(apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     serde_json::to_value(apps.debug.inspect_topic(topic_id)?)
         .map_err(|_| "production_projection_invalid".into())
 }
-fn debug_diff(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+fn debug_diff(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one_object(args)?;
-    let limit = limit(&request, PAGE_DEFAULT)?;
-    let items = all_library_items(apps)?;
-    let mut issues = Vec::new();
-    for item in items.iter().take(limit) {
-        let paper_ref = item
-            .get("paperRef")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let artifacts = scan_descriptors(apps, &json!({"paperRefs":[paper_ref]}))?;
-        if artifacts.iter().any(|artifact| {
-            artifact.get("artifactType").and_then(Value::as_str) == Some("references")
-                && artifact.get("status").and_then(Value::as_str) == Some("available")
-        }) {
-            issues.push(json!({"code":"references_artifact_not_extracted","paperRef":paper_ref,"severity":"warning"}));
-        }
-    }
-    let truncated = issues.len() > limit;
-    issues.truncate(limit);
-    Ok(json!({"scanned":items.len().min(limit),"issues":issues,"truncated":truncated}))
+    let _ = limit(&request, PAGE_DEFAULT)?;
+    Ok(json!({"status":"unavailable","diagnostics":[]}))
 }

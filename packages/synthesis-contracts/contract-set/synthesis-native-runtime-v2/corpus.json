@@ -59,6 +59,7 @@
   "launchConfig": {
     "schema": "synthesis-sidecar-launch-config.v3",
     "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+    "libraryId": 1,
     "profileRuntimeRoot": "$ABSOLUTE_RUNTIME_ROOT",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
@@ -270,6 +271,12 @@
       "id": "launch-short-client-token",
       "kind": "launch",
       "mutation": { "path": "clientToken", "value": "short" },
+      "expected": { "node": "invalid_config", "rust": "invalid_config" }
+    },
+    {
+      "id": "launch-invalid-library-id",
+      "kind": "launch",
+      "mutation": { "path": "libraryId", "value": 0 },
       "expected": { "node": "invalid_config", "rust": "invalid_config" }
     },
     {

@@ -91,6 +91,84 @@ fn topic_list_wire(result: TopicListResult) -> Value {
     })
 }
 
+fn topic_detail_wire(result: TopicDetailResult) -> Value {
+    match result {
+        TopicDetailResult::Absent {
+            topic_id,
+            diagnostics,
+        }
+        | TopicDetailResult::Invalid {
+            topic_id,
+            diagnostics,
+        } => json!({
+            "ok":false,
+            "status":"unavailable",
+            "topicId":topic_id,
+            "title":"",
+            "source_papers":[],
+            "diagnostics":diagnostics,
+        }),
+        TopicDetailResult::Ready {
+            topic_id,
+            topic,
+            snapshot,
+        } => {
+            let artifact = snapshot.artifact;
+            let metadata = snapshot.metadata;
+            let topic_section = artifact
+                .get("topic")
+                .cloned()
+                .unwrap_or_else(|| topic.topic_definition.clone());
+            let source_papers = artifact
+                .get("source_papers")
+                .and_then(Value::as_array)
+                .cloned()
+                .or_else(|| {
+                    topic
+                        .resolved_paper_set
+                        .get("papers")
+                        .and_then(Value::as_array)
+                        .cloned()
+                })
+                .unwrap_or_default();
+            let title = topic_section
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(&topic.title);
+            json!({
+                "ok":true,
+                "status":"ready",
+                "topicId":topic_id,
+                "title":title,
+                "language":topic.language,
+                "updated_at":topic.updated_at,
+                "artifact_hash":topic.artifact_hash,
+                "paper_count":source_papers.len(),
+                "topic":topic_section,
+                "summary":artifact.get("summary").cloned().unwrap_or_else(|| json!({})),
+                "taxonomy":artifact.get("taxonomy").cloned().unwrap_or_else(|| json!({})),
+                "improvement_dimensions":artifact.get("improvement_dimensions").cloned().unwrap_or_else(|| json!({"summary":{},"dimensions":[]})),
+                "claims":artifact.get("claims").cloned().unwrap_or_else(|| json!([])),
+                "timeline_events":artifact.get("timeline_events").cloned().unwrap_or_else(|| json!({"summary":{},"events":[]})),
+                "source_papers":source_papers,
+                "debates":artifact.get("debates").cloned().unwrap_or_else(|| json!([])),
+                "coverage":artifact.get("coverage").cloned().unwrap_or_else(|| json!({})),
+                "statistics":artifact.get("statistics").cloned().unwrap_or_else(|| json!({})),
+                "synthesis_report":artifact.get("synthesis_report").cloned().unwrap_or_else(|| json!({})),
+                "future_directions":artifact.get("future_directions").cloned().unwrap_or_else(|| json!([])),
+                "review_outline":artifact.get("review_outline").cloned().unwrap_or_else(|| json!({})),
+                "source_artifacts":artifact.get("source_artifacts").cloned().unwrap_or_else(|| json!({})),
+                "diagnostics":artifact.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+                "artifact":artifact,
+                "manifest":snapshot.manifest,
+                "metadata":metadata,
+                "pathId":snapshot.path_id,
+            })
+        }
+    }
+}
+
 fn list_all_topics(apps: &ProductionApplications) -> Result<TopicListResult, String> {
     let mut cursor = String::new();
     let mut topics = Vec::new();
@@ -695,14 +773,96 @@ fn workbench_surface_from_compat(
         return Err("invalid_request".into());
     }
     if surface == "index" {
-        return apps.reference_canonical.workbench_index(state);
+        return apps
+            .reference_canonical
+            .workbench_index(state, apps.library_id());
     }
     if surface == "graph" {
         return crate::runtime_citation_graph_read_surface::workbench_graph_surface(apps, state);
     }
-    // The native surface currently owns the coherent operational projection.
-    // Surface-specific data remains with the corresponding typed application.
-    apps.workbench.read_json()
+    let library_id = apps.library_id();
+    let topic_projection = || -> Result<Value, String> {
+        let page = apps.topics.list(TopicListRequest::default())?;
+        Ok(json!({
+            "libraryId":library_id,
+            "deletedArtifacts":{"rows":[]},
+            "artifacts":page.topics.into_iter().map(topic_record_wire).collect::<Vec<_>>(),
+            "topicPage":{
+                "cursor":page.cursor,
+                "next_cursor":page.next_cursor,
+                "has_more":page.has_more,
+                "returned":page.returned,
+                "total":page.total,
+                "limit":page.limit,
+            },
+            "topicGraph":wire(apps.topic_graph.load()?)?,
+        }))
+    };
+    match surface {
+        "topics" => topic_projection(),
+        "tags" => Ok(json!({
+            "libraryId":library_id,
+            "tags":crate::runtime_tag_surface::dispatch(
+                apps,
+                "client.loadTagVocabulary",
+                &[],
+            )?,
+        })),
+        "concepts" => Ok(json!({
+            "libraryId":library_id,
+            "concepts":wire(apps.concepts.load()?)?,
+        })),
+        "review" => {
+            let concepts = wire(apps.concepts.load()?)?;
+            let topic_graph = wire(apps.topic_graph.load()?)?;
+            Ok(json!({
+                "libraryId":library_id,
+                "reviews":{
+                    "reference":apps.reference_canonical.review_input(state)?,
+                    "concept":concepts.get("reviews").cloned().unwrap_or_else(|| json!([])),
+                    "topicGraph":topic_graph.get("reviews").cloned().unwrap_or_else(|| json!([])),
+                },
+            }))
+        }
+        "reader" => {
+            let topic_id = state
+                .get("reader")
+                .and_then(Value::as_object)
+                .and_then(|reader| reader.get("topicId").or_else(|| reader.get("topic_id")))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            let reader = match topic_id {
+                Some(topic_id) => topic_detail_wire(apps.topics.detail(TopicDetailRequest {
+                    topic_id: topic_id.to_owned(),
+                })?),
+                None => json!({
+                    "ok":false,
+                    "status":"unavailable",
+                    "topicId":"",
+                    "title":"",
+                    "source_papers":[],
+                    "diagnostics":["reader_topic_unselected"],
+                }),
+            };
+            Ok(json!({"libraryId":library_id,"reader":reader}))
+        }
+        "home" => {
+            let mut projection = topic_projection()?;
+            let projection = projection
+                .as_object_mut()
+                .ok_or_else(|| "production_projection_invalid".to_owned())?;
+            projection.insert("concepts".into(), wire(apps.concepts.load()?)?);
+            projection.insert(
+                "graph".into(),
+                crate::runtime_citation_graph_read_surface::workbench_graph_surface(apps, state)?
+                    .get("graph")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            );
+            Ok(Value::Object(projection.clone()))
+        }
+        _ => Err("invalid_request".into()),
+    }
 }
 
 fn workbench_chrome_from_compat(apps: &ProductionApplications) -> Result<Value, String> {
@@ -1010,7 +1170,7 @@ register_production_client_handlers!(
     ("client.readTopicDetail", |apps, args| {
         apps.topics
             .detail(one::<TopicDetailRequest>(args)?)
-            .and_then(wire)
+            .map(topic_detail_wire)
     }),
     ("client.listWorkflowTopicOptions", workflow_topic_options),
     ("client.getSynthesisWorkbenchChromeInput", |apps, args| {
@@ -1700,6 +1860,32 @@ mod tests {
     }
 
     #[test]
+    fn workbench_surfaces_use_domain_projections_instead_of_maintenance_chrome() {
+        let root = test_root();
+        let apps = test_applications(&root);
+        for (surface, field) in [
+            ("home", "artifacts"),
+            ("topics", "artifacts"),
+            ("review", "reviews"),
+            ("tags", "tags"),
+            ("concepts", "concepts"),
+            ("reader", "reader"),
+        ] {
+            let projection = dispatch_legacy_client(
+                &apps,
+                "client.getSynthesisWorkbenchSurfaceInput",
+                &[json!(surface), json!({})],
+            )
+            .unwrap_or_else(|error| panic!("{surface}: {error}"));
+            assert!(projection.get(field).is_some(), "{surface}: {projection}");
+            assert!(
+                projection.get("maintenance").is_none(),
+                "{surface}: {projection}"
+            );
+        }
+    }
+
+    #[test]
     fn related_items_echo_reads_repository_without_calling_reverse_host() {
         let root = test_root();
         let apps = test_applications(&root);
@@ -1751,13 +1937,23 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_profiler_does_not_return_a_fabricated_success_projection() {
+    fn unavailable_debug_projections_return_typed_stable_terminals() {
         let root = test_root();
         let apps = test_applications(&root);
-        let result =
-            dispatch_legacy_client(&apps, "client.debugSynthesisProfilerList", &[json!({})]);
-
-        assert_eq!(result, Err("operation_unavailable".into()));
+        for (operation, request) in [
+            ("client.debugSynthesisProfilerList", json!({})),
+            (
+                "client.debugSynthesisPaperInspect",
+                json!({"paperRef":"1:ABSENT"}),
+            ),
+            ("client.debugSynthesisDiff", json!({})),
+        ] {
+            assert_eq!(
+                dispatch_legacy_client(&apps, operation, &[request]),
+                Ok(json!({"status":"unavailable","diagnostics":[]})),
+                "{operation}"
+            );
+        }
     }
 
     #[test]

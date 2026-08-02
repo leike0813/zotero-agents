@@ -2,6 +2,7 @@
   "schema": "synthesis-tag-surface-parity.v1",
   "requestCodec": "synthesis-client-args.v1",
   "resultCodec": "synthesis-client-result.v1",
+  "baselineFixture": "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
   "bounds": { "requestBytes": 1048576, "responseBytes": 1048576, "deadlineMs": 10000, "hostPageLimit": 100 },
   "operations": [
     { "id": "client.isBuiltinTagPolicyInitialized", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination","durable_policy"] },

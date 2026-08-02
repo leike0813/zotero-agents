@@ -2,6 +2,7 @@
   "schema": "synthesis-webdav-maintenance-surface-parity.v1",
   "requestCodec": "synthesis-client-args.v1",
   "resultCodec": "synthesis-client-result.v1",
+  "baselineFixture": "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
   "bounds": { "requestBytes": 1048576, "responseBytes": 1048576, "deadlineMs": 10000 },
   "operations": [
     { "id": "client.syncWebDavNow", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "host_failure", "remote_success_local_crash", "restart"] },

@@ -16,7 +16,7 @@ use synthesis_canonical_store::{
 };
 use synthesis_repository::{
     CacheBasisRecord, OperationQuery, OperationRecord, Repository,
-    TopicApplicationProjectionRecord, TopicApplicationStateRecord,
+    TopicApplicationProjectionRecord, TopicApplicationRecordPage, TopicApplicationStateRecord,
 };
 use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
@@ -270,6 +270,21 @@ pub trait TopicRepositoryPort: Send + Sync {
         offset: usize,
         limit: usize,
     ) -> Result<(Vec<TopicApplicationStateRecord>, usize), String>;
+    fn list_records(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        let (states, total) = self.list_states(offset, limit)?;
+        let records = states
+            .into_iter()
+            .map(|state| {
+                let projection = self.get_projection(&state.topic_id)?;
+                Ok((state, projection))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok((records, total))
+    }
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String>;
     fn get_projection(
         &self,
@@ -973,6 +988,17 @@ impl TopicRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .list_topic_application_states(offset, limit)
+    }
+
+    fn list_records(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_topic_application_records(offset, limit)
     }
 
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String> {

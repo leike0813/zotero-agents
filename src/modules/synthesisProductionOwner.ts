@@ -252,6 +252,13 @@ async function createDefaultSynthesisProductionOwner(
   const resolvedProfilePath = profilePath();
   const profileId = await hashText(resolvedProfilePath);
   const reverseHostToken = randomHex(32);
+  const libraryId = Number(
+    (
+      globalThis as {
+        Zotero?: { Libraries?: { userLibraryID?: number } };
+      }
+    ).Zotero?.Libraries?.userLibraryID || 1,
+  );
   recordStartup({
     trace: startupTrace,
     phase: "runtime-install",
@@ -278,13 +285,7 @@ async function createDefaultSynthesisProductionOwner(
     authorizeCapability: () => true,
     allowUnboundServiceInstance: true,
     handlers: createDefaultSynthesisReverseHostHandlers({
-      libraryId: Number(
-        (
-          globalThis as {
-            Zotero?: { Libraries?: { userLibraryID?: number } };
-          }
-        ).Zotero?.Libraries?.userLibraryID || 1,
-      ),
+      libraryId,
     }),
   });
 
@@ -306,6 +307,7 @@ async function createDefaultSynthesisProductionOwner(
       const supervisor = startSynthesisProductionRuntimeSupervisor({
         runtimeRoot: persistence.runtimeRoot,
         profilePath: resolvedProfilePath,
+        libraryId,
         repositoryDbPath: persistence.synthesisDbPath,
         canonicalRoot: persistence.synthesisDataRoot,
         reverseHost,

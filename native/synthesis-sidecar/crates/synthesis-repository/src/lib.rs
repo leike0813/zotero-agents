@@ -213,6 +213,12 @@ pub struct TopicApplicationProjectionRecord {
     pub updated_at: String,
 }
 
+pub type TopicApplicationJoinedRecord = (
+    TopicApplicationStateRecord,
+    Option<TopicApplicationProjectionRecord>,
+);
+pub type TopicApplicationRecordPage = (Vec<TopicApplicationJoinedRecord>, usize);
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OperationQuery {
     pub statuses: Vec<String>,
@@ -1198,6 +1204,43 @@ impl Repository {
         ))
     }
 
+    pub fn list_topic_application_records(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<TopicApplicationRecordPage, String> {
+        let limit = limit.clamp(1, 250);
+        let total = self
+            .query(
+                "SELECT COUNT(*) AS total FROM synt_topic_application_state",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row["total"].as_i64())
+            .unwrap_or_default()
+            .max(0) as usize;
+        let rows = self.query(
+            "SELECT state.*,
+                    projection.topic_id AS projection_topic_id,
+                    projection.topic_graph_json AS projection_topic_graph_json,
+                    projection.concepts_json AS projection_concepts_json,
+                    projection.interest_metadata_json AS projection_interest_metadata_json,
+                    projection.discovery_json AS projection_discovery_json,
+                    projection.updated_at AS projection_updated_at
+             FROM synt_topic_application_state AS state
+             LEFT JOIN synt_topic_application_projection AS projection
+               ON projection.topic_id=state.topic_id
+             ORDER BY state.updated_at DESC,state.topic_id ASC LIMIT ?1 OFFSET ?2",
+            &[json!(limit), json!(offset)],
+        )?;
+        Ok((
+            rows.into_iter()
+                .map(topic_joined_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            total,
+        ))
+    }
+
     pub fn upsert_topic_application_state(
         &self,
         record: &TopicApplicationStateRecord,
@@ -1571,6 +1614,22 @@ fn topic_projection_record(row: Value) -> Result<TopicApplicationProjectionRecor
         discovery_json: object_json(&row_text(&row, "discovery_json")?)?,
         updated_at: row_text(&row, "updated_at")?,
     })
+}
+
+fn topic_joined_record(row: Value) -> Result<TopicApplicationJoinedRecord, String> {
+    let state = topic_state_record(row.clone())?;
+    let Some(topic_id) = row["projection_topic_id"].as_str() else {
+        return Ok((state, None));
+    };
+    let projection = topic_projection_record(json!({
+        "topic_id":topic_id,
+        "topic_graph_json":row["projection_topic_graph_json"],
+        "concepts_json":row["projection_concepts_json"],
+        "interest_metadata_json":row["projection_interest_metadata_json"],
+        "discovery_json":row["projection_discovery_json"],
+        "updated_at":row["projection_updated_at"],
+    }))?;
+    Ok((state, Some(projection)))
 }
 
 #[cfg(test)]
@@ -2068,6 +2127,16 @@ mod tests {
                 .get_topic_application_projection("topic:typed")
                 .expect("projection read")
                 .is_some()
+        );
+        let (records, total) = repository
+            .list_topic_application_records(0, 50)
+            .expect("joined topic page");
+        assert_eq!(total, 1);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].0.topic_id, "topic:typed");
+        assert_eq!(
+            records[0].1.as_ref().map(|record| record.topic_id.as_str()),
+            Some("topic:typed")
         );
         assert!(repository.application_state_rows_absent().expect("absence"));
         repository.close().expect("close");

@@ -11,7 +11,7 @@ The worktree already contains uncommitted repairs for reverse-Host framing, lite
 **Goals:**
 
 - Restore observable native-service behavior through the Rust production route.
-- Give every one of the 131 baseline methods an explicit migrated, merged, or Host-owned disposition; delete none in this change.
+- Give every one of the 131 baseline methods an explicit migrated, merged, Host-owned, or approved-retired disposition; retirement is limited to the 23-method authorization recorded in the migration SSOT.
 - Keep ordinary DTOs bounded and move large content through existing transfer, locator, and delivery facilities.
 - Restore operation receipts, progress, cancellation, retry, and unambiguous terminals for long work.
 - Eliminate route-local business rules, N+1 reads, per-batch full-state scans, and fake success projections.
@@ -32,7 +32,7 @@ The worktree already contains uncommitted repairs for reverse-Host framing, lite
 
 `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c` is the functional oracle. Its service/repository/library adapter and stable tests outrank migration documents when they disagree. Current Rust lifecycle, authentication, bounded Host authority, and single-owner rules remain mandatory unless they conflict only with obsolete lifecycle artifacts.
 
-The existing `service-api-migration.yaml` becomes the sole 131-method audit map. Each entry records the baseline method, consumer, disposition, Rust operation or Host owner, stable inputs/results, facts/effects, work model, size strategy, budget, and evidence IDs. No separate ownership JSON is added.
+The existing `service-api-migration.yaml` becomes the sole 131-method audit map. Each entry records the baseline method, consumer, disposition, Rust operation, Host owner, or approved retirement, stable inputs/results, facts/effects, work model, size strategy, budget, and evidence IDs. No separate ownership JSON is added. The approved retirement set is closed: twelve Git Sync methods, three legacy Topic mirror methods, seven legacy public checkpoint/JSON methods, and `syncRelatedItemsNow`. Internal knowledge checkpoints, durable bundles, and WebDAV mechanisms remain in scope.
 
 The 95-operation manifest remains the wire SSOT. The audit map explains how baseline behavior reaches that closed wire inventory; it does not replace runtime metadata.
 
@@ -106,4 +106,4 @@ Rollback before data migration is source rollback. After migration, rollback res
 
 ## Open Questions
 
-None. Baseline authority, capability disposition, wire policy, work model, scale tiers, data preservation, and retirement block are approved.
+None. Baseline authority, the exact 23-method retirement list, remaining capability dispositions, wire policy, work model, scale tiers, data preservation, and retirement block are approved.

@@ -21,6 +21,19 @@ const EXECUTABLE = path.join(
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
+const ALL_PRODUCTION_OPERATIONS = Object.keys(
+  (
+    JSON.parse(
+      fs.readFileSync(
+        path.join(
+          ROOT,
+          "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
+        ),
+        "utf8",
+      ),
+    ) as { access: Record<string, "read" | "mutation"> }
+  ).access,
+).sort();
 const TOPIC_WORKBENCH_OPERATIONS = [
   "client.applyLiteratureDigestSidecar",
   "client.applyTopicSynthesisResult",
@@ -51,6 +64,7 @@ function config(args: {
   return {
     schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
+    libraryId: 1,
     profileRuntimeRoot: args.session,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
@@ -154,6 +168,162 @@ describe("Synthesis Rust production client route", function () {
       operations: 18,
       errors: [],
     });
+  });
+
+  it("dispatches the closed 95-operation roster through the real production route", async function () {
+    this.timeout(60_000);
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    assert.lengthOf(ALL_PRODUCTION_OPERATIONS, 95);
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-roster-route-"),
+    );
+    const reverseHostCalls: string[] = [];
+    const reverseHost = http.createServer((request, response) => {
+      let requestBody = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        requestBody += chunk;
+      });
+      request.on("end", () => {
+        const hostCall = JSON.parse(requestBody || "{}") as {
+          capability?: string;
+          payload?: { cursor?: string; limit?: number };
+        };
+        reverseHostCalls.push(String(hostCall.capability || ""));
+        const cursor = hostCall.payload?.cursor || "";
+        const limit = hostCall.payload?.limit || 100;
+        const result =
+          hostCall.capability === "webdav.describe"
+            ? { configured: false }
+            : hostCall.capability === "library.items.list_page"
+              ? {
+                  items: [],
+                  cursor,
+                  nextCursor: "",
+                  hasMore: false,
+                  returned: 0,
+                  limit,
+                  snapshotRevision: "fixture-roster",
+                }
+              : hostCall.capability === "library.artifacts.scan_page"
+                ? {
+                    artifacts: [],
+                    cursor,
+                    nextCursor: "",
+                    hasMore: false,
+                    returned: 0,
+                    limit,
+                    snapshotRevision: "fixture-roster",
+                  }
+                : { status: "unavailable", diagnostics: [] };
+        const body = JSON.stringify({ ok: true, result });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "roster");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-roster",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    const sidecar = start(configPath);
+    try {
+      const { port } = await sidecar.listening;
+      for (const [surface, field, state] of [
+        ["home", "artifacts", {}],
+        ["topics", "artifacts", {}],
+        ["review", "reviews", {}],
+        ["tags", "tags", {}],
+        ["concepts", "concepts", {}],
+        ["reader", "reader", {}],
+        ["index", "registry", { registry: { scope: "library" } }],
+        ["graph", "graph", {}],
+      ] as const) {
+        const projection = await call(
+          port,
+          "client.getSynthesisWorkbenchSurfaceInput",
+          { args: [surface, state] },
+        );
+        assert.equal(projection.status, 200, surface);
+        assert.equal(projection.body.data.libraryId, 1, surface);
+        assert.property(projection.body.data, field, surface);
+        assert.notProperty(projection.body.data, "maintenance", surface);
+      }
+      const absentTopic = await call(port, "client.readTopicDetail", {
+        args: [{ topicId: "topic-absent" }],
+      });
+      assert.deepInclude(absentTopic.body.data, {
+        ok: false,
+        status: "unavailable",
+        topicId: "topic-absent",
+        title: "",
+        source_papers: [],
+      });
+      const profiler = await call(port, "client.debugSynthesisProfilerList", {
+        args: [{}],
+      });
+      assert.deepEqual(profiler.body.data, {
+        status: "unavailable",
+        diagnostics: [],
+      });
+      for (const [operation, request] of [
+        ["client.debugSynthesisPaperInspect", { paperRef: "1:ABSENT" }],
+        ["client.debugSynthesisDiff", {}],
+      ] as const) {
+        const unavailable = await call(port, operation, { args: [request] });
+        assert.equal(unavailable.status, 200, operation);
+        assert.deepEqual(
+          unavailable.body.data,
+          { status: "unavailable", diagnostics: [] },
+          operation,
+        );
+      }
+      const observed: string[] = [];
+      const stableHttpTerminals = [200, 400, 404, 408, 409, 413, 422, 429, 503];
+      for (const operation of ALL_PRODUCTION_OPERATIONS) {
+        const response = await call(port, operation, { args: [] });
+        const errorCode = String(response.body.error?.code || "");
+        assert.include(stableHttpTerminals, response.status, operation);
+        assert.isTrue(
+          "data" in response.body !== "error" in response.body,
+          operation,
+        );
+        assert.notInclude(
+          ["unknown_operation", "unknown_capability", "route_not_found"],
+          errorCode,
+          operation,
+        );
+        observed.push(operation);
+      }
+      assert.deepEqual(observed, ALL_PRODUCTION_OPERATIONS);
+      assert.isTrue(fs.existsSync(path.join(root, "state", "synthesis.db")));
+      assert.isNotEmpty(reverseHostCalls);
+    } finally {
+      if (sidecar.child.exitCode === null) {
+        await stop(sidecar.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("refreshes a non-empty Reference index through the reverse Host", async function () {

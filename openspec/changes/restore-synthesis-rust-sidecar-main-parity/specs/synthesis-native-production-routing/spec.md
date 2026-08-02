@@ -2,12 +2,12 @@
 
 ### Requirement: Native RPC SHALL implement the complete grouped client surface
 
-The native production adapter SHALL expose every operation in the closed grouped `SynthesisClient` production inventory through versioned, typed request and result contracts. The wire inventory SHALL be reconciled against all 131 public methods at `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`; every baseline method MUST have a migrated, merged, or Host-owned disposition with executable evidence. This change authorizes no removed disposition. The adapter MUST NOT accept arbitrary method names, expose repository/path/credential/host-object internals, or treat handler presence as behavioral readiness.
+The native production adapter SHALL expose every operation in the closed grouped `SynthesisClient` production inventory through versioned, typed request and result contracts. The wire inventory SHALL be reconciled against all 131 public methods at `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`; every baseline method MUST have a migrated, merged, Host-owned, or approved-retired disposition with executable evidence. A retired disposition MUST belong to the closed 23-method authorization in the migration SSOT and MUST have no production consumer. The adapter MUST NOT accept arbitrary method names, expose repository/path/credential/host-object internals, or treat handler presence as behavioral readiness.
 
 #### Scenario: Production client inventory is compared
 - **WHEN** the native capability inventory is checked against the fixed baseline and grouped client
 - **THEN** every production method has exactly one typed native route or explicit equivalent owner
-- **AND** every baseline method has a non-deletion disposition and evidence ID
+- **AND** every baseline method maps to one operation, one Host owner, or one authorized retirement disposition with evidence ID
 
 #### Scenario: Unknown native operation is requested
 - **WHEN** a request names an operation outside the closed capability inventory

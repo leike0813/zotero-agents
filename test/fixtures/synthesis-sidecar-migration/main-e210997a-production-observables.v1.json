@@ -1,0 +1,139 @@
+{
+  "schema": "synthesis.production_observables.v1",
+  "baseline": {
+    "commit": "e210997a11e0054a3cb4ae0656e5cfb96102a09c",
+    "serviceSource": "src/modules/synthesis/service.ts",
+    "serviceFactory": "createSynthesisService",
+    "publicMethodCount": 131,
+    "publicMethodFingerprintSha256": "86cf1654ea210b9fc9af1d1230045e3703d666cbc84495d73a3012aa1aedfa3e"
+  },
+  "normalization": {
+    "timestamps": "fixed-iso-8601",
+    "paths": "repo-relative-or-redacted",
+    "operationIds": "logical-case-id",
+    "unorderedCollections": "canonical-key"
+  },
+  "surfaces": [
+    {
+      "id": "topic-workbench",
+      "cases": [
+        {
+          "id": "case:topic-empty-page",
+          "operation": "client.listTopics",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["bounded-empty-topic-page"],
+            "logicalFacts": ["repository-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": { "unorderedCollections": ["topics:topic_id"] }
+        }
+      ]
+    },
+    {
+      "id": "citation-graph",
+      "cases": [
+        {
+          "id": "case:citation-empty-window",
+          "operation": "client.queryCitationGraph",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["bounded-empty-graph-window"],
+            "logicalFacts": ["graph-basis-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": {
+            "unorderedCollections": ["nodes:paper_ref", "edges:edge_key"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "reference-canonical",
+      "cases": [
+        {
+          "id": "case:reference-empty-index",
+          "operation": "client.getReferenceSidecarIndex",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["bounded-empty-reference-index"],
+            "logicalFacts": ["canonical-basis-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": { "unorderedCollections": ["sources:source_ref"] }
+        }
+      ]
+    },
+    {
+      "id": "tag",
+      "cases": [
+        {
+          "id": "case:tag-empty-vocabulary",
+          "operation": "client.loadTagVocabulary",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["bounded-empty-tag-vocabulary"],
+            "logicalFacts": ["tag-policy-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": { "unorderedCollections": ["entries:tag"] }
+        }
+      ]
+    },
+    {
+      "id": "concept-topic-graph",
+      "cases": [
+        {
+          "id": "case:concept-empty-query",
+          "operation": "client.queryConceptKb",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["bounded-empty-concept-page"],
+            "logicalFacts": ["concept-basis-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": { "unorderedCollections": ["concepts:concept_id"] }
+        }
+      ]
+    },
+    {
+      "id": "artifact-library-debug",
+      "cases": [
+        {
+          "id": "case:library-empty-index",
+          "operation": "client.getLibraryIndex",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["bounded-empty-library-index"],
+            "logicalFacts": ["artifact-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": { "unorderedCollections": ["papers:paper_ref"] }
+        }
+      ]
+    },
+    {
+      "id": "webdav-maintenance",
+      "cases": [
+        {
+          "id": "case:maintenance-operation-absent",
+          "operation": "client.getPublicMaintenanceOperation",
+          "access": "read",
+          "expected": {
+            "dtoSemantics": ["stable-absent-operation"],
+            "logicalFacts": ["operation-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero"
+          },
+          "comparison": { "unorderedCollections": ["operations:operation_id"] }
+        }
+      ]
+    }
+  ]
+}

@@ -14,7 +14,12 @@ import {
   type SynthesisSidecarProductionClientCapability,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisProductionCapabilities } from "../../scripts/check-synthesis-production-capabilities";
-import { readSynthesisProductionSurfaceCorpora } from "../../scripts/synthesisProductionSurfaceCorpora";
+import {
+  SYNTHESIS_PRODUCTION_BASELINE_FIXTURE,
+  inspectSynthesisProductionBaselineEvidence,
+  readSynthesisProductionSurfaceCorpora,
+  type SynthesisProductionBaselineFixture,
+} from "../../scripts/synthesisProductionSurfaceCorpora";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { SynthesisSidecarRpcError } from "../../src/modules/synthesisSidecarRpcClient";
 import {
@@ -89,6 +94,7 @@ describe("Synthesis native client composition", function () {
     assert.deepEqual(report.errors.surfaceCorpusIdentity, []);
     assert.deepEqual(report.errors.surfaceCorpusSet, []);
     assert.deepEqual(report.errors.surfaceCorpusDuplicates, []);
+    assert.deepEqual(report.errors.surfaceBaselineEvidence, []);
     assert.deepEqual(report.errors.missingFromSurfaceCorpora, []);
     assert.deepEqual(report.errors.unknownInSurfaceCorpora, []);
     assert.deepEqual(report.errors.missingSurfaceEvidence, []);
@@ -142,6 +148,7 @@ describe("Synthesis native client composition", function () {
 
     assert.isNotEmpty(report.errors.surfaceCorpusIdentity);
     assert.isNotEmpty(report.errors.surfaceCorpusDuplicates);
+    assert.isNotEmpty(report.errors.surfaceBaselineEvidence);
     assert.isNotEmpty(report.errors.missingFromSurfaceCorpora);
     assert.deepEqual(report.errors.unknownInSurfaceCorpora, ["client.unknown"]);
     assert.isNotEmpty(report.errors.missingBoundaryCases);
@@ -152,6 +159,30 @@ describe("Synthesis native client composition", function () {
     assert.isNotEmpty(report.errors.dispatcherDuplicates);
   });
 
+  it("rejects unstable values in fixed-baseline observable fixtures", function () {
+    const corpora = readSynthesisProductionSurfaceCorpora();
+    const fixture = JSON.parse(
+      fs.readFileSync(
+        path.join(ROOT, SYNTHESIS_PRODUCTION_BASELINE_FIXTURE),
+        "utf8",
+      ),
+    ) as SynthesisProductionBaselineFixture;
+    fixture.surfaces[0]!.cases[0]!.expected.dtoSemantics.push(
+      "/tmp/runtime-dependent-result",
+      "2026-08-02T12:34:56.789Z",
+    );
+
+    const errors = inspectSynthesisProductionBaselineEvidence(
+      corpora,
+      ROOT,
+      fixture,
+    );
+    assert.includeMembers(errors, [
+      "unstable absolute path: .surfaces[0].cases[0].expected.dtoSemantics[1]",
+      "unstable timestamp: .surfaces[0].cases[0].expected.dtoSemantics[2]",
+    ]);
+  });
+
   it("reproduces every inventory gate without an active OpenSpec change directory", function () {
     this.timeout(30_000);
     const fixture = fs.mkdtempSync(
@@ -160,6 +191,7 @@ describe("Synthesis native client composition", function () {
     try {
       for (const name of [
         "node_modules",
+        "doc",
         "packages",
         "src",
         "native",

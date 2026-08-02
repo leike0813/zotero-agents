@@ -1,9 +1,9 @@
 ## 1. Freeze Baseline and Retirement
 
-- [x] 1.1 Record `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`, current HEAD/worktree identity, 131 baseline methods, 95 wire operations, and the empty deletion authorization in the migration SSOT
-- [ ] 1.2 Connect the service-boundary and production-capability checkers so every client-capability disposition maps to one wire operation or explicit Host owner
+- [x] 1.1 Record `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`, current HEAD/worktree identity, 131 baseline methods, 95 wire operations, and the exact 23-method deletion authorization in the migration SSOT
+- [x] 1.2 Connect the service-boundary and production-capability checkers so every client-capability disposition maps to one wire operation, explicit Host owner, or approved retirement
 - [x] 1.3 Mark the regression repair as candidate evidence and make both R9b deletion changes depend on this change's completed parity and scale gates
-- [ ] 1.4 Add baseline-derived normalized fixtures and extend existing corpora without snapshots of unstable text, paths, timestamps, or ordering
+- [x] 1.4 Add baseline-derived normalized fixtures and extend existing corpora without snapshots of unstable text, paths, timestamps, or ordering
 
 ## 2. Add Failing Real-Route Evidence
 
@@ -16,7 +16,7 @@
 
 - [x] 3.1 Correct related-items echo consumption and add a no-Host-effect regression test
 - [x] 3.2 Implement library-backed resolver semantics and strict Topic apply validation without empty-asset fallback
-- [ ] 3.3 Restore domain-specific Workbench Home, Topics, Review, Tags, Concepts, Reader, Index, and Graph projections
+- [x] 3.3 Restore domain-specific Workbench Home, Topics, Review, Tags, Concepts, Reader, Index, and Graph projections
 - [ ] 3.4 Restore Topic digest/delete/purge lifecycle and replace fake debug/profiler/paper/diff projections with real data or stable unavailable terminals
 - [ ] 3.5 Normalize persisted/public timestamps to ISO-8601 and cover freshness, retry, and ordering semantics
 
@@ -36,7 +36,7 @@
 
 ## 6. Bound Data Access and Concurrency
 
-- [ ] 6.1 Replace Topic N+1 and full-detail list materialization with compact joined pages and targeted details
+- [x] 6.1 Replace Topic N+1 and full-detail list materialization with compact joined pages and targeted details
 - [ ] 6.2 Replace Graph full-state reads with windowed topic-scope, metrics, and layout queries
 - [ ] 6.3 Replace Reference per-batch full-state scans with one snapshot/diff and changed-source keyed projection
 - [ ] 6.4 Batch Tag Host effects by 100 and bound ordered artifact reads to two concurrent calls
@@ -61,4 +61,4 @@
 - [ ] 9.1 Correct active architecture, runtime, persistence, performance, and migration documentation to match executable ownership and bounds
 - [ ] 9.2 Run strict OpenSpec, contract/surface, invariant, TypeScript, Rust fmt/clippy/workspace, production-route, performance, and production-build gates
 - [ ] 9.3 Run representative Zotero 7 and Zotero 9 Workbench/workflow checks and record remaining evidence without claiming release
-- [ ] 9.4 Confirm both R9b deletion changes remain blocked unless every task and external acceptance gate is complete
+- [x] 9.4 Confirm both R9b deletion changes remain blocked unless every task and external acceptance gate is complete

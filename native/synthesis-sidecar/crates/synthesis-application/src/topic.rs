@@ -137,15 +137,12 @@ impl TopicApplication {
                 .parse::<usize>()
                 .map_err(|_| "invalid_request".to_owned())?
         };
-        let (rows, total) = self.repository.list_states(offset, request.limit)?;
+        let (rows, total) = self.repository.list_records(offset, request.limit)?;
         let returned = rows.len();
         let next = offset.saturating_add(returned);
         let topics = rows
             .into_iter()
-            .map(|row| {
-                let projection = self.repository.get_projection(&row.topic_id)?;
-                project_record(row, projection)
-            })
+            .map(|(row, projection)| project_record(row, projection))
             .collect::<Result<Vec<_>, String>>()?;
         Ok(TopicListResult {
             topics,
@@ -1100,8 +1097,75 @@ mod tests {
     use crate::ports::{CanonicalStorePort, RepositoryPort};
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-    use synthesis_repository::{Repository, RepositoryIdentity};
+    use synthesis_repository::{Repository, RepositoryIdentity, TopicApplicationRecordPage};
+
+    struct CountingTopicRepository {
+        inner: RepositoryPort,
+        list_states: AtomicUsize,
+        list_records: AtomicUsize,
+        get_projection: AtomicUsize,
+    }
+
+    impl TopicRepositoryPort for CountingTopicRepository {
+        fn get_state(&self, topic_id: &str) -> Result<Option<TopicApplicationStateRecord>, String> {
+            self.inner.get_state(topic_id)
+        }
+
+        fn list_states(
+            &self,
+            offset: usize,
+            limit: usize,
+        ) -> Result<(Vec<TopicApplicationStateRecord>, usize), String> {
+            self.list_states.fetch_add(1, Ordering::Relaxed);
+            self.inner.list_states(offset, limit)
+        }
+
+        fn list_records(
+            &self,
+            offset: usize,
+            limit: usize,
+        ) -> Result<TopicApplicationRecordPage, String> {
+            self.list_records.fetch_add(1, Ordering::Relaxed);
+            self.inner.list_records(offset, limit)
+        }
+
+        fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String> {
+            self.inner.upsert_state(record)
+        }
+
+        fn get_projection(
+            &self,
+            topic_id: &str,
+        ) -> Result<Option<TopicApplicationProjectionRecord>, String> {
+            self.get_projection.fetch_add(1, Ordering::Relaxed);
+            self.inner.get_projection(topic_id)
+        }
+
+        fn upsert_projection(
+            &self,
+            record: &TopicApplicationProjectionRecord,
+        ) -> Result<(), String> {
+            self.inner.upsert_projection(record)
+        }
+
+        fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
+            self.inner.upsert_operation(record)
+        }
+
+        fn update_operation(
+            &self,
+            operation_id: &str,
+            status: &str,
+            phase: &str,
+            diagnostics: &[String],
+            now: &str,
+        ) -> Result<Option<OperationRecord>, String> {
+            self.inner
+                .update_operation(operation_id, status, phase, diagnostics, now)
+        }
+    }
 
     struct FixtureEngine;
 
@@ -1327,6 +1391,39 @@ mod tests {
             TopicDetailResult::Ready { .. }
         ));
         drop(reopened);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn list_uses_one_joined_repository_page_without_projection_fanout() {
+        let root = root("joined-page");
+        let (repository, canonical) = owners(&root);
+        let repository = Arc::new(CountingTopicRepository {
+            inner: repository,
+            list_states: AtomicUsize::new(0),
+            list_records: AtomicUsize::new(0),
+            get_projection: AtomicUsize::new(0),
+        });
+        let application = TopicApplication::with_factories(
+            repository.clone(),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+            Arc::new(|topic| format!("transaction:{topic}")),
+        );
+        assert!(application.apply(request("topic-alpha", "create")).ok);
+        repository.list_states.store(0, Ordering::Relaxed);
+        repository.list_records.store(0, Ordering::Relaxed);
+        repository.get_projection.store(0, Ordering::Relaxed);
+
+        let page = application.list(TopicListRequest::default()).expect("page");
+
+        assert_eq!(page.returned, 1);
+        assert_eq!(repository.list_records.load(Ordering::Relaxed), 1);
+        assert_eq!(repository.list_states.load(Ordering::Relaxed), 0);
+        assert_eq!(repository.get_projection.load(Ordering::Relaxed), 0);
+        drop(application);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -546,7 +546,7 @@ impl ReferenceCanonicalApplication {
         }))
     }
 
-    pub(crate) fn workbench_index(&self, state: &Value) -> Result<Value, String> {
+    pub(crate) fn workbench_index(&self, state: &Value, library_id: i64) -> Result<Value, String> {
         let registry = state
             .get("registry")
             .and_then(Value::as_object)
@@ -575,7 +575,6 @@ impl ReferenceCanonicalApplication {
             rows.retain(|row| row.reference_count > 0);
             rows.truncate(100);
         }
-        let library_id = rows.first().map(|row| row.item.library_id).unwrap_or(0);
         let rows = rows
             .iter()
             .map(|row| {

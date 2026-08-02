@@ -66,6 +66,7 @@ struct RuntimeBundleManifest {
 pub struct NativeLaunchConfig {
     pub schema: String,
     pub profile_id: String,
+    pub library_id: i64,
     pub profile_runtime_root: PathBuf,
     pub runtime_root_id: String,
     pub data_root_id: String,
@@ -242,6 +243,7 @@ pub fn rebuild_native_launch_config(value: &str) -> Result<NativeLaunchConfig, S
         || config.protocol_version != "synthesis-sidecar.v1"
         || config.service_version != SERVICE_VERSION
         || config.port != 0
+        || config.library_id <= 0
         || !absolute_path(&config.profile_runtime_root)
         || !absolute_path(&config.repository_db_path)
         || !absolute_path(&config.canonical_root)

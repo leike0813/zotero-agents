@@ -114,6 +114,7 @@ function runtimeConfig(
   return {
     schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
+    libraryId: 1,
     profileRuntimeRoot,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),

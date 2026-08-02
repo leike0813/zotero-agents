@@ -7,7 +7,7 @@ The sidecar therefore cannot enter acceptance or authorize removal of the retain
 ## What Changes
 
 - Freeze R9b plugin/Node deletion and treat the current regression repair as candidate evidence until this change's behavioral gates pass.
-- Make the fixed 131-method native service inventory the migration audit baseline; every method receives an explicit migrated, merged, or Host-owned disposition. This change authorizes no capability deletion.
+- Make the fixed 131-method native service inventory the migration audit baseline; every method receives an explicit migrated, merged, Host-owned, or approved-retired disposition. Retirement is limited to the 23 methods recorded in the migration SSOT.
 - Replace roster-only parity with baseline-derived, real-process evidence covering public DTOs, SQLite facts, canonical hashes, Host effects, idempotency, rollback, and read-only behavior.
 - **BREAKING**: Return the existing public operation receipt for full-library and worker-backed mutations instead of holding one production RPC open until terminal completion; update all grouped-client consumers together.
 - Preserve user-visible grouped-client semantics while moving large Topic, artifact, review, and export bodies through existing locator/transfer/delivery paths instead of the general JSON envelope.

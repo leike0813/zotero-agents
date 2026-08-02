@@ -60,6 +60,7 @@ function config(
   return {
     schema: SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
     profileId: PROFILE_ID,
+    libraryId: 1,
     profileRuntimeRoot,
     runtimeRootId: RUNTIME_ROOT_ID,
     dataRootId: DATA_ROOT_ID,
@@ -353,12 +354,11 @@ describe("Synthesis sidecar runtime foundation", function () {
     );
     assert.equal(SYNTHESIS_SIDECAR_HEALTH_PATH, "/synthesis/v1/health");
     assert.equal(SYNTHESIS_SIDECAR_CALL_PATH, "/synthesis/v1/call");
-    assert.deepEqual(
+    assert.throws(() =>
       rebuildSynthesisSidecarCallRequest({
         ...handshakeRequest(),
         ignored: true,
       }),
-      handshakeRequest(),
     );
     assert.throws(() =>
       rebuildSynthesisSidecarCallRequest({
@@ -371,6 +371,13 @@ describe("Synthesis sidecar runtime foundation", function () {
       config(profileRoot),
     );
     assert.equal(launchConfig.profileId, PROFILE_ID);
+    assert.equal(launchConfig.libraryId, 1);
+    assert.throws(() =>
+      rebuildSynthesisSidecarLaunchConfig({
+        ...launchConfig,
+        libraryId: 0,
+      }),
+    );
     assert.throws(() =>
       rebuildSynthesisSidecarLaunchConfig({
         ...launchConfig,

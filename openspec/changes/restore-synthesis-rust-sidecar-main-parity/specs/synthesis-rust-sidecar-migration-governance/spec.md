@@ -6,8 +6,8 @@ Rust Synthesis acceptance SHALL use `main@e210997a11e0054a3cb4ae0656e5cfb96102a0
 
 #### Scenario: Migration inventory is reviewed
 - **WHEN** the fixed baseline, grouped client, wire manifest, dispatcher, and consumers are compared
-- **THEN** every baseline method has exactly one migrated, merged, or Host-owned disposition
-- **AND** no method is deleted without a separately approved deletion list
+- **THEN** every baseline method has exactly one migrated, merged, Host-owned, or approved-retired disposition
+- **AND** every retired method belongs to the exact 23-method authorization in the migration SSOT and has no production consumer
 
 #### Scenario: Parity evidence runs
 - **WHEN** a production capability is claimed ready

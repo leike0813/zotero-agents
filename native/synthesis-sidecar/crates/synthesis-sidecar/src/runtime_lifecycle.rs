@@ -109,6 +109,7 @@ mod tests {
         NativeLaunchConfig {
             schema: "synthesis-sidecar-launch-config.v3".into(),
             profile_id: "1".repeat(64),
+            library_id: 1,
             profile_runtime_root: root.join("runtime/session"),
             runtime_root_id: "2".repeat(64),
             data_root_id: "3".repeat(64),

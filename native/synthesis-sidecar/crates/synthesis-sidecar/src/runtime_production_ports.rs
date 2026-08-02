@@ -76,6 +76,13 @@ pub(crate) struct ProductionApplications {
 }
 
 impl ProductionApplications {
+    pub(crate) fn library_id(&self) -> i64 {
+        self.config
+            .as_deref()
+            .map(|config| config.library_id)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn call_host(&self, capability: &str, payload: Value) -> Result<Value, String> {
         let config = self
             .config

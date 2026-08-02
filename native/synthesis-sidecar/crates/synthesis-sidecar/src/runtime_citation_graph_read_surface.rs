@@ -20,6 +20,7 @@ const DEFAULT_HOVER_NODE_LIMIT: usize = 100;
 const DEFAULT_HOVER_EDGE_LIMIT: usize = 200;
 const GRAPH_RESPONSE_BUDGET_BYTES: usize = 768 * 1024;
 const GRAPH_CURSOR_MAX_LENGTH: usize = 4096;
+const TOPIC_SCOPE_LIMIT: usize = 250;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct GraphWindowCursor {
@@ -36,6 +37,7 @@ struct GraphWindowRead {
     cursor: GraphWindowCursor,
     rows: CitationGraphWindowRows,
     topic_scopes: Vec<Value>,
+    topic_scope_total: usize,
     layout: Option<CitationLayoutRecord>,
     cache: Option<CacheBasisRecord>,
 }
@@ -66,19 +68,13 @@ struct CitationGraphProjection {
     layouts: Vec<CitationLayoutRecord>,
 }
 
-fn read_topic_scopes(repository: &synthesis_repository::Repository) -> Result<Vec<Value>, String> {
+fn read_topic_scopes(
+    repository: &synthesis_repository::Repository,
+) -> Result<(Vec<Value>, usize), String> {
     let mut topic_scopes = Vec::new();
-    let mut offset = 0;
-    loop {
-        let (states, total) = repository.list_topic_application_states(offset, 250)?;
-        if states.is_empty() {
-            break;
-        }
-        for state in &states {
-            let Some(projection) = repository.get_topic_application_projection(&state.topic_id)?
-            else {
-                continue;
-            };
+    let (records, total) = repository.list_topic_application_records(0, TOPIC_SCOPE_LIMIT)?;
+    for (state, projection) in records {
+        if let Some(projection) = projection {
             let discovery = serde_json::from_str::<Value>(&projection.discovery_json)
                 .unwrap_or_else(|_| json!({}));
             let paper_refs = discovery["source_paper_refs"]
@@ -94,15 +90,11 @@ fn read_topic_scopes(repository: &synthesis_repository::Repository) -> Result<Ve
             if !paper_refs.is_empty() {
                 topic_scopes.push(json!({
                     "topicId":state.topic_id,
-                    "title":if state.title.is_empty() { &state.topic_id } else { &state.title },
+                    "title":if state.title.is_empty() { state.topic_id.clone() } else { state.title },
                     "paperRefs":paper_refs,
                     "nodeIds":paper_refs,
                 }));
             }
-        }
-        offset += states.len();
-        if offset >= total {
-            break;
         }
     }
     topic_scopes.sort_by(|left, right| {
@@ -111,7 +103,7 @@ fn read_topic_scopes(repository: &synthesis_repository::Repository) -> Result<Ve
             .cmp(&right["title"].as_str())
             .then_with(|| left["topicId"].as_str().cmp(&right["topicId"].as_str()))
     });
-    Ok(topic_scopes)
+    Ok((topic_scopes, total))
 }
 
 fn read_snapshot(apps: &ProductionApplications) -> Result<CitationGraphReadSnapshot, String> {
@@ -515,12 +507,14 @@ fn read_graph_window(
         .map_err(|_| "response_invalid".to_owned())?
         .len();
         if candidate_size <= GRAPH_RESPONSE_BUDGET_BYTES {
+            let (topic_scopes, topic_scope_total) = read_topic_scopes(&repository)?;
             return Ok(GraphWindowRead {
                 graph_hash,
                 query_signature: signature,
                 cursor,
                 rows,
-                topic_scopes: read_topic_scopes(&repository)?,
+                topic_scopes,
+                topic_scope_total,
                 layout: repository
                     .get_citation_layout(&format!("workbench_overview:{algorithm}"))?,
                 cache: repository.get_cache_basis(CACHE_KEY)?,
@@ -750,6 +744,7 @@ pub(crate) fn workbench_graph_surface(
         .map(|cache| cache.status.as_str())
         .filter(|value| !value.is_empty())
         .unwrap_or("missing");
+    let topic_scope_returned = window.topic_scopes.len();
     let graph = json!({
         "graph_hash":window.graph_hash,
         "layoutStatus":status,
@@ -768,12 +763,18 @@ pub(crate) fn workbench_graph_surface(
             "layout_source":"sqlite",
         },
         "topicScopes":window.topic_scopes,
+        "topicScopePage":{
+            "returned":topic_scope_returned,
+            "total":window.topic_scope_total,
+            "limit":TOPIC_SCOPE_LIMIT,
+            "hasMore":window.topic_scope_total>TOPIC_SCOPE_LIMIT,
+        },
         "hoverOnlyNodes":hover_nodes,
         "hoverOnlyEdges":hover_edges,
         "nodes":nodes,
         "edges":edges,
     });
-    let result = json!({"libraryId":0,"graph":graph});
+    let result = json!({"libraryId":apps.library_id(),"graph":graph});
     if serde_json::to_vec(&result)
         .map_err(|_| "response_invalid".to_owned())?
         .len()

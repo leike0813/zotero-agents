@@ -16,7 +16,30 @@ audit:
   worktree_state: dirty-preserved
   source_public_method_count: 113
   wire_operation_count: 95
-  deletion_authorization: []
+  deletion_authorization:
+    - applySynthesisJsonImport
+    - clearGitSyncAccessToken
+    - exportConceptKbCheckpoint
+    - exportSynthesisCheckpoint
+    - exportTagVocabularyCheckpoint
+    - exportTopicGraphCheckpoint
+    - getGitSyncPrefsConfigurationStatus
+    - loadGitSyncState
+    - pauseGitSync
+    - previewSynthesisJsonImport
+    - readGitSyncDiagnostics
+    - rebuildMirrorFromCanonical
+    - recoverCanonicalFromMirror
+    - refreshMirror
+    - resolveGitSyncConflict
+    - resumeGitSync
+    - retryGitSync
+    - saveGitSyncAccessToken
+    - saveGitSyncPrefsConfiguration
+    - syncNow
+    - syncRelatedItemsNow
+    - testGitSyncPrefsConfiguration
+    - verifySynthesisCheckpoint
 
 isolated_repository:
   mode: isolated_shadow
@@ -275,7 +298,9 @@ method_groups:
       - debugSynthesisTopicInspect
       - debugSynthesisDiff
       - debugSynthesisCleanInstallReset
-      - getDebugSynthesisSnapshotInput
+      - name: getDebugSynthesisSnapshotInput
+        migration: merged
+        capability: client.debugSynthesisSnapshot
 
   - id: operation_lifecycle
     category: command
@@ -292,7 +317,9 @@ method_groups:
     consumer_groups: [workflow, host_bridge, mcp]
     methods:
       - applyLiteratureDigestSidecar
-      - applyReferenceMatchingSidecar
+      - name: applyReferenceMatchingSidecar
+        migration: merged
+        capability: client.applyLiteratureDigestSidecar
       - applyTopicSynthesisResult
 
   - id: workbench_queries
@@ -329,7 +356,9 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
-      - syncRelatedItemsNow
+      - name: syncRelatedItemsNow
+        migration: retired
+        owner: approved_public_api_retirement
 
   - id: topic_queries
     category: query
@@ -337,8 +366,12 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, workflow, host_bridge, mcp]
     methods:
-      - listDeletedTopicArtifacts
-      - readTopicArtifact
+      - name: listDeletedTopicArtifacts
+        migration: merged
+        capability: client.getSynthesisWorkbenchSurfaceInput
+      - name: readTopicArtifact
+        migration: merged
+        capability: client.readTopicDetail
       - readTopicDetail
       - listTopics
       - findTopicsByPaperRef
@@ -378,7 +411,9 @@ method_groups:
       - getCitationGraphMetrics
       - rankLibraryPapers
       - queryCitationGraph
-      - readCitationGraphSnapshot
+      - name: readCitationGraphSnapshot
+        migration: merged
+        capability: client.queryCitationGraph
 
   - id: graph_commands
     category: command
@@ -428,7 +463,9 @@ method_groups:
       - getReferenceSidecarIndex
       - rankExternalReferences
       - getAttentionQueue
-      - loadReferenceSidecarCacheStatus
+      - name: loadReferenceSidecarCacheStatus
+        migration: merged
+        capability: client.getReferenceSidecarIndex
 
   - id: reference_commands
     category: command
@@ -468,7 +505,9 @@ method_groups:
     methods:
       - saveTagVocabulary
       - initializeBuiltinTagPolicy
-      - exportTagVocabularyCheckpoint
+      - name: exportTagVocabularyCheckpoint
+        migration: retired
+        owner: approved_public_api_retirement
       - stageTagSuggestions
       - name: updateStagedTagSuggestion
         introduced_after_baseline: true
@@ -493,7 +532,9 @@ method_groups:
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
       - queryConceptKb
-      - loadConceptKb
+      - name: loadConceptKb
+        migration: merged
+        capability: client.getSynthesisWorkbenchSurfaceInput
 
   - id: concept_commands
     category: command
@@ -504,7 +545,9 @@ method_groups:
       - updateConceptDisplayText
       - applyConceptReviewAction
       - deleteConceptEntries
-      - exportConceptKbCheckpoint
+      - name: exportConceptKbCheckpoint
+        migration: retired
+        owner: approved_public_api_retirement
       - rebuildConceptKbIndex
 
   - id: topic_graph_queries
@@ -513,7 +556,9 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
-      - loadTopicGraph
+      - name: loadTopicGraph
+        migration: merged
+        capability: client.getSynthesisWorkbenchSurfaceInput
 
   - id: topic_graph_commands
     category: command
@@ -521,7 +566,9 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
-      - exportTopicGraphCheckpoint
+      - name: exportTopicGraphCheckpoint
+        migration: retired
+        owner: approved_public_api_retirement
       - rebuildTopicGraphIndex
       - acceptTopicGraphRelation
       - rejectTopicGraphRelation
@@ -542,10 +589,18 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
-      - previewSynthesisJsonImport
-      - applySynthesisJsonImport
-      - exportSynthesisCheckpoint
-      - verifySynthesisCheckpoint
+      - name: previewSynthesisJsonImport
+        migration: retired
+        owner: approved_public_api_retirement
+      - name: applySynthesisJsonImport
+        migration: retired
+        owner: approved_public_api_retirement
+      - name: exportSynthesisCheckpoint
+        migration: retired
+        owner: approved_public_api_retirement
+      - name: verifySynthesisCheckpoint
+        migration: retired
+        owner: approved_public_api_retirement
 
   - id: webdav_sync_queries
     category: query
@@ -553,7 +608,9 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
-      - loadWebDavSyncState
+      - name: loadWebDavSyncState
+        migration: merged
+        capability: client.getSynthesisWorkbenchChromeInput
 
   - id: webdav_sync_commands
     category: command
@@ -574,35 +631,35 @@ method_groups:
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
       - name: loadGitSyncState
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: pauseGitSync
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: readGitSyncDiagnostics
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: rebuildMirrorFromCanonical
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: recoverCanonicalFromMirror
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: refreshMirror
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: resolveGitSyncConflict
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: resumeGitSync
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: retryGitSync
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: syncNow
-        migration: pending
-        owner: git_sync_migration
+        migration: retired
+        owner: approved_public_api_retirement
 
   - id: main_baseline_host_sync_configuration
     category: command
@@ -611,15 +668,20 @@ method_groups:
     consumer_groups: [workbench, host_bridge]
     methods:
       - name: clearGitSyncAccessToken
-        host_capability: host.synthesis.git_sync.credentials
+        migration: retired
+        owner: approved_public_api_retirement
       - name: getGitSyncPrefsConfigurationStatus
-        host_capability: host.synthesis.git_sync.configuration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: saveGitSyncAccessToken
-        host_capability: host.synthesis.git_sync.credentials
+        migration: retired
+        owner: approved_public_api_retirement
       - name: saveGitSyncPrefsConfiguration
-        host_capability: host.synthesis.git_sync.configuration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: testGitSyncPrefsConfiguration
-        host_capability: host.synthesis.git_sync.configuration
+        migration: retired
+        owner: approved_public_api_retirement
       - name: clearWebDavSyncAccessCredential
         host_capability: host.synthesis.webdav_sync.credentials
       - name: getWebDavSyncPrefsConfigurationStatus

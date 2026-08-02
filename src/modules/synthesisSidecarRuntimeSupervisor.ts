@@ -76,6 +76,7 @@ type ControlClient = Pick<
 type BaseSupervisorOptions = {
   runtimeRoot?: string;
   profilePath?: string;
+  libraryId?: number;
   repositoryDbPath?: string;
   canonicalRoot?: string;
   reverseHost?: ReverseHostLocator;
@@ -96,6 +97,7 @@ type BaseSupervisorOptions = {
 
 export type SynthesisProductionRuntimeSupervisorOptions =
   BaseSupervisorOptions & {
+    libraryId: number;
     repositoryDbPath: string;
     canonicalRoot: string;
     reverseHost: ReverseHostLocator;
@@ -524,6 +526,7 @@ export function createSynthesisProductionRuntimeSupervisor(
       const config = rebuildSynthesisSidecarLaunchConfig({
         schema: SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
         profileId,
+        libraryId: options.libraryId ?? 1,
         profileRuntimeRoot: paths.sessionRoot,
         runtimeRootId: await hashText(runtimeRoot),
         dataRootId: await hashText(options.canonicalRoot),
@@ -686,6 +689,7 @@ export function createSynthesisSidecarRuntimeSupervisor(
   const persistence = getRuntimePersistencePaths();
   return createSynthesisProductionRuntimeSupervisor({
     ...options,
+    libraryId: options.libraryId ?? 1,
     repositoryDbPath: options.repositoryDbPath || persistence.synthesisDbPath,
     canonicalRoot: options.canonicalRoot || persistence.synthesisDataRoot,
     reverseHost:

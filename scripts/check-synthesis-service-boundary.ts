@@ -12,7 +12,8 @@ type MigrationDisposition =
   | "merged"
   | "host_owned"
   | "internal"
-  | "pending";
+  | "pending"
+  | "retired";
 
 interface InventoryBaseline {
   commit: string;
@@ -133,6 +134,7 @@ const VALID_MIGRATIONS = new Set<MigrationDisposition>([
   "host_owned",
   "internal",
   "pending",
+  "retired",
 ]);
 
 function normalizedRepoPath(filePath: string): string {
@@ -576,6 +578,30 @@ function readProductionOperationCapabilities(): string[] {
   return Object.keys(manifest.access || {}).sort();
 }
 
+function findRetiredProductionConsumers(methods: readonly string[]): string[] {
+  const methodSet = new Set(methods);
+  const allowedPrefixes = ["src/modules/synthesis/"];
+  const allowedFiles = new Set([
+    "src/modules/synthesisClient/legacyComposition.ts",
+  ]);
+  return walkTypeScriptFiles(path.join(ROOT_DIR, "src"))
+    .flatMap((filePath) => {
+      const relativePath = normalizedRepoPath(filePath);
+      if (
+        allowedFiles.has(relativePath) ||
+        allowedPrefixes.some((prefix) => relativePath.startsWith(prefix)) ||
+        relativePath.startsWith("src/modules/harness/")
+      ) {
+        return [];
+      }
+      const source = fs.readFileSync(filePath, "utf8");
+      return [...methodSet]
+        .filter((method) => new RegExp(`\\b${method}\\b`).test(source))
+        .map((method) => `${method}:${relativePath}`);
+    })
+    .sort();
+}
+
 function canonicalMethodFingerprint(methods: readonly string[]): string {
   return createHash("sha256")
     .update(`${[...methods].sort().join("\n")}\n`)
@@ -609,6 +635,15 @@ export function inspectSynthesisServiceBoundary() {
     .filter((capability, index, all) => all.indexOf(capability) === index)
     .sort();
   const expectedProductionOperationSet = new Set(expectedProductionOperations);
+  const authorizedRetirements = [
+    ...inventory.audit.deletion_authorization,
+  ].sort();
+  const authorizedRetirementSet = new Set(authorizedRetirements);
+  const retiredMigrations = inventory.methods
+    .filter((method) => method.migration === "retired")
+    .map((method) => method.name)
+    .sort();
+  const retiredMigrationSet = new Set(retiredMigrations);
   const directConsumers = findSynthesisDirectConsumers();
   const contractViolations = findSynthesisContractBoundaryViolations();
   const sidecarAppViolations = findSynthesisSidecarAppBoundaryViolations();
@@ -633,7 +668,8 @@ export function inspectSynthesisServiceBoundary() {
         (method.migration === "merged" && !method.capability) ||
         (method.migration === "host_owned" && !method.host_capability) ||
         (method.migration === "internal" && !method.owner) ||
-        (method.migration === "pending" && !method.owner),
+        (method.migration === "pending" && !method.owner) ||
+        (method.migration === "retired" && !method.owner),
     )
     .map((method) => method.name || "<unnamed>")
     .concat(duplicates(inventoryMethodNames))
@@ -678,6 +714,15 @@ export function inspectSynthesisServiceBoundary() {
       .filter((method) => method.migration === "pending")
       .map((method) => method.name)
       .sort(),
+    retiredMigrations,
+    unauthorizedRetirements: retiredMigrations.filter(
+      (method) => !authorizedRetirementSet.has(method),
+    ),
+    authorizedRetirementsNotMapped: authorizedRetirements.filter(
+      (method) => !retiredMigrationSet.has(method),
+    ),
+    retiredMethodsWithProductionConsumers:
+      findRetiredProductionConsumers(retiredMigrations),
     missingProductionOperations: expectedProductionOperations.filter(
       (capability) => !operationCapabilitySet.has(capability),
     ),
@@ -730,6 +775,10 @@ function runCli() {
       report.currentMethodsMissingFromInventory,
     unknownInventoryMethods: report.unknownInventoryMethods,
     pendingMigrations: report.pendingMigrations,
+    unauthorizedRetirements: report.unauthorizedRetirements,
+    authorizedRetirementsNotMapped: report.authorizedRetirementsNotMapped,
+    retiredMethodsWithProductionConsumers:
+      report.retiredMethodsWithProductionConsumers,
     missingProductionOperations: report.missingProductionOperations,
     unknownProductionOperations: report.unknownProductionOperations,
     invalidMergedTargets: report.invalidMergedTargets,

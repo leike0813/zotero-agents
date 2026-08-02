@@ -23,6 +23,7 @@ function config(root: string): SynthesisSidecarRuntimeConfig {
   return {
     schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
+    libraryId: 1,
     profileRuntimeRoot: root,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),

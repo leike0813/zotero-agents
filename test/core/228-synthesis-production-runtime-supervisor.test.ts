@@ -40,6 +40,7 @@ function readyInstall() {
 type LaunchConfig = {
   schema: string;
   profileId: string;
+  libraryId: number;
   profileRuntimeRoot: string;
   supervisorInstanceId: string;
   bundleId: string;
@@ -203,6 +204,7 @@ describe("Synthesis production runtime supervisor", function () {
     const supervisor = createSynthesisProductionRuntimeSupervisor({
       runtimeRoot,
       profilePath: PROFILE_PATH,
+      libraryId: 7,
       repositoryDbPath,
       canonicalRoot,
       reverseHost: {
@@ -218,6 +220,7 @@ describe("Synthesis production runtime supervisor", function () {
           const config = JSON.parse(
             fs.readFileSync(configPath, "utf8"),
           ) as LaunchConfig;
+          assert.equal(config.libraryId, 7);
           configs.push(config);
           fs.writeFileSync(
             path.join(config.profileRuntimeRoot, "discovery.json"),

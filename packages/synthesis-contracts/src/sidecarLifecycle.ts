@@ -24,6 +24,7 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/;
 export type SynthesisSidecarLaunchConfig = {
   schema: typeof SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA;
   profileId: string;
+  libraryId: number;
   profileRuntimeRoot: string;
   runtimeRootId: string;
   dataRootId: string;
@@ -166,6 +167,7 @@ export function rebuildSynthesisSidecarLaunchConfig(
     [
       "schema",
       "profileId",
+      "libraryId",
       "profileRuntimeRoot",
       "runtimeRootId",
       "dataRootId",
@@ -248,6 +250,12 @@ export function rebuildSynthesisSidecarLaunchConfig(
   return Object.freeze({
     schema: SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
     profileId: strictHash(record.profileId, "sidecarLaunchConfig.profileId"),
+    libraryId: strictInteger(
+      record.libraryId,
+      "sidecarLaunchConfig.libraryId",
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ),
     profileRuntimeRoot: strictString(
       record.profileRuntimeRoot,
       "sidecarLaunchConfig.profileRuntimeRoot",
