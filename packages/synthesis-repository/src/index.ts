@@ -3,7 +3,11 @@ import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../synthesis-
 export { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION };
 export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY =
   "repository_foundation_schema_version" as const;
+const SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSION =
+  "synthesis-repository-foundation.v1" as const;
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION =
+  "synthesis-topic-application-repository.v2" as const;
+const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_PREVIOUS_SCHEMA_VERSION =
   "synthesis-topic-application-repository.v1" as const;
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
   "topic_application_schema_version" as const;
@@ -221,15 +225,30 @@ export type SynthesisTopicApplicationProjectionRecord = {
   updatedAt?: string;
 };
 
+export type SynthesisDeletedTopicArtifactRecord = {
+  topicId: string;
+  pathId: string;
+  deletedPathId: string;
+  title: string;
+  manifestHash: string;
+  artifactHash: string;
+  metadataHash: string;
+  bundleHash: string;
+  updatedAt?: string;
+  deletedAt: string;
+};
+
 export const SYNTHESIS_REPOSITORY_FOUNDATION_TABLES = [
   "synt_schema_meta",
   "synt_cache_basis",
   "synt_operation",
+  "synt_topic_deleted_artifact",
 ] as const;
 
 export const SYNTHESIS_REPOSITORY_FOUNDATION_INDEXES = [
   "idx_synt_cache_basis_kind_status",
   "idx_synt_operation_type_status_updated",
+  "idx_synt_topic_deleted_artifact_deleted",
 ] as const;
 
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_TABLES = [
@@ -357,9 +376,12 @@ export function ensureSynthesisRepositoryFoundationSchema(db: SqlAdapter) {
     })?.value,
   );
   if (current && current !== SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION) {
-    throw new Error("repository_foundation_schema_unsupported");
+    if (current !== SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSION) {
+      throw new Error("repository_foundation_schema_unsupported");
+    }
   }
-  db.run(`
+  db.transaction(() => {
+    db.run(`
     CREATE TABLE IF NOT EXISTS synt_cache_basis (
       cache_key TEXT PRIMARY KEY,
       cache_kind TEXT NOT NULL,
@@ -377,7 +399,7 @@ export function ensureSynthesisRepositoryFoundationSchema(db: SqlAdapter) {
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
-  db.run(`
+    db.run(`
     CREATE TABLE IF NOT EXISTS synt_operation (
       operation_id TEXT PRIMARY KEY,
       operation_type TEXT NOT NULL,
@@ -404,21 +426,46 @@ export function ensureSynthesisRepositoryFoundationSchema(db: SqlAdapter) {
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
-  db.run(`
+    db.run(`
+    CREATE TABLE IF NOT EXISTS synt_topic_deleted_artifact (
+      topic_id TEXT PRIMARY KEY,
+      path_id TEXT NOT NULL,
+      deleted_path_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      manifest_hash TEXT NOT NULL,
+      artifact_hash TEXT NOT NULL,
+      metadata_hash TEXT NOT NULL,
+      bundle_hash TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT '',
+      deleted_at TEXT NOT NULL
+    );
+  `);
+    db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_cache_basis_kind_status
       ON synt_cache_basis(cache_kind, status, updated_at DESC);
   `);
-  db.run(`
+    db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_operation_type_status_updated
       ON synt_operation(operation_type, status, updated_at DESC);
   `);
-  db.run(
-    `INSERT OR REPLACE INTO synt_schema_meta(key, value) VALUES (@key, @value)`,
-    {
-      key: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY,
-      value: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
-    },
-  );
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_topic_deleted_artifact_deleted
+      ON synt_topic_deleted_artifact(deleted_at DESC, topic_id ASC);
+  `);
+    if (current === SYNTHESIS_REPOSITORY_FOUNDATION_PREVIOUS_SCHEMA_VERSION) {
+      db.run(
+        `UPDATE synt_cache_basis SET status='stale', active_operation_id='',
+           stale_reason='repository_foundation_v2'`,
+      );
+    }
+    db.run(
+      `INSERT OR REPLACE INTO synt_schema_meta(key, value) VALUES (@key, @value)`,
+      {
+        key: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY,
+        value: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+      },
+    );
+  });
 }
 
 export function ensureSynthesisTopicApplicationRepositorySchema(
@@ -432,7 +479,8 @@ export function ensureSynthesisTopicApplicationRepositorySchema(
   );
   if (
     current &&
-    current !== SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION
+    current !== SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION &&
+    current !== SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_PREVIOUS_SCHEMA_VERSION
   ) {
     throw new Error("repository_topic_application_schema_unsupported");
   }
@@ -546,6 +594,37 @@ export function rebuildSynthesisTopicApplicationProjectionRow(
     discoveryJson: strictJsonText(row.discovery_json),
     updatedAt: cleanString(row.updated_at) || undefined,
   };
+}
+
+export function rebuildSynthesisDeletedTopicArtifactRow(
+  row: SqlRow,
+): SynthesisDeletedTopicArtifactRecord {
+  const record = {
+    topicId: cleanString(row.topic_id),
+    pathId: cleanString(row.path_id),
+    deletedPathId: cleanString(row.deleted_path_id),
+    title: cleanString(row.title),
+    manifestHash: cleanString(row.manifest_hash),
+    artifactHash: cleanString(row.artifact_hash),
+    metadataHash: cleanString(row.metadata_hash),
+    bundleHash: cleanString(row.bundle_hash),
+    updatedAt: cleanString(row.updated_at) || undefined,
+    deletedAt: cleanString(row.deleted_at),
+  };
+  if (
+    !record.topicId ||
+    !record.pathId ||
+    !record.deletedPathId ||
+    !record.manifestHash ||
+    !record.artifactHash ||
+    !record.metadataHash ||
+    !record.bundleHash ||
+    !record.deletedAt ||
+    Number.isNaN(Date.parse(record.deletedAt))
+  ) {
+    throw new Error("repository_deleted_topic_artifact_invalid");
+  }
+  return record;
 }
 
 export function getSynthesisRepositoryFoundationSchemaVersion(db: SqlAdapter) {
@@ -916,6 +995,118 @@ export function upsertSynthesisTopicApplicationProjection(
   );
 }
 
+export function getSynthesisDeletedTopicArtifact(
+  db: SqlAdapter,
+  topicIdRaw: string,
+) {
+  const topicId = cleanString(topicIdRaw);
+  if (!topicId) return null;
+  const row = db.get(
+    "SELECT * FROM synt_topic_deleted_artifact WHERE topic_id=@topic_id LIMIT 1",
+    { topic_id: topicId },
+  );
+  return row ? rebuildSynthesisDeletedTopicArtifactRow(row) : null;
+}
+
+export function listSynthesisDeletedTopicArtifacts(
+  db: SqlAdapter,
+  args: { offset?: number; limit?: number } = {},
+) {
+  const offset = nonNegativeInt(args.offset);
+  const limit = Math.min(250, Math.max(1, nonNegativeInt(args.limit) || 50));
+  const total = nonNegativeInt(
+    db.get("SELECT COUNT(*) AS count FROM synt_topic_deleted_artifact")?.count,
+  );
+  return {
+    rows: db
+      .all(
+        `SELECT * FROM synt_topic_deleted_artifact
+         ORDER BY deleted_at DESC, topic_id ASC
+         LIMIT @limit OFFSET @offset`,
+        { limit, offset },
+      )
+      .map(rebuildSynthesisDeletedTopicArtifactRow),
+    total,
+  };
+}
+
+export function softDeleteSynthesisTopicApplicationState(
+  db: SqlAdapter,
+  record: SynthesisDeletedTopicArtifactRecord,
+) {
+  const rebuilt = rebuildSynthesisDeletedTopicArtifactRow({
+    topic_id: record.topicId,
+    path_id: record.pathId,
+    deleted_path_id: record.deletedPathId,
+    title: record.title,
+    manifest_hash: record.manifestHash,
+    artifact_hash: record.artifactHash,
+    metadata_hash: record.metadataHash,
+    bundle_hash: record.bundleHash,
+    updated_at: record.updatedAt ?? "",
+    deleted_at: record.deletedAt,
+  });
+  db.transaction(() => {
+    if (!getSynthesisTopicApplicationState(db, rebuilt.topicId)) {
+      throw new Error("topic_not_found");
+    }
+    db.run(
+      `INSERT OR REPLACE INTO synt_topic_deleted_artifact(
+        topic_id,path_id,deleted_path_id,title,manifest_hash,artifact_hash,
+        metadata_hash,bundle_hash,updated_at,deleted_at
+      ) VALUES(
+        @topic_id,@path_id,@deleted_path_id,@title,@manifest_hash,@artifact_hash,
+        @metadata_hash,@bundle_hash,@updated_at,@deleted_at
+      )`,
+      {
+        topic_id: rebuilt.topicId,
+        path_id: rebuilt.pathId,
+        deleted_path_id: rebuilt.deletedPathId,
+        title: rebuilt.title,
+        manifest_hash: rebuilt.manifestHash,
+        artifact_hash: rebuilt.artifactHash,
+        metadata_hash: rebuilt.metadataHash,
+        bundle_hash: rebuilt.bundleHash,
+        updated_at: rebuilt.updatedAt ?? "",
+        deleted_at: rebuilt.deletedAt,
+      },
+    );
+    db.run(
+      "DELETE FROM synt_topic_application_projection WHERE topic_id=@topic_id",
+      { topic_id: rebuilt.topicId },
+    );
+    db.run(
+      "DELETE FROM synt_topic_application_state WHERE topic_id=@topic_id",
+      {
+        topic_id: rebuilt.topicId,
+      },
+    );
+  });
+}
+
+export function purgeSynthesisDeletedTopicArtifacts(
+  db: SqlAdapter,
+  records: readonly SynthesisDeletedTopicArtifactRecord[],
+) {
+  return db.transaction(() => {
+    let purged = 0;
+    for (const record of records) {
+      const current = getSynthesisDeletedTopicArtifact(db, record.topicId);
+      if (!current || current.deletedPathId !== record.deletedPathId) continue;
+      db.run(
+        `DELETE FROM synt_topic_deleted_artifact
+         WHERE topic_id=@topic_id AND deleted_path_id=@deleted_path_id`,
+        {
+          topic_id: current.topicId,
+          deleted_path_id: current.deletedPathId,
+        },
+      );
+      purged += 1;
+    }
+    return purged;
+  });
+}
+
 export type SynthesisRepositoryFoundationStore = ReturnType<
   typeof createSynthesisRepositoryFoundationStore
 >;
@@ -1097,6 +1288,26 @@ export function createSynthesisRepositoryFoundationStore(options: {
       });
     },
     initializeTopicApplication,
+    getDeletedTopicArtifact(topicId: string) {
+      initializeTopicApplication();
+      return getSynthesisDeletedTopicArtifact(db, topicId);
+    },
+    listDeletedTopicArtifacts(args?: { offset?: number; limit?: number }) {
+      initializeTopicApplication();
+      return listSynthesisDeletedTopicArtifacts(db, args);
+    },
+    softDeleteTopicApplicationState(
+      record: SynthesisDeletedTopicArtifactRecord,
+    ) {
+      initializeTopicApplication();
+      return softDeleteSynthesisTopicApplicationState(db, record);
+    },
+    purgeDeletedTopicArtifacts(
+      records: readonly SynthesisDeletedTopicArtifactRecord[],
+    ) {
+      initializeTopicApplication();
+      return purgeSynthesisDeletedTopicArtifacts(db, records);
+    },
     initializeCitationGraphApplication,
     initializeReferenceRefreshApplication,
     initializeReferenceMatchingReviewApplication,

@@ -76,7 +76,7 @@ The repository owns one serialized writer and up to four read-only connections, 
 
 ### 7. Preserve durable facts and invalidate caches through registered migration
 
-Forward migration preserves Topic state, user-approved binding/redirect/review decisions, sync state, and other non-rebuildable facts. Rebuildable projections, metrics, layouts, and cache bases may be marked stale and regenerated. Migration is transactional and covered by reopen and failure tests.
+Repository foundation v2 adds `synt_topic_deleted_artifact`, keyed by Topic and ordered by deletion time, while Topic application identity advances to v2. Its registered v1→v2 migration preserves Topic state, user-approved binding/redirect/review decisions, operations, sync state, and last-good projections. It marks cache bases, Citation layout and complex metrics, Tag/Concept/Topic Graph indexes, and Reference/Matching readiness stale without deleting their last-good content. Production creates or verifies a content-addressed v1 backup before the immediate migration transaction; both version metadata rows are updated last. Reopen, repeat startup, and injected failure tests cover idempotency and rollback.
 
 ### 8. Repair by vertical slice
 

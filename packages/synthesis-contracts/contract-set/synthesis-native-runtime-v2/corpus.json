@@ -75,7 +75,7 @@
     },
     "serviceVersion": "0.1.0",
     "protocolVersion": "synthesis-sidecar.v1",
-    "schemaVersion": "synthesis-repository-foundation.v1",
+    "schemaVersion": "synthesis-repository-foundation.v2",
     "supervisorInstanceId": "native-parity-supervisor",
     "repositoryDbPath": "$ABSOLUTE_RUNTIME_ROOT",
     "canonicalRoot": "$ABSOLUTE_RUNTIME_ROOT",
@@ -105,7 +105,7 @@
     },
     "serviceVersion": "0.1.0",
     "protocolVersion": "synthesis-sidecar.v1",
-    "schemaVersion": "synthesis-repository-foundation.v1",
+    "schemaVersion": "synthesis-repository-foundation.v2",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
     "host": "127.0.0.1",
@@ -144,7 +144,7 @@
     "repository": {
       "mode": "isolated_shadow",
       "state": "ready",
-      "schemaVersion": "synthesis-repository-foundation.v1",
+      "schemaVersion": "synthesis-repository-foundation.v2",
       "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "canonicalStore": {
@@ -181,7 +181,7 @@
       "signer": null
     },
     "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
-    "schemaVersion": "synthesis-repository-foundation.v1",
+    "schemaVersion": "synthesis-repository-foundation.v2",
     "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
     "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
     "capabilities": [
@@ -199,7 +199,7 @@
     "repository": {
       "mode": "isolated_shadow",
       "state": "ready",
-      "schemaVersion": "synthesis-repository-foundation.v1",
+      "schemaVersion": "synthesis-repository-foundation.v2",
       "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "canonicalStore": {

@@ -15,7 +15,7 @@ use synthesis_canonical_store::{
     canonical_json_hash,
 };
 use synthesis_repository::{
-    CacheBasisRecord, OperationQuery, OperationRecord, Repository,
+    CacheBasisRecord, DeletedTopicArtifactRecord, OperationQuery, OperationRecord, Repository,
     TopicApplicationProjectionRecord, TopicApplicationRecordPage, TopicApplicationStateRecord,
 };
 use synthesis_repository::{
@@ -291,6 +291,14 @@ pub trait TopicRepositoryPort: Send + Sync {
         topic_id: &str,
     ) -> Result<Option<TopicApplicationProjectionRecord>, String>;
     fn upsert_projection(&self, record: &TopicApplicationProjectionRecord) -> Result<(), String>;
+    fn get_deleted(&self, topic_id: &str) -> Result<Option<DeletedTopicArtifactRecord>, String>;
+    fn list_deleted(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String>;
+    fn soft_delete(&self, record: &DeletedTopicArtifactRecord) -> Result<(), String>;
+    fn purge_deleted(&self, records: &[DeletedTopicArtifactRecord]) -> Result<usize, String>;
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
     fn update_operation(
         &self,
@@ -1025,6 +1033,38 @@ impl TopicRepositoryPort for RepositoryPort {
             .upsert_topic_application_projection(record)
     }
 
+    fn get_deleted(&self, topic_id: &str) -> Result<Option<DeletedTopicArtifactRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_deleted_topic_artifact(topic_id)
+    }
+
+    fn list_deleted(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_deleted_topic_artifacts(offset, limit)
+    }
+
+    fn soft_delete(&self, record: &DeletedTopicArtifactRecord) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .soft_delete_topic_application_state(record)
+    }
+
+    fn purge_deleted(&self, records: &[DeletedTopicArtifactRecord]) -> Result<usize, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .purge_deleted_topic_artifacts(records)
+    }
+
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
         self.repository
             .lock()
@@ -1107,6 +1147,9 @@ pub trait TopicCanonicalPort: Send + Sync {
     fn read_current(&self, topic_id: &str) -> Result<CurrentTopic, String>;
     fn promote(&self, promotion: Promotion) -> Result<CanonicalReceipt, String>;
     fn receipt(&self, topic_id: &str) -> Result<Option<CanonicalReceipt>, String>;
+    fn archive_current(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String>;
+    fn restore_deleted(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String>;
+    fn purge_deleted(&self, deleted_path_id: &str) -> Result<bool, String>;
 }
 
 #[derive(Clone)]
@@ -1151,6 +1194,27 @@ impl TopicCanonicalPort for CanonicalStorePort {
             .lock()
             .map_err(|_| "canonical_store_unavailable".to_owned())?
             .receipt(topic_id)
+    }
+
+    fn archive_current(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .archive_current(topic_id, deleted_path_id)
+    }
+
+    fn restore_deleted(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .restore_deleted(topic_id, deleted_path_id)
+    }
+
+    fn purge_deleted(&self, deleted_path_id: &str) -> Result<bool, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .purge_deleted(deleted_path_id)
     }
 }
 

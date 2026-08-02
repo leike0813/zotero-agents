@@ -34,7 +34,7 @@ describe("Synthesis sidecar isolated repository foundation", function () {
     }
   });
 
-  it("uses real node:sqlite with an idempotent exact three-table schema", function () {
+  it("uses real node:sqlite with an idempotent exact four-table foundation schema", function () {
     const root = tempRoot();
     roots.push(root);
     const databasePath = path.join(root, "synthesis.db");
@@ -56,12 +56,56 @@ describe("Synthesis sidecar isolated repository foundation", function () {
       "synt_cache_basis",
       "synt_operation",
       "synt_schema_meta",
+      "synt_topic_deleted_artifact",
     ]);
     assert.equal(
       store.getSchemaVersion(),
       SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
     );
     connection.close();
+  });
+
+  it("migrates an isolated v1 foundation idempotently and marks cache bases stale", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const databasePath = path.join(root, "synthesis.db");
+    const connection = openSynthesisNodeSqliteAdapter(databasePath);
+    const store = createSynthesisRepositoryFoundationStore({
+      db: connection.adapter,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    store.initialize();
+    store.upsertCacheBasis({
+      cacheKey: "citation:layout",
+      cacheKind: "citation_layout",
+      status: "ready",
+    });
+    connection.adapter.run(
+      "UPDATE synt_schema_meta SET value=@value WHERE key=@key",
+      {
+        key: "repository_foundation_schema_version",
+        value: "synthesis-repository-foundation.v1",
+      },
+    );
+    connection.close();
+
+    const reopened = openSynthesisNodeSqliteAdapter(databasePath);
+    const migrated = createSynthesisRepositoryFoundationStore({
+      db: reopened.adapter,
+      now: () => "2026-07-17T00:01:00.000Z",
+    });
+    migrated.initialize();
+    migrated.initialize();
+    assert.equal(
+      migrated.getSchemaVersion(),
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+    );
+    assert.equal(migrated.getCacheBasis("citation:layout")?.status, "stale");
+    assert.equal(
+      migrated.getCacheBasis("citation:layout")?.staleReason,
+      "repository_foundation_v2",
+    );
+    reopened.close();
   });
 
   it("installs the isolated Citation Graph application schema without changing the foundation snapshot", function () {
@@ -93,6 +137,7 @@ describe("Synthesis sidecar isolated repository foundation", function () {
       "synt_citation_source_ownership",
       "synt_operation",
       "synt_schema_meta",
+      "synt_topic_deleted_artifact",
     ]);
     assert.equal(
       connection.adapter.get(

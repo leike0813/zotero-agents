@@ -35,6 +35,27 @@ export type SynthesisTopicDiscoveryHintRequest = {
 };
 
 export type SynthesisTopicCommandResult = SynthesisJsonObject;
+export type SynthesisTopicArtifactDeleteResult =
+  | {
+      ok: true;
+      status: "deleted";
+      topicId: string;
+      deletedPathId: string;
+      warnings?: string[];
+    }
+  | {
+      ok: false;
+      status: "not_found";
+      topicId: string;
+      reason: string;
+      warnings?: string[];
+    };
+export type SynthesisDeletedTopicArtifactsPurgeResult = {
+  ok: true;
+  status: "purged";
+  purged_count: number;
+  warnings?: string[];
+};
 export type SynthesisTopicQueryRequest = SynthesisJsonObject;
 export type SynthesisTopicQueryResult = SynthesisJsonObject;
 
@@ -60,8 +81,8 @@ export interface SynthesisTopicsClient {
   ): Promise<SynthesisTopicReportResult>;
   deleteTopicArtifact(
     request: SynthesisTopicArtifactDeleteRequest,
-  ): Promise<SynthesisTopicCommandResult>;
-  purgeDeletedTopicArtifacts(): Promise<SynthesisTopicCommandResult>;
+  ): Promise<SynthesisTopicArtifactDeleteResult>;
+  purgeDeletedTopicArtifacts(): Promise<SynthesisDeletedTopicArtifactsPurgeResult>;
   rejectTopicDiscoveryHint(
     request: SynthesisTopicDiscoveryHintRequest,
   ): Promise<SynthesisTopicCommandResult>;

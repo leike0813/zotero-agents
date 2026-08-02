@@ -67,7 +67,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) reference_canonical: ReferenceCanonicalApplication,
     pub(crate) tags: TagVocabularyApplication,
     pub(crate) concepts: ConceptKbApplication,
-    pub(crate) topic_graph: TopicGraphApplication,
+    pub(crate) topic_graph: Arc<TopicGraphApplication>,
     pub(crate) debug: DebugMaintenanceApplication,
     pub(crate) webdav: WebDavSyncApplication,
     pub(crate) host_items: Arc<dyn HostItemCollectionPort>,
@@ -234,13 +234,20 @@ pub(crate) fn build_production_applications(
         config: config.clone(),
         service_instance_id: service_instance_id.clone(),
     });
+    let topic_graph = Arc::new(TopicGraphApplication::new(
+        repository.clone(),
+        Arc::new(NativeTopicGraphComputePort {
+            compute: Arc::clone(&compute),
+        }),
+    ));
     let topics = TopicApplication::new(
         repository.clone(),
         canonical.clone(),
         Arc::new(NativeStructuredArtifactPort {
             compute: Arc::clone(&compute),
         }),
-    );
+    )
+    .with_topic_graph(Arc::clone(&topic_graph));
     let citations = CitationGraphApplication::new(
         repository.clone(),
         Arc::new(NativeCitationGraphComputePort {
@@ -271,12 +278,6 @@ pub(crate) fn build_production_applications(
     let concepts = ConceptKbApplication::new(
         repository.clone(),
         Arc::new(NativeConceptKbComputePort {
-            compute: Arc::clone(&compute),
-        }),
-    );
-    let topic_graph = TopicGraphApplication::new(
-        repository.clone(),
-        Arc::new(NativeTopicGraphComputePort {
             compute: Arc::clone(&compute),
         }),
     );
@@ -1945,8 +1946,8 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
             .run_direct(
                 crate::runtime_worker_pool::WorkerOperation::TopicManifestValidate,
                 serde_json::json!({
-                    "contractVersion":"synthesis-topic-structured-artifact.v1",
-                    "algorithmVersion":"topic-structured-artifact.v1",
+                    "contractVersion":synthesis_topic_structured_artifact::CONTRACT_VERSION,
+                    "algorithmVersion":synthesis_topic_structured_artifact::MANIFEST_VALIDATION_VERSION,
                     "manifest":manifest,
                 }),
             )
@@ -1964,15 +1965,19 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
         manifest: &Value,
         sections: &std::collections::BTreeMap<String, Value>,
     ) -> Result<Value, String> {
-        self.compute.run_direct(
-            crate::runtime_worker_pool::WorkerOperation::TopicArtifactAssemble,
-            serde_json::json!({
-                "contractVersion":"synthesis-topic-structured-artifact.v1",
-                "algorithmVersion":"topic-structured-artifact.v1",
-                "manifest":manifest,
-                "sections":sections,
-            }),
-        )
+        self.compute
+            .run_direct(
+                crate::runtime_worker_pool::WorkerOperation::TopicArtifactAssemble,
+                serde_json::json!({
+                    "contractVersion":synthesis_topic_structured_artifact::CONTRACT_VERSION,
+                    "algorithmVersion":synthesis_topic_structured_artifact::ARTIFACT_ASSEMBLY_VERSION,
+                    "manifest":manifest,
+                    "sections":sections,
+                }),
+            )?
+            .get("artifact")
+            .cloned()
+            .ok_or_else(|| "worker_result_invalid".into())
     }
 
     fn validate_artifact(&self, artifact: &Value, language: &str) -> Result<(), String> {
@@ -1980,8 +1985,8 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
             .run_direct(
                 crate::runtime_worker_pool::WorkerOperation::TopicArtifactValidate,
                 serde_json::json!({
-                    "contractVersion":"synthesis-topic-structured-artifact.v1",
-                    "algorithmVersion":"topic-structured-artifact.v1",
+                    "contractVersion":synthesis_topic_structured_artifact::CONTRACT_VERSION,
+                    "algorithmVersion":synthesis_topic_structured_artifact::ARTIFACT_VALIDATION_VERSION,
                     "expectedLanguage":language,
                     "artifact":artifact,
                 }),
@@ -2004,9 +2009,10 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
         let result = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TopicSectionPatch,
             serde_json::json!({
-                "contractVersion":"synthesis-topic-structured-artifact.v1",
-                "algorithmVersion":"topic-structured-artifact.v1",
-                "current":current,
+                "contractVersion":synthesis_topic_structured_artifact::CONTRACT_VERSION,
+                "algorithmVersion":synthesis_topic_structured_artifact::SECTION_PATCH_VERSION,
+                "currentManifest":current.manifest,
+                "currentSections":current.sections,
                 "patchManifest":patch_manifest,
                 "changedSections":changed_sections,
             }),

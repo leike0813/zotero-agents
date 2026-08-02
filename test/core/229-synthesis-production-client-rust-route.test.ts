@@ -80,7 +80,7 @@ function config(args: {
     },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v1",
+    schemaVersion: "synthesis-repository-foundation.v2",
     diagnosticsEnabled: true,
     supervisorInstanceId: args.supervisorInstanceId,
     repositoryDbPath: path.join(args.root, "state", "synthesis.db"),
@@ -155,6 +155,187 @@ async function call(
   return {
     status: response.status,
     body: (await response.json()) as Record<string, any>,
+  };
+}
+
+function topicApplyRequest(topicId: string) {
+  const sourcePaperRef = "1:PRODUCTION";
+  const sectionValues: Record<string, unknown> = {
+    topic: {
+      id: topicId,
+      title: "Production Topic",
+      definition: "A durable production-route Topic",
+      discipline: "Information Science",
+      scope: "Topic lifecycle persistence",
+    },
+    summary: { overview: "A production lifecycle fixture." },
+    taxonomy: {
+      summary: { text: "One durable research route." },
+      nodes: [
+        {
+          id: "route:durable",
+          definition: "Durable lifecycle route",
+          core_problem: "Preserve lifecycle facts",
+          mechanism: "Transactional repository and canonical storage",
+          source_paper_refs: [sourcePaperRef],
+          strengths: ["durable"],
+          limitations: ["fixture scope"],
+          maturity: "validated",
+        },
+      ],
+    },
+    improvement_dimensions: [
+      {
+        id: "dimension:durability",
+        analysis: "The lifecycle preserves current and deleted state.",
+        source_paper_refs: [sourcePaperRef],
+      },
+    ],
+    claims: [
+      {
+        id: "claim:durable",
+        text: "Topic lifecycle state is durable.",
+        analysis: "Repository and canonical state survive process reopen.",
+        scope: "Production route fixture",
+        source_paper_refs: [sourcePaperRef],
+      },
+    ],
+    timeline_events: {
+      summary: { text: "Create, delete, reopen, rebuild, and purge." },
+      events: [
+        {
+          id: "event:lifecycle",
+          description: "The lifecycle is exercised through the HTTP boundary.",
+          phase: "validation",
+          source_paper_refs: [sourcePaperRef],
+        },
+      ],
+    },
+    source_papers: [
+      {
+        paper_ref: sourcePaperRef,
+        digest_ref: {
+          paper_ref: sourcePaperRef,
+          payload_type: "digest-markdown",
+        },
+      },
+    ],
+    debates: [],
+    coverage: {
+      coverage_verdict: "partial",
+      coverage_reason:
+        "A single bounded fixture source is sufficient for lifecycle validation.",
+      coverage_caveats: [
+        "This fixture does not represent a literature review.",
+      ],
+      external_context_summary:
+        "External context is outside this lifecycle test.",
+      suggested_collection_directions: [],
+    },
+    future_directions: [
+      {
+        id: "future:coverage",
+        source_paper_refs: [sourcePaperRef],
+      },
+    ],
+    review_outline: {
+      topic_importance:
+        "Durable deletion protects user-controlled Topic state.",
+      writing_strategies: [
+        {
+          id: "strategy:lifecycle",
+          title: "Lifecycle",
+          review_thesis: "State remains coherent across lifecycle transitions.",
+          writing_strategy: "Follow the transitions in storage order.",
+          best_for: "Persistence review",
+          risks: "Fixture scope",
+          section_plan: ["Create", "Delete", "Purge"],
+          source_paper_refs: [sourcePaperRef],
+        },
+      ],
+      recommended_strategy_id: "strategy:lifecycle",
+    },
+    statistics: {
+      paper_count: 1,
+      time_span: { start_year: 2026, end_year: 2026 },
+      route_coverage: "One fixture route",
+      coverage_verdict: "partial",
+    },
+    synthesis_report: {
+      title: "Production Topic Lifecycle",
+      source_section_chapters: {
+        research_routes: "taxonomy.summary",
+        historical_progression: "timeline_events.summary",
+      },
+      body: "This bounded report records a production Topic lifecycle through the real authenticated sidecar route. It establishes a durable active artifact, archives that artifact under a stable deleted identifier, reopens the process against the same repository and canonical root, rebuilds an active Topic without erasing the tombstone, and finally purges only deleted state. The fixture intentionally keeps its literature claims narrow because the observable contract under test is storage ownership and transition safety. ",
+    },
+    source_artifacts: [],
+    diagnostics: { warnings: [] },
+  };
+  const sectionAssets = Object.entries(sectionValues).map(([name, value]) => ({
+    id: `asset/section/${name}`,
+    mediaType: "application/json",
+    text: JSON.stringify(value),
+  }));
+  return {
+    bundle: {
+      kind: "topic_synthesis",
+      operation: "create",
+      mode: "create",
+      language: "en",
+      topic_definition: {
+        id: topicId,
+        title: "Production Topic",
+        definition: "A durable production-route Topic",
+      },
+      resolver_manifest_path: "asset/resolver",
+      analysis_manifest_path: "asset/manifest",
+      artifact_metadata: {},
+      markdown: "",
+    },
+    assets: [
+      {
+        id: "asset/manifest",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          schema_id: "synthesis.topic_analysis_manifest",
+          schema_version: "3.0.0",
+          operation: "create",
+          topic_id: topicId,
+          language: "en",
+          sections: Object.fromEntries(
+            Object.keys(sectionValues).map((name) => [
+              name,
+              { path: `asset/section/${name}`, content_type: "json" },
+            ]),
+          ),
+          sidecars: Object.fromEntries(
+            [
+              "topic_interest_metadata",
+              "concept_cards_proposal",
+              "topic_graph_relation_proposals",
+              "prospective_topic_relation_proposals",
+            ].map((name) => [
+              name,
+              {
+                path: `asset/sidecar/${name}`,
+                content_type: "json",
+                schema_id: `fixture.${name}`,
+              },
+            ]),
+          ),
+        }),
+      },
+      ...sectionAssets,
+      {
+        id: "asset/resolver",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          resolver: { query: "durable production topic" },
+          resolved_paper_set: { papers: [{ paper_ref: sourcePaperRef }] },
+        }),
+      },
+    ],
   };
 }
 
@@ -317,6 +498,160 @@ describe("Synthesis Rust production client route", function () {
       assert.deepEqual(observed, ALL_PRODUCTION_OPERATIONS);
       assert.isTrue(fs.existsSync(path.join(root, "state", "synthesis.db")));
       assert.isNotEmpty(reverseHostCalls);
+    } finally {
+      if (sidecar.child.exitCode === null) {
+        await stop(sidecar.child);
+      }
+      await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("persists Topic delete, rebuild, and purge across production-route reopen", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-topic-lifecycle-"),
+    );
+    const reverseHostCalls: string[] = [];
+    const reverseHost = http.createServer((request, response) => {
+      reverseHostCalls.push(String(request.url || ""));
+      request.resume();
+      request.on("end", () => {
+        const body = JSON.stringify({ ok: true, result: {} });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        });
+        response.end(body);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      reverseHost.listen(0, "127.0.0.1", resolve),
+    );
+    const address = reverseHost.address();
+    if (!address || typeof address === "string") {
+      throw new Error("reverse host unavailable");
+    }
+    const session = path.join(root, "runtime", "sessions", "topic-lifecycle");
+    fs.mkdirSync(session, { recursive: true });
+    const configPath = path.join(session, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        config({
+          root,
+          session,
+          supervisorInstanceId: "supervisor-topic-lifecycle",
+          reverseHostPort: address.port,
+        }),
+      ),
+    );
+    let sidecar = start(configPath);
+    try {
+      let { port } = await sidecar.listening;
+      const topicId = "topic-production-lifecycle";
+      const applyRequest = topicApplyRequest(topicId);
+      const applied = await call(port, "client.applyTopicSynthesisResult", {
+        args: [applyRequest],
+      });
+      assert.equal(applied.status, 200, JSON.stringify(applied.body));
+      assert.equal(applied.body.data.ok, true, JSON.stringify(applied.body));
+      assert.deepInclude(applied.body.data, {
+        ok: true,
+        status: "persisted",
+        topicId,
+      });
+
+      reverseHostCalls.length = 0;
+      const deleted = await call(port, "client.deleteTopicArtifact", {
+        args: [{ topicId }],
+      });
+      assert.equal(deleted.status, 200, JSON.stringify(deleted.body));
+      assert.deepInclude(deleted.body.data, {
+        ok: true,
+        status: "deleted",
+        topicId,
+      });
+      const deletedPathId = String(deleted.body.data.deletedPathId || "");
+      assert.isNotEmpty(deletedPathId);
+
+      const deletedProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["topics", { artifacts: {} }] },
+      );
+      assert.lengthOf(deletedProjection.body.data.artifacts, 0);
+      assert.lengthOf(deletedProjection.body.data.deletedArtifacts.rows, 1);
+      assert.deepInclude(deletedProjection.body.data.deletedArtifacts.rows[0], {
+        topic_id: topicId,
+        deleted_path_id: deletedPathId,
+      });
+      assert.match(
+        deletedProjection.body.data.deletedArtifacts.rows[0].deleted_at,
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/,
+      );
+
+      const repeatedDelete = await call(port, "client.deleteTopicArtifact", {
+        args: [{ topicId }],
+      });
+      assert.equal(repeatedDelete.status, 200);
+      assert.equal(repeatedDelete.body.data.deletedPathId, deletedPathId);
+      assert.deepEqual(reverseHostCalls, []);
+
+      await stop(sidecar.child);
+      sidecar = start(configPath);
+      ({ port } = await sidecar.listening);
+      reverseHostCalls.length = 0;
+      const reopenedProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["home", { artifacts: {} }] },
+      );
+      assert.lengthOf(reopenedProjection.body.data.artifacts, 0);
+      assert.equal(
+        reopenedProjection.body.data.deletedArtifacts.rows[0].deleted_path_id,
+        deletedPathId,
+      );
+
+      const rebuilt = await call(port, "client.applyTopicSynthesisResult", {
+        args: [topicApplyRequest(topicId)],
+      });
+      assert.equal(rebuilt.status, 200, JSON.stringify(rebuilt.body));
+      assert.equal(rebuilt.body.data.status, "persisted");
+      const coexistProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["topics", { artifacts: {} }] },
+      );
+      assert.lengthOf(coexistProjection.body.data.artifacts, 1);
+      assert.lengthOf(coexistProjection.body.data.deletedArtifacts.rows, 1);
+
+      const firstPurge = await call(port, "client.purgeDeletedTopicArtifacts", {
+        args: [],
+      });
+      const secondPurge = await call(
+        port,
+        "client.purgeDeletedTopicArtifacts",
+        { args: [] },
+      );
+      assert.deepInclude(firstPurge.body.data, {
+        ok: true,
+        status: "purged",
+        purged_count: 1,
+      });
+      assert.deepInclude(secondPurge.body.data, {
+        ok: true,
+        status: "purged",
+        purged_count: 0,
+      });
+      const activeAfterPurge = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["topics", { artifacts: {} }] },
+      );
+      assert.lengthOf(activeAfterPurge.body.data.artifacts, 1);
+      assert.lengthOf(activeAfterPurge.body.data.deletedArtifacts.rows, 0);
+      assert.deepEqual(reverseHostCalls, []);
     } finally {
       if (sidecar.child.exitCode === null) {
         await stop(sidecar.child);

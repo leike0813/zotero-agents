@@ -1,8 +1,10 @@
 use crate::dto::{
-    TopicApplyRequest, TopicApplyResult, TopicApplyStatus, TopicDetailRequest, TopicDetailResult,
-    TopicListRequest, TopicListResult, TopicRecord,
+    TopicApplyRequest, TopicApplyResult, TopicApplyStatus, TopicDeleteRequest, TopicDeleteResult,
+    TopicDeleteStatus, TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult,
+    TopicPurgeResult, TopicRecord,
 };
 use crate::ports::{StructuredArtifactPort, TopicCanonicalPort, TopicRepositoryPort};
+use crate::topic_graph::TopicGraphApplication;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,7 +17,8 @@ use synthesis_canonical_store::{
 };
 use synthesis_protocol::canonical_json;
 use synthesis_repository::{
-    OperationRecord, TopicApplicationProjectionRecord, TopicApplicationStateRecord,
+    DeletedTopicArtifactRecord, OperationRecord, TopicApplicationProjectionRecord,
+    TopicApplicationStateRecord,
 };
 
 const MAX_ASSETS: usize = 256;
@@ -57,6 +60,7 @@ pub struct TopicApplication {
     now: Clock,
     operation_id: TextFactory,
     transaction_id: TextFactory,
+    topic_graph: Option<Arc<TopicGraphApplication>>,
     accepting: AtomicBool,
     active: Mutex<usize>,
     drained: Condvar,
@@ -119,10 +123,16 @@ impl TopicApplication {
             now,
             operation_id,
             transaction_id,
+            topic_graph: None,
             accepting: AtomicBool::new(true),
             active: Mutex::new(0),
             drained: Condvar::new(),
         }
+    }
+
+    pub fn with_topic_graph(mut self, topic_graph: Arc<TopicGraphApplication>) -> Self {
+        self.topic_graph = Some(topic_graph);
+        self
     }
 
     pub fn list(&self, request: TopicListRequest) -> Result<TopicListResult, String> {
@@ -181,6 +191,128 @@ impl TopicApplication {
                 })
             }
         }
+    }
+
+    pub fn list_deleted(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String> {
+        if limit == 0 || limit > MAX_LIST {
+            return Err("invalid_request".into());
+        }
+        self.repository.list_deleted(offset, limit)
+    }
+
+    pub fn delete(&self, request: TopicDeleteRequest) -> Result<TopicDeleteResult, String> {
+        validate_topic_id(&request.topic_id)?;
+        let state = self.repository.get_state(&request.topic_id)?;
+        let previous = self.repository.get_deleted(&request.topic_id)?;
+        let Some(state) = state else {
+            return Ok(match previous {
+                Some(previous) => TopicDeleteResult {
+                    ok: true,
+                    status: TopicDeleteStatus::Deleted,
+                    topic_id: request.topic_id,
+                    deleted_path_id: previous.deleted_path_id,
+                    reason: String::new(),
+                    warnings: Vec::new(),
+                },
+                None => TopicDeleteResult {
+                    ok: false,
+                    status: TopicDeleteStatus::NotFound,
+                    topic_id: request.topic_id,
+                    deleted_path_id: String::new(),
+                    reason: "topic artifact not found".into(),
+                    warnings: Vec::new(),
+                },
+            });
+        };
+        if previous.is_some() {
+            return Err("topic_deleted_artifact_exists".into());
+        }
+        let deleted_at = (self.now)();
+        let deleted_path_id = deleted_path_id(&request.topic_id, &deleted_at)?;
+        if !self
+            .canonical
+            .archive_current(&request.topic_id, &deleted_path_id)?
+        {
+            return Err("topic_current_missing".into());
+        }
+        let deleted = DeletedTopicArtifactRecord {
+            topic_id: request.topic_id.clone(),
+            path_id: state.path_id,
+            deleted_path_id: deleted_path_id.clone(),
+            title: state.title,
+            manifest_hash: state.manifest_hash,
+            artifact_hash: state.artifact_hash,
+            metadata_hash: state.metadata_hash,
+            bundle_hash: state.bundle_hash,
+            updated_at: state.updated_at,
+            deleted_at,
+        };
+        if let Err(error) = self.repository.soft_delete(&deleted) {
+            return match self
+                .canonical
+                .restore_deleted(&request.topic_id, &deleted_path_id)
+            {
+                Ok(true) => Err(error),
+                _ => Err("repair_required".into()),
+            };
+        }
+        let mut warnings = Vec::new();
+        if let Some(topic_graph) = &self.topic_graph
+            && topic_graph
+                .mark_deleted_topic(&request.topic_id, &deleted_path_id)
+                .is_err()
+        {
+            warnings.push("topic_graph_delete_mark_failed".into());
+        }
+        Ok(TopicDeleteResult {
+            ok: true,
+            status: TopicDeleteStatus::Deleted,
+            topic_id: request.topic_id,
+            deleted_path_id,
+            reason: String::new(),
+            warnings,
+        })
+    }
+
+    pub fn purge_deleted(&self) -> Result<TopicPurgeResult, String> {
+        let mut records = Vec::new();
+        let mut offset = 0;
+        loop {
+            let (page, total) = self.repository.list_deleted(offset, MAX_LIST)?;
+            offset += page.len();
+            records.extend(page);
+            if offset >= total {
+                break;
+            }
+        }
+        for record in &records {
+            self.canonical.purge_deleted(&record.deleted_path_id)?;
+        }
+        let purged_count = self.repository.purge_deleted(&records)?;
+        let mut warnings = Vec::new();
+        if !records.is_empty()
+            && let Some(topic_graph) = &self.topic_graph
+            && topic_graph
+                .purge_deleted_topics(
+                    &records
+                        .iter()
+                        .map(|record| record.topic_id.clone())
+                        .collect::<Vec<_>>(),
+                )
+                .is_err()
+        {
+            warnings.push("topic_graph_relations_purge_failed".into());
+        }
+        Ok(TopicPurgeResult {
+            ok: true,
+            status: "purged".into(),
+            purged_count,
+            warnings,
+        })
     }
 
     pub fn apply(&self, request: TopicApplyRequest) -> TopicApplyResult {
@@ -891,6 +1023,18 @@ fn validate_topic_id(value: &str) -> Result<(), String> {
     }
 }
 
+fn deleted_path_id(topic_id: &str, deleted_at: &str) -> Result<String, String> {
+    if synthesis_protocol::unix_millis_from_utc_iso8601(deleted_at).is_none() {
+        return Err("invalid_request".into());
+    }
+    let suffix = deleted_at
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(14)
+        .collect::<String>();
+    Ok(format!("{}-{suffix}", canonical_topic_path_id(topic_id)?))
+}
+
 fn nonempty_string(value: Option<&Value>, max: usize) -> Result<String, String> {
     value
         .and_then(Value::as_str)
@@ -1095,11 +1239,15 @@ mod tests {
     use super::*;
     use crate::dto::{PatchOutput, TopicAsset};
     use crate::ports::{CanonicalStorePort, RepositoryPort};
+    use crate::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicUsize;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-    use synthesis_repository::{Repository, RepositoryIdentity, TopicApplicationRecordPage};
+    use synthesis_repository::{
+        Repository, RepositoryIdentity, TopicApplicationRecordPage,
+        TopicGraphApplicationStateRecord, TopicGraphNodeRecord, TopicGraphReplacement,
+    };
 
     struct CountingTopicRepository {
         inner: RepositoryPort,
@@ -1150,6 +1298,29 @@ mod tests {
             self.inner.upsert_projection(record)
         }
 
+        fn get_deleted(
+            &self,
+            topic_id: &str,
+        ) -> Result<Option<DeletedTopicArtifactRecord>, String> {
+            self.inner.get_deleted(topic_id)
+        }
+
+        fn list_deleted(
+            &self,
+            offset: usize,
+            limit: usize,
+        ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String> {
+            self.inner.list_deleted(offset, limit)
+        }
+
+        fn soft_delete(&self, record: &DeletedTopicArtifactRecord) -> Result<(), String> {
+            self.inner.soft_delete(record)
+        }
+
+        fn purge_deleted(&self, records: &[DeletedTopicArtifactRecord]) -> Result<usize, String> {
+            self.inner.purge_deleted(records)
+        }
+
         fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
             self.inner.upsert_operation(record)
         }
@@ -1168,6 +1339,21 @@ mod tests {
     }
 
     struct FixtureEngine;
+
+    struct FixtureTopicGraphCompute;
+
+    impl TopicGraphComputePort for FixtureTopicGraphCompute {
+        fn build_index(
+            &self,
+            _snapshot: &TopicGraphReplacement,
+            _canceled: &Arc<AtomicBool>,
+        ) -> Result<TopicGraphIndexOutput, String> {
+            Ok(TopicGraphIndexOutput {
+                index_hash: "index:fixture".into(),
+                index_json: "{}".into(),
+            })
+        }
+    }
 
     impl StructuredArtifactPort for FixtureEngine {
         fn validate_manifest(&self, manifest: &Value) -> Result<(), String> {
@@ -1392,6 +1578,182 @@ mod tests {
         ));
         drop(reopened);
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn delete_rebuild_and_purge_are_durable_and_idempotent() {
+        let root = root("delete-purge");
+        let application = make_application(&root);
+        assert!(application.apply(request("topic-alpha", "create")).ok);
+
+        let deleted = application
+            .delete(TopicDeleteRequest {
+                topic_id: "topic-alpha".into(),
+            })
+            .expect("delete");
+        assert_eq!(deleted.status, TopicDeleteStatus::Deleted);
+        assert!(!deleted.deleted_path_id.is_empty());
+        assert!(
+            application
+                .list(TopicListRequest::default())
+                .unwrap()
+                .topics
+                .is_empty()
+        );
+        assert_eq!(application.list_deleted(0, 50).expect("deleted").0.len(), 1);
+        assert_eq!(
+            application
+                .delete(TopicDeleteRequest {
+                    topic_id: "topic-alpha".into(),
+                })
+                .expect("idempotent delete")
+                .deleted_path_id,
+            deleted.deleted_path_id
+        );
+
+        drop(application);
+        let reopened = make_application(&root);
+        assert_eq!(
+            reopened
+                .list_deleted(0, 50)
+                .expect("reopen deleted")
+                .0
+                .len(),
+            1
+        );
+        assert!(reopened.apply(request("topic-alpha", "create")).ok);
+        assert_eq!(
+            reopened
+                .list(TopicListRequest::default())
+                .unwrap()
+                .topics
+                .len(),
+            1
+        );
+        assert_eq!(reopened.list_deleted(0, 50).expect("coexist").0.len(), 1);
+
+        assert_eq!(reopened.purge_deleted().expect("purge").purged_count, 1);
+        assert_eq!(
+            reopened
+                .purge_deleted()
+                .expect("idempotent purge")
+                .purged_count,
+            0
+        );
+        assert_eq!(
+            reopened
+                .list(TopicListRequest::default())
+                .unwrap()
+                .topics
+                .len(),
+            1
+        );
+        drop(reopened);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn repository_failure_restores_current_and_graph_failure_is_only_a_warning() {
+        let rollback_root = root("delete-rollback");
+        let (repository, canonical) = owners(&rollback_root);
+        let rollback = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical.clone()),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+            Arc::new(|topic| format!("transaction:{topic}")),
+        );
+        assert!(rollback.apply(request("topic-alpha", "create")).ok);
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "CREATE TRIGGER fail_topic_tombstone BEFORE INSERT ON synt_topic_deleted_artifact
+                 BEGIN SELECT RAISE(FAIL, 'fixture tombstone failure'); END",
+                &[],
+            )
+            .expect("trigger");
+        assert!(
+            rollback
+                .delete(TopicDeleteRequest {
+                    topic_id: "topic-alpha".into(),
+                })
+                .is_err()
+        );
+        assert!(matches!(
+            canonical.read_current("topic-alpha").expect("restored"),
+            CurrentTopic::Ready { .. }
+        ));
+        assert!(repository.get_state("topic-alpha").unwrap().is_some());
+        assert!(repository.get_deleted("topic-alpha").unwrap().is_none());
+        drop(rollback);
+        fs::remove_dir_all(rollback_root).expect("cleanup rollback");
+
+        let warning_root = root("delete-graph-warning");
+        let (repository, canonical) = owners(&warning_root);
+        let graph = Arc::new(TopicGraphApplication::new(
+            Arc::new(repository.clone()),
+            Arc::new(FixtureTopicGraphCompute),
+        ));
+        let graph_seed = TopicGraphReplacement {
+            state: TopicGraphApplicationStateRecord {
+                singleton_id: 1,
+                manifest_hash: "graph:fixture".into(),
+                index_json: "{}".into(),
+                index_stale: 1,
+                ..TopicGraphApplicationStateRecord::default()
+            },
+            nodes: vec![TopicGraphNodeRecord {
+                topic_id: "topic-alpha".into(),
+                title: "Alpha".into(),
+                node_type: "materialized".into(),
+                definition_status: "has_synthesis".into(),
+                aliases_json: "[]".into(),
+                ..TopicGraphNodeRecord::default()
+            }],
+            edges: Vec::new(),
+            reviews: Vec::new(),
+        };
+        assert_eq!(
+            graph.replace_snapshot(None, &graph_seed).status,
+            crate::topic_graph::TopicGraphMutationStatus::Committed
+        );
+        let warning = TopicApplication::with_factories(
+            Arc::new(repository.clone()),
+            Arc::new(canonical.clone()),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+            Arc::new(|topic| format!("transaction:{topic}")),
+        )
+        .with_topic_graph(graph);
+        assert!(warning.apply(request("topic-alpha", "create")).ok);
+        repository
+            .owner()
+            .lock()
+            .expect("repository")
+            .execute(
+                "CREATE TRIGGER fail_topic_graph_state BEFORE INSERT ON synt_topic_graph_application_state
+                 BEGIN SELECT RAISE(FAIL, 'fixture graph failure'); END",
+                &[],
+            )
+            .expect("trigger");
+        let deleted = warning
+            .delete(TopicDeleteRequest {
+                topic_id: "topic-alpha".into(),
+            })
+            .expect("delete with graph warning");
+        assert_eq!(deleted.warnings, vec!["topic_graph_delete_mark_failed"]);
+        assert!(repository.get_state("topic-alpha").unwrap().is_none());
+        assert!(repository.get_deleted("topic-alpha").unwrap().is_some());
+        assert!(matches!(
+            canonical.read_current("topic-alpha").expect("absent"),
+            CurrentTopic::Absent { .. }
+        ));
+        drop(warning);
+        fs::remove_dir_all(warning_root).expect("cleanup warning");
     }
 
     #[test]

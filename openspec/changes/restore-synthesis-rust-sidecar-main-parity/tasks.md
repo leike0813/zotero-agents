@@ -17,7 +17,7 @@
 - [x] 3.1 Correct related-items echo consumption and add a no-Host-effect regression test
 - [x] 3.2 Implement library-backed resolver semantics and strict Topic apply validation without empty-asset fallback
 - [x] 3.3 Restore domain-specific Workbench Home, Topics, Review, Tags, Concepts, Reader, Index, and Graph projections
-- [ ] 3.4 Restore Topic digest/delete/purge lifecycle and replace fake debug/profiler/paper/diff projections with real data or stable unavailable terminals
+- [x] 3.4 Restore Topic digest/delete/purge lifecycle and replace fake debug/profiler/paper/diff projections with real data or stable unavailable terminals
 - [ ] 3.5 Normalize persisted/public timestamps to ISO-8601 and cover freshness, retry, and ordering semantics
 
 ## 4. Restore Wire and Operation Contracts
@@ -44,9 +44,9 @@
 
 ## 7. Preserve Durable Data
 
-- [ ] 7.1 Define the retained fact/cache classification and add a registered forward SQLite migration
-- [ ] 7.2 Preserve Topic, approved binding/redirect/review, and sync facts while marking rebuildable cache state stale
-- [ ] 7.3 Cover migration reopen, idempotency, failure rollback, and compatible recovery
+- [x] 7.1 Define the retained fact/cache classification and add a registered forward SQLite migration
+- [x] 7.2 Preserve Topic, approved binding/redirect/review, and sync facts while marking rebuildable cache state stale
+- [x] 7.3 Cover migration reopen, idempotency, failure rollback, and compatible recovery
 
 ## 8. Complete Domain Restoration
 

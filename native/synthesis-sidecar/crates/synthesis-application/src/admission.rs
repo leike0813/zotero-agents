@@ -60,6 +60,10 @@ impl SingleFlightAdmission {
         }
     }
 
+    pub(crate) fn is_stopping(&self) -> bool {
+        self.state.lock().map_or(true, |state| !state.accepting)
+    }
+
     pub(crate) fn shutdown(&self, timeout: Duration, code: &str) -> Result<(), String> {
         self.stop();
         let state = self

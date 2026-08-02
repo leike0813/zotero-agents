@@ -125,7 +125,7 @@ mod tests {
             }),
             service_version: env!("CARGO_PKG_VERSION").into(),
             protocol_version: "synthesis-sidecar.v1".into(),
-            schema_version: "synthesis-repository-foundation.v1".into(),
+            schema_version: "synthesis-repository-foundation.v2".into(),
             supervisor_instance_id: "supervisor-1".into(),
             diagnostics_enabled: false,
             repository_db_path: root.join("state/synthesis.db"),

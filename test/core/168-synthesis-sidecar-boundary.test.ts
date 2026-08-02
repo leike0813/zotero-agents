@@ -293,8 +293,8 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.deepEqual(rawInventory.isolated_repository, {
       mode: "isolated_shadow",
-      schema_version: "synthesis-repository-foundation.v1",
-      application_schema_version: "synthesis-topic-application-repository.v1",
+      schema_version: "synthesis-repository-foundation.v2",
+      application_schema_version: "synthesis-topic-application-repository.v2",
       citation_graph_application_schema_version:
         "synthesis-citation-graph-application-repository.v1",
       reference_refresh_application_schema_version:
@@ -315,6 +315,7 @@ describe("Synthesis sidecar migration boundary", function () {
         "operation",
         "topic_application_state",
         "topic_application_projection",
+        "topic_deleted_artifact",
         "citation_graph_application_state",
         "citation_node",
         "citation_edge",

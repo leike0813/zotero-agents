@@ -17,7 +17,7 @@ use synthesis_canonical_store::{
     canonical_topic_path_id,
 };
 use synthesis_repository::{
-    CacheBasisRecord, OperationRecord, Repository, RepositoryIdentity,
+    CacheBasisRecord, DeletedTopicArtifactRecord, OperationRecord, Repository, RepositoryIdentity,
     TopicApplicationProjectionRecord, TopicApplicationStateRecord,
 };
 
@@ -431,6 +431,26 @@ impl TopicRepositoryPort for FaultRepository {
         self.inner.upsert_projection(record)
     }
 
+    fn get_deleted(&self, topic_id: &str) -> Result<Option<DeletedTopicArtifactRecord>, String> {
+        self.inner.get_deleted(topic_id)
+    }
+
+    fn list_deleted(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String> {
+        self.inner.list_deleted(offset, limit)
+    }
+
+    fn soft_delete(&self, record: &DeletedTopicArtifactRecord) -> Result<(), String> {
+        self.inner.soft_delete(record)
+    }
+
+    fn purge_deleted(&self, records: &[DeletedTopicArtifactRecord]) -> Result<usize, String> {
+        self.inner.purge_deleted(records)
+    }
+
     fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
         self.inner.upsert_operation(record)
     }
@@ -478,6 +498,18 @@ impl TopicCanonicalPort for FaultCanonical {
 
     fn receipt(&self, topic_id: &str) -> Result<Option<CanonicalReceipt>, String> {
         self.inner.receipt(topic_id)
+    }
+
+    fn archive_current(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String> {
+        self.inner.archive_current(topic_id, deleted_path_id)
+    }
+
+    fn restore_deleted(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String> {
+        self.inner.restore_deleted(topic_id, deleted_path_id)
+    }
+
+    fn purge_deleted(&self, deleted_path_id: &str) -> Result<bool, String> {
+        self.inner.purge_deleted(deleted_path_id)
     }
 }
 

@@ -134,6 +134,8 @@ pub struct TopicGraphReviewRequest {
 pub struct TopicGraphMarkDeletedRequest {
     pub expected_manifest_hash: String,
     pub topic_id: String,
+    #[serde(default)]
+    pub deleted_path_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -521,6 +523,17 @@ impl TopicGraphApplication {
         }
         let now = (self.now)();
         let mut changed = false;
+        for node in &mut snapshot.nodes {
+            if node.topic_id == request.topic_id {
+                changed |= node.definition_status != "deleted";
+                node.definition_status = "deleted".into();
+                if !request.deleted_path_id.is_empty() {
+                    node.current_artifact_path =
+                        format!("deleted/{}/current/artifact.json", request.deleted_path_id);
+                }
+                node.updated_at = now.clone();
+            }
+        }
         for edge in &mut snapshot.edges {
             if edge.source_topic_id == request.topic_id || edge.target_topic_id == request.topic_id
             {
@@ -561,6 +574,14 @@ impl TopicGraphApplication {
     }
 
     pub fn purge_deleted(&self, request: &TopicGraphPurgeRequest) -> TopicGraphMutationResult {
+        if self.admission.is_stopping() {
+            return self.result(
+                TopicGraphMutationStatus::Stopping,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
         let mut snapshot = match self.repository.load() {
             Ok(snapshot) => snapshot,
             Err(_) => {
@@ -590,11 +611,14 @@ impl TopicGraphApplication {
             !topic_ids.contains(&node.topic_id) || node.definition_status != "deleted"
         });
         snapshot.edges.retain(|edge| {
-            !topic_ids.contains(&edge.source_topic_id) && !topic_ids.contains(&edge.target_topic_id)
+            edge.status != "deleted"
+                || (!topic_ids.contains(&edge.source_topic_id)
+                    && !topic_ids.contains(&edge.target_topic_id))
         });
         snapshot.reviews.retain(|review| {
-            !topic_ids.contains(&review.source_topic_id)
-                && !topic_ids.contains(&review.target_topic_id)
+            review.status != "deleted"
+                || (!topic_ids.contains(&review.source_topic_id)
+                    && !topic_ids.contains(&review.target_topic_id))
         });
         if before
             == (
@@ -626,6 +650,43 @@ impl TopicGraphApplication {
         request: &TopicGraphPurgeRequest,
     ) -> TopicGraphMutationResult {
         self.purge_deleted(request)
+    }
+
+    pub fn mark_deleted_topic(&self, topic_id: &str, deleted_path_id: &str) -> Result<(), String> {
+        let expected_manifest_hash = self
+            .repository
+            .get_state()?
+            .map(|state| state.manifest_hash)
+            .unwrap_or_default();
+        match self
+            .mark_topic_relations_deleted(&TopicGraphMarkDeletedRequest {
+                expected_manifest_hash,
+                topic_id: topic_id.into(),
+                deleted_path_id: deleted_path_id.into(),
+            })
+            .status
+        {
+            TopicGraphMutationStatus::Committed | TopicGraphMutationStatus::Unchanged => Ok(()),
+            _ => Err("topic_graph_update_failed".into()),
+        }
+    }
+
+    pub fn purge_deleted_topics(&self, topic_ids: &[String]) -> Result<(), String> {
+        let expected_manifest_hash = self
+            .repository
+            .get_state()?
+            .map(|state| state.manifest_hash)
+            .unwrap_or_default();
+        match self
+            .purge_deleted(&TopicGraphPurgeRequest {
+                expected_manifest_hash,
+                topic_ids: topic_ids.to_vec(),
+            })
+            .status
+        {
+            TopicGraphMutationStatus::Committed | TopicGraphMutationStatus::Unchanged => Ok(()),
+            _ => Err("topic_graph_update_failed".into()),
+        }
     }
 
     pub fn rebuild_index(&self, expected_manifest_hash: &str) -> TopicGraphMutationResult {
@@ -1131,6 +1192,59 @@ mod tests {
             TopicGraphMutationStatus::Stopping
         );
         app.shutdown(Duration::from_secs(1)).expect("shutdown");
+        drop(app);
+        drop(owner);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn purge_keeps_rebuilt_active_relations_and_reviews() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = TopicGraphApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(|| "fixed".into()),
+        );
+        let mut active = snapshot("graph:active", false);
+        active.reviews.push(TopicGraphReviewItemRecord {
+            review_id: "review:active".into(),
+            status: "open".into(),
+            source_topic_id: "topic:one".into(),
+            target_topic_id: "topic:two".into(),
+            relation: "broader_than".into(),
+            confidence: Some(0.8),
+            provenance_json: "[]".into(),
+            evidence_refs_json: "[]".into(),
+            created_at: "fixed".into(),
+            updated_at: "fixed".into(),
+            ..TopicGraphReviewItemRecord::default()
+        });
+        assert_eq!(
+            app.replace_snapshot(None, &active).status,
+            TopicGraphMutationStatus::Committed
+        );
+        let basis = app.load().expect("load").state.manifest_hash;
+        assert_eq!(
+            app.purge_deleted(&TopicGraphPurgeRequest {
+                expected_manifest_hash: basis,
+                topic_ids: vec!["topic:one".into()],
+            })
+            .status,
+            TopicGraphMutationStatus::Unchanged
+        );
+        let current = app.load().expect("current");
+        assert_eq!(current.edges.len(), 1);
+        assert_eq!(current.reviews.len(), 1);
         drop(app);
         drop(owner);
         let _ = std::fs::remove_dir_all(root);

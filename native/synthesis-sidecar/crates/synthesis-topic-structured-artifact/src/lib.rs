@@ -6,7 +6,11 @@ use synthesis_protocol::{
     TOPIC_MANIFEST_VALIDATE_OPERATION, TOPIC_SECTION_PATCH_OPERATION,
 };
 
-const CONTRACT_VERSION: &str = "synthesis-topic-structured-artifact.v1";
+pub const CONTRACT_VERSION: &str = "synthesis-topic-structured-artifact.v1";
+pub const MANIFEST_VALIDATION_VERSION: &str = "topic-analysis-manifest-validation.v1";
+pub const ARTIFACT_ASSEMBLY_VERSION: &str = "topic-structured-artifact-assembly.v1";
+pub const ARTIFACT_VALIDATION_VERSION: &str = "topic-structured-artifact-validation.v1";
+pub const SECTION_PATCH_VERSION: &str = "topic-section-patch.v1";
 const COMPLETE_SECTIONS: &[&str] = &[
     "topic",
     "summary",
@@ -961,7 +965,7 @@ fn patch(request: &Value) -> Result<Value, &'static str> {
         if current.get(section) != Some(hash) {
             return Ok(json!({
                 "contractVersion":CONTRACT_VERSION,
-                "algorithmVersion":"topic-section-patch.v1",
+                "algorithmVersion":SECTION_PATCH_VERSION,
                 "status":"conflict",
                 "sections":null,
                 "nextSectionHashes":null,
@@ -974,7 +978,7 @@ fn patch(request: &Value) -> Result<Value, &'static str> {
         if !read.contains_key(section) {
             return Ok(json!({
                 "contractVersion":CONTRACT_VERSION,
-                "algorithmVersion":"topic-section-patch.v1",
+                "algorithmVersion":SECTION_PATCH_VERSION,
                 "status":"invalid",
                 "sections":null,
                 "nextSectionHashes":null,
@@ -998,7 +1002,7 @@ fn patch(request: &Value) -> Result<Value, &'static str> {
     }
     Ok(json!({
         "contractVersion":CONTRACT_VERSION,
-        "algorithmVersion":"topic-section-patch.v1",
+        "algorithmVersion":SECTION_PATCH_VERSION,
         "status":"applied",
         "sections":sections,
         "nextSectionHashes":hashes,
@@ -1016,18 +1020,18 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
     validate_json_bounds(&request, 0, &mut bounds, flag)?;
     match operation {
         TOPIC_MANIFEST_VALIDATE_OPERATION
-            if text(request.get("algorithmVersion")) == "topic-analysis-manifest-validation.v1" =>
+            if text(request.get("algorithmVersion")) == MANIFEST_VALIDATION_VERSION =>
         {
             let errors = manifest_errors(request.get("manifest").ok_or("invalid_request")?);
             Ok(json!({
                 "contractVersion":CONTRACT_VERSION,
-                "algorithmVersion":"topic-analysis-manifest-validation.v1",
+                "algorithmVersion":MANIFEST_VALIDATION_VERSION,
                 "ok":errors.is_empty(),
                 "errors":errors
             }))
         }
         TOPIC_ARTIFACT_ASSEMBLE_OPERATION
-            if text(request.get("algorithmVersion")) == "topic-structured-artifact-assembly.v1" =>
+            if text(request.get("algorithmVersion")) == ARTIFACT_ASSEMBLY_VERSION =>
         {
             let manifest = object(request.get("manifest").ok_or("invalid_request")?)?;
             let sections = object(request.get("sections").ok_or("invalid_request")?)?;
@@ -1049,13 +1053,12 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
             artifact.extend(sections.clone());
             Ok(json!({
                 "contractVersion":CONTRACT_VERSION,
-                "algorithmVersion":"topic-structured-artifact-assembly.v1",
+                "algorithmVersion":ARTIFACT_ASSEMBLY_VERSION,
                 "artifact":artifact
             }))
         }
         TOPIC_ARTIFACT_VALIDATE_OPERATION
-            if text(request.get("algorithmVersion"))
-                == "topic-structured-artifact-validation.v1" =>
+            if text(request.get("algorithmVersion")) == ARTIFACT_VALIDATION_VERSION =>
         {
             let errors = artifact_errors(
                 request.get("artifact").ok_or("invalid_request")?,
@@ -1063,13 +1066,13 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
             );
             Ok(json!({
                 "contractVersion":CONTRACT_VERSION,
-                "algorithmVersion":"topic-structured-artifact-validation.v1",
+                "algorithmVersion":ARTIFACT_VALIDATION_VERSION,
                 "ok":errors.is_empty(),
                 "errors":errors
             }))
         }
         TOPIC_SECTION_PATCH_OPERATION
-            if text(request.get("algorithmVersion")) == "topic-section-patch.v1" =>
+            if text(request.get("algorithmVersion")) == SECTION_PATCH_VERSION =>
         {
             patch(&request)
         }

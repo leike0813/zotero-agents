@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   createInProcessSynthesisCitationGraphMetricsEngine,
@@ -68,12 +69,14 @@ function metricsRequest(): SynthesisCitationGraphMetricsRequest {
   });
 }
 
-function runtimeConfig(): SynthesisSidecarRuntimeConfig {
+function runtimeConfig(
+  profileRuntimeRoot = path.join(ROOT, ".scaffold/test-sidecar-metrics-route"),
+): SynthesisSidecarRuntimeConfig {
   return {
     schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     libraryId: 1,
-    profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-metrics-route"),
+    profileRuntimeRoot,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
@@ -88,16 +91,10 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     },
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-repository-foundation.v1",
+    schemaVersion: "synthesis-repository-foundation.v2",
     supervisorInstanceId: "metrics-route-supervisor",
-    repositoryDbPath: path.join(
-      ROOT,
-      ".scaffold/test-sidecar-metrics-route/state/synthesis.db",
-    ),
-    canonicalRoot: path.join(
-      ROOT,
-      ".scaffold/test-sidecar-metrics-route/data/synthesis",
-    ),
+    repositoryDbPath: path.join(profileRuntimeRoot, "state/synthesis.db"),
+    canonicalRoot: path.join(profileRuntimeRoot, "data/synthesis"),
     reverseHost: {
       host: "127.0.0.1",
       port: 1,
@@ -153,7 +150,10 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
   this.timeout(10_000);
 
   it("matches the direct engine through real authenticated HTTP", async function () {
-    const config = runtimeConfig();
+    const profileRuntimeRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-sidecar-metrics-route-"),
+    );
+    const config = runtimeConfig(profileRuntimeRoot);
     const direct = createInProcessSynthesisCitationGraphMetricsEngine();
     const pool = createSynthesisSidecarComputeWorkerPool();
     const runtime = await startSynthesisSidecarServer(
@@ -173,6 +173,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
     } finally {
       runtime.beginShutdown("test_complete");
       await runtime.stopped;
+      fs.rmSync(profileRuntimeRoot, { recursive: true, force: true });
     }
   });
 

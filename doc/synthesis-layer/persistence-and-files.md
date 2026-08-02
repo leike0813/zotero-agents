@@ -19,7 +19,7 @@ state.
 | Schema migration backups | `data/synthesis-migration-backups/**` | Created only by Rust immediately before a registered schema migration. Same-schema startup creates no backup. |
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
-| Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
+| Deleted topic artifact archive | `data/synthesis/deleted/<deletedPathId>/current/**` | Soft-deleted Topic current trees addressed only by the recorded tombstone ID; Workbench metadata comes from `synt_topic_deleted_artifact` |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/current/**` | Verified native manifest-v3 bundle copied from the installed XPI. This is executable packaging state, not Synthesis domain state. |
 | Sidecar launch sessions | `runtime/synthesis/service-runtime/profiles/<profileId>/sessions/<supervisorInstanceId>/**` | Private config, discovery, and tokens for one process launch; removed after bounded shutdown. |
@@ -168,6 +168,7 @@ Synthesis runtime DB uses typed `synt_*` tables for normal UI, Host Bridge, expl
 | Reference bindings | `synt_reference_binding`, `synt_reference_match_proposal`. Canonical-reference-to-Zotero binding rows with status, confidence, method, evidence, and durable user decisions (`synt_reference_binding`). Match proposals linking canonical references to Zotero items by confidence and score (`synt_reference_match_proposal`). |
 | Citation graph cache | `synt_citation_node`, `synt_citation_edge`, `synt_citation_source_ownership`, `synt_citation_incoming_group`, `synt_citation_metrics_light`, `synt_citation_metrics_complex`, `synt_citation_layout_state`, `synt_cache_basis`, `synt_related_items_sync_effect`. Nodes, edges, incoming groups, metrics, layout state, cache-basis metadata (`synt_cache_basis` tracks freshness per cache key), staging/active pointers for derived graph outputs, related-items sync effect/provenance state. Active raw references, effective canonical references, accepted bindings, and Host metadata are projected through the environment-neutral Citation Graph build engine; promotion is guarded by a recaptured durable-fact basis. |
 | Topic artifacts/discovery | `synt_topic_interest_metadata`, `synt_topic_discovery_hint`, `synt_literature_matching_metadata`. Topic definitions/artifact state, source dependency baselines, source-check diagnostics, topic interest metadata, discovery hints, per-paper literature matching metadata (key terms, methods, problems, datasets). |
+| Deleted Topic artifacts | `synt_topic_deleted_artifact`. One tombstone per Topic, containing its stable current/deleted path IDs, title, four content hashes, original update time, and ISO-8601 deletion time. Active Topic rows may coexist with a tombstone after the Topic is rebuilt. |
 | Topic graph | Topic graph nodes/edges, proposals, accepted/rejected relation facts, review rows. |
 | Concepts | Concept records, senses, aliases, relations, topic links, proposal/review state. |
 | Tags | Vocabulary entries, aliases, abbreviations, protocols, validation/import state. |
@@ -176,6 +177,8 @@ Synthesis runtime DB uses typed `synt_*` tables for normal UI, Host Bridge, expl
 | Removed runtime queue/jobs and old library index | Dirty events, job progress rows, WorkItems, WorkRuns, queue meta, Registry rebuild runs, and old library-fact projection tables must not be part of active sidecar persistence. |
 
 Graph-derived rows that replace visible state must either be scoped by run/basis until promotion or be guarded by an equivalent active pointer. Workbench hot reads must not read staged rows from an unpromoted run.
+
+Repository foundation v2 is reached from v1 only through the registered Rust migration. The migration creates `synt_topic_deleted_artifact` and its deletion-time index, preserves Topic, binding, redirect, review, operation, sync, and last-good projection rows, then marks cache bases, Citation layout/complex metrics, Tag/Concept/Topic Graph indexes, and Reference/Matching readiness stale. Production migration runs inside one immediate transaction after creating or verifying a content-addressed v1 database backup. The version metadata is updated last; failure leaves both the live database and backup at v1, and a repeated v2 startup performs no migration write.
 
 Do not store SQLite-owned Synthesis sidecar facts in generic plugin task rows
 or ad hoc `data/synthesis/**` JSON. The only normal JSON writes under
@@ -222,10 +225,15 @@ cancelled, oversized, or malformed results leave graph rows and existing
 projection registry state unchanged.
 
 The private Topic Graph application owns the isolated snapshot, upsert,
-proposal/review/decision, deletion-cleanup, and index-promotion policy. Index
+proposal/review/decision, deletion-cleanup, and index-promotion policy. Topic
+soft-delete marks matching nodes and relations deleted after canonical and
+repository promotion; a Graph failure is reported as a warning and does not
+reverse the completed soft-delete. Purge removes only deleted Graph rows, so a
+rebuilt active node, edge, or review remains intact. Index
 construction runs through the bounded worker; manifest supersession or worker
-failure preserves the last-good index. Production canonical files, projection
-registry, discovery effects, and public compatibility results remain plugin-owned.
+failure preserves the last-good index. The Rust Topic application owns
+canonical/repository lifecycle coordination and the compatibility dispatcher
+only rebuilds strict DTOs and maps wire fields.
 
 Topic structured artifacts are computed through the environment-neutral Topic
 Structured Artifact engine. Its bounded DTOs validate complete and patch

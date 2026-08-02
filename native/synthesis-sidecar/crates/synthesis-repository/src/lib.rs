@@ -16,7 +16,8 @@ pub use checkpoint_bundle_webdav_debug::*;
 mod tag_concept_topic_graph;
 pub use tag_concept_topic_graph::*;
 
-pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v1";
+const PREVIOUS_SCHEMA_VERSION: &str = "synthesis-repository-foundation.v1";
+pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v2";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
@@ -27,7 +28,7 @@ const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     ("repository_foundation_schema_version", SCHEMA_VERSION),
     (
         "topic_application_schema_version",
-        "synthesis-topic-application-repository.v1",
+        "synthesis-topic-application-repository.v2",
     ),
     (
         "citation_graph_application_schema_version",
@@ -67,7 +68,12 @@ struct RegisteredProductionSchemaMigration {
 
 // Schema changes must be registered here explicitly. Ordinary XPI updates do
 // not create backups and never infer a migration from a runtime fingerprint.
-const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigration] = &[];
+const REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS: &[RegisteredProductionSchemaMigration] =
+    &[RegisteredProductionSchemaMigration {
+        from: PREVIOUS_SCHEMA_VERSION,
+        to: SCHEMA_VERSION,
+        migrate: migrate_repository_foundation_v1_to_v2,
+    }];
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -211,6 +217,23 @@ pub struct TopicApplicationProjectionRecord {
     pub discovery_json: String,
     #[serde(default)]
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeletedTopicArtifactRecord {
+    pub topic_id: String,
+    pub path_id: String,
+    pub deleted_path_id: String,
+    #[serde(default)]
+    pub title: String,
+    pub manifest_hash: String,
+    pub artifact_hash: String,
+    pub metadata_hash: String,
+    pub bundle_hash: String,
+    #[serde(default)]
+    pub updated_at: String,
+    pub deleted_at: String,
 }
 
 pub type TopicApplicationJoinedRecord = (
@@ -357,6 +380,54 @@ fn create_or_verify_migration_backup(
     source
         .backup(rusqlite::MAIN_DB, backup_path, None)
         .map_err(|error| format!("repository_migration_backup_failed:{error}"))
+}
+
+fn migrate_repository_foundation_v1_to_v2(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS synt_topic_deleted_artifact (
+               topic_id TEXT PRIMARY KEY,
+               path_id TEXT NOT NULL,
+               deleted_path_id TEXT NOT NULL,
+               title TEXT NOT NULL DEFAULT '',
+               manifest_hash TEXT NOT NULL,
+               artifact_hash TEXT NOT NULL,
+               metadata_hash TEXT NOT NULL,
+               bundle_hash TEXT NOT NULL,
+               updated_at TEXT NOT NULL DEFAULT '',
+               deleted_at TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_synt_topic_deleted_artifact_deleted
+               ON synt_topic_deleted_artifact(deleted_at DESC, topic_id ASC);
+             UPDATE synt_cache_basis
+               SET status='stale', active_operation_id='',
+                   stale_reason='repository_foundation_v2';
+             UPDATE synt_citation_layout_state SET status='stale';
+             UPDATE synt_citation_metrics_complex SET status='stale';
+             UPDATE synt_tag_application_state SET index_stale=1;
+             UPDATE synt_concept_application_state SET index_stale=1;
+             UPDATE synt_topic_graph_application_state SET index_stale=1;
+             UPDATE synt_reference_application_state
+               SET reference_ready=0, graph_ready=0, related_items_ready=0;
+             UPDATE synt_reference_matching_state
+               SET matching_ready=0, graph_ready=0, related_items_ready=0;",
+        )
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value='synthesis-topic-application-repository.v2'
+             WHERE key='topic_application_schema_version'",
+            [],
+        )
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "UPDATE synt_schema_meta SET value=?1
+             WHERE key='repository_foundation_schema_version'",
+            [SCHEMA_VERSION],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(())
 }
 
 fn prepare_production_schema_with_registry(
@@ -1332,6 +1403,121 @@ impl Repository {
         Ok(())
     }
 
+    pub fn get_deleted_topic_artifact(
+        &self,
+        topic_id: &str,
+    ) -> Result<Option<DeletedTopicArtifactRecord>, String> {
+        validate_identity_part(topic_id)?;
+        self.query(
+            "SELECT * FROM synt_topic_deleted_artifact WHERE topic_id=?1 LIMIT 1",
+            &[json!(topic_id)],
+        )?
+        .into_iter()
+        .next()
+        .map(deleted_topic_artifact_record)
+        .transpose()
+    }
+
+    pub fn list_deleted_topic_artifacts(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String> {
+        let limit = limit.clamp(1, 250);
+        let total = self
+            .query(
+                "SELECT COUNT(*) AS total FROM synt_topic_deleted_artifact",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row["total"].as_i64())
+            .unwrap_or_default()
+            .max(0) as usize;
+        let rows = self.query(
+            "SELECT * FROM synt_topic_deleted_artifact
+             ORDER BY deleted_at DESC,topic_id ASC LIMIT ?1 OFFSET ?2",
+            &[json!(limit), json!(offset)],
+        )?;
+        Ok((
+            rows.into_iter()
+                .map(deleted_topic_artifact_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            total,
+        ))
+    }
+
+    pub fn soft_delete_topic_application_state(
+        &mut self,
+        record: &DeletedTopicArtifactRecord,
+    ) -> Result<(), String> {
+        validate_deleted_topic_artifact(record)?;
+        self.transaction(|repository| {
+            if repository
+                .get_topic_application_state(&record.topic_id)?
+                .is_none()
+            {
+                return Err("topic_not_found".into());
+            }
+            repository
+                .connection()?
+                .execute(
+                    "INSERT OR REPLACE INTO synt_topic_deleted_artifact(
+                       topic_id,path_id,deleted_path_id,title,manifest_hash,artifact_hash,
+                       metadata_hash,bundle_hash,updated_at,deleted_at
+                     ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                    params![
+                        record.topic_id,
+                        record.path_id,
+                        record.deleted_path_id,
+                        record.title,
+                        record.manifest_hash,
+                        record.artifact_hash,
+                        record.metadata_hash,
+                        record.bundle_hash,
+                        record.updated_at,
+                        record.deleted_at,
+                    ],
+                )
+                .map_err(map_sqlite_error)?;
+            repository
+                .connection()?
+                .execute(
+                    "DELETE FROM synt_topic_application_projection WHERE topic_id=?1",
+                    [&record.topic_id],
+                )
+                .map_err(map_sqlite_error)?;
+            repository
+                .connection()?
+                .execute(
+                    "DELETE FROM synt_topic_application_state WHERE topic_id=?1",
+                    [&record.topic_id],
+                )
+                .map_err(map_sqlite_error)?;
+            Ok(())
+        })
+    }
+
+    pub fn purge_deleted_topic_artifacts(
+        &mut self,
+        records: &[DeletedTopicArtifactRecord],
+    ) -> Result<usize, String> {
+        self.transaction(|repository| {
+            let mut purged = 0;
+            for record in records {
+                validate_deleted_topic_artifact(record)?;
+                purged += repository
+                    .connection()?
+                    .execute(
+                        "DELETE FROM synt_topic_deleted_artifact
+                         WHERE topic_id=?1 AND deleted_path_id=?2",
+                        params![record.topic_id, record.deleted_path_id],
+                    )
+                    .map_err(map_sqlite_error)?;
+            }
+            Ok(purged)
+        })
+    }
+
     pub fn application_state_rows_absent(&self) -> Result<bool, String> {
         Ok(self
             .query(
@@ -1616,6 +1802,41 @@ fn topic_projection_record(row: Value) -> Result<TopicApplicationProjectionRecor
     })
 }
 
+fn validate_deleted_topic_artifact(record: &DeletedTopicArtifactRecord) -> Result<(), String> {
+    for value in [
+        &record.topic_id,
+        &record.path_id,
+        &record.deleted_path_id,
+        &record.manifest_hash,
+        &record.artifact_hash,
+        &record.metadata_hash,
+        &record.bundle_hash,
+    ] {
+        validate_identity_part(value)?;
+    }
+    if unix_millis_from_utc_iso8601(&record.deleted_at).is_none() {
+        return Err("repository_deleted_topic_timestamp_invalid".into());
+    }
+    Ok(())
+}
+
+fn deleted_topic_artifact_record(row: Value) -> Result<DeletedTopicArtifactRecord, String> {
+    let record = DeletedTopicArtifactRecord {
+        topic_id: row_text(&row, "topic_id")?,
+        path_id: row_text(&row, "path_id")?,
+        deleted_path_id: row_text(&row, "deleted_path_id")?,
+        title: row_text(&row, "title")?,
+        manifest_hash: row_text(&row, "manifest_hash")?,
+        artifact_hash: row_text(&row, "artifact_hash")?,
+        metadata_hash: row_text(&row, "metadata_hash")?,
+        bundle_hash: row_text(&row, "bundle_hash")?,
+        updated_at: row_text(&row, "updated_at")?,
+        deleted_at: row_text(&row, "deleted_at")?,
+    };
+    validate_deleted_topic_artifact(&record)?;
+    Ok(record)
+}
+
 fn topic_joined_record(row: Value) -> Result<TopicApplicationJoinedRecord, String> {
     let state = topic_state_record(row.clone())?;
     let Some(topic_id) = row["projection_topic_id"].as_str() else {
@@ -1674,8 +1895,8 @@ mod tests {
         assert_eq!(pragmas["foreignKeys"], 1);
         assert_eq!(pragmas["busyTimeout"], 250);
         let inventory = repository.schema_inventory().expect("inventory");
-        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(52));
-        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(41));
+        assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(53));
+        assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(42));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -1707,6 +1928,177 @@ mod tests {
         assert_eq!(
             Repository::initialize_production(&database_path, identity(),).unwrap_err(),
             "repository_production_database_exists"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn registered_v1_migration_preserves_facts_and_marks_rebuildable_state_stale() {
+        let root = root("production-schema-v2");
+        let database_path = root.join("state").join("synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("open fixture");
+        connection
+            .execute_batch(
+                "DROP INDEX idx_synt_topic_deleted_artifact_deleted;
+                 DROP TABLE synt_topic_deleted_artifact;
+                 INSERT INTO synt_topic_application_state(
+                   topic_id,path_id,manifest_hash,artifact_hash,metadata_hash,bundle_hash
+                 ) VALUES('topic:kept','topic-kept','manifest','artifact','metadata','bundle');
+                 INSERT INTO synt_cache_basis(cache_key,cache_kind,status)
+                 VALUES('citation:layout','citation_layout','ready');
+                 INSERT INTO synt_citation_layout_state(layout_key,status)
+                 VALUES('layout:kept','ready');
+                 INSERT INTO synt_citation_metrics_complex(literature_item_id,status)
+                 VALUES('paper:kept','ready');
+                 INSERT INTO synt_reference_application_state(
+                   singleton_id,reference_hash,input_hash,source_count,reference_count,
+                   canonical_count,binding_count,reference_ready,graph_ready,related_items_ready,
+                   updated_at
+                 ) VALUES(1,'reference','input',0,0,0,0,1,1,1,'');
+                 INSERT INTO synt_reference_binding(
+                   binding_id,canonical_reference_id,library_id,item_key,status,confidence,
+                   reviewer,basis_hash,diagnostics_json,created_at,updated_at
+                 ) VALUES('binding:kept','canonical:kept',1,'AAAA','accepted','high',
+                   'user','basis','[]','','');
+                 INSERT INTO synt_reference_redirect(
+                   from_canonical_reference_id,to_canonical_reference_id,reason,
+                   diagnostics_json,created_at,updated_at
+                 ) VALUES('canonical:old','canonical:kept','user_merge','[]','','');
+                 INSERT INTO synt_reference_revision_review(
+                   review_id,source_ref,canonical_reference_id,status,reason,payload_json,
+                   created_at,updated_at
+                 ) VALUES('review:kept','1:AAAA','canonical:kept','accepted','user','{}','','');
+                 INSERT INTO synt_reference_matching_state(
+                   singleton_id,reference_hash,matching_hash,proposal_count,open_proposal_count,
+                   matching_ready,graph_ready,related_items_ready,updated_at
+                 ) VALUES(1,'reference','matching',0,0,1,1,1,'');
+                 INSERT INTO synt_operation(operation_id,operation_type,status)
+                 VALUES('operation:kept','fixture','completed');
+                 UPDATE synt_durable_sync_state SET revision=7 WHERE singleton_id=1;
+                 INSERT INTO synt_durable_sync_entity(
+                   entity_key,entity_kind,entity_id,path,last_synced_hash,updated_at
+                 ) VALUES('topic:kept','topic','topic:kept','topics/topic-kept','sync','');
+                 INSERT INTO synt_tag_application_state(singleton_id,index_stale)
+                 VALUES(1,0);
+                 INSERT INTO synt_concept_application_state(singleton_id,manifest_hash,index_stale)
+                 VALUES(1,'concept',0);
+                 INSERT INTO synt_topic_graph_application_state(singleton_id,manifest_hash,index_stale)
+                 VALUES(1,'topic-graph',0);
+                 UPDATE synt_schema_meta
+                   SET value='synthesis-topic-application-repository.v1'
+                   WHERE key='topic_application_schema_version';
+                 UPDATE synt_schema_meta
+                   SET value='synthesis-repository-foundation.v1'
+                   WHERE key='repository_foundation_schema_version';",
+            )
+            .expect("downgrade fixture");
+        drop(connection);
+
+        let backup_root = root.join("state/synthesis-migration-backups");
+        prepare_production_schema(&database_path, &backup_root).expect("migrate");
+        prepare_production_schema(&database_path, &backup_root).expect("idempotent");
+        let migrated =
+            Repository::open_production(&database_path, identity(), "2026-07-27T00:00:00.000Z")
+                .expect("reopen migrated");
+        assert!(
+            migrated
+                .get_topic_application_state("topic:kept")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            migrated
+                .get_cache_basis("citation:layout")
+                .unwrap()
+                .unwrap()
+                .status,
+            "stale"
+        );
+        assert_eq!(
+            migrated
+                .query("SELECT status FROM synt_citation_layout_state", &[])
+                .unwrap()[0]["status"],
+            "stale"
+        );
+        assert_eq!(
+            migrated
+                .query("SELECT status FROM synt_citation_metrics_complex", &[])
+                .unwrap()[0]["status"],
+            "stale"
+        );
+        assert_eq!(
+            migrated
+                .query(
+                    "SELECT reference_ready FROM synt_reference_application_state",
+                    &[]
+                )
+                .unwrap()[0]["reference_ready"],
+            0
+        );
+        assert_eq!(
+            migrated
+                .query(
+                    "SELECT matching_ready FROM synt_reference_matching_state",
+                    &[]
+                )
+                .unwrap()[0]["matching_ready"],
+            0
+        );
+        for table in [
+            "synt_reference_binding",
+            "synt_reference_redirect",
+            "synt_reference_revision_review",
+            "synt_operation",
+            "synt_durable_sync_entity",
+        ] {
+            assert_eq!(
+                migrated
+                    .query(&format!("SELECT COUNT(*) AS total FROM {table}"), &[])
+                    .unwrap()[0]["total"],
+                1,
+                "{table}"
+            );
+        }
+        assert_eq!(
+            migrated
+                .query("SELECT revision FROM synt_durable_sync_state", &[])
+                .unwrap()[0]["revision"],
+            7
+        );
+        for table in [
+            "synt_tag_application_state",
+            "synt_concept_application_state",
+            "synt_topic_graph_application_state",
+        ] {
+            assert_eq!(
+                migrated
+                    .query(&format!("SELECT index_stale FROM {table}"), &[])
+                    .unwrap()[0]["index_stale"],
+                1,
+                "{table}"
+            );
+        }
+        assert!(
+            migrated
+                .get_deleted_topic_artifact("topic:kept")
+                .unwrap()
+                .is_none()
+        );
+        migrated.close().expect("close");
+
+        let backups = fs::read_dir(&backup_root)
+            .expect("backup root")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("backups");
+        assert_eq!(backups.len(), 1);
+        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+        assert_eq!(
+            read_schema_version(&backup).expect("backup schema"),
+            PREVIOUS_SCHEMA_VERSION
         );
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -1758,16 +2150,21 @@ mod tests {
             .expect("close");
         let connection = Connection::open(&database_path).expect("open fixture");
         connection
-            .execute(
-                "UPDATE synt_schema_meta SET value='legacy.test'
-                 WHERE key='repository_foundation_schema_version'",
-                [],
+            .execute_batch(
+                "DROP INDEX idx_synt_topic_deleted_artifact_deleted;
+                 DROP TABLE synt_topic_deleted_artifact;
+                 UPDATE synt_schema_meta
+                   SET value='synthesis-topic-application-repository.v1'
+                   WHERE key='topic_application_schema_version';
+                 UPDATE synt_schema_meta
+                   SET value='synthesis-repository-foundation.v1'
+                   WHERE key='repository_foundation_schema_version';",
             )
-            .expect("set legacy schema");
+            .expect("set v1 schema");
         drop(connection);
         let backup_root = root.join("state/synthesis-migration-backups");
         let migrations = [RegisteredProductionSchemaMigration {
-            from: "legacy.test",
+            from: PREVIOUS_SCHEMA_VERSION,
             to: SCHEMA_VERSION,
             migrate: fail_after_schema_write,
         }];
@@ -1779,7 +2176,7 @@ mod tests {
         let source = open_production_database_read_only(&database_path).expect("source");
         assert_eq!(
             read_schema_version(&source).expect("source schema"),
-            "legacy.test"
+            PREVIOUS_SCHEMA_VERSION
         );
         let backups = fs::read_dir(&backup_root)
             .expect("backup root")
@@ -1789,7 +2186,7 @@ mod tests {
         let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
         assert_eq!(
             read_schema_version(&backup).expect("backup schema"),
-            "legacy.test"
+            PREVIOUS_SCHEMA_VERSION
         );
         fs::remove_dir_all(root).expect("cleanup");
     }

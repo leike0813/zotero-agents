@@ -171,6 +171,17 @@ fn validate_identity_part(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_deleted_path_id(value: &str) -> Result<(), String> {
+    validate_identity_part(value)?;
+    if !value
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-'))
+    {
+        return Err("canonical_deleted_path_invalid".into());
+    }
+    Ok(())
+}
+
 fn path_segment(value: &str) -> String {
     value
         .chars()
@@ -696,6 +707,8 @@ impl CanonicalStore {
         validate_identity_part(&identity.data_root_id)?;
         fs::create_dir_all(root.join("topics"))
             .map_err(|error| format!("canonical_root_create:{error}"))?;
+        fs::create_dir_all(root.join("deleted"))
+            .map_err(|error| format!("canonical_root_create:{error}"))?;
         let store_id = if identity_schema == IDENTITY_SCHEMA {
             stable_id(&identity)
         } else {
@@ -872,6 +885,110 @@ impl CanonicalStore {
                     .into(),
             },
         })
+    }
+
+    pub fn archive_current(
+        &mut self,
+        topic_id: &str,
+        deleted_path_id: &str,
+    ) -> Result<bool, String> {
+        if self.repair_required {
+            return Err("repair_required".into());
+        }
+        if self.root.join("import-batch.json").exists() {
+            return Err("canonical_store_busy".into());
+        }
+        validate_identity_part(topic_id)?;
+        validate_deleted_path_id(deleted_path_id)?;
+        let path_id = canonical_topic_path_id(topic_id)?;
+        let topic_root = self.topic_root(&path_id)?;
+        let current = topic_root.join("current");
+        if !current.exists() {
+            return Ok(false);
+        }
+        let deleted_root = self.root.join("deleted").join(deleted_path_id);
+        if deleted_root.exists() {
+            return Err("canonical_deleted_snapshot_exists".into());
+        }
+        let lease = self.acquire_writer()?;
+        let result = (|| {
+            fs::create_dir(&deleted_root)
+                .map_err(|error| format!("canonical_write_failed:{error}"))?;
+            if let Err(error) = fs::rename(&current, deleted_root.join("current")) {
+                let _ = fs::remove_dir(&deleted_root);
+                return Err(format!("canonical_rename_failed:{error}"));
+            }
+            if let Err(error) = sync_directory(&topic_root)
+                .and_then(|_| sync_directory(&deleted_root))
+                .and_then(|_| sync_directory(&self.root.join("deleted")))
+            {
+                let restored = fs::rename(deleted_root.join("current"), &current)
+                    .and_then(|_| fs::remove_dir(&deleted_root));
+                let _ = sync_directory(&topic_root);
+                let _ = sync_directory(&self.root.join("deleted"));
+                return if restored.is_ok() {
+                    Err(error)
+                } else {
+                    Err("repair_required".into())
+                };
+            }
+            Ok(true)
+        })();
+        self.release_writer(lease);
+        result
+    }
+
+    pub fn restore_deleted(
+        &mut self,
+        topic_id: &str,
+        deleted_path_id: &str,
+    ) -> Result<bool, String> {
+        if self.repair_required {
+            return Err("repair_required".into());
+        }
+        validate_identity_part(topic_id)?;
+        validate_deleted_path_id(deleted_path_id)?;
+        let topic_root = self.topic_root(&canonical_topic_path_id(topic_id)?)?;
+        let current = topic_root.join("current");
+        if current.exists() {
+            return Err("canonical_current_exists".into());
+        }
+        let deleted_root = self.root.join("deleted").join(deleted_path_id);
+        let deleted_current = deleted_root.join("current");
+        if !deleted_current.exists() {
+            return Err("canonical_deleted_snapshot_missing".into());
+        }
+        let lease = self.acquire_writer()?;
+        let result = (|| {
+            fs::create_dir_all(&topic_root)
+                .map_err(|error| format!("canonical_write_failed:{error}"))?;
+            fs::rename(&deleted_current, &current)
+                .map_err(|error| format!("canonical_rename_failed:{error}"))?;
+            fs::remove_dir(&deleted_root)
+                .map_err(|error| format!("canonical_remove_failed:{error}"))?;
+            sync_directory(&topic_root)?;
+            sync_directory(&self.root.join("deleted"))?;
+            Ok(true)
+        })();
+        self.release_writer(lease);
+        result
+    }
+
+    pub fn purge_deleted(&mut self, deleted_path_id: &str) -> Result<bool, String> {
+        if self.repair_required {
+            return Err("repair_required".into());
+        }
+        validate_deleted_path_id(deleted_path_id)?;
+        let deleted_root = self.root.join("deleted").join(deleted_path_id);
+        if !deleted_root.exists() {
+            return Ok(false);
+        }
+        let lease = self.acquire_writer()?;
+        let result = remove_tree(&deleted_root)
+            .and_then(|_| sync_directory(&self.root.join("deleted")))
+            .map(|_| true);
+        self.release_writer(lease);
+        result
     }
 
     pub fn receipt(&self, topic_id: &str) -> Result<Option<CanonicalReceipt>, String> {
@@ -1522,6 +1639,52 @@ mod tests {
                 }),
             ))
             .expect("update");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn archives_restores_and_purges_current_only_by_deleted_path_id() {
+        let root = root("deleted-lifecycle");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        store.promote(promotion(1, None)).expect("promote");
+
+        assert!(
+            store
+                .archive_current("topic:r7", "topic-r7-20260726000000")
+                .expect("archive")
+        );
+        assert!(matches!(
+            store.read_current("topic:r7").expect("absent"),
+            CurrentTopic::Absent { .. }
+        ));
+        assert_eq!(
+            store.restore_deleted("topic:r7", "wrong-deleted-id"),
+            Err("canonical_deleted_snapshot_missing".into())
+        );
+        assert!(
+            store
+                .restore_deleted("topic:r7", "topic-r7-20260726000000")
+                .expect("restore")
+        );
+        assert!(matches!(
+            store.read_current("topic:r7").expect("ready"),
+            CurrentTopic::Ready { .. }
+        ));
+
+        store
+            .archive_current("topic:r7", "topic-r7-20260726000000")
+            .expect("archive again");
+        assert!(
+            store
+                .purge_deleted("topic-r7-20260726000000")
+                .expect("purge")
+        );
+        assert!(
+            !store
+                .purge_deleted("topic-r7-20260726000000")
+                .expect("idempotent")
+        );
+        drop(store);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

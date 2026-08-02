@@ -506,6 +506,7 @@ fn main() -> Result<(), String> {
     let topic_marked = topic_graph.mark_topic_relations_deleted(&TopicGraphMarkDeletedRequest {
         expected_manifest_hash: topic_deleted_hash,
         topic_id: root_node.topic_id.clone(),
+        deleted_path_id: "topic-root-deleted".into(),
     });
     let topic_marked_hash = topic_marked
         .manifest_hash

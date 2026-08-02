@@ -1,6 +1,6 @@
 {
   "schema": "synthesis-durable-foundation-corpus.v1",
-  "schemaVersion": "synthesis-repository-foundation.v1",
+  "schemaVersion": "synthesis-repository-foundation.v2",
   "nodeOracle": {
     "coreRange": [203, 217],
     "files": [
@@ -75,6 +75,7 @@
       "synt_topic_application_projection",
       "synt_topic_application_state",
       "synt_topic_concept_link",
+      "synt_topic_deleted_artifact",
       "synt_topic_discovery_hint",
       "synt_topic_graph_application_state",
       "synt_topic_graph_edge",
@@ -116,6 +117,7 @@
       "idx_synt_topic_application_state_updated",
       "idx_synt_topic_concept_link_concept",
       "idx_synt_topic_concept_link_topic",
+      "idx_synt_topic_deleted_artifact_deleted",
       "idx_synt_topic_graph_edge_relation_status",
       "idx_synt_topic_graph_edge_source_status",
       "idx_synt_topic_graph_edge_target_status",

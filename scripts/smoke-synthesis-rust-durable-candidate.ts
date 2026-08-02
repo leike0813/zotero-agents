@@ -205,12 +205,20 @@ async function loopbackRequest(
         }),
       );
       const responseBody = response.subarray(separator + 4);
-      const declaredLength = Number(headers["content-length"] || responseBody.byteLength);
-      if (!Number.isSafeInteger(declaredLength) || declaredLength !== responseBody.byteLength) {
+      const declaredLength = Number(
+        headers["content-length"] || responseBody.byteLength,
+      );
+      if (
+        !Number.isSafeInteger(declaredLength) ||
+        declaredLength !== responseBody.byteLength
+      ) {
         reject(new Error("loopback_response_body_invalid"));
         return;
       }
-      resolve({ status: Number(status[1]), body: responseBody.toString("utf8") });
+      resolve({
+        status: Number(status[1]),
+        body: responseBody.toString("utf8"),
+      });
     });
   });
 }
@@ -346,7 +354,7 @@ async function main() {
       platformSignature: targetIdentity.platformSignature,
       serviceVersion: "0.1.0",
       protocolVersion: "synthesis-sidecar.v1",
-      schemaVersion: "synthesis-repository-foundation.v1",
+      schemaVersion: "synthesis-repository-foundation.v2",
       supervisorInstanceId: "r8-smoke-supervisor",
       leaseNonce: "r8-smoke-lease",
       clientToken: CLIENT_TOKEN,
@@ -423,7 +431,7 @@ async function main() {
       ) ||
       health.repository?.mode !== "isolated_shadow" ||
       health.repository?.schemaVersion !==
-        "synthesis-repository-foundation.v1" ||
+        "synthesis-repository-foundation.v2" ||
       health.canonicalStore?.schemaVersion !==
         "synthesis-topic-canonical-store.v1"
     ) {
@@ -483,7 +491,7 @@ async function main() {
     }
 
     const handshake = await call(endpoint, "system.handshake", {
-      schemaVersion: "synthesis-repository-foundation.v1",
+      schemaVersion: "synthesis-repository-foundation.v2",
       bundleId: BUNDLE_ID,
       buildFingerprint: BUILD_FINGERPRINT,
       supervisorInstanceId: "r8-smoke-supervisor",

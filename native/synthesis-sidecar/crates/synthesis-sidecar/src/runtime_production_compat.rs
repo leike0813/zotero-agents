@@ -3,9 +3,12 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 use synthesis_application::{
-    TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
+    TopicDeleteRequest, TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult,
+    TopicRecord,
 };
-use synthesis_repository::{TagStagedSuggestionRecord, TagVocabularyReplacement};
+use synthesis_repository::{
+    DeletedTopicArtifactRecord, TagStagedSuggestionRecord, TagVocabularyReplacement,
+};
 
 use crate::runtime_artifact_library_debug;
 use crate::runtime_host_collection::{ReferenceHostItem, collect_host_items};
@@ -69,6 +72,21 @@ fn topic_record_wire(record: TopicRecord) -> Value {
         "topic_resolver":record.topic_resolver,
         "resolved_paper_set":record.resolved_paper_set,
         "projection":record.projection,
+    })
+}
+
+fn deleted_topic_record_wire(record: DeletedTopicArtifactRecord) -> Value {
+    json!({
+        "topic_id":record.topic_id,
+        "path_id":record.path_id,
+        "deleted_path_id":record.deleted_path_id,
+        "title":record.title,
+        "manifest_hash":record.manifest_hash,
+        "artifact_hash":record.artifact_hash,
+        "metadata_hash":record.metadata_hash,
+        "bundle_hash":record.bundle_hash,
+        "updated_at":record.updated_at,
+        "deleted_at":record.deleted_at,
     })
 }
 
@@ -783,9 +801,13 @@ fn workbench_surface_from_compat(
     let library_id = apps.library_id();
     let topic_projection = || -> Result<Value, String> {
         let page = apps.topics.list(TopicListRequest::default())?;
+        let (deleted, deleted_total) = apps.topics.list_deleted(0, 250)?;
         Ok(json!({
             "libraryId":library_id,
-            "deletedArtifacts":{"rows":[]},
+            "deletedArtifacts":{
+                "rows":deleted.into_iter().map(deleted_topic_record_wire).collect::<Vec<_>>(),
+                "total":deleted_total,
+            },
             "artifacts":page.topics.into_iter().map(topic_record_wire).collect::<Vec<_>>(),
             "topicPage":{
                 "cursor":page.cursor,
@@ -1272,14 +1294,12 @@ register_production_client_handlers!(
     ("client.applyLiteratureDigestSidecar", |apps, args| {
         apps.apply_literature_digest(one::<Value>(args)?)
     }),
-    ("client.deleteTopicArtifact", |_apps, args| {
-        let request = object_arg(args)?;
-        string_field(&request, &["topicId", "topic_id"])?;
-        Err("operation_unavailable".into())
+    ("client.deleteTopicArtifact", |apps, args| {
+        wire(apps.topics.delete(one::<TopicDeleteRequest>(args)?)?)
     }),
-    ("client.purgeDeletedTopicArtifacts", |_apps, args| {
+    ("client.purgeDeletedTopicArtifacts", |apps, args| {
         no_args(args)?;
-        Err("operation_unavailable".into())
+        wire(apps.topics.purge_deleted()?)
     }),
     ("client.rejectTopicDiscoveryHint", |apps, args| {
         let request = object_arg(args)?;
@@ -1834,7 +1854,7 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_topic_lifecycle_routes_fail_closed_before_touching_topic_graph() {
+    fn missing_topic_lifecycle_routes_return_typed_terminals_without_touching_topic_graph() {
         let root = test_root();
         let apps = test_applications(&root);
 
@@ -1844,11 +1864,16 @@ mod tests {
                 "client.deleteTopicArtifact",
                 &[json!({"topicId":"topic:test"})],
             ),
-            Err("operation_unavailable".into())
+            Ok(json!({
+                "ok":false,
+                "status":"not_found",
+                "topicId":"topic:test",
+                "reason":"topic artifact not found"
+            }))
         );
         assert_eq!(
             dispatch_legacy_client(&apps, "client.purgeDeletedTopicArtifacts", &[]),
-            Err("operation_unavailable".into())
+            Ok(json!({"ok":true,"status":"purged","purged_count":0}))
         );
         assert!(
             apps.topic_graph

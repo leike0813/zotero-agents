@@ -83,7 +83,7 @@
       "properties": {
         "mode": { "const": "isolated_shadow" },
         "state": { "enum": ["ready", "stopping"] },
-        "schemaVersion": { "const": "synthesis-repository-foundation.v1" },
+        "schemaVersion": { "const": "synthesis-repository-foundation.v2" },
         "repositoryId": { "$ref": "#/$defs/sha256Hex" }
       }
     },

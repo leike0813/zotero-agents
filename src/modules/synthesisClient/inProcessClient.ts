@@ -59,7 +59,9 @@ import {
   type SynthesisTopicApplyRequest,
   type SynthesisTopicApplyResult,
   type SynthesisTopicArtifactDeleteRequest,
+  type SynthesisTopicArtifactDeleteResult,
   type SynthesisTopicCommandResult,
+  type SynthesisDeletedTopicArtifactsPurgeResult,
   type SynthesisTopicDiscoveryHintRequest,
   type SynthesisTopicGraphCommandResult,
   type SynthesisTopicGraphEdgeDecisionRequest,
@@ -1604,7 +1606,7 @@ export function createSynthesisClientFromPort(
           );
           return normalizeLegacyObject(
             await port(normalizedRequest),
-          ) as SynthesisTopicCommandResult;
+          ) as SynthesisTopicArtifactDeleteResult;
         });
       },
       async purgeDeletedTopicArtifacts() {
@@ -1615,7 +1617,7 @@ export function createSynthesisClientFromPort(
                 legacy.purgeDeletedTopicArtifacts,
                 "topics.purgeDeletedTopicArtifacts",
               )(),
-            ) as SynthesisTopicCommandResult,
+            ) as SynthesisDeletedTopicArtifactsPurgeResult,
         );
       },
       async rejectTopicDiscoveryHint(request) {
