@@ -23,7 +23,7 @@ its acceptance story are not reproducible from current-state sources:
    responsiveness evidence before mutations are admitted.
 
 The production operation contract already has stable current-state sources:
-the 95-operation manifest, operation metadata, TypeScript capability roster,
+the 96-operation manifest, operation metadata, TypeScript capability roster,
 Rust dispatcher/ready roster, and seven language-neutral surface corpora. The
 historical change matrix was useful for planning, but it must not remain a
 runtime or post-archive verification dependency.
@@ -42,7 +42,7 @@ release workflow.
 **Goals:**
 
 - Restore a green, archival-safe R9a acceptance gate.
-- Prove that the seven surface corpora partition the 95-operation inventory
+- Prove that the seven surface corpora partition the 96-operation inventory
   exactly once and agree with TypeScript/Rust code.
 - Execute and record the complete critical-smoke roster before mutation
   admission.
@@ -72,7 +72,7 @@ corpora and derive their operation sets. It will prove:
 
 - every corpus has the expected schema and unique stable surface identity;
 - every operation occurs in exactly one surface corpus;
-- the union equals the 95-operation manifest;
+- the union equals the 96-operation manifest;
 - TypeScript capability/ready rosters, Rust declared/ready rosters, dispatcher
   handlers, and per-operation metadata equal that union;
 - every operation has its required positive, invalid, oversized, expired, and

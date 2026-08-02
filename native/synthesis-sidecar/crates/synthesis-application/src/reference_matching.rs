@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::ports::ReferenceMatchingRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -481,6 +482,15 @@ impl ReferenceMatchingApplication {
         preparation_id: &str,
         current_host_basis_hash: &str,
     ) -> ReferenceMatchingMutationResult {
+        self.apply_with_checkpoint(preparation_id, current_host_basis_hash, &|| Ok(()))
+    }
+
+    pub fn apply_with_checkpoint(
+        &self,
+        preparation_id: &str,
+        current_host_basis_hash: &str,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> ReferenceMatchingMutationResult {
         let _active = match self.enter() {
             Ok(active) => active,
             Err(status) => return mutation_result(status),
@@ -524,6 +534,10 @@ impl ReferenceMatchingApplication {
         let proposal_count = projection.proposals.len();
         let fact_count = projection.bindings.len() + projection.redirects.len();
         let matching_hash = projection.matching_hash.clone();
+        if checkpoint().is_err() {
+            let _ = self.repository.delete_preparation(preparation_id);
+            return mutation_result(ReferenceMatchingStatus::Stopping);
+        }
         match self.repository.promote(preparation_id, &projection) {
             Ok(true) => ReferenceMatchingMutationResult {
                 status: ReferenceMatchingStatus::Promoted,
@@ -1306,6 +1320,38 @@ mod tests {
         assert_eq!(
             application.apply(&preparation_id, "sha256:host").status,
             ReferenceMatchingStatus::PreparationMissing
+        );
+        let prepared = application.prepare(ReferenceMatchingPrepareRequest {
+            expected_reference_hash: Some("sha256:reference".into()),
+            host_basis_hash: "sha256:host".into(),
+            host_candidates: vec![ReferenceHostCandidate {
+                library_id: 1,
+                item_key: "TARGET".into(),
+                title: "Target".into(),
+                year: "2024".into(),
+                authors: Vec::new(),
+                doi: String::new(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: String::new(),
+            }],
+        });
+        let preparation_id = prepared.preparation_id.expect("preparation id");
+        assert_eq!(
+            application
+                .apply_with_checkpoint(&preparation_id, "sha256:host", &|| Err(
+                    "operation_canceled".into()
+                ),)
+                .status,
+            ReferenceMatchingStatus::Stopping
+        );
+        assert!(
+            application
+                .read_proposals(0, 10)
+                .expect("proposals")
+                .records
+                .is_empty()
         );
         let prepared = application.prepare(ReferenceMatchingPrepareRequest {
             expected_reference_hash: Some("sha256:reference".into()),

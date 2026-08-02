@@ -14,6 +14,11 @@ Synthesis operation records SHALL NOT support owner-worker claiming, global queu
 - **THEN** the operation becomes canceled and preserves the prior usable state
 - **AND** no later unreported promotion occurs
 
+#### Scenario: Caller controls accepted work
+- **WHEN** a caller submits cancel, continue, or retry through the public maintenance-operation control mutation
+- **THEN** the action is validated and applied against persisted operation state and semantic basis
+- **AND** the read-only operation query remains free of mutation behavior
+
 ## ADDED Requirements
 
 ### Requirement: Long operation terminals SHALL be unambiguous
@@ -29,3 +34,8 @@ Every long native operation SHALL publish accepted/running progress and exactly 
 - **WHEN** Host, validation, worker, basis, or transaction work fails
 - **THEN** the operation records a stable failure terminal
 - **AND** partial preparation is discarded or remains explicitly retryable without success receipt
+
+#### Scenario: Retry request is replayed
+- **WHEN** the same retry key is submitted again for the same retryable terminal
+- **THEN** the caller receives the same successor operation receipt
+- **AND** no duplicate successor or repeated unknown side effect is created

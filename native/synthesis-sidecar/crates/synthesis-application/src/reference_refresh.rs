@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::ports::ReferenceRefreshRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -441,7 +442,15 @@ impl ReferenceRefreshApplication {
         &self,
         request: ReferenceRefreshApplyRequest,
     ) -> ReferenceRefreshMutationResult {
-        self.apply_refresh_with_commit(request, None, None)
+        self.apply_refresh_with_commit(request, None, None, None)
+    }
+
+    pub fn apply_refresh_with_checkpoint(
+        &self,
+        request: ReferenceRefreshApplyRequest,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> ReferenceRefreshMutationResult {
+        self.apply_refresh_with_commit(request, None, None, Some(checkpoint))
     }
 
     pub fn apply_literature_refresh(
@@ -450,7 +459,17 @@ impl ReferenceRefreshApplication {
         metadata: Option<LiteratureMatchingMetadataRecord>,
         receipt: OperationRecord,
     ) -> ReferenceRefreshMutationResult {
-        self.apply_refresh_with_commit(request, metadata, Some(receipt))
+        self.apply_refresh_with_commit(request, metadata, Some(receipt), None)
+    }
+
+    pub fn apply_literature_refresh_with_checkpoint(
+        &self,
+        request: ReferenceRefreshApplyRequest,
+        metadata: Option<LiteratureMatchingMetadataRecord>,
+        receipt: OperationRecord,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> ReferenceRefreshMutationResult {
+        self.apply_refresh_with_commit(request, metadata, Some(receipt), Some(checkpoint))
     }
 
     fn apply_refresh_with_commit(
@@ -458,6 +477,7 @@ impl ReferenceRefreshApplication {
         request: ReferenceRefreshApplyRequest,
         metadata: Option<LiteratureMatchingMetadataRecord>,
         receipt: Option<OperationRecord>,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> ReferenceRefreshMutationResult {
         let preparation = {
             let mut state = match self.state.lock() {
@@ -525,6 +545,10 @@ impl ReferenceRefreshApplication {
             projection.reviews.clear();
         }
         let affected = preparation.replace_source_refs.clone();
+        if checkpoint.is_some_and(|checkpoint| checkpoint().is_err()) {
+            self.finish_operation(&preparation.operation_id, "canceled", "promotion_blocked");
+            return self.mutation_result(ReferenceRefreshStatus::Stopping, Vec::new(), Vec::new());
+        }
         let replaced = if let Some(receipt) = receipt.as_ref() {
             self.repository
                 .apply_literature_projection(&projection, metadata.as_ref(), receipt)
@@ -1508,6 +1532,27 @@ mod tests {
                 .status,
             ReferenceRefreshStatus::PreparationMissing
         );
+        assert_eq!(
+            application
+                .apply_refresh_with_checkpoint(
+                    ReferenceRefreshApplyRequest {
+                        preparation_id: prepared.preparation_id.clone().expect("preparation id"),
+                        payloads: payloads(&prepared),
+                    },
+                    &|| Err("operation_timeout".into()),
+                )
+                .status,
+            ReferenceRefreshStatus::Stopping
+        );
+        assert!(
+            application
+                .read_references(0, 100)
+                .expect("reference page")
+                .0
+                .is_empty()
+        );
+        let prepared = application.prepare_refresh(request(None));
+        assert_eq!(prepared.status, ReferenceRefreshStatus::Prepared);
         let promoted = application.apply_refresh(ReferenceRefreshApplyRequest {
             preparation_id: prepared.preparation_id.clone().expect("preparation id"),
             payloads: payloads(&prepared),

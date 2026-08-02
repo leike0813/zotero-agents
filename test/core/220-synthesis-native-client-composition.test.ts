@@ -87,8 +87,8 @@ describe("Synthesis native client composition", function () {
   });
   it("keeps the TypeScript port and Rust manifest on one closed fingerprint", function () {
     const report = inspectSynthesisProductionCapabilities();
-    assert.equal(report.capabilityCount, 95);
-    assert.equal(report.operationCount, 95);
+    assert.equal(report.capabilityCount, 96);
+    assert.equal(report.operationCount, 96);
     assert.equal(
       report.fingerprint,
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
@@ -258,10 +258,24 @@ describe("Synthesis native client composition", function () {
     });
 
     assert.deepEqual(await composition.client.topics.list(), { topics: [] });
+    assert.deepEqual(
+      await composition.client.maintenance.controlOperation({
+        action: "cancel",
+        operation_id: "maintenance:scenario",
+      }),
+      { topics: [] },
+    );
     assert.deepEqual(calls, [
       {
         capability: "client.listTopics",
         payload: { args: [{}] },
+        deadlineMs: 12_000,
+      },
+      {
+        capability: "client.controlPublicMaintenanceOperation",
+        payload: {
+          args: [{ action: "cancel", operation_id: "maintenance:scenario" }],
+        },
         deadlineMs: 12_000,
       },
     ]);
@@ -386,6 +400,20 @@ describe("Synthesis native client composition", function () {
       requestBytes: 1024 * 1024,
       responseBytes: 1024 * 1024,
     });
+    assert.deepEqual(
+      synthesisProductionOperationPolicy(
+        "client.controlPublicMaintenanceOperation",
+      ),
+      {
+        requestPlane: "control",
+        resultPlane: "control",
+        workModel: "bounded",
+        receipt: "inline",
+        controlTargetBytes: 768 * 1024,
+        requestBytes: 1024 * 1024,
+        responseBytes: 1024 * 1024,
+      },
+    );
     assert.include(
       synthesisProductionOperationPolicy("client.applyTopicSynthesisResult"),
       { requestPlane: "transfer" },

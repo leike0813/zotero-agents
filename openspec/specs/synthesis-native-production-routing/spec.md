@@ -6,12 +6,12 @@ Defines how the Synthesis production routes traffic to the native Rust runtime: 
 ## Requirements
 ### Requirement: Native RPC SHALL implement the complete grouped client surface
 
-The native production adapter SHALL expose every operation in the closed grouped `SynthesisClient` production inventory through versioned, typed request and result contracts. The current inventory contains 95 operations. It MUST NOT add a public client method, accept arbitrary method names, or expose repository, path, credential, or host-object internals.
+The native production adapter SHALL expose every operation in the closed grouped `SynthesisClient` production inventory through versioned, typed request and result contracts. The current inventory contains 96 operations: the audited 95-operation baseline inventory plus the approved `client.controlPublicMaintenanceOperation` wire-only extension. It MUST NOT add another public client method without an explicit audited extension, accept arbitrary method names, or expose repository, path, credential, or host-object internals.
 
 #### Scenario: Production client inventory is compared
 - **WHEN** the native capability inventory is checked against `SynthesisClient`
 - **THEN** every production method has exactly one typed native route
-- **AND** the public method names and DTOs remain unchanged
+- **AND** every post-baseline extension is explicitly recorded in the migration SSOT
 
 #### Scenario: Unknown native operation is requested
 - **WHEN** a request names an operation outside the closed capability inventory

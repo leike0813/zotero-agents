@@ -29,6 +29,14 @@ export function inspectSynthesisWebDavMaintenanceSurfaceParity() {
   const ids = corpus.operations.map((operation) => operation.id);
   const boundaries = ["invalid_args", "oversized", "expired"];
   const durable = ["valid", "receipt", "reopen", "no_partial_write"];
+  const controlOperation = corpus.operations.find(
+    (operation) => operation.id === "client.controlPublicMaintenanceOperation",
+  );
+  const controlCoverageComplete =
+    controlOperation?.access === "mutation" &&
+    ["cancel", "continue", "retry", "restart"].every((name) =>
+      controlOperation.cases.includes(name),
+    );
   const errors = [
     ...(corpus.schema === "synthesis-webdav-maintenance-surface-parity.v1" &&
     corpus.requestCodec === "synthesis-client-args.v1" &&
@@ -40,7 +48,7 @@ export function inspectSynthesisWebDavMaintenanceSurfaceParity() {
     corpus.bounds.deadlineMs === 10000
       ? []
       : ["invalid corpus bounds"]),
-    ...(ids.length === 9 && new Set(ids).size === ids.length
+    ...(ids.length === 10 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
     ...corpus.operations
@@ -52,6 +60,9 @@ export function inspectSynthesisWebDavMaintenanceSurfaceParity() {
     ...corpus.operations
       .filter((operation) => operation.access === "mutation" && durable.some((name) => !operation.cases.includes(name)))
       .map((operation) => `missing durable case: ${operation.id}`),
+    ...(controlCoverageComplete
+      ? []
+      : ["invalid public maintenance operation control coverage"]),
     ...ids.filter((id) => !ready.includes(id as never)).map((id) => `not ready: ${id}`),
     ...(new Set(ready).size === ready.length ? [] : ["duplicate ready capability"]),
   ];

@@ -13,6 +13,9 @@ use synthesis_repository::{
 use crate::runtime_artifact_library_debug;
 use crate::runtime_host_collection::{ReferenceHostItem, collect_host_items};
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_public_maintenance_operation::{
+    checkpoint_before_promotion, current_operation_id,
+};
 use crate::runtime_reference_canonical::{
     CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
     CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest,
@@ -52,6 +55,13 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     } else {
         Err("invalid_request".into())
     }
+}
+
+fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
+    let Some(operation_id) = current_operation_id() else {
+        return Ok(());
+    };
+    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
 }
 
 fn topic_record_wire(record: TopicRecord) -> Value {
@@ -1380,24 +1390,34 @@ register_production_client_handlers!(
             .attention_queue(&optional_one::<Value>(args)?)
     }),
     ("client.startReferenceSidecarRefresh", |apps, args| {
+        let request = optional_one::<Value>(args)?;
+        let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
-            .start_refresh(&optional_one::<Value>(args)?)
+            .start_refresh_with_checkpoint(&request, &checkpoint)
     }),
     ("client.refreshReferenceSidecarNow", |apps, args| {
         no_args(args)?;
-        apps.reference_canonical.refresh_now()
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.reference_canonical
+            .refresh_now_with_checkpoint(&checkpoint)
     }),
     ("client.retryReferenceSidecarRefresh", |apps, args| {
         no_args(args)?;
-        apps.reference_canonical.retry_refresh()
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.reference_canonical
+            .retry_refresh_with_checkpoint(&checkpoint)
     }),
     ("client.runAdvancedReferenceMatchingNow", |apps, args| {
         no_args(args)?;
-        apps.reference_canonical.run_advanced_matching()
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.reference_canonical
+            .run_advanced_matching_with_checkpoint(&checkpoint)
     }),
     ("client.retryAdvancedReferenceMatching", |apps, args| {
         no_args(args)?;
-        apps.reference_canonical.retry_advanced_matching()
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.reference_canonical
+            .retry_advanced_matching_with_checkpoint(&checkpoint)
     }),
     ("client.applyCanonicalRevisionReviewAction", |apps, args| {
         apps.reference_canonical
@@ -1610,6 +1630,13 @@ fn dispatched_production_client_capabilities() -> impl Iterator<Item = &'static 
         .map(|handler| handler.capability)
 }
 
+// The control receipt endpoint is deliberately handled by the production
+// transport before legacy dispatch.  Keep it visible to the roster tests so a
+// wire-only extension cannot be mistaken for an unimplemented capability.
+#[cfg(test)]
+const DIRECT_PRODUCTION_CLIENT_CAPABILITIES: &[&str] =
+    &["client.controlPublicMaintenanceOperation"];
+
 pub(crate) fn dispatch_legacy_client(
     apps: &ProductionApplications,
     capability: &str,
@@ -1743,9 +1770,13 @@ mod tests {
             .into_iter()
             .collect::<BTreeSet<_>>();
         let registered = dispatched_production_client_capabilities()
+            .chain(DIRECT_PRODUCTION_CLIENT_CAPABILITIES.iter().copied())
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
-        assert_eq!(registered.len(), PRODUCTION_CLIENT_HANDLERS.len());
+        assert_eq!(
+            registered.len(),
+            PRODUCTION_CLIENT_HANDLERS.len() + DIRECT_PRODUCTION_CLIENT_CAPABILITIES.len()
+        );
         assert!(registered.is_subset(&declared));
     }
 
@@ -1756,6 +1787,7 @@ mod tests {
             .into_iter()
             .collect::<BTreeSet<_>>();
         let registered = dispatched_production_client_capabilities()
+            .chain(DIRECT_PRODUCTION_CLIENT_CAPABILITIES.iter().copied())
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
         assert_eq!(registered, declared);
@@ -1768,6 +1800,7 @@ mod tests {
             .map(|capability| (*capability).to_owned())
             .collect::<BTreeSet<_>>();
         let registered = dispatched_production_client_capabilities()
+            .chain(DIRECT_PRODUCTION_CLIENT_CAPABILITIES.iter().copied())
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
         assert!(ready.is_subset(&registered));

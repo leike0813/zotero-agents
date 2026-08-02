@@ -33,7 +33,7 @@ bounded test ports SHALL reuse the same mapping.
 #### Scenario: Native composition builds the grouped client
 - **WHEN** the verified native composition receives a ready production port
 - **THEN** it constructs the unchanged grouped public client through the neutral adapter
-- **AND** the exact 95-operation port/96-method public inventory remains unchanged
+- **AND** the exact 96-operation port/97-method public inventory remains unchanged
 
 #### Scenario: Neutral adapter dependencies are inspected
 - **WHEN** its import and export graph is checked

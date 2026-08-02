@@ -118,6 +118,7 @@
     "client.queryConceptKb": "read",
     "client.getSchemas": "read",
     "client.getPublicMaintenanceOperation": "read",
+    "client.controlPublicMaintenanceOperation": "mutation",
     "client.getLibraryIndex": "read",
     "client.getReviewInput": "read",
     "client.debugSynthesisSnapshot": "read",

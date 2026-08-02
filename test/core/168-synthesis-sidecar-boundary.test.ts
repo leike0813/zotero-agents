@@ -73,7 +73,10 @@ describe("Synthesis sidecar migration boundary", function () {
       APPROVED_RETIRED_METHODS,
     );
     assert.equal(report.inventory.audit.source_public_method_count, 113);
-    assert.equal(report.inventory.audit.wire_operation_count, 95);
+    assert.equal(report.inventory.audit.wire_operation_count, 96);
+    assert.deepEqual(report.inventory.audit.wire_only_extensions, [
+      "client.controlPublicMaintenanceOperation",
+    ]);
     assert.lengthOf(report.baselineMethods, 131);
     assert.lengthOf(report.inventory.methods, 134);
     assert.sameMembers(report.introducedAfterBaseline, [
@@ -95,6 +98,9 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(report.pendingMigrations, []);
     assert.deepEqual(report.missingProductionOperations, []);
     assert.deepEqual(report.unknownProductionOperations, []);
+    assert.deepEqual(report.invalidWireOnlyExtensions, []);
+    assert.deepEqual(report.wireOperationCountMismatch, []);
+    assert.deepEqual(report.productionRouteOperationCountMismatch, []);
     assert.deepEqual(report.invalidMergedTargets, []);
     assert.deepEqual(report.invalidHostOwnedTargets, []);
     assert.deepEqual(report.unauthorizedRetirements, []);

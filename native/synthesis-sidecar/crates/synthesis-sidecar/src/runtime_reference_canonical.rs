@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
+use synthesis_application::PromotionCheckpoint;
 use synthesis_application::RepositoryPort;
 use synthesis_application::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchingApplication, ReferenceMatchingPrepareRequest,
@@ -28,6 +29,9 @@ use synthesis_repository::{
 
 use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
+use crate::runtime_public_maintenance_operation::{
+    checkpoint_before_promotion_in_repository, current_operation_id,
+};
 
 const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 3;
 use crate::runtime_host_collection::{
@@ -422,13 +426,15 @@ impl ReferenceCanonicalApplication {
             &digest_hash,
             &receipt.updated_at,
         )?;
-        let applied = self.refresh.apply_literature_refresh(
+        let checkpoint = || self.promotion_checkpoint();
+        let applied = self.refresh.apply_literature_refresh_with_checkpoint(
             ReferenceRefreshApplyRequest {
                 preparation_id,
                 payloads,
             },
             metadata,
             receipt,
+            &checkpoint,
         );
         if applied.status != ReferenceRefreshStatus::Promoted {
             return Err(refresh_status_name(&applied.status));
@@ -790,24 +796,60 @@ impl ReferenceCanonicalApplication {
         }))
     }
 
-    pub(crate) fn start_refresh(&self, request: &Value) -> Result<Value, String> {
-        self.run_refresh(request, false)
+    pub(crate) fn start_refresh_with_checkpoint(
+        &self,
+        request: &Value,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<Value, String> {
+        self.run_refresh(request, false, Some(checkpoint))
     }
 
+    #[cfg(test)]
     pub(crate) fn refresh_now(&self) -> Result<Value, String> {
-        self.run_refresh(&json!({}), false)
+        self.run_refresh(&json!({}), false, None)
     }
 
+    pub(crate) fn refresh_now_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<Value, String> {
+        self.run_refresh(&json!({}), false, Some(checkpoint))
+    }
+
+    pub(crate) fn retry_refresh_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<Value, String> {
+        self.run_refresh(&json!({}), true, Some(checkpoint))
+    }
+
+    #[cfg(test)]
     pub(crate) fn retry_refresh(&self) -> Result<Value, String> {
-        self.run_refresh(&json!({}), true)
+        self.run_refresh(&json!({}), true, None)
     }
 
+    pub(crate) fn run_advanced_matching_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<Value, String> {
+        self.run_matching(false, Some(checkpoint))
+    }
+
+    #[cfg(test)]
     pub(crate) fn run_advanced_matching(&self) -> Result<Value, String> {
-        self.run_matching(false)
+        self.run_matching(false, None)
     }
 
+    pub(crate) fn retry_advanced_matching_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<Value, String> {
+        self.run_matching(true, Some(checkpoint))
+    }
+
+    #[cfg(test)]
     pub(crate) fn retry_advanced_matching(&self) -> Result<Value, String> {
-        self.run_matching(true)
+        self.run_matching(true, None)
     }
 
     pub(crate) fn apply_proposal_actions(
@@ -1376,7 +1418,12 @@ impl ReferenceCanonicalApplication {
         })
     }
 
-    fn run_refresh(&self, request: &Value, retry: bool) -> Result<Value, String> {
+    fn run_refresh(
+        &self,
+        request: &Value,
+        retry: bool,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
+    ) -> Result<Value, String> {
         let _mutation = self
             .mutation
             .lock()
@@ -1434,7 +1481,13 @@ impl ReferenceCanonicalApplication {
                     })
                     .cloned()
                     .collect::<Vec<_>>();
-                match self.run_refresh_batch(&batch, batch_artifacts, batch_ordinal, &mut job)? {
+                match self.run_refresh_batch(
+                    &batch,
+                    batch_artifacts,
+                    batch_ordinal,
+                    &mut job,
+                    checkpoint,
+                )? {
                     RefreshBatchAttempt::Converged {
                         promoted: batch_promoted,
                         reference_hash,
@@ -1479,7 +1532,12 @@ impl ReferenceCanonicalApplication {
             }
 
             if failure_code.is_none() && requested.is_empty() {
-                match self.run_reference_refresh_full_sweep(&items, artifacts, batch_ordinal + 1)? {
+                match self.run_reference_refresh_full_sweep(
+                    &items,
+                    artifacts,
+                    batch_ordinal + 1,
+                    checkpoint,
+                )? {
                     RefreshBatchAttempt::Converged {
                         promoted: sweep_promoted,
                         warnings: sweep_warnings,
@@ -1531,6 +1589,7 @@ impl ReferenceCanonicalApplication {
         artifacts: Vec<ReferenceArtifactDescriptor>,
         batch_ordinal: usize,
         job: &mut OperationRecord,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<RefreshBatchAttempt, String> {
         let source_refs = items
             .iter()
@@ -1672,7 +1731,12 @@ impl ReferenceCanonicalApplication {
                 .actual_json_nodes(capacity.json_nodes)
                 .limit_json_nodes(REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES)
         });
-        let applied = self.refresh.apply_refresh(apply_request);
+        let applied = match checkpoint {
+            Some(checkpoint) => self
+                .refresh
+                .apply_refresh_with_checkpoint(apply_request, checkpoint),
+            None => self.refresh.apply_refresh(apply_request),
+        };
         if !matches!(
             applied.status,
             ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
@@ -1708,6 +1772,7 @@ impl ReferenceCanonicalApplication {
         items: &[ReferenceHostItem],
         artifacts: Vec<ReferenceArtifactDescriptor>,
         batch_ordinal: usize,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<RefreshBatchAttempt, String> {
         let prepared = self
             .refresh
@@ -1756,7 +1821,12 @@ impl ReferenceCanonicalApplication {
                 .source_count(items.len())
                 .payload_count(0)
         });
-        let applied = self.refresh.apply_refresh(apply_request);
+        let applied = match checkpoint {
+            Some(checkpoint) => self
+                .refresh
+                .apply_refresh_with_checkpoint(apply_request, checkpoint),
+            None => self.refresh.apply_refresh(apply_request),
+        };
         if !matches!(
             applied.status,
             ReferenceRefreshStatus::Promoted | ReferenceRefreshStatus::Unchanged
@@ -1775,7 +1845,11 @@ impl ReferenceCanonicalApplication {
         })
     }
 
-    fn run_matching(&self, retry: bool) -> Result<Value, String> {
+    fn run_matching(
+        &self,
+        retry: bool,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
+    ) -> Result<Value, String> {
         let _mutation = self
             .mutation
             .lock()
@@ -1852,7 +1926,14 @@ impl ReferenceCanonicalApplication {
                 self.write_job(&job)?;
                 preparation_id
             };
-            let applied = self.matching.apply(&preparation_id, &host_basis_hash);
+            let applied = match checkpoint {
+                Some(checkpoint) => self.matching.apply_with_checkpoint(
+                    &preparation_id,
+                    &host_basis_hash,
+                    checkpoint,
+                ),
+                None => self.matching.apply(&preparation_id, &host_basis_hash),
+            };
             let ok = applied.status == ReferenceMatchingStatus::Promoted;
             Ok(json!({
                 "ok":ok,
@@ -1866,6 +1947,17 @@ impl ReferenceCanonicalApplication {
             }))
         })();
         self.finish_job(job, outcome)
+    }
+
+    fn promotion_checkpoint(&self) -> Result<(), String> {
+        let Some(operation_id) = current_operation_id() else {
+            return Ok(());
+        };
+        checkpoint_before_promotion_in_repository(
+            self.repository.as_ref(),
+            &operation_id,
+            &now_string(),
+        )
     }
 
     fn project_reference_index_rows(

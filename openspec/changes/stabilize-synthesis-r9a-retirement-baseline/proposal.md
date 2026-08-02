@@ -17,7 +17,7 @@ native owner can be re-verified from current-state contracts alone.
 
 ## What Changes
 
-- Make the exact 95-operation ownership, corpus, TypeScript, Rust dispatcher,
+- Make the exact 96-operation ownership, corpus, TypeScript, Rust dispatcher,
   ready-roster, and evidence partition check independent of active or archived
   OpenSpec change directories.
 - Treat the language-neutral production operation inventory and seven surface
@@ -64,8 +64,9 @@ None.
 - Affects production capability/surface parity checkers, critical-smoke
   orchestration, activation evidence, existing R9a Core tests, Stage-1 gates,
   sidecar materialization, and Synthesis current-state documentation.
-- Does not change public `SynthesisClient` methods, production ownership,
+- Does not independently change public `SynthesisClient` methods, production ownership,
   reverse-Host authority, runtime distribution, or release state. The internal
-  cutover receipt admits an explicit empty-profile source identity.
+  cutover receipt admits an explicit empty-profile source identity. The later
+  parity repair adds the separately audited maintenance-operation control method.
 - Is a prerequisite for `remove-synthesis-plugin-legacy-owner` and
   `remove-synthesis-node-sidecar-stack`.

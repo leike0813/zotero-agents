@@ -9,6 +9,7 @@ const OWNED = [
   "client.retryWebDavSync",
   "client.resolveWebDavSyncConflict",
   "client.getPublicMaintenanceOperation",
+  "client.controlPublicMaintenanceOperation",
   "client.reconcileSynthesisRuntimeWorkStateOnStartup",
   "client.resetSynthesisDatabase",
   "client.debugSynthesisCleanInstallReset",
@@ -18,7 +19,7 @@ describe("Synthesis native WebDAV and Maintenance surface", () => {
   it("admits exactly the complete fixture-backed WebDAV and Maintenance roster", () => {
     assert.deepEqual(inspectSynthesisWebDavMaintenanceSurfaceParity(), {
       ok: true,
-      operations: 9,
+      operations: 10,
       errors: [],
     });
     for (const capability of OWNED)

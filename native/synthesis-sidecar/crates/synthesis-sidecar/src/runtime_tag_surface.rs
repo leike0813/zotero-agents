@@ -5,6 +5,9 @@ use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
 
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_public_maintenance_operation::{
+    checkpoint_before_promotion, current_operation_id,
+};
 
 /// The only production adapter for the public Tag surface.  It deliberately
 /// keeps the private vocabulary application as the durable domain owner while
@@ -178,7 +181,18 @@ fn rebuild_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value,
             .to_owned(),
         _ => return Err("invalid_request".into()),
     };
-    mutation(apps.tags.rebuild_index(&expected))
+    let checkpoint = || promotion_checkpoint(apps);
+    mutation(
+        apps.tags
+            .rebuild_index_with_checkpoint(&expected, &checkpoint),
+    )
+}
+
+fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
+    let Some(operation_id) = current_operation_id() else {
+        return Ok(());
+    };
+    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
 }
 
 fn staged_request(args: &[Value]) -> Result<(i64, Vec<TagStagedSuggestionRecord>), String> {

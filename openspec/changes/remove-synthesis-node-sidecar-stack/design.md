@@ -190,7 +190,7 @@ worker gate binds:
   and size.
 
 Candidate smoke also verifies production service identity, the complete
-95-operation ready roster, critical durable reads, and a representative
+96-operation ready roster, critical durable reads, and a representative
 non-mutating RPC from each of the seven operation surfaces. Complete public
 behavior remains covered by language-neutral corpora and Rust tests rather than
 executing all large operations during package smoke.

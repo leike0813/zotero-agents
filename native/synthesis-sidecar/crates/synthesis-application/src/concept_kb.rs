@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::ports::ConceptKbRepositoryPort;
 use serde::{Deserialize, Serialize};
@@ -614,6 +615,14 @@ impl ConceptKbApplication {
     }
 
     pub fn rebuild_index(&self, expected_manifest_hash: &str) -> ConceptMutationResult {
+        self.rebuild_index_with_checkpoint(expected_manifest_hash, &|| Ok(()))
+    }
+
+    pub fn rebuild_index_with_checkpoint(
+        &self,
+        expected_manifest_hash: &str,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> ConceptMutationResult {
         let lease = match self.mutations.admit() {
             Ok(lease) => lease,
             Err(error) => return self.result(map_admission(error), Vec::new(), Vec::new()),
@@ -636,6 +645,9 @@ impl ConceptKbApplication {
             Err(error) => return self.result(worker_status(&error), Vec::new(), Vec::new()),
         };
         if lease.canceled().load(Ordering::Relaxed) {
+            return self.result(ConceptMutationStatus::Stopping, Vec::new(), Vec::new());
+        }
+        if checkpoint().is_err() {
             return self.result(ConceptMutationStatus::Stopping, Vec::new(), Vec::new());
         }
         match self.repository.promote_index_with_receipt(
@@ -1205,6 +1217,12 @@ mod tests {
             app.replace_snapshot(None, &snapshot("concept:1")).status,
             ConceptMutationStatus::Committed
         );
+        assert_eq!(
+            app.rebuild_index_with_checkpoint("concept:1", &|| Err("operation_timeout".into()))
+                .status,
+            ConceptMutationStatus::Stopping
+        );
+        assert!(app.inspect().expect("inspect").index_hash.is_none());
         assert_eq!(
             app.rebuild_index("concept:1").status,
             ConceptMutationStatus::Committed

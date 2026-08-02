@@ -125,9 +125,9 @@ export const SYNTHESIS_PRODUCTION_SURFACES = [
   {
     id: "webdav-maintenance",
     schema: "synthesis-webdav-maintenance-surface-parity.v1",
-    operations: 9,
+    operations: 10,
     operationFingerprint:
-      "b3b95eecf9b4bf3a5c1ac3e05617602e3a70b49d3de0f42c11b9c0876435714a",
+      "e81821b2ec91cd9bc5cb35ecce26c3be87324758165282459b9f694c02380dd4",
     corpusPath:
       "packages/synthesis-contracts/contract-set/synthesis-webdav-maintenance-surface-v1/corpus.json",
     evidencePath:

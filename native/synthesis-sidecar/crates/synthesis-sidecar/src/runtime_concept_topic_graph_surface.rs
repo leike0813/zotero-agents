@@ -9,6 +9,9 @@ use synthesis_application::topic_graph::{
 };
 
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_public_maintenance_operation::{
+    checkpoint_before_promotion, current_operation_id,
+};
 
 const MAX_QUERY_LABELS: usize = 100;
 const MAX_TEXT_BYTES: usize = 4_096;
@@ -26,7 +29,11 @@ pub(crate) fn dispatch(
         "client.rebuildConceptKbIndex" => {
             no_args(args)?;
             let basis = concept_basis(apps)?;
-            wire(apps.concepts.rebuild_index(&basis))
+            let checkpoint = || promotion_checkpoint(apps);
+            wire(
+                apps.concepts
+                    .rebuild_index_with_checkpoint(&basis, &checkpoint),
+            )
         }
         "client.updateConceptDisplayText" => update_display_text(apps, args),
         "client.applyConceptReviewAction" => review_concept(apps, args),
@@ -34,7 +41,11 @@ pub(crate) fn dispatch(
         "client.rebuildTopicGraphIndex" => {
             no_args(args)?;
             let basis = topic_graph_basis(apps)?;
-            wire(apps.topic_graph.rebuild_index(&basis))
+            let checkpoint = || promotion_checkpoint(apps);
+            wire(
+                apps.topic_graph
+                    .rebuild_index_with_checkpoint(&basis, &checkpoint),
+            )
         }
         "client.acceptTopicGraphRelation" => {
             decide_relation(apps, args, TopicGraphRelationStatus::Confirmed)
@@ -45,6 +56,13 @@ pub(crate) fn dispatch(
         "client.applyTopicGraphReviewAction" => review_topic_graph(apps, args),
         _ => Err("unknown_operation".into()),
     }
+}
+
+fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
+    let Some(operation_id) = current_operation_id() else {
+        return Ok(());
+    };
+    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
 }
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {

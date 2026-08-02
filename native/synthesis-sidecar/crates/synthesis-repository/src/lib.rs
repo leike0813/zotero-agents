@@ -74,6 +74,13 @@ pub fn observe_repository_sql<T>(operation: impl FnOnce() -> T) -> (T, Repositor
     (result, observation)
 }
 
+fn is_terminal_operation_status(status: &str) -> bool {
+    matches!(
+        status,
+        "completed" | "succeeded" | "failed" | "canceled" | "timed_out"
+    )
+}
+
 fn record_observed_repository_query() {
     SQL_OBSERVATION.with(|observation| {
         if let Some(current) = observation.get() {
@@ -1201,7 +1208,10 @@ impl Repository {
         if !query.statuses.is_empty() {
             clauses.push(format!("status IN ({})", placeholders(&query.statuses)?));
         } else if !query.include_completed {
-            clauses.push("status NOT IN ('completed','succeeded','failed','canceled')".to_owned());
+            clauses.push(
+                "status NOT IN ('completed','succeeded','failed','canceled','timed_out')"
+                    .to_owned(),
+            );
         }
         if !query.operation_types.is_empty() {
             clauses.push(format!(
@@ -1241,11 +1251,140 @@ impl Repository {
         record.diagnostics_json =
             serde_json::to_string(diagnostics).map_err(|_| "repository_operation_invalid")?;
         record.updated_at = now.into();
-        if matches!(status, "completed" | "succeeded" | "failed" | "canceled") {
+        if is_terminal_operation_status(status) {
             record.completed_at = now.into();
         }
         self.upsert_operation(&record)?;
         Ok(Some(record))
+    }
+
+    /// Atomically move an operation to a terminal state.  Terminal receipts are
+    /// immutable: when another runner has already recorded one, its row is
+    /// returned unchanged instead of allowing a later completion to overwrite
+    /// the first observed outcome.
+    pub fn finish_operation_if_nonterminal(
+        &self,
+        record: &OperationRecord,
+    ) -> Result<OperationRecord, String> {
+        if !matches!(
+            record.status.as_str(),
+            "completed" | "failed" | "canceled" | "timed_out"
+        ) {
+            return Err("repository_operation_terminal_required".into());
+        }
+        validate_identity_part(&record.operation_id)?;
+        record_observed_repository_write();
+        let changed = self
+            .connection()?
+            .execute(
+                "UPDATE synt_operation SET
+                status=?2,phase=?3,phase_label=?4,message=?5,progress_mode=?6,
+                processed_count=?7,skipped_count=?8,failed_count=?9,total_count=?10,
+                basis_value=?11,source_hash=?12,diagnostics_json=?13,completed_at=?14,updated_at=?15
+              WHERE operation_id=?1
+                AND status NOT IN ('completed','failed','canceled','timed_out','succeeded')",
+                params![
+                    record.operation_id,
+                    record.status,
+                    record.phase,
+                    record.phase_label,
+                    record.message,
+                    record.progress_mode,
+                    record.processed_count,
+                    record.skipped_count,
+                    record.failed_count,
+                    record.total_count,
+                    record.basis_value,
+                    record.source_hash,
+                    record.diagnostics_json,
+                    record.completed_at,
+                    record.updated_at,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+        let row = self
+            .get_operation(&record.operation_id)?
+            .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+        debug_assert!(changed <= 1);
+        Ok(row)
+    }
+
+    /// Update a non-terminal operation only while its persisted state still
+    /// matches the caller's observation.  This is the common CAS primitive for
+    /// pending→running, running→cancel-requested and explicit continuation.
+    pub fn update_operation_if_current(
+        &self,
+        record: &OperationRecord,
+        expected_status: &str,
+        expected_phase: Option<&str>,
+    ) -> Result<Option<OperationRecord>, String> {
+        if is_terminal_operation_status(&record.status) {
+            return Err("repository_operation_nonterminal_required".into());
+        }
+        validate_identity_part(&record.operation_id)?;
+        record_observed_repository_write();
+        let changed = self
+            .connection()?
+            .execute(
+                "UPDATE synt_operation SET
+                status=?2,phase=?3,phase_label=?4,message=?5,progress_mode=?6,
+                processed_count=?7,skipped_count=?8,failed_count=?9,total_count=?10,
+                basis_value=?11,source_hash=?12,diagnostics_json=?13,started_at=?14,updated_at=?15
+              WHERE operation_id=?1 AND status=?16 AND (?17 IS NULL OR phase=?17)",
+                params![
+                    record.operation_id,
+                    record.status,
+                    record.phase,
+                    record.phase_label,
+                    record.message,
+                    record.progress_mode,
+                    record.processed_count,
+                    record.skipped_count,
+                    record.failed_count,
+                    record.total_count,
+                    record.basis_value,
+                    record.source_hash,
+                    record.diagnostics_json,
+                    record.started_at,
+                    record.updated_at,
+                    expected_status,
+                    expected_phase,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+        if changed == 0 {
+            return self.get_operation(&record.operation_id);
+        }
+        self.get_operation(&record.operation_id)
+    }
+
+    /// Insert a retry successor exactly once.  A duplicate retry key resolves
+    /// to the original successor rather than creating another queued action.
+    pub fn insert_operation_if_absent(
+        &self,
+        record: &OperationRecord,
+    ) -> Result<OperationRecord, String> {
+        validate_identity_part(&record.operation_id)?;
+        validate_identity_part(&record.operation_type)?;
+        record_observed_repository_write();
+        self.connection()?.execute(
+            "INSERT OR IGNORE INTO synt_operation(
+                operation_id,operation_type,library_id,scope_kind,scope_ref,status,label,phase,
+                phase_label,message,progress_mode,processed_count,skipped_count,failed_count,
+                total_count,basis_kind,basis_value,source_hash,diagnostics_json,created_at,
+                started_at,completed_at,updated_at
+              ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
+            params![
+                record.operation_id, record.operation_type, record.library_id, record.scope_kind,
+                record.scope_ref, record.status, record.label, record.phase, record.phase_label,
+                record.message, record.progress_mode, record.processed_count, record.skipped_count,
+                record.failed_count, record.total_count, record.basis_kind, record.basis_value,
+                record.source_hash, record.diagnostics_json, record.created_at, record.started_at,
+                record.completed_at, record.updated_at,
+            ],
+        ).map_err(map_sqlite_error)?;
+        self.get_operation(&record.operation_id)?
+            .ok_or_else(|| "operation_receipt_missing".to_owned())
     }
 
     pub fn get_cache_basis(&self, cache_key: &str) -> Result<Option<CacheBasisRecord>, String> {
@@ -2752,6 +2891,82 @@ mod tests {
         assert_eq!(stored["echoState"], "observed");
         assert_eq!(stored["echoObservedAt"], "2026-08-02T00:00:05.000Z");
 
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn terminal_operation_receipt_is_compare_and_set_and_immutable() {
+        let root = root("operation-terminal-cas");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let pending = OperationRecord {
+            operation_id: "operation:cas".into(),
+            operation_type: "fixture".into(),
+            status: "running".into(),
+            created_at: "2026-08-02T00:00:00.000Z".into(),
+            updated_at: "2026-08-02T00:00:00.000Z".into(),
+            ..OperationRecord::default()
+        };
+        repository.upsert_operation(&pending).expect("seed");
+        let completed = OperationRecord {
+            status: "completed".into(),
+            phase: "completed".into(),
+            completed_at: "2026-08-02T00:00:01.000Z".into(),
+            updated_at: "2026-08-02T00:00:01.000Z".into(),
+            ..pending.clone()
+        };
+        assert_eq!(
+            repository
+                .finish_operation_if_nonterminal(&completed)
+                .expect("complete")
+                .status,
+            "completed"
+        );
+        let late_cancel = OperationRecord {
+            status: "canceled".into(),
+            phase: "canceled".into(),
+            completed_at: "2026-08-02T00:00:02.000Z".into(),
+            updated_at: "2026-08-02T00:00:02.000Z".into(),
+            ..pending
+        };
+        assert_eq!(
+            repository
+                .finish_operation_if_nonterminal(&late_cancel)
+                .expect("first terminal wins")
+                .status,
+            "completed"
+        );
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn insert_operation_if_absent_returns_the_first_retry_successor() {
+        let root = root("operation-retry-idempotency");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let first = OperationRecord {
+            operation_id: "maintenance:retry:fixture".into(),
+            operation_type: "fixture".into(),
+            status: "pending".into(),
+            phase: "continuation_required".into(),
+            created_at: "2026-08-02T00:00:00.000Z".into(),
+            updated_at: "2026-08-02T00:00:00.000Z".into(),
+            ..OperationRecord::default()
+        };
+        repository
+            .insert_operation_if_absent(&first)
+            .expect("insert");
+        let duplicate = OperationRecord {
+            phase: "queued".into(),
+            ..first.clone()
+        };
+        assert_eq!(
+            repository
+                .insert_operation_if_absent(&duplicate)
+                .expect("replay")
+                .phase,
+            "continuation_required"
+        );
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

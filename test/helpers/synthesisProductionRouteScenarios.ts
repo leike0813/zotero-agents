@@ -184,6 +184,11 @@ const GROUPED_INVOCATIONS: Record<
   "client.getSchemas": (client) => client.maintenance.getSchemas({}),
   "client.getPublicMaintenanceOperation": (client) =>
     client.maintenance.getOperation({ operation_id: "maintenance:missing" }),
+  "client.controlPublicMaintenanceOperation": (client) =>
+    client.maintenance.controlOperation({
+      action: "cancel",
+      operation_id: "maintenance:missing",
+    }),
   "client.getLibraryIndex": (client) => client.libraryIndex.getPage({}),
   "client.getReviewInput": (client) => client.workflowReview.getInput({}),
   "client.debugSynthesisSnapshot": (client) => client.debug.snapshot({}),

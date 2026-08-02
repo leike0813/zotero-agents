@@ -11,6 +11,9 @@ use crate::runtime_diagnostics::{
     with_observation_context,
 };
 use crate::runtime_production_compat::dispatch_legacy_client;
+use crate::runtime_public_maintenance_operation::{
+    PublicMaintenanceBasis, decode_basis, with_operation_context,
+};
 use crate::runtime_webdav_maintenance_surface::{
     begin_public_maintenance_operation, finish_public_maintenance_operation,
     mark_public_maintenance_running, public_maintenance_operation_dto,
@@ -99,7 +102,18 @@ pub(crate) fn dispatch_production_client(
         with_request_context(
             Duration::from_millis(metadata.deadline_ms),
             debug_events_enabled().then_some(request_id),
-            || dispatch_legacy_client(&state.applications, capability, &operation_args),
+            || {
+                if capability == "client.controlPublicMaintenanceOperation" {
+                    dispatch_public_maintenance_control(
+                        state,
+                        request_id,
+                        capability,
+                        &operation_args,
+                    )
+                } else {
+                    dispatch_legacy_client(&state.applications, capability, &operation_args)
+                }
+            },
         )
     });
     emit_query_observation(capability, &outcome, sql_observation);
@@ -137,6 +151,91 @@ pub(crate) fn dispatch_production_client(
     Ok(wire_result)
 }
 
+fn dispatch_public_maintenance_control(
+    state: &Arc<ServeState>,
+    request_id: &str,
+    capability: &str,
+    operation_args: &[Value],
+) -> Result<Value, String> {
+    let result = crate::runtime_webdav_maintenance_surface::dispatch(
+        state.applications.as_ref(),
+        capability,
+        operation_args,
+    )?;
+    let action = operation_args
+        .first()
+        .and_then(|value| value.get("action"))
+        .and_then(Value::as_str);
+    if matches!(action, Some("retry") | Some("continue"))
+        && result.get("status").and_then(Value::as_str) == Some("pending")
+    {
+        let operation_id = result
+            .get("operation_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        let basis = {
+            let repository = state
+                .repository
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            let row = repository
+                .get_operation(operation_id)?
+                .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+            decode_basis(&row)?
+        };
+        resume_public_maintenance_operation(state, request_id, operation_id, basis)?;
+    }
+    Ok(result)
+}
+
+fn resume_public_maintenance_operation(
+    state: &Arc<ServeState>,
+    request_id: &str,
+    operation_id: &str,
+    basis: PublicMaintenanceBasis,
+) -> Result<(), String> {
+    let applications = Arc::clone(&state.applications);
+    let operation_id = operation_id.to_owned();
+    let request_id = request_id.to_owned();
+    thread::Builder::new()
+        .name("synthesis-maintenance-resume".into())
+        .spawn(move || {
+            let started_at = utc_now_iso8601();
+            if let Err(error) =
+                mark_public_maintenance_running(applications.as_ref(), &operation_id, &started_at)
+            {
+                let _ = finish_public_maintenance_operation(
+                    applications.as_ref(),
+                    &operation_id,
+                    Err(&error),
+                    &utc_now_iso8601(),
+                );
+                return;
+            }
+            let outcome = with_request_context(
+                Duration::from_millis(basis.deadline_ms),
+                debug_events_enabled().then_some(&request_id),
+                || {
+                    with_operation_context(&operation_id, || {
+                        dispatch_legacy_client(
+                            applications.as_ref(),
+                            &basis.capability,
+                            &basis.args,
+                        )
+                    })
+                },
+            );
+            let _ = finish_public_maintenance_operation(
+                applications.as_ref(),
+                &operation_id,
+                outcome.as_ref().map_err(String::as_str),
+                &utc_now_iso8601(),
+            );
+        })
+        .map_err(|error| format!("operation_spawn_failed:{error}"))?;
+    Ok(())
+}
+
 fn start_public_maintenance_operation(
     state: &Arc<ServeState>,
     request_id: &str,
@@ -166,6 +265,7 @@ fn start_public_maintenance_operation(
         capability,
         &operation_args,
         &source_hash,
+        work_deadline_ms,
         &accepted_at,
     )?;
     let accepted_dto = public_maintenance_operation_dto(&accepted)?;
@@ -201,11 +301,13 @@ fn start_public_maintenance_operation(
                         Duration::from_millis(work_deadline_ms),
                         debug_events_enabled().then_some(&request_id_for_worker),
                         || {
-                            dispatch_legacy_client(
-                                applications.as_ref(),
-                                &capability_for_worker,
-                                &operation_args,
-                            )
+                            with_operation_context(&operation_id_for_worker, || {
+                                dispatch_legacy_client(
+                                    applications.as_ref(),
+                                    &capability_for_worker,
+                                    &operation_args,
+                                )
+                            })
                         },
                     )
                 });

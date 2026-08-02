@@ -4,7 +4,7 @@
 
 ## 1. Freeze the Current R9a Baseline
 
-- [x] 1.1 Record the source commit, current 95-operation manifest/fingerprint, TypeScript and Rust ready rosters, seven surface corpus identities, retained plugin/Node deletion inventory, and the existing focused-gate results
+- [x] 1.1 Record the source commit, current 96-operation manifest/fingerprint, TypeScript and Rust ready rosters, seven surface corpus identities, retained plugin/Node deletion inventory, and the existing focused-gate results
 - [x] 1.2 Confirm `remove-synthesis-plugin-legacy-owner` and `remove-synthesis-node-sidecar-stack` reference this change as a prerequisite and do not duplicate its inventory or acceptance rules
 
 ## 2. Make Production Inventory Evidence Archival-Safe
@@ -12,7 +12,7 @@
 - [x] 2.1 Extend the existing production-capability and surface-parity tests so they fail for active/archive path reads, missing/duplicate/unknown operations, wrong surface membership, missing boundary cases, incomplete mutation reopen evidence, dispatcher drift, and ready-roster drift
 - [x] 2.2 Change `check-synthesis-production-capabilities.ts` to derive the exact partition from the seven durable contract-set corpora and remove all reads of OpenSpec operation matrices or task files
 - [x] 2.3 Change all seven `check-synthesis-*-surface-parity.ts` checkers to use stable corpus identities and current production manifests without active change paths
-- [x] 2.4 Keep the 95-operation manifest, operation metadata, TypeScript capability/ready rosters, Rust declared/ready rosters, and dispatcher handler set in one exact comparison with no missing, duplicate, or unknown entry
+- [x] 2.4 Keep the 96-operation manifest, operation metadata, TypeScript capability/ready rosters, Rust declared/ready rosters, and dispatcher handler set in one exact comparison with no missing, duplicate, or unknown entry
 - [x] 2.5 Run the capability and seven surface checkers after temporarily exercising the test-owned “no active change directory” fixture and confirm the same evidence remains reproducible
 
 ## 3. Complete Critical Smoke Before Mutation Admission

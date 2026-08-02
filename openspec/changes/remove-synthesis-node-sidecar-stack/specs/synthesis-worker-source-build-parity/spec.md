@@ -46,7 +46,7 @@ TypeScript/Node worker executable or source/build comparison may be required.
 
 Candidate smoke SHALL execute all production compute operations, authenticated
 durable reads, production service identity/handshake, the exact complete
-95-operation ready roster, and at least one bounded non-mutating RPC from each
+96-operation ready roster, and at least one bounded non-mutating RPC from each
 of the seven production operation surfaces. Full operation behavior SHALL
 remain covered by language-neutral corpora and Rust/public route tests; package
 smoke MUST NOT depend on a Node executable.
@@ -58,4 +58,3 @@ smoke MUST NOT depend on a Node executable.
 #### Scenario: Smoke attempts Node comparison
 - **WHEN** candidate smoke requires a Node service, JavaScript worker, Node build output, or removed workspace fixture
 - **THEN** the native-only source/build gate fails
-

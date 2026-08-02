@@ -15,6 +15,9 @@ use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItem, collect_host_items,
 };
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_public_maintenance_operation::{
+    checkpoint_before_promotion, current_operation_id,
+};
 
 const CACHE_KEY: &str = "citation-graph:library";
 const FULL_INTENT: &str = "citation_graph_command_full";
@@ -642,15 +645,19 @@ fn run_rebuild(
             let Some(expected_graph_hash) = expected_graph_hash else {
                 return Err("citation_graph_basis_missing".into());
             };
-            apps.citations.rebuild_source_slice(
+            let checkpoint = || promotion_checkpoint(apps);
+            apps.citations.rebuild_source_slice_with_checkpoint(
                 CitationRebuildRequest {
                     expected_graph_hash: Some(expected_graph_hash),
                     ..request
                 },
                 &source_refs,
+                &checkpoint,
             )
         } else {
-            apps.citations.rebuild_full(request)
+            let checkpoint = || promotion_checkpoint(apps);
+            apps.citations
+                .rebuild_full_with_checkpoint(request, &checkpoint)
         };
         update_cache_basis(apps, &result, &input, &receipt.operation_id)?;
         Ok(result)
@@ -718,7 +725,11 @@ fn refresh_metrics(apps: &ProductionApplications, args: &[Value]) -> Result<Valu
         .or(request.graph_hash)
         .or(current_graph_hash(apps)?)
         .ok_or_else(|| "citation_graph_basis_missing".to_owned())?;
-    wire(apps.citations.refresh_metrics(&expected))
+    let checkpoint = || promotion_checkpoint(apps);
+    wire(
+        apps.citations
+            .refresh_metrics_with_checkpoint(&expected, &checkpoint),
+    )
 }
 
 fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
@@ -741,12 +752,23 @@ fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Val
             warnings: Vec::new(),
         });
     }
-    wire(apps.citations.recompute_layout(CitationLayoutRequest {
-        expected_graph_hash: graph_hash,
-        layout_key,
-        view_key,
-        preset: request.algorithm.as_str().into(),
-    }))
+    let checkpoint = || promotion_checkpoint(apps);
+    wire(apps.citations.recompute_layout_with_checkpoint(
+        CitationLayoutRequest {
+            expected_graph_hash: graph_hash,
+            layout_key,
+            view_key,
+            preset: request.algorithm.as_str().into(),
+        },
+        &checkpoint,
+    ))
+}
+
+fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
+    let Some(operation_id) = current_operation_id() else {
+        return Ok(());
+    };
+    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
 }
 
 fn retry(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {

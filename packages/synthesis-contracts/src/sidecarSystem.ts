@@ -61,6 +61,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.queryConceptKb",
   "client.getSchemas",
   "client.getPublicMaintenanceOperation",
+  "client.controlPublicMaintenanceOperation",
   "client.getLibraryIndex",
   "client.getReviewInput",
   "client.debugSynthesisSnapshot",
@@ -137,7 +138,7 @@ export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.resolveWebDavSyncConflict",
 ] as const;
 export const SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT =
-  "0e8e1f406d382d24183a3ac078254d966aba7c1d2d15fe82cac347a192f1f372" as const;
+  "f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523" as const;
 export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.listTopics",
   "client.findTopicsByPaperRef",
@@ -226,6 +227,7 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.rejectTopicGraphRelation",
   "client.applyTopicGraphReviewAction",
   "client.getPublicMaintenanceOperation",
+  "client.controlPublicMaintenanceOperation",
   "client.debugSynthesisCleanInstallReset",
   "client.reconcileSynthesisRuntimeWorkStateOnStartup",
   "client.resetSynthesisDatabase",

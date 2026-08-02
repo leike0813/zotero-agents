@@ -219,6 +219,24 @@
             }
           },
           "comparison": { "unorderedCollections": ["operations:operation_id"] }
+        },
+        {
+          "id": "case:maintenance-control-absent",
+          "operation": "client.controlPublicMaintenanceOperation",
+          "access": "mutation",
+          "request": { "args": [{ "action": "cancel", "operation_id": "baseline:missing" }] },
+          "expected": {
+            "dtoSemantics": ["stable-absent-operation"],
+            "logicalFacts": ["operation-state-preserved"],
+            "hostEffects": [],
+            "writeExpectation": "zero",
+            "projection": {
+              "schema": "synthesis.maintenance_operation.v1",
+              "operation_id": "baseline:missing",
+              "status": "not_found"
+            }
+          },
+          "comparison": { "unorderedCollections": ["operations:operation_id"] }
         }
       ]
     }

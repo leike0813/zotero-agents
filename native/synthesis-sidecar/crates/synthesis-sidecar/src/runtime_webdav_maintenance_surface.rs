@@ -3,6 +3,10 @@ use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_repository::OperationRecord;
 
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_public_maintenance_operation::{
+    PublicMaintenanceBasis, checkpoint_before_promotion, control as control_operation,
+    current_operation_id, encode_basis, reconcile_restart,
+};
 
 /// The single public adapter for the WebDAV and maintenance operations.
 ///
@@ -16,7 +20,11 @@ pub(crate) fn dispatch(
     match operation {
         "client.syncWebDavNow" => {
             no_args(args)?;
-            wire(apps.webdav.trigger_webdav_sync()?)
+            let checkpoint = || promotion_checkpoint(apps);
+            wire(
+                apps.webdav
+                    .trigger_webdav_sync_with_checkpoint(&checkpoint)?,
+            )
         }
         "client.pauseWebDavSync" => {
             no_args(args)?;
@@ -28,14 +36,48 @@ pub(crate) fn dispatch(
         }
         "client.retryWebDavSync" => {
             no_args(args)?;
-            wire(apps.webdav.retry_webdav_sync()?)
+            let checkpoint = || promotion_checkpoint(apps);
+            wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
         }
         "client.resolveWebDavSyncConflict" => resolve_conflict(apps, args),
         "client.getPublicMaintenanceOperation" => public_maintenance(apps, args),
+        "client.controlPublicMaintenanceOperation" => control_public_maintenance(apps, args),
         "client.reconcileSynthesisRuntimeWorkStateOnStartup" => reconcile_startup(apps, args),
         "client.resetSynthesisDatabase" => reset(apps, args),
         "client.debugSynthesisCleanInstallReset" => reset(apps, args),
         _ => Err("unknown_operation".into()),
+    }
+}
+
+fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
+    let Some(operation_id) = current_operation_id() else {
+        return Ok(());
+    };
+    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
+}
+
+fn control_public_maintenance(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    match control_operation(apps, args, &synthesis_protocol::utc_now_iso8601()) {
+        Ok(row) => public_maintenance_operation_dto(&row),
+        Err(code) if code == "not_found" => {
+            let request = one_object(args)?;
+            let operation_id = request
+                .get("operation_id")
+                .or_else(|| request.get("operationId"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "maintenance_operation_id_required".to_owned())?;
+            Ok(json!({
+                "schema":"synthesis.maintenance_operation.v1",
+                "operation_id":operation_id,
+                "status":"not_found",
+            }))
+        }
+        Err(code) => Err(code),
     }
 }
 
@@ -112,6 +154,7 @@ pub(crate) fn begin_public_maintenance_operation(
     operation_type: &str,
     args: &[Value],
     source_hash: &str,
+    deadline_ms: u64,
     now: &str,
 ) -> Result<OperationRecord, String> {
     let request = args.first().and_then(Value::as_object);
@@ -145,6 +188,14 @@ pub(crate) fn begin_public_maintenance_operation(
         progress_mode: "indeterminate".into(),
         total_count: paper_refs.len() as i64,
         basis_kind: "public_maintenance_operation".into(),
+        basis_value: encode_basis(&PublicMaintenanceBasis {
+            capability: operation_type.into(),
+            args: args.to_vec(),
+            deadline_ms,
+            source_hash: source_hash.into(),
+            predecessor_operation_id: None,
+            retry_key: None,
+        })?,
         source_hash: source_hash.into(),
         diagnostics_json: "[]".into(),
         created_at: now.into(),
@@ -155,7 +206,7 @@ pub(crate) fn begin_public_maintenance_operation(
         .owner()
         .lock()
         .map_err(|_| "repository_unavailable".to_owned())?
-        .upsert_operation(&row)?;
+        .insert_operation_if_absent(&row)?;
     Ok(row)
 }
 
@@ -171,12 +222,30 @@ pub(crate) fn mark_public_maintenance_running(
     let mut row = repository
         .get_operation(operation_id)?
         .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+    if matches!(
+        row.status.as_str(),
+        "completed" | "failed" | "canceled" | "timed_out"
+    ) || row.phase == "cancel_requested"
+    {
+        return Err("operation_canceled".into());
+    }
+    if row.status != "pending" {
+        return Err("operation_state_invalid".into());
+    }
+    let expected_phase = row.phase.clone();
     row.status = "running".into();
     row.phase = "running".into();
     row.phase_label = "Running".into();
     row.started_at = now.into();
     row.updated_at = now.into();
-    repository.upsert_operation(&row)
+    let updated = repository.update_operation_if_current(&row, "pending", Some(&expected_phase))?;
+    match updated {
+        Some(current) if current.status == "running" => Ok(()),
+        Some(current) if matches!(current.status.as_str(), "canceled" | "timed_out") => {
+            Err("operation_canceled".into())
+        }
+        _ => Err("operation_state_invalid".into()),
+    }
 }
 
 pub(crate) fn finish_public_maintenance_operation(
@@ -221,9 +290,10 @@ pub(crate) fn finish_public_maintenance_operation(
             .map_err(|_| "serialization_failed")?;
         }
         Err(code) => {
-            row.status = "failed".into();
-            row.phase = "failed".into();
-            row.phase_label = "Failed".into();
+            let timed_out = code == "operation_timeout";
+            row.status = if timed_out { "timed_out" } else { "failed" }.into();
+            row.phase = if timed_out { "timed_out" } else { "failed" }.into();
+            row.phase_label = if timed_out { "Timed out" } else { "Failed" }.into();
             row.failed_count = row.total_count.max(1);
             row.diagnostics_json = serde_json::to_string(&vec![json!({
                 "code":"public_maintenance_receipt",
@@ -240,7 +310,7 @@ pub(crate) fn finish_public_maintenance_operation(
     }
     row.completed_at = now.into();
     row.updated_at = now.into();
-    repository.upsert_operation(&row)
+    repository.finish_operation_if_nonterminal(&row).map(|_| ())
 }
 
 pub(crate) fn public_maintenance_operation_dto(row: &OperationRecord) -> Result<Value, String> {
@@ -269,6 +339,9 @@ pub(crate) fn public_maintenance_operation_dto(row: &OperationRecord) -> Result<
         },
         "status":row.status,
         "phase":row.phase,
+        "phase_label":row.phase_label,
+        "message":row.message,
+        "progress_mode":row.progress_mode,
         "processed_count":row.processed_count,
         "skipped_count":row.skipped_count,
         "failed_count":row.failed_count,
@@ -286,6 +359,7 @@ pub(crate) fn public_maintenance_operation_dto(row: &OperationRecord) -> Result<
 
 fn reconcile_startup(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     no_args(args)?;
+    reconcile_restart(apps, &synthesis_protocol::utc_now_iso8601())?;
     // Loading the durable state is the restart reconciliation boundary. The
     // application recovers a persisted syncing state to retryable rather than
     // recreating process-memory defaults.

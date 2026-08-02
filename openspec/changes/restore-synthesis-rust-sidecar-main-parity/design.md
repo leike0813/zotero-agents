@@ -1,6 +1,6 @@
 ## Context
 
-The current branch diverges from the fixed native Synthesis baseline at `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`. That baseline exposes 131 service methods; the Rust production manifest exposes 95 operations, of which 92 share names and three are new. Thirty-nine baseline methods have no explicit production disposition.
+The current branch diverges from the fixed native Synthesis baseline at `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`. That baseline exposes 131 service methods. The Rust production manifest exposes 96 operations: 95 audited baseline routes plus the approved `client.controlPublicMaintenanceOperation` wire-only extension. Thirty-nine baseline methods have no explicit production disposition.
 
 The present migration evidence is insufficient. Seven surface corpora enumerate cases but mostly use small fixtures, the 10k performance suite still constructs the TypeScript in-process service, and the real Rust production-route test invokes only a subset of operations. Meanwhile the production compatibility dispatcher contains wrong side effects, placeholder projections, synchronous full-library work, and response/request policies that make valid payloads unreachable.
 
@@ -34,7 +34,7 @@ The worktree already contains uncommitted repairs for reverse-Host framing, lite
 
 The existing `service-api-migration.yaml` becomes the sole 131-method audit map. Each entry records the baseline method, consumer, disposition, Rust operation, Host owner, or approved retirement, stable inputs/results, facts/effects, work model, size strategy, budget, and evidence IDs. No separate ownership JSON is added. The approved retirement set is closed: twelve Git Sync methods, three legacy Topic mirror methods, seven legacy public checkpoint/JSON methods, and `syncRelatedItemsNow`. Internal knowledge checkpoints, durable bundles, and WebDAV mechanisms remain in scope.
 
-The 95-operation manifest remains the wire SSOT. The audit map explains how baseline behavior reaches that closed wire inventory; it does not replace runtime metadata.
+The 96-operation manifest remains the wire SSOT. The audit map explains how baseline behavior reaches the 95 baseline routes and records the single approved operation-control extension; it does not replace runtime metadata or alter the 131-method baseline audit.
 
 ### 2. Derive evidence from behavior, not roster presence
 
@@ -62,7 +62,7 @@ Alternative: add a second client streaming protocol. Rejected because the reposi
 
 ### 5. Long work returns the existing public operation receipt
 
-Full-library and worker-backed mutations return the existing `SynthesisPublicMaintenanceOperation` receipt promptly. This applies to Reference refresh/matching; Citation rebuild, incremental refresh, metrics, and layout; Tag/Concept/Topic Graph rebuild; and WebDAV sync. Existing consumers are updated together to observe progress through `getPublicMaintenanceOperation`.
+Full-library and worker-backed mutations return the existing `SynthesisPublicMaintenanceOperation` receipt promptly. This applies to Reference refresh/matching; Citation rebuild, incremental refresh, metrics, and layout; Tag/Concept/Topic Graph rebuild; and WebDAV sync. Existing consumers observe progress through `getPublicMaintenanceOperation` and issue explicit cancel, continue, or retry mutations through `controlPublicMaintenanceOperation`.
 
 Execution uses operation-specific controlled loops and durable checkpoints. It does not add claimable work items, a daemon queue, or automatic startup draining. Deadline and cancellation checks occur between bounded phases and before promotion. A timed-out or canceled caller cannot receive an ambiguous failure after an unreported commit.
 

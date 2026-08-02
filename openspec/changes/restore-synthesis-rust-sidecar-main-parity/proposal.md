@@ -1,6 +1,6 @@
 ## Why
 
-The Rust Synthesis sidecar's closed 95-operation production roster is not behaviorally equivalent to the native in-process service at `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`. Current parity gates largely prove that refactored packages agree with each other, while production routes still contain wrong side effects, placeholder projections, missing Workbench surfaces, synchronous long-running work, and wire limits that reject valid payloads.
+The Rust Synthesis sidecar's closed production roster is not behaviorally equivalent to the native in-process service at `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`. The roster contains the 95 baseline wire operations plus one approved operation-control extension. Current parity gates largely prove that refactored packages agree with each other, while production routes still contain wrong side effects, placeholder projections, missing Workbench surfaces, synchronous long-running work, and wire limits that reject valid payloads.
 
 The sidecar therefore cannot enter acceptance or authorize removal of the retained plugin and Node oracles. Production behavior, data movement, and performance must be rebased on the fixed executable baseline before retirement resumes.
 

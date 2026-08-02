@@ -10,7 +10,7 @@
 
 ## 2. Add Failing Stable-Behavior and Boundary Tests
 
-- [ ] 2.1 Extend existing client composition tests to prove the neutral port adapter preserves the exact 95-operation port and 96-method grouped public client with stable DTO/error behavior
+- [ ] 2.1 Extend existing client composition tests to prove the neutral port adapter preserves the exact 96-operation port and 97-method grouped public client with stable DTO/error behavior
 - [ ] 2.2 Extend existing default-client, consumer, supervisor, and shutdown tests to require one current-session native composition, fail-closed unavailable/repair behavior, native-only cleanup, and zero legacy factory/root opening
 - [ ] 2.3 Extend readonly harness tests to cover stable snapshot reads, retained Workbench surfaces, explicit blocked writes, and absence of legacy/native production owner construction
 - [ ] 2.4 Add negative boundary fixtures for static import, dynamic import, aliased factory, direct DB/canonical opener, test hook, preference/environment selector, manifest selector, and backend registration

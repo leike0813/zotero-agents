@@ -121,6 +121,10 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         ownership.service_instance_id.clone(),
         webdav_state_path,
     );
+    crate::runtime_public_maintenance_operation::reconcile_restart(
+        &applications,
+        &synthesis_protocol::utc_now_iso8601(),
+    )?;
     let canonical_port = applications.canonical.as_ref().clone();
     let stopping = Arc::new(AtomicBool::new(false));
     let transfer = NativeTransferOwner::new(&config.profile_runtime_root)?;

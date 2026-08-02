@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::durable_bundle::{
     DurableBundleApplication, DurableBundleSourcePort, DurableExport, DurableImportApplyRequest,
@@ -296,12 +297,37 @@ impl WebDavSyncApplication {
 
     pub fn run_sync(&self) -> Result<WebDavSyncState, String> {
         let _lease = self.admission.admit().map_err(admission_code)?;
-        self.execute_sync()
+        self.execute_sync(None)
+    }
+
+    pub fn run_sync_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<WebDavSyncState, String> {
+        let _lease = self.admission.admit().map_err(admission_code)?;
+        self.execute_sync(Some(checkpoint))
     }
 
     pub fn trigger_webdav_sync(&self) -> Result<WebDavSyncState, String> {
+        self.trigger_webdav_sync_inner(None)
+    }
+
+    pub fn trigger_webdav_sync_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<WebDavSyncState, String> {
+        self.trigger_webdav_sync_inner(Some(checkpoint))
+    }
+
+    fn trigger_webdav_sync_inner(
+        &self,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
+    ) -> Result<WebDavSyncState, String> {
         let generation = self.next_generation()?;
-        let mut state = self.run_sync()?;
+        let mut state = match checkpoint {
+            Some(checkpoint) => self.run_sync_with_checkpoint(checkpoint)?,
+            None => self.run_sync()?,
+        };
         for (index, delay) in self.retry_delays.iter().copied().enumerate() {
             if state.queue_state != "failed_retryable" || state.paused || self.is_aborted()? {
                 break;
@@ -318,7 +344,10 @@ impl WebDavSyncApplication {
             if !self.scheduler.wait(delay, generation)? || self.generation()? != generation {
                 break;
             }
-            state = self.run_sync()?;
+            state = match checkpoint {
+                Some(checkpoint) => self.run_sync_with_checkpoint(checkpoint)?,
+                None => self.run_sync()?,
+            };
         }
         Ok(state)
     }
@@ -351,6 +380,20 @@ impl WebDavSyncApplication {
     }
 
     pub fn retry_webdav_sync(&self) -> Result<WebDavSyncState, String> {
+        self.retry_webdav_sync_inner(None)
+    }
+
+    pub fn retry_webdav_sync_with_checkpoint(
+        &self,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> Result<WebDavSyncState, String> {
+        self.retry_webdav_sync_inner(Some(checkpoint))
+    }
+
+    fn retry_webdav_sync_inner(
+        &self,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
+    ) -> Result<WebDavSyncState, String> {
         self.persist_patch(|state| {
             state.paused = false;
             state.queue_state = "queued".into();
@@ -359,7 +402,10 @@ impl WebDavSyncApplication {
             state.retry_attempt = 0;
             state.next_retry_at.clear();
         })?;
-        self.trigger_webdav_sync()
+        match checkpoint {
+            Some(checkpoint) => self.trigger_webdav_sync_with_checkpoint(checkpoint),
+            None => self.trigger_webdav_sync(),
+        }
     }
 
     pub fn resolve_webdav_sync_conflict(&self, action: &str) -> Result<WebDavSyncState, String> {
@@ -411,7 +457,10 @@ impl WebDavSyncApplication {
         self.admission.shutdown(timeout, "webdav_sync")
     }
 
-    fn execute_sync(&self) -> Result<WebDavSyncState, String> {
+    fn execute_sync(
+        &self,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
+    ) -> Result<WebDavSyncState, String> {
         if self.is_aborted()? {
             return Err("aborted".into());
         }
@@ -431,7 +480,7 @@ impl WebDavSyncApplication {
             state.queue_state = "syncing".into();
             state.diagnostics.clear();
         })?;
-        let result = self.sync_once(&run_id, &started_at);
+        let result = self.sync_once(&run_id, &started_at, checkpoint);
         match result {
             Ok((snapshot_id, manifest_hash, diagnostics)) => self.persist_patch(|state| {
                 state.queue_state = "idle".into();
@@ -471,6 +520,15 @@ impl WebDavSyncApplication {
                 })
             }
             Err(Failure::Code(code, retryable)) => {
+                if matches!(code.as_str(), "operation_canceled" | "operation_timeout") {
+                    let entry = diagnostic(&code, "warning");
+                    return self.persist_patch(|state| {
+                        state.queue_state = "queued".into();
+                        state.retry_attempt = 0;
+                        state.next_retry_at.clear();
+                        state.diagnostics = vec![entry];
+                    });
+                }
                 let status = if retryable {
                     "failed_retryable"
                 } else {
@@ -497,6 +555,7 @@ impl WebDavSyncApplication {
         &self,
         _run_id: &str,
         started_at: &str,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<(String, String, Vec<WebDavDiagnostic>), Failure> {
         let observed = self.read_remote_head()?;
         let mut diagnostics = Vec::new();
@@ -544,6 +603,9 @@ impl WebDavSyncApplication {
                     "webdav_sync_unbased_update_blocked".into(),
                 ));
             }
+            if let Some(checkpoint) = checkpoint {
+                checkpoint().map_err(|code| Failure::Code(code, false))?;
+            }
             self.durable
                 .apply_import(&DurableImportApplyRequest {
                     receipt_id: preview.receipt_id,
@@ -567,6 +629,9 @@ impl WebDavSyncApplication {
             updated_at: (self.now)(),
             producer_version: built.manifest.producer_version.clone(),
         };
+        if let Some(checkpoint) = checkpoint {
+            checkpoint().map_err(|code| Failure::Code(code, false))?;
+        }
         self.upload_export(&built, &pointer, &observed)?;
         Ok((snapshot_id, built.manifest.manifest_hash, diagnostics))
     }
@@ -1020,6 +1085,39 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingHost(Mutex<Vec<String>>);
+
+    impl WebDavHostPort for RecordingHost {
+        fn describe(&self) -> Result<WebDavHostDescription, String> {
+            Host.describe()
+        }
+
+        fn read_text(&self, path: &str) -> Result<WebDavReadResult, String> {
+            Host.read_text(path)
+        }
+
+        fn ensure_collection(&self, _path: &str) -> Result<WebDavWriteResult, String> {
+            Ok(WebDavWriteResult {
+                status: "ready".into(),
+                ..WebDavWriteResult::default()
+            })
+        }
+
+        fn write_text(
+            &self,
+            path: &str,
+            _text: &str,
+            _if_match: Option<&str>,
+        ) -> Result<WebDavWriteResult, String> {
+            self.0.lock().expect("writes").push(path.into());
+            Ok(WebDavWriteResult {
+                status: "written".into(),
+                ..WebDavWriteResult::default()
+            })
+        }
+    }
+
     struct UnavailableHost;
 
     impl WebDavHostPort for UnavailableHost {
@@ -1106,6 +1204,38 @@ mod tests {
         let result = application.run_sync().expect("sync");
         assert_eq!(result.queue_state, "idle");
         assert_eq!(result.last_run.expect("last run").status, "completed");
+    }
+
+    #[test]
+    fn checkpoint_rejection_keeps_last_good_run_and_writes_no_remote_result() {
+        let host = Arc::new(RecordingHost::default());
+        let mut prior = persisted_state("2026-07-26T00:00:00.000Z");
+        prior.last_run = Some(WebDavLastRun {
+            run_id: "last-good".into(),
+            status: "completed".into(),
+            started_at: "2026-07-26T00:00:00.000Z".into(),
+            completed_at: "2026-07-26T00:00:00.000Z".into(),
+            snapshot_id: "snapshot-good".into(),
+            manifest_hash: "sha256:good".into(),
+            ..WebDavLastRun::default()
+        });
+        let application = WebDavSyncApplication::new(
+            host.clone(),
+            Arc::new(MemoryState(Mutex::new(Some(prior)))),
+            Arc::new(Scheduler),
+            Arc::new(Durable),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+        );
+        let checkpoint = || Err("operation_canceled".into());
+        let result = application
+            .run_sync_with_checkpoint(&checkpoint)
+            .expect("checkpoint rejection is a stable sync state");
+        assert_eq!(result.queue_state, "queued");
+        assert_eq!(
+            result.last_run.as_ref().map(|run| run.snapshot_id.as_str()),
+            Some("snapshot-good")
+        );
+        assert!(host.0.lock().expect("writes").is_empty());
     }
 
     #[test]

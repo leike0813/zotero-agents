@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::ports::TopicGraphRepositoryPort;
 use serde::{Deserialize, Serialize};
@@ -690,6 +691,14 @@ impl TopicGraphApplication {
     }
 
     pub fn rebuild_index(&self, expected_manifest_hash: &str) -> TopicGraphMutationResult {
+        self.rebuild_index_with_checkpoint(expected_manifest_hash, &|| Ok(()))
+    }
+
+    pub fn rebuild_index_with_checkpoint(
+        &self,
+        expected_manifest_hash: &str,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> TopicGraphMutationResult {
         let lease = match self.admission.admit() {
             Ok(lease) => lease,
             Err(error) => {
@@ -722,6 +731,14 @@ impl TopicGraphApplication {
             }
         };
         if lease.canceled().load(Ordering::Relaxed) {
+            return self.result(
+                TopicGraphMutationStatus::Stopping,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        if checkpoint().is_err() {
             return self.result(
                 TopicGraphMutationStatus::Stopping,
                 Vec::new(),
@@ -1178,6 +1195,12 @@ mod tests {
                 .status,
             TopicGraphMutationStatus::Committed
         );
+        assert_eq!(
+            app.rebuild_index_with_checkpoint("graph:1", &|| Err("operation_timeout".into()))
+                .status,
+            TopicGraphMutationStatus::Stopping
+        );
+        assert!(app.inspect().expect("inspect").index_hash.is_none());
         assert_eq!(
             app.rebuild_index("graph:1").status,
             TopicGraphMutationStatus::Committed

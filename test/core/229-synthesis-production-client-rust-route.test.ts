@@ -285,9 +285,9 @@ describe("Synthesis Rust production client route", function () {
       BASELINE_PRODUCTION_OBSERVABLES.baseline.commit,
       "e210997a11e0054a3cb4ae0656e5cfb96102a09c",
     );
-    const cases = BASELINE_PRODUCTION_OBSERVABLES.surfaces.flatMap(
-      (surface) => surface.cases,
-    );
+    const cases = BASELINE_PRODUCTION_OBSERVABLES.surfaces
+      .flatMap((surface) => surface.cases)
+      .filter((entry) => entry.access === "read");
     assert.lengthOf(cases, 7);
     assert.isTrue(
       cases.every(
@@ -593,7 +593,7 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
-  it("executes the closed 95-operation scenario matrix through native composition", async function () {
+  it("executes the closed 96-operation scenario matrix through native composition", async function () {
     this.timeout(120_000);
     const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
     const harness = await startSynthesisProductionRouteHarness({
@@ -621,10 +621,10 @@ describe("Synthesis Rust production client route", function () {
     });
     try {
       const observed = await executeSynthesisProductionRouteScenarios(harness);
-      assert.lengthOf(observed, 95);
+      assert.lengthOf(observed, 96);
       assert.equal(
         new Set(observed.map(({ operation }) => operation)).size,
-        95,
+        96,
       );
       assert.isTrue(
         harness.recorder.wire.every(
@@ -1072,17 +1072,103 @@ describe("Synthesis Rust production client route", function () {
         attempt: 0,
       } as const;
       const receiptStartedAt = Date.now();
-      const refresh = await call(
+      const canceledRefresh = await call(
         port,
         "client.refreshReferenceSidecarNow",
         { args: [] },
         refreshTrace,
       );
-      assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
+      assert.equal(
+        canceledRefresh.status,
+        200,
+        JSON.stringify(canceledRefresh.body),
+      );
       assert.isBelow(
         Date.now() - receiptStartedAt,
         1_000,
         "the control RPC must return before the delayed Host artifact page",
+      );
+      const cancel = await call(
+        port,
+        "client.controlPublicMaintenanceOperation",
+        {
+          args: [
+            {
+              action: "cancel",
+              operation_id: canceledRefresh.body.data.operation_id,
+            },
+          ],
+        },
+      );
+      assert.equal(cancel.status, 200, JSON.stringify(cancel.body));
+      assert.equal(
+        cancel.body.data.operation_id,
+        canceledRefresh.body.data.operation_id,
+      );
+      const canceled = await waitForMaintenanceOperation(
+        port,
+        canceledRefresh.body.data.operation_id,
+      );
+      assert.equal(canceled.status, "canceled", JSON.stringify(canceled));
+      assert.equal(
+        canceled.receipt?.retryable,
+        true,
+        JSON.stringify(canceled),
+      );
+
+      const canceledIndexSurface = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            {
+              registry: {
+                scope: "library",
+                expandedSourceRefs: [],
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(canceledIndexSurface.status, 200);
+      assert.equal(
+        canceledIndexSurface.body.data.registry.cacheStatus.status,
+        "missing",
+        "cancel before promotion must preserve the prior usable projection",
+      );
+
+      reverseHostCalls.length = 0;
+      activeArtifactReads = 0;
+      maxActiveArtifactReads = 0;
+      const retryRequest = {
+        args: [
+          {
+            action: "retry",
+            operation_id: canceledRefresh.body.data.operation_id,
+            retry_key: "reference-route-retry-v1",
+          },
+        ],
+      };
+      const refresh = await call(
+        port,
+        "client.controlPublicMaintenanceOperation",
+        retryRequest,
+      );
+      assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
+      assert.notEqual(
+        refresh.body.data.operation_id,
+        canceledRefresh.body.data.operation_id,
+      );
+      const replayedRetry = await call(
+        port,
+        "client.controlPublicMaintenanceOperation",
+        retryRequest,
+      );
+      assert.equal(
+        replayedRetry.body.data.operation_id,
+        refresh.body.data.operation_id,
+        "retry-key replay must resolve to the same successor operation",
       );
       const refreshCompleted = await waitForMaintenanceOperation(
         port,
@@ -1690,6 +1776,24 @@ describe("Synthesis Rust production client route", function () {
         operation_id: "maintenance:missing",
         status: "not_found",
       });
+      const missingControl = await call(
+        port,
+        "client.controlPublicMaintenanceOperation",
+        {
+          args: [
+            {
+              action: "cancel",
+              operation_id: "maintenance:missing",
+            },
+          ],
+        },
+      );
+      assert.equal(
+        missingControl.status,
+        200,
+        JSON.stringify(missingControl.body),
+      );
+      assert.deepEqual(missingControl.body.data, missing.body.data);
       const internal = await call(
         port,
         "client.getPublicMaintenanceOperation",

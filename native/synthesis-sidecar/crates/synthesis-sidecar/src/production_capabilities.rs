@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT: &str =
-    "0e8e1f406d382d24183a3ac078254d966aba7c1d2d15fe82cac347a192f1f372";
+    "f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523";
 pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
     "client.listTopics",
     "client.findTopicsByPaperRef",
@@ -91,6 +91,7 @@ pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
     "client.rejectTopicGraphRelation",
     "client.applyTopicGraphReviewAction",
     "client.getPublicMaintenanceOperation",
+    "client.controlPublicMaintenanceOperation",
     "client.debugSynthesisCleanInstallReset",
     "client.reconcileSynthesisRuntimeWorkStateOnStartup",
     "client.resetSynthesisDatabase",
@@ -342,7 +343,7 @@ pub fn production_client_capabilities() -> Result<Vec<String>, String> {
     if manifest.schema != "synthesis-production-client-capabilities.v1"
         || manifest.canonicalization != "sorted-newline-terminated"
         || manifest.fingerprint_sha256 != PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
-        || manifest.capabilities.len() != 95
+        || manifest.capabilities.len() != 96
         || manifest
             .capabilities
             .iter()
@@ -382,14 +383,14 @@ mod tests {
     #[test]
     fn validates_closed_production_client_capability_manifest() {
         let capabilities = production_client_capabilities().unwrap();
-        assert_eq!(capabilities.len(), 95);
+        assert_eq!(capabilities.len(), 96);
         assert_eq!(
             PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-            "0e8e1f406d382d24183a3ac078254d966aba7c1d2d15fe82cac347a192f1f372"
+            "f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523"
         );
         let operations = production_client_operation_manifest().unwrap();
-        assert_eq!(operations.access.len(), 95);
-        assert_eq!(production_ready_client_capabilities().unwrap().len(), 95);
+        assert_eq!(operations.access.len(), 96);
+        assert_eq!(production_ready_client_capabilities().unwrap().len(), 96);
         assert_eq!(
             operations.access["client.listTopics"],
             ProductionClientAccess::Read

@@ -35,6 +35,7 @@ import {
   type SynthesisPaperArtifactsRequest,
   type SynthesisPaperArtifactsResult,
   type SynthesisPublicMaintenanceOperation,
+  type SynthesisPublicMaintenanceOperationControlRequest,
   type SynthesisReferenceCommandResult,
   type SynthesisReferenceMatchProposalAction,
   type SynthesisReferenceMatchProposalActionRequest,
@@ -109,6 +110,7 @@ export interface SynthesisClientPort {
   queryConceptKb?: LegacySynthesisJsonPort;
   getSchemas?: LegacySynthesisJsonPort;
   getPublicMaintenanceOperation?: LegacySynthesisJsonPort;
+  controlPublicMaintenanceOperation?: LegacySynthesisJsonPort;
   getLibraryIndex?: LegacySynthesisJsonPort;
   getReviewInput?: LegacySynthesisJsonPort;
   debugSynthesisSnapshot?: LegacySynthesisJsonPort;
@@ -1682,6 +1684,15 @@ export function createSynthesisClientFromPort(
         return runLegacyJsonPort(
           legacy.getPublicMaintenanceOperation,
           "maintenance.getOperation",
+          request,
+        ) as Promise<SynthesisPublicMaintenanceOperation>;
+      },
+      async controlOperation(
+        request: SynthesisPublicMaintenanceOperationControlRequest,
+      ) {
+        return runLegacyJsonPort(
+          legacy.controlPublicMaintenanceOperation,
+          "maintenance.controlOperation",
           request,
         ) as Promise<SynthesisPublicMaintenanceOperation>;
       },

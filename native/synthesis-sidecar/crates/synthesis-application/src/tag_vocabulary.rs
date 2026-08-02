@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::ports::TagVocabularyRepositoryPort;
 use serde::{Deserialize, Serialize};
@@ -545,6 +546,14 @@ impl TagVocabularyApplication {
     }
 
     pub fn rebuild_index(&self, expected_vocabulary_hash: &str) -> TagMutationResult {
+        self.rebuild_index_with_checkpoint(expected_vocabulary_hash, &|| Ok(()))
+    }
+
+    pub fn rebuild_index_with_checkpoint(
+        &self,
+        expected_vocabulary_hash: &str,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> TagMutationResult {
         let lease = match self.admission.admit() {
             Ok(lease) => lease,
             Err(error) => return self.result(map_admission(error), Vec::new(), Vec::new()),
@@ -560,6 +569,9 @@ impl TagVocabularyApplication {
             Err(error) => return self.result(worker_status(&error), Vec::new(), Vec::new()),
         };
         if lease.canceled().load(Ordering::Relaxed) {
+            return self.result(TagMutationStatus::Stopping, Vec::new(), Vec::new());
+        }
+        if checkpoint().is_err() {
             return self.result(TagMutationStatus::Stopping, Vec::new(), Vec::new());
         }
         match self.repository.promote_index(
@@ -874,6 +886,12 @@ mod tests {
             app.save(None, &candidate("tag:1")).status,
             TagMutationStatus::Committed
         );
+        assert_eq!(
+            app.rebuild_index_with_checkpoint("tag:1", &|| Err("operation_canceled".into()))
+                .status,
+            TagMutationStatus::Stopping
+        );
+        assert!(app.inspect().expect("inspect").index_hash.is_none());
         assert_eq!(
             app.rebuild_index("tag:1").status,
             TagMutationStatus::Committed

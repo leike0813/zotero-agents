@@ -45,7 +45,7 @@
 ## 6. Make Delivery and Worker Gates Native-Only
 
 - [ ] 6.1 Update worker source/build parity to inventory only Rust source, Cargo inputs, pinned toolchain, lockfile, features, operation mappings, build recipe, licenses, provenance, and binaries
-- [ ] 6.2 Update candidate smoke to cover all native compute operations, durable reads, production identity/handshake, exact 95-operation ready roster, and one bounded non-mutating RPC from each production surface
+- [ ] 6.2 Update candidate smoke to cover all native compute operations, durable reads, production identity/handshake, exact 96-operation ready roster, and one bounded non-mutating RPC from each production surface
 - [ ] 6.3 Update source/package/XPI inventory checks to reject Node/npm executables or archives, JavaScript service/package trees, v1 manifests, Node entrypoints/pointers, D3 runtime, implementation selectors, stale or undeclared binaries, and fingerprint drift
 - [ ] 6.4 Enforce the 15 MiB per-target, 75 MiB five-target, and 100 MiB final universal XPI compressed budgets
 - [ ] 6.5 Prove all native-only gates run successfully with `apps/synthesis-service` and every deleted Node fixture absent

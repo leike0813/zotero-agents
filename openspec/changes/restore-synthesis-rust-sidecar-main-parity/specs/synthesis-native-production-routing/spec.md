@@ -9,6 +9,11 @@ The native production adapter SHALL expose every operation in the closed grouped
 - **THEN** every production method has exactly one typed native route or explicit equivalent owner
 - **AND** every baseline method maps to one operation, one Host owner, or one authorized retirement disposition with evidence ID
 
+#### Scenario: Public maintenance work is controlled
+- **WHEN** a caller cancels, continues, or retries an accepted public maintenance operation
+- **THEN** the approved `client.controlPublicMaintenanceOperation` wire-only extension applies the typed action to that operation ID
+- **AND** the extension is recorded separately from the 131-method baseline audit
+
 #### Scenario: Unknown native operation is requested
 - **WHEN** a request names an operation outside the closed capability inventory
 - **THEN** the service rejects it as `invalid_request` without dispatching application code
@@ -24,7 +29,7 @@ The shared production operation manifest SHALL define an operation-specific cont
 #### Scenario: Long native work is accepted
 - **WHEN** a caller starts Reference refresh/matching, Citation rebuild/refresh/metrics/layout, a knowledge-index rebuild, or WebDAV sync
 - **THEN** the route returns the existing public operation receipt without holding the RPC until terminal completion
-- **AND** subsequent progress and terminal reads use the operation API
+- **AND** subsequent progress and terminal reads use the read-only operation API while cancel, continue, and retry use the bounded control mutation
 
 #### Scenario: Native operation reaches a phase deadline
 - **WHEN** bounded work exceeds its phase deadline before promotion

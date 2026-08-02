@@ -15,7 +15,9 @@ audit:
   source_head: 045c6302452861db0dfa5bf6610885c64bba9e1d
   worktree_state: dirty-preserved
   source_public_method_count: 113
-  wire_operation_count: 95
+  wire_operation_count: 96
+  wire_only_extensions:
+    - client.controlPublicMaintenanceOperation
   deletion_authorization:
     - applySynthesisJsonImport
     - clearGitSyncAccessToken
@@ -48,7 +50,7 @@ production_native_route:
   canonical_file_owner: rust_sidecar_canonical_store
   grouped_client_owner: typescript_native_composition
   operation_manifest: packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json
-  operation_count: 95
+  operation_count: 96
   transport_path: [typescript_native_composition, authenticated_http, rust_dispatch]
   state_path: [rust_application, sqlite_repository]
   external_paths: [child_worker, reverse_host, transfer, delivery]

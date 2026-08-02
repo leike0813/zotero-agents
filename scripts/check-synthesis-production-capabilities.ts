@@ -178,9 +178,14 @@ function extractRustDispatcherCapabilities(source: string) {
   const registrations =
     source.match(/register_production_client_handlers!\((.*?)\n\);/s)?.[1] ||
     "";
-  return [...registrations.matchAll(/\(\s*"(client\.[A-Za-z0-9_]+)"/g)].map(
-    (match) => match[1]!,
-  );
+  const direct =
+    source.match(
+      /DIRECT_PRODUCTION_CLIENT_CAPABILITIES:\s*&\[&str\]\s*=\s*&\[(.*?)\];/s,
+    )?.[1] || "";
+  return [
+    ...registrations.matchAll(/\(\s*"(client\.[A-Za-z0-9_]+)"/g),
+    ...direct.matchAll(/"(client\.[A-Za-z0-9_]+)"/g),
+  ].map((match) => match[1]!);
 }
 
 type ProductionCapabilityInspectionOptions = {

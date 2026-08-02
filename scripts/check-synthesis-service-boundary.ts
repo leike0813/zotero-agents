@@ -29,6 +29,7 @@ interface InventoryAudit {
   worktree_state: string;
   source_public_method_count: number;
   wire_operation_count: number;
+  wire_only_extensions: string[];
   deletion_authorization: string[];
 }
 
@@ -63,6 +64,9 @@ interface RawBoundaryInventory {
   service_source: string;
   service_factory: string;
   direct_consumers: InventoryConsumer[];
+  production_native_route: {
+    operation_count: number;
+  };
   method_groups: InventoryMethodGroup[];
 }
 
@@ -86,6 +90,9 @@ export interface BoundaryInventory {
   service_source: string;
   service_factory: string;
   direct_consumers: InventoryConsumer[];
+  production_native_route: {
+    operation_count: number;
+  };
   methods: BoundaryInventoryMethod[];
 }
 
@@ -205,6 +212,7 @@ export function readSynthesisBoundaryInventory(): BoundaryInventory {
     service_source: raw.service_source,
     service_factory: raw.service_factory,
     direct_consumers: raw.direct_consumers || [],
+    production_native_route: raw.production_native_route,
     methods,
   };
 }
@@ -632,6 +640,7 @@ export function inspectSynthesisServiceBoundary() {
       }
       return [];
     })
+    .concat(inventory.audit.wire_only_extensions)
     .filter((capability, index, all) => all.indexOf(capability) === index)
     .sort();
   const expectedProductionOperationSet = new Set(expectedProductionOperations);
@@ -673,6 +682,18 @@ export function inspectSynthesisServiceBoundary() {
     )
     .map((method) => method.name || "<unnamed>")
     .concat(duplicates(inventoryMethodNames))
+    .sort();
+  const invalidWireOnlyExtensions = inventory.audit.wire_only_extensions
+    .filter(
+      (capability) =>
+        !/^client\.[A-Za-z][A-Za-z0-9_]*$/.test(capability) ||
+        expectedProductionOperations.filter((entry) => entry === capability)
+          .length !== 1 ||
+        inventory.methods.some(
+          (method) => `client.${method.name}` === capability,
+        ),
+    )
+    .concat(duplicates(inventory.audit.wire_only_extensions))
     .sort();
 
   const currentMethodsMissingFromInventory = publicMethods.filter(
@@ -729,6 +750,20 @@ export function inspectSynthesisServiceBoundary() {
     unknownProductionOperations: operationCapabilities.filter(
       (capability) => !expectedProductionOperationSet.has(capability),
     ),
+    invalidWireOnlyExtensions,
+    wireOperationCountMismatch:
+      operationCapabilities.length === inventory.audit.wire_operation_count
+        ? []
+        : [
+            `expected ${inventory.audit.wire_operation_count}, got ${operationCapabilities.length}`,
+          ],
+    productionRouteOperationCountMismatch:
+      operationCapabilities.length ===
+      inventory.production_native_route.operation_count
+        ? []
+        : [
+            `expected ${inventory.production_native_route.operation_count}, got ${operationCapabilities.length}`,
+          ],
     invalidMergedTargets: inventory.methods
       .filter(
         (method) =>
@@ -783,6 +818,10 @@ function runCli() {
     unknownProductionOperations: report.unknownProductionOperations,
     invalidMergedTargets: report.invalidMergedTargets,
     invalidHostOwnedTargets: report.invalidHostOwnedTargets,
+    invalidWireOnlyExtensions: report.invalidWireOnlyExtensions,
+    wireOperationCountMismatch: report.wireOperationCountMismatch,
+    productionRouteOperationCountMismatch:
+      report.productionRouteOperationCountMismatch,
   };
   const hasErrors = Object.values(errors).some((values) => values.length > 0);
   process.stdout.write(

@@ -1,3 +1,4 @@
+use crate::PromotionCheckpoint;
 use crate::ports::CitationGraphRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -400,7 +401,15 @@ impl CitationGraphApplication {
     }
 
     pub fn rebuild_full(&self, request: CitationRebuildRequest) -> CitationMutationResult {
-        self.rebuild(request, None)
+        self.rebuild(request, None, None)
+    }
+
+    pub fn rebuild_full_with_checkpoint(
+        &self,
+        request: CitationRebuildRequest,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> CitationMutationResult {
+        self.rebuild(request, None, Some(checkpoint))
     }
 
     pub fn rebuild_source_slice(
@@ -411,13 +420,26 @@ impl CitationGraphApplication {
         if source_ids.is_empty() || request.expected_graph_hash.is_none() {
             return self.result(CitationMutationStatus::InvalidRequest, Vec::new());
         }
-        self.rebuild(request, Some(source_ids))
+        self.rebuild(request, Some(source_ids), None)
+    }
+
+    pub fn rebuild_source_slice_with_checkpoint(
+        &self,
+        request: CitationRebuildRequest,
+        source_ids: &[String],
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> CitationMutationResult {
+        if source_ids.is_empty() || request.expected_graph_hash.is_none() {
+            return self.result(CitationMutationStatus::InvalidRequest, Vec::new());
+        }
+        self.rebuild(request, Some(source_ids), Some(checkpoint))
     }
 
     fn rebuild(
         &self,
         request: CitationRebuildRequest,
         source_ids: Option<&[String]>,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> CitationMutationResult {
         let input_hash = match validate_rebuild(&request, source_ids) {
             Ok(hash) => hash,
@@ -476,6 +498,15 @@ impl CitationGraphApplication {
         replacement.state.input_hash = input_hash;
         replacement.state.metrics_hash = None;
         replacement.state.updated_at = now.clone();
+        if checkpoint.is_some_and(|checkpoint| checkpoint().is_err()) {
+            self.finish_operation(
+                &operation_id,
+                "canceled",
+                "promotion_blocked",
+                &mut warnings,
+            );
+            return self.result(CitationMutationStatus::Stopping, warnings);
+        }
         let promoted_hash = match source_ids {
             Some(source_ids) => match self.repository.replace_source_slice(
                 request.expected_graph_hash.as_deref().unwrap_or_default(),
@@ -514,7 +545,7 @@ impl CitationGraphApplication {
             self.finish_operation(&operation_id, "failed", "basis_mismatch", &mut warnings);
             return self.result(CitationMutationStatus::BasisMismatch, warnings);
         };
-        if let Err(error) = self.refresh_metrics_inner(&promoted_hash, &cancel)
+        if let Err(error) = self.refresh_metrics_inner(&promoted_hash, &cancel, None)
             && error != "basis_mismatch"
         {
             warnings.push("citation_graph_metrics_refresh_failed".into());
@@ -524,11 +555,19 @@ impl CitationGraphApplication {
     }
 
     pub fn refresh_metrics(&self, expected_graph_hash: &str) -> CitationMutationResult {
+        self.refresh_metrics_with_checkpoint(expected_graph_hash, &|| Ok(()))
+    }
+
+    pub fn refresh_metrics_with_checkpoint(
+        &self,
+        expected_graph_hash: &str,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> CitationMutationResult {
         let (cancel, _active) = match self.admit() {
             Ok(active) => active,
             Err(status) => return self.result(status, Vec::new()),
         };
-        match self.refresh_metrics_inner(expected_graph_hash, &cancel) {
+        match self.refresh_metrics_inner(expected_graph_hash, &cancel, Some(checkpoint)) {
             Ok(true) => self.result(CitationMutationStatus::Promoted, Vec::new()),
             Ok(false) => self.result(CitationMutationStatus::BasisMismatch, Vec::new()),
             Err(error) if error == "basis_mismatch" => {
@@ -539,6 +578,14 @@ impl CitationGraphApplication {
     }
 
     pub fn recompute_layout(&self, request: CitationLayoutRequest) -> CitationMutationResult {
+        self.recompute_layout_with_checkpoint(request, &|| Ok(()))
+    }
+
+    pub fn recompute_layout_with_checkpoint(
+        &self,
+        request: CitationLayoutRequest,
+        checkpoint: &PromotionCheckpoint<'_>,
+    ) -> CitationMutationResult {
         if request.layout_key.is_empty()
             || request.view_key.is_empty()
             || !matches!(request.preset.as_str(), "force" | "radial" | "components")
@@ -567,6 +614,9 @@ impl CitationGraphApplication {
                 Err(error) => return self.result(worker_status(&error), Vec::new()),
             };
         layout.graph_hash = request.expected_graph_hash.clone();
+        if checkpoint().is_err() {
+            return self.result(CitationMutationStatus::Stopping, Vec::new());
+        }
         match self
             .repository
             .promote_layout(&request.expected_graph_hash, &layout)
@@ -748,6 +798,7 @@ impl CitationGraphApplication {
         &self,
         graph_hash: &str,
         canceled: &Arc<AtomicBool>,
+        checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<bool, String> {
         if self
             .repository
@@ -761,6 +812,9 @@ impl CitationGraphApplication {
         let nodes = self.repository.list_nodes()?;
         let edges = self.repository.list_edges()?;
         let output = self.compute.metrics(graph_hash, &nodes, &edges, canceled)?;
+        if checkpoint.is_some_and(|checkpoint| checkpoint().is_err()) {
+            return Err("stopping".into());
+        }
         self.repository.promote_metrics(
             graph_hash,
             &output.metrics_hash,
@@ -1135,6 +1189,13 @@ mod tests {
             force: false,
             input: serde_json::json!({"scope":{"kind":"full"}}),
         };
+        assert_eq!(
+            application
+                .rebuild_full_with_checkpoint(request.clone(), &|| Err("operation_canceled".into()))
+                .status,
+            CitationMutationStatus::Stopping
+        );
+        assert!(application.inspect().expect("inspect").graph_hash.is_none());
         let created = application.rebuild_full(request.clone());
         assert_eq!(created.status, CitationMutationStatus::Promoted);
         assert_eq!(application.inspect().expect("inspect").node_count, 2);

@@ -11,6 +11,7 @@
     { "id": "client.retryWebDavSync", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "host_failure", "restart"] },
     { "id": "client.resolveWebDavSyncConflict", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "conflict_policy", "restart"] },
     { "id": "client.getPublicMaintenanceOperation", "access": "read", "cases": ["invalid_args", "oversized", "expired", "empty", "deterministic_order"] },
+    { "id": "client.controlPublicMaintenanceOperation", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "cancel", "continue", "retry", "restart"] },
     { "id": "client.reconcileSynthesisRuntimeWorkStateOnStartup", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "restart", "rust_only_repair"] },
     { "id": "client.resetSynthesisDatabase", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "owner_conflict", "admission_conflict", "checkpoint_required", "exclusive_lease", "reset_phase", "rust_only_repair"] },
     { "id": "client.debugSynthesisCleanInstallReset", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "receipt", "reopen", "no_partial_write", "owner_conflict", "admission_conflict", "checkpoint_required", "exclusive_lease", "reset_phase", "rust_only_repair"] }

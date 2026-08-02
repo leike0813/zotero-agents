@@ -14,6 +14,12 @@ pub mod topic_graph;
 pub mod webdav_sync;
 pub mod workbench;
 
+/// A sidecar-owned gate evaluated immediately before an application promotes
+/// a computed replacement into durable state.  Callers use it to surface a
+/// cancellation or deadline observed after computation without publishing the
+/// stale candidate.
+pub type PromotionCheckpoint<'a> = dyn Fn() -> Result<(), String> + 'a;
+
 pub use citation_graph::CitationGraphApplication;
 pub use concept_kb::ConceptKbApplication;
 pub use debug_maintenance::DebugMaintenanceApplication;
