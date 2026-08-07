@@ -576,6 +576,10 @@ type AcpSkillRunController = {
   setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
 };
 
+export type AcpSkillRunSetupController = {
+  cancel: () => Promise<void>;
+};
+
 export type AcpSkillRunReplyRequest = {
   displayMessage: string;
   promptMessage: string;
@@ -633,6 +637,7 @@ type AcpSkillRunTranscriptLiveState = {
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const transcriptLiveStates = new Map<string, AcpSkillRunTranscriptLiveState>();
 const controllers = new Map<string, AcpSkillRunController>();
+const setupControllers = new Map<string, AcpSkillRunSetupController>();
 const applyResultControllerDetachPromises = new Map<string, Promise<void>>();
 const waitingUserDetachTimers = new Map<
   string,
@@ -1711,6 +1716,9 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   delete (next as Record<string, unknown>).transcriptItems;
   delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
+  if (isTerminalAcpSkillRunStatus(next.status)) {
+    setupControllers.delete(record.requestId);
+  }
   syncAcpSkillRunActiveIndex(next);
   if (!isActiveAcpSkillRunRecordForSummary(next)) {
     revokeHostBridgeWriteAutoApprovalGrantsForRun(next.requestId);
@@ -4592,10 +4600,11 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
 export function registerAcpSkillRunController(
   requestIdRaw: string,
   controller: AcpSkillRunController | null,
-) {
+  setupController?: AcpSkillRunSetupController,
+): boolean {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
-    return;
+    return false;
   }
   if (!controller) {
     controllers.delete(requestId);
@@ -4604,8 +4613,18 @@ export function registerAcpSkillRunController(
       requestId,
       "controller_removed_with_pending_permission",
     );
-    return;
+    return true;
   }
+  const record = runRecords.get(requestId);
+  if (
+    setupController &&
+    (!record ||
+      isTerminalAcpSkillRunStatus(record.status) ||
+      setupControllers.get(requestId) !== setupController)
+  ) {
+    return false;
+  }
+  setupControllers.delete(requestId);
   controllers.set(requestId, controller);
   upsertAcpSkillRun({
     requestId,
@@ -4613,7 +4632,6 @@ export function registerAcpSkillRunController(
     connectionActionState: "idle",
     lastRecoveryError: "",
   });
-  const record = runRecords.get(requestId);
   if (record) {
     syncWaitingUserDetachTimer(record);
   }
@@ -4621,6 +4639,33 @@ export function registerAcpSkillRunController(
     runRequestId: requestId,
     reason: "controller_registered_without_resolver",
   });
+  return true;
+}
+
+export function registerAcpSkillRunSetupController(
+  requestIdRaw: string,
+  controller: AcpSkillRunSetupController | null,
+) {
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId) {
+    return;
+  }
+  if (!controller) {
+    setupControllers.delete(requestId);
+    return;
+  }
+  setupControllers.set(requestId, controller);
+}
+
+export function unregisterAcpSkillRunSetupController(
+  requestIdRaw: string,
+  controller: AcpSkillRunSetupController,
+) {
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId || setupControllers.get(requestId) !== controller) {
+    return;
+  }
+  setupControllers.delete(requestId);
 }
 
 export function setAcpSkillRunRecoveryHandlerForTests(
@@ -5043,7 +5088,8 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
     requestId,
     "run_cancelled_with_pending_permission",
   );
-  const controller = controllers.get(requestId);
+  let controller = controllers.get(requestId);
+  const setupController = setupControllers.get(requestId);
   if (!controller) {
     const existing = getAcpSkillRunRecord(requestId);
     if (!existing) {
@@ -5052,6 +5098,12 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
     if (isTerminalAcpSkillRunStatus(existing.status)) {
       return;
     }
+    if (setupController) {
+      await setupController.cancel();
+      controller = controllers.get(requestId);
+    }
+  }
+  if (!controller) {
     upsertAcpSkillRun({
       requestId,
       status: "canceled",
@@ -6560,6 +6612,13 @@ export function subscribeAcpSkillRunWorkspaceChanges(
 }
 
 export async function shutdownAcpSkillRunConversations() {
+  const setupEntries = Array.from(setupControllers.entries());
+  await Promise.allSettled(
+    setupEntries.map(async ([requestId, controller]) => {
+      await controller.cancel().catch(() => undefined);
+      unregisterAcpSkillRunSetupController(requestId, controller);
+    }),
+  );
   const entries = Array.from(controllers.entries());
   await Promise.allSettled(
     entries.map(async ([requestId, controller]) => {
@@ -6631,6 +6690,7 @@ export function resetAcpSkillRunsForTests() {
   lastPersistedEventIds.clear();
   resetAcpTranscriptWritesForTests();
   controllers.clear();
+  setupControllers.clear();
   applyResultControllerDetachPromises.clear();
   runtimeCatalogByRequestId.clear();
   for (const queue of permissionQueuesByRunRequestId.values()) {

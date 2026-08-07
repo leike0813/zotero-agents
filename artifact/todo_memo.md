@@ -138,15 +138,15 @@
 - [x] **literature-search-ingest需要升级**。现在存在以下问题：1. 跳过PDF探测的偷懒行为极其高发，需要升级为硬stage技能；2.文献元数据搜索极其偷懒； 3. 文献元数据录入不规范，DOI放到“其他”字段中，中文论文的录入不稳定，有时按英文标题录入、有时按英文作者录入、有时又录入双语标题；
 - [x] 进一步完善任务队列，取消任务正常释放槽位，可重试失败释放槽位，timeout释放槽位，不同任务队列加标识
 - [x] 提交任务所用的选择上下文应该在“点击触发workflow”的那一刻锁定，而不是在提交workflow的确定按钮按下后再动态判定。也就是说，出现在提交workflow窗口中的执行单元必须是最后点击确认提交任务时的最终提交执行单元，而不应该是点击确认提交那一时刻的实时选择上下文。
-- [ ] ACP Skills 疑似存在并发数大于1时只有一个任务会真的提交并执行，其他任务看似提交但不会开始执行的bug，需要排查（确认在windows下，最大并发数2，后端Kilo ACP，稳定复现；提交后，第一个任务正常运行，第二个任务处于“看起来提交了，实际上不会进入执行，无法断开，只能取消“的诡异状态）
+- [x] ACP Skills 疑似存在并发数大于1时只有一个任务会真的提交并执行，其他任务看似提交但不会开始执行的bug，需要排查（确认在windows下，最大并发数2，后端Kilo ACP，稳定复现；提交后，第一个任务正常运行，第二个任务处于“看起来提交了，实际上不会进入执行，无法断开，只能取消“的诡异状态）
 - [ ] ACP Skills状态机还是有点问题，已完成任务无法继续对话，和最初设计意图不一致。需要进行一次整体升级，合理设计自由对话和任务执行的关系。
 - [ ] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
 - [ ] literature-analysis 中的引用文献抽取步骤，考虑加入公共API查询以减轻Agent负担，加快执行效率，优化抽取质量
 - [ ] literature-search-ingest 吸纳 instSCI 项目
-- [ ] 通过 zotero-bridge CLI 调用 workflow 时，需要避免 Agent 不先向用户确定 providerProfile 就直接发起调用的问题（也有可能是直接按查询到的 providerProfile 形状随便填一个值就提交了）。总之，providerProfile 的合法性校验、用户确定门禁、不传值时的默认行为，该如何在披露给 Agent 的同时确保 Agent 能和用户充分沟通，需要仔细考虑。此外，现在的 providerProfile 的披露和校验本身有 BUG (见K3论文工作区内的反馈工件 `/home/joshua/Workspace/Paper/ShiRuiXue/JiaoYu-AI/feedback-zotero-bridge-acp-qwen37.md`)
-- [ ] 为 zotero-librarian-profile 增加“按连接 profile 隔离工作区”的功能。简单来说，现在的 zotero-librarian-profile 如果在使用中切换连接 profile 会导致数据串台，应该给每个连接 profile 划定一个刚性的、对 Agent 接近透明的隔离工作区（well-known profile 也算一个 profile，而且是默认 profile）。
-- [ ] export-research-bundle 导出包中应该增加一个便于Agent检索的index文件。此外，现在的导出有BUG或者说设计缺陷，按理来说被选中的Topics中关联的所有文献都应该被选中作为Papers（并去重），但实际似乎没有做这一步。
-- [ ] export-literature-bundle 改为默认导出与 export-research-bundle 相同格式的、可被其他 Agent 消费的bundle（纯原文模式仍保留）；增加导出模式选项，默认`Selection`，支持`Collection`和`Library`。
+- [x] 通过 zotero-bridge CLI 调用 workflow 时，需要避免 Agent 不先向用户确定 providerProfile 就直接发起调用的问题（也有可能是直接按查询到的 providerProfile 形状随便填一个值就提交了）。总之，providerProfile 的合法性校验、用户确定门禁、不传值时的默认行为，该如何在披露给 Agent 的同时确保 Agent 能和用户充分沟通，需要仔细考虑。此外，现在的 providerProfile 的披露和校验本身有 BUG (见K3论文工作区内的反馈工件 `/home/joshua/Workspace/Paper/ShiRuiXue/JiaoYu-AI/feedback-zotero-bridge-acp-qwen37.md`)
+- [x] 为 zotero-librarian-profile 增加“按连接 profile 隔离工作区”的功能。简单来说，现在的 zotero-librarian-profile 如果在使用中切换连接 profile 会导致数据串台，应该给每个连接 profile 划定一个刚性的、对 Agent 接近透明的隔离工作区（well-known profile 也算一个 profile，而且是默认 profile）。
+- [x] export-research-bundle 导出包中应该增加一个便于Agent检索的index文件。此外，现在的导出有BUG或者说设计缺陷，按理来说被选中的Topics中关联的所有文献都应该被选中作为Papers（并去重），但实际似乎没有做这一步。
+- [x] export-literature-bundle 改为默认导出与 export-research-bundle 相同格式的、可被其他 Agent 消费的bundle（纯原文模式仍保留）；增加导出模式选项，默认`Selection`，支持`Collection`和`Library`。
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

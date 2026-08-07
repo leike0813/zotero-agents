@@ -121,6 +121,7 @@ import {
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   registerAcpSkillRunController,
+  registerAcpSkillRunSetupController,
   recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
   resolveAcpSkillRunPermissionRequest,
@@ -130,7 +131,9 @@ import {
   type AcpSkillRunStatus,
   type AcpSkillRunReplyRequest,
   updateAcpSkillRunRuntimeSelection,
+  unregisterAcpSkillRunSetupController,
   upsertAcpSkillRun,
+  type AcpSkillRunSetupController,
 } from "./acpSkillRunStore";
 import { finishAcpSequenceStep } from "./workflowExecution/acpSequenceStepLifecycle";
 import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions";
@@ -1632,8 +1635,25 @@ async function runPrompt(args: {
         level: "info",
         details: {
           sessionId,
+          submissionId: getAcpSkillRunRecord(args.requestId)?.submissionId,
+          submissionUnitId: getAcpSkillRunRecord(args.requestId)
+            ?.submissionUnitId,
         },
       },
+    });
+    await recordAcpSkillRunnerSetupStage({
+      requestId: args.requestId,
+      runtimeDir: getAcpSkillRunRecord(args.requestId)?.runtimeDir,
+      stage: "acp-initialized",
+      message: "ACP protocol initialization completed.",
+    });
+    await recordAcpSkillRunnerSetupStage({
+      requestId: args.requestId,
+      runtimeDir: getAcpSkillRunRecord(args.requestId)?.runtimeDir,
+      stage: "acp-session-created",
+      message: "ACP task session created.",
+      details: { sessionId },
+      projectRunEvent: false,
     });
     await applyAcpSkillRunRuntimeSelection({
       adapter: args.adapter,
@@ -1662,6 +1682,13 @@ async function runPrompt(args: {
     });
   }
   await args.onPromptReady?.(sessionId);
+  await recordAcpSkillRunnerSetupStage({
+    requestId: args.requestId,
+    runtimeDir: getAcpSkillRunRecord(args.requestId)?.runtimeDir,
+    stage: "prompt-started",
+    message: "ACP prompt is ready to start.",
+    details: { sessionId },
+  });
   const response = await args.adapter.prompt({
     sessionId,
     message: args.message,
@@ -3706,6 +3733,56 @@ export async function recoverAcpSkillRunConversation(args: {
   }
 }
 
+type AcpSkillRunnerSetupStage =
+  | "workspace-created"
+  | "registry-ready"
+  | "skill-materialized"
+  | "host-bridge-cli-ready"
+  | "runtime-dependencies-resolved"
+  | "adapter-created"
+  | "transport-spawned"
+  | "acp-initialized"
+  | "acp-session-created"
+  | "prompt-started";
+
+async function recordAcpSkillRunnerSetupStage(args: {
+  requestId: string;
+  runtimeDir?: string;
+  stage: AcpSkillRunnerSetupStage;
+  message: string;
+  details?: Record<string, unknown>;
+  projectRunEvent?: boolean;
+}) {
+  const record = getAcpSkillRunRecord(args.requestId);
+  const details = {
+    submissionId: record?.submissionId,
+    submissionUnitId: record?.submissionUnitId,
+    ...args.details,
+  };
+  if (args.projectRunEvent !== false) {
+    upsertAcpSkillRun({
+      requestId: args.requestId,
+      event: {
+        stage: args.stage,
+        message: args.message,
+        level: "info",
+        details,
+      },
+    });
+  }
+  await appendAcpSkillRunAuditEvent({
+    requestId: args.requestId,
+    runtimeDir: args.runtimeDir,
+    event: {
+      ts: new Date().toISOString(),
+      stage: args.stage,
+      message: args.message,
+      level: "info",
+      details,
+    },
+  });
+}
+
 export async function executeAcpSkillRunnerJob(args: {
   requestKind: string;
   request: unknown;
@@ -3716,6 +3793,7 @@ export async function executeAcpSkillRunnerJob(args: {
   dependencies?: AcpSkillRunnerDependencies;
 }): Promise<ProviderExecutionResult> {
   const request = assertAcpSkillRunRequest(args.request);
+  let cancellationRequested = false;
   const workspaceFactory =
     args.dependencies?.createWorkspace || createAcpSkillRunnerWorkspace;
   const workflowId =
@@ -3781,9 +3859,65 @@ export async function executeAcpSkillRunnerJob(args: {
       level: "info",
       details: {
         workspaceDir: workspace.workspaceDir,
+        submissionId: args.orchestrationContext?.submissionId,
+        submissionUnitId: args.orchestrationContext?.submissionUnitId,
       },
     },
   });
+  const setupController: AcpSkillRunSetupController = {
+    cancel: async () => {
+      cancellationRequested = true;
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: {
+          stage: "cancel-requested",
+          message: "ACP skill run setup cancellation requested.",
+          level: "warn",
+        },
+      });
+    },
+  };
+  registerAcpSkillRunSetupController(workspace.requestId, setupController);
+  const settleSetupCancellation = async (
+    adapter?: AcpConnectionAdapter,
+  ): Promise<ProviderExecutionResult> => {
+    if (adapter) {
+      await adapter.close().catch(() => undefined);
+    }
+    unregisterAcpSkillRunSetupController(workspace.requestId, setupController);
+    upsertAcpSkillRun({
+      requestId: workspace.requestId,
+      status: "canceled",
+      statusReason: "cancel_task",
+      activePrompt: false,
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+      connectionActionState: "idle",
+      event: {
+        stage: "setup-canceled",
+        message: "ACP skill run canceled during setup.",
+        level: "warn",
+      },
+    });
+    await writeAcpSkillRunAuditFinalState({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      record: getAcpSkillRunRecord(workspace.requestId),
+      status: "canceled",
+    }).catch(() => undefined);
+    return {
+      status: "canceled",
+      requestId: workspace.requestId,
+      fetchType: "result",
+      responseJson: {
+        provider: "acp",
+        requestId: workspace.requestId,
+        status: "canceled",
+      },
+    };
+  };
+  const settleIfSetupCanceled = async (adapter?: AcpConnectionAdapter) =>
+    cancellationRequested ? settleSetupCancellation(adapter) : null;
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -3807,9 +3941,15 @@ export async function executeAcpSkillRunnerJob(args: {
       level: "info",
       details: {
         workspaceDir: workspace.workspaceDir,
+        submissionId: args.orchestrationContext?.submissionId,
+        submissionUnitId: args.orchestrationContext?.submissionUnitId,
       },
     },
   });
+  const canceledAfterWorkspace = await settleIfSetupCanceled();
+  if (canceledAfterWorkspace) {
+    return canceledAfterWorkspace;
+  }
   rememberAcpSkillRunRuntimeCatalog({
     requestId: workspace.requestId,
     backend: args.backend,
@@ -3880,6 +4020,10 @@ export async function executeAcpSkillRunnerJob(args: {
     workspace,
     request,
   });
+  const canceledAfterManifest = await settleIfSetupCanceled();
+  if (canceledAfterManifest) {
+    return canceledAfterManifest;
+  }
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     status: "running",
@@ -3894,6 +4038,16 @@ export async function executeAcpSkillRunnerJob(args: {
   const registry = args.dependencies?.scanRegistry
     ? await args.dependencies.scanRegistry()
     : await scanPluginSkillRegistry();
+  const canceledAfterRegistry = await settleIfSetupCanceled();
+  if (canceledAfterRegistry) {
+    return canceledAfterRegistry;
+  }
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    stage: "registry-ready",
+    message: "ACP skill registry is ready.",
+  });
   const skill = registry.entriesById[request.skill_id];
   if (!skill) {
     upsertAcpSkillRun({
@@ -3936,6 +4090,10 @@ export async function executeAcpSkillRunnerJob(args: {
   const runnerJsonForExecutionMode = await readRunnerJsonForExecutionMode(
     skill.runnerJsonPath,
   );
+  const canceledAfterRunnerJson = await settleIfSetupCanceled();
+  if (canceledAfterRunnerJson) {
+    return canceledAfterRunnerJson;
+  }
   const executionMode = resolveExecutionMode(
     request,
     runnerJsonForExecutionMode,
@@ -3952,6 +4110,10 @@ export async function executeAcpSkillRunnerJob(args: {
     collectSkillRunFeedback:
       request.runtime_options?.collect_skill_run_feedback === true,
   });
+  const canceledAfterMaterialization = await settleIfSetupCanceled();
+  if (canceledAfterMaterialization) {
+    return canceledAfterMaterialization;
+  }
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
@@ -3970,6 +4132,8 @@ export async function executeAcpSkillRunnerJob(args: {
         proxySkillCount: materialization.proxySkillCount,
         requestedSkillProxyPath: materialization.requestedSkillProxyPath,
         resourceRewriteWarnings: materialization.resourceRewriteWarnings,
+        submissionId: args.orchestrationContext?.submissionId,
+        submissionUnitId: args.orchestrationContext?.submissionUnitId,
       },
     },
   });
@@ -3978,6 +4142,16 @@ export async function executeAcpSkillRunnerJob(args: {
     executionMode,
     primarySkillDir: materialization.primarySkillDir,
     runnerJson: materialization.runnerJson,
+  });
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    stage: "skill-materialized",
+    message: "ACP skill materialization is ready.",
+    details: {
+      proxySkillCount: materialization.proxySkillCount,
+    },
+    projectRunEvent: false,
   });
   const effectiveRuntimeOptions = resolveAcpSkillRunEffectiveRuntimeOptions({
     request,
@@ -3990,6 +4164,10 @@ export async function executeAcpSkillRunnerJob(args: {
     skillDir: materialization.primarySkillDir,
     workspaceDir: workspace.workspaceDir,
   });
+  const canceledAfterValidation = await settleIfSetupCanceled();
+  if (canceledAfterValidation) {
+    return canceledAfterValidation;
+  }
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     event: {
@@ -4027,6 +4205,10 @@ export async function executeAcpSkillRunnerJob(args: {
     backend: args.backend,
     dependencies: args.dependencies,
   });
+  const canceledAfterHostBridge = await settleIfSetupCanceled();
+  if (canceledAfterHostBridge) {
+    return canceledAfterHostBridge;
+  }
   const { hostBridgeCliInjection, hostBridgeCliState, zoteroHostAccess } =
     hostBridgePreparation;
   upsertAcpSkillRun({
@@ -4034,6 +4216,20 @@ export async function executeAcpSkillRunnerJob(args: {
     hostBridgeCli: hostBridgeCliState,
     event: hostBridgePreparation.event,
   });
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    stage: "host-bridge-cli-ready",
+    message: "ACP skill Host Bridge CLI preparation settled.",
+    details: {
+      available: hostBridgeCliState.available,
+      required: zoteroHostAccess.required,
+    },
+  });
+  const canceledAfterHostBridgeAudit = await settleIfSetupCanceled();
+  if (canceledAfterHostBridgeAudit) {
+    return canceledAfterHostBridgeAudit;
+  }
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
     backend: hostBridgePreparation.backend,
     runnerJson: materialization.runnerJson,
@@ -4041,6 +4237,10 @@ export async function executeAcpSkillRunnerJob(args: {
     mode: "probe-and-wrap",
     probe: args.dependencies?.dependencyProbe,
   });
+  const canceledAfterDependencies = await settleIfSetupCanceled();
+  if (canceledAfterDependencies) {
+    return canceledAfterDependencies;
+  }
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     runtimeDependencies: dependencyPlan.dependencies,
@@ -4074,9 +4274,26 @@ export async function executeAcpSkillRunnerJob(args: {
         dependencies: dependencyPlan.dependencies,
         diagnostic: dependencyPlan.diagnostic,
         wrapperMode: dependencyPlan.wrapperMode,
+        submissionId: args.orchestrationContext?.submissionId,
+        submissionUnitId: args.orchestrationContext?.submissionUnitId,
       },
     },
   });
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    stage: "runtime-dependencies-resolved",
+    message: "ACP skill runtime dependencies are resolved.",
+    details: {
+      dependencyCount: dependencyPlan.dependencies.length,
+      wrapperMode: dependencyPlan.wrapperMode,
+    },
+    projectRunEvent: false,
+  });
+  const canceledAfterDependencyAudit = await settleIfSetupCanceled();
+  if (canceledAfterDependencyAudit) {
+    return canceledAfterDependencyAudit;
+  }
   if (dependencyPlan.diagnostic?.level === "error") {
     upsertAcpSkillRun({
       requestId: workspace.requestId,
@@ -4092,6 +4309,10 @@ export async function executeAcpSkillRunnerJob(args: {
 
   const createAdapter =
     args.dependencies?.createAdapter || createAcpConnectionAdapter;
+  const canceledBeforeAdapter = await settleIfSetupCanceled();
+  if (canceledBeforeAdapter) {
+    return canceledBeforeAdapter;
+  }
   let adapter: AcpConnectionAdapter;
   try {
     const bridgeAuditFile = normalizeString(auditTrail.files.bridge);
@@ -4132,6 +4353,9 @@ export async function executeAcpSkillRunnerJob(args: {
         : undefined,
     });
   } catch (error) {
+    if (cancellationRequested) {
+      return settleSetupCancellation();
+    }
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
@@ -4147,6 +4371,36 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     });
     throw error;
+  }
+  const canceledAfterAdapter = await settleIfSetupCanceled(adapter);
+  if (canceledAfterAdapter) {
+    return canceledAfterAdapter;
+  }
+  const transportLifecycle =
+    adapter.getTransportSnapshot?.()?.transportLifecycle;
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    stage: "adapter-created",
+    message: "ACP connection adapter is ready.",
+  });
+  await recordAcpSkillRunnerSetupStage({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    stage: "transport-spawned",
+    message: "ACP transport ownership is available for this run.",
+    details: transportLifecycle
+      ? {
+          transportKind: transportLifecycle.transportKind,
+          spawnId: transportLifecycle.spawnId,
+          bridgePid: transportLifecycle.bridgePid,
+          childPid: transportLifecycle.childPid,
+        }
+      : { transportKind: "adapter-managed" },
+  });
+  const canceledAfterAdapterAudit = await settleIfSetupCanceled(adapter);
+  if (canceledAfterAdapterAudit) {
+    return canceledAfterAdapterAudit;
   }
   const requiredMcpTools = resolveRequiredMcpTools({
     request,
@@ -4182,7 +4436,6 @@ export async function executeAcpSkillRunnerJob(args: {
   let liveSessionId = "";
   let keepConversationAlive = false;
   let cleanupDone = false;
-  let cancellationRequested = false;
   let interruptionRequested = false;
   let interruptionForced = false;
   let disconnectRequested = false;
@@ -4620,7 +4873,7 @@ export async function executeAcpSkillRunnerJob(args: {
   let continueDetachedInteractiveReply:
     | ((promptOutcome: AcpPromptOutcome) => Promise<void>)
     | null = null;
-  registerAcpSkillRunController(workspace.requestId, {
+  const liveController = {
     cancel: async () => {
       cancellationRequested = true;
       if (pendingReplyRejecter) {
@@ -4936,7 +5189,15 @@ export async function executeAcpSkillRunnerJob(args: {
     setConfigOption: async ({ sessionId, category, value }) =>
       (await adapter.setConfigOption?.({ sessionId, category, value })) ===
       true,
-  });
+  } satisfies NonNullable<Parameters<typeof registerAcpSkillRunController>[1]>;
+  const liveControllerRegistered = registerAcpSkillRunController(
+    workspace.requestId,
+    liveController,
+    setupController,
+  );
+  if (!liveControllerRegistered) {
+    return settleSetupCancellation(adapter);
+  }
   unsubscribePermission = adapter.onPermissionRequest((request) => {
     const wrappedRequest = wrapAcpSkillRunPermissionRequestForTimeoutPause({
       request,
