@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "6be20b273b8441291dab98dac627bf75b306879a25cb497da23d7b68c0a7bc30",
+  "commandCatalogChecksum": "edd608e70734949ed1ea67019943826a8c4c696b67b576a410735255e8dca6d4",
   "commands": [
     {
       "approvalContract": {
@@ -29226,6 +29226,126 @@
     {
       "approvalContract": {
         "kind": "none",
+        "scope": "No Zotero UI approval.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Workflow id whose saved provider profile candidate is disclosed",
+          "id": "workflow",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--workflow",
+          "valueNames": [
+            "WORKFLOW"
+          ]
+        }
+      ],
+      "argv": [
+        "workflow",
+        "defaults"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "workflow",
+          "required": true,
+          "takesValue": true,
+          "token": "--workflow",
+          "valueNames": [
+            "WORKFLOW"
+          ]
+        }
+      ],
+      "binding": "object",
+      "category": "read",
+      "command": "workflow defaults",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Reads a saved workflow provider profile candidate without authorizing submission.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {},
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "workflow": {
+            "description": "Workflow id whose saved provider profile candidate is disclosed",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "workflow defaults",
+        "workflow",
+        "defaults",
+        "WORKFLOW"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "workflow": {
+            "description": "Workflow id whose saved provider profile candidate is disclosed",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Inspect the structured error and retry only when retryable is true.",
+          "nextCommand": "surface describe",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The read fails or returns incomplete evidence."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": true,
+        "properties": {
+          "response": {
+            "additionalProperties": true,
+            "description": "Response object returned by POST /bridge/v2/workflows/defaults.",
+            "type": "object",
+            "x-openPropertiesReason": "The workflow defaults endpoint owns the response fields."
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The endpoint returns a command-specific object."
+      },
+      "summary": "Show the saved workflow provider profile candidate",
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v2/workflows/defaults"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
         "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
         "timing": "none"
       },
@@ -29688,6 +29808,129 @@
     {
       "approvalContract": {
         "kind": "none",
+        "scope": "No Zotero library write approval; the ACP backend probe may start a provider session.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Configured ACP backend id to probe and refresh",
+          "id": "backend",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": true,
+          "takesValue": true,
+          "token": "--backend",
+          "valueNames": [
+            "BACKEND"
+          ]
+        }
+      ],
+      "argv": [
+        "workflow",
+        "profile",
+        "refresh"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "backend",
+          "required": true,
+          "takesValue": true,
+          "token": "--backend",
+          "valueNames": [
+            "BACKEND"
+          ]
+        }
+      ],
+      "binding": "object",
+      "category": "write",
+      "command": "workflow profile refresh",
+      "composition": null,
+      "danger": "review",
+      "effects": [
+        {
+          "description": "Refreshes the persisted ACP runtime option catalog for one backend.",
+          "kind": "workflow-control",
+          "stateChanged": true
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {},
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "description": "Configured ACP backend id to probe and refresh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend"
+        ],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "workflow profile refresh",
+        "workflow",
+        "profile",
+        "refresh",
+        "backend",
+        "BACKEND"
+      ],
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "description": "Configured ACP backend id to probe and refresh",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Inspect the structured refresh error and retry only when retryable is true.",
+          "nextCommand": "workflow profile describe",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "The probe fails or its result is uncertain."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": true,
+        "properties": {
+          "response": {
+            "additionalProperties": true,
+            "description": "Response object returned by POST /bridge/v2/workflows/provider-profiles/refresh.",
+            "type": "object",
+            "x-openPropertiesReason": "The ACP refresh endpoint owns the response fields."
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The endpoint returns a command-specific object."
+      },
+      "summary": "Refresh an ACP backend provider catalog",
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v2/workflows/provider-profiles/refresh"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
         "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
         "timing": "none"
       },
@@ -29761,14 +30004,6 @@
               "backendId": {
                 "minLength": 1,
                 "type": "string"
-              },
-              "backendType": {
-                "enum": [
-                  "acp",
-                  "skillrunner",
-                  "generic-http",
-                  "pass-through"
-                ]
               },
               "providerOptions": {
                 "additionalProperties": true,
@@ -31001,14 +31236,6 @@
               "backendId": {
                 "minLength": 1,
                 "type": "string"
-              },
-              "backendType": {
-                "enum": [
-                  "acp",
-                  "skillrunner",
-                  "generic-http",
-                  "pass-through"
-                ]
               },
               "providerOptions": {
                 "additionalProperties": true,

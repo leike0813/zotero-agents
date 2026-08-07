@@ -55,14 +55,6 @@ Required: `false`.
       "minLength": 1,
       "type": "string"
     },
-    "backendType": {
-      "enum": [
-        "acp",
-        "skillrunner",
-        "generic-http",
-        "pass-through"
-      ]
-    },
     "providerOptions": {
       "additionalProperties": true,
       "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
@@ -213,14 +205,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "backendId": {
             "minLength": 1,
             "type": "string"
-          },
-          "backendType": {
-            "enum": [
-              "acp",
-              "skillrunner",
-              "generic-http",
-              "pass-through"
-            ]
           },
           "providerOptions": {
             "additionalProperties": true,

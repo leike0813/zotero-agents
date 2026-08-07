@@ -10217,6 +10217,128 @@
       "pagination": "none",
       "payloadSchemaSource": "inline"
     },
+    "workflow defaults": {
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "description": "Workflow id whose saved provider profile candidate is disclosed"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchemaSource": "inline",
+      "inputs": {},
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "description": "Response object returned by POST /bridge/v2/workflows/defaults.",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The workflow defaults endpoint owns the response fields."
+          }
+        },
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The endpoint returns a command-specific object."
+      },
+      "outputBoundary": { "strategy": "fixed" },
+      "target": {
+        "kind": "endpoint",
+        "method": "POST",
+        "path": "/bridge/v2/workflows/defaults"
+      },
+      "binding": "object",
+      "approval": "none",
+      "effect": "read",
+      "category": "read",
+      "danger": "none",
+      "effects": [{
+        "kind": "none",
+        "stateChanged": false,
+        "description": "Reads a saved workflow provider profile candidate without authorizing submission."
+      }],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero UI approval."
+      },
+      "handleTransitions": [],
+      "recovery": [{
+        "when": "The read fails or returns incomplete evidence.",
+        "stateCheck": "none",
+        "requiresHandles": [],
+        "action": "Inspect the structured error and retry only when retryable is true.",
+        "nextCommand": "surface describe"
+      }],
+      "operationalAliases": ["workflow defaults", "workflow", "defaults", "WORKFLOW"],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "inline"
+    },
+    "workflow profile refresh": {
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string",
+            "description": "Configured ACP backend id to probe and refresh"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchemaSource": "inline",
+      "inputs": {},
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "description": "Response object returned by POST /bridge/v2/workflows/provider-profiles/refresh.",
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The ACP refresh endpoint owns the response fields."
+          }
+        },
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The endpoint returns a command-specific object."
+      },
+      "outputBoundary": { "strategy": "fixed" },
+      "target": {
+        "kind": "endpoint",
+        "method": "POST",
+        "path": "/bridge/v2/workflows/provider-profiles/refresh"
+      },
+      "binding": "object",
+      "approval": "none",
+      "effect": "state-change",
+      "category": "write",
+      "danger": "review",
+      "effects": [{
+        "kind": "workflow-control",
+        "stateChanged": true,
+        "description": "Refreshes the persisted ACP runtime option catalog for one backend."
+      }],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Zotero library write approval; the ACP backend probe may start a provider session."
+      },
+      "handleTransitions": [],
+      "recovery": [{
+        "when": "The probe fails or its result is uncertain.",
+        "stateCheck": "none",
+        "requiresHandles": [],
+        "action": "Inspect the structured refresh error and retry only when retryable is true.",
+        "nextCommand": "workflow profile describe"
+      }],
+      "operationalAliases": ["workflow profile refresh", "workflow", "profile", "refresh", "backend", "BACKEND"],
+      "hiddenFromIntentSearch": false,
+      "pagination": "none",
+      "payloadSchemaSource": "inline"
+    },
     "workflow profile describe": {
       "payloadSchema": {
         "type": "object",
@@ -10382,9 +10504,6 @@
               "backendId": {
                 "type": "string",
                 "minLength": 1
-              },
-              "backendType": {
-                "enum": ["acp", "skillrunner", "generic-http", "pass-through"]
               },
               "providerOptions": {
                 "type": "object",
@@ -11054,9 +11173,6 @@
               "backendId": {
                 "type": "string",
                 "minLength": 1
-              },
-              "backendType": {
-                "enum": ["acp", "skillrunner", "generic-http", "pass-through"]
               },
               "providerOptions": {
                 "type": "object",

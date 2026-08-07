@@ -220,10 +220,12 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge workflow agent-renew` | Renew an unconsumed agent-run lease | [Open card](commands/workflow/agent-renew.md) |
 | `zotero-bridge workflow agent-result validate` | Validate a local agent result directory against an output contract | [Open card](commands/workflow/agent-result/validate.md) |
 | `zotero-bridge workflow agent-run` | Prepare a self-owned agent workflow handoff bundle | [Open card](commands/workflow/agent-run.md) |
+| `zotero-bridge workflow defaults` | Show the saved workflow provider profile candidate | [Open card](commands/workflow/defaults.md) |
 | `zotero-bridge workflow describe` | Describe workflow selection and workflow options | [Open card](commands/workflow/describe.md) |
 | `zotero-bridge workflow list` | List loaded workflows | [Open card](commands/workflow/list.md) |
 | `zotero-bridge workflow profile describe` | Describe the provider profile contract for one backend | [Open card](commands/workflow/profile/describe.md) |
 | `zotero-bridge workflow profile list` | List configured backend provider profiles | [Open card](commands/workflow/profile/list.md) |
+| `zotero-bridge workflow profile refresh` | Refresh an ACP backend provider catalog | [Open card](commands/workflow/profile/refresh.md) |
 | `zotero-bridge workflow profile validate` | Validate and normalize one backend provider profile | [Open card](commands/workflow/profile/validate.md) |
 | `zotero-bridge workflow queue cancel` | Cancel one still-pending Zotero-managed workflow queue unit | [Open card](commands/workflow/queue/cancel.md) |
 | `zotero-bridge workflow queue list` | List pending Zotero-managed workflow queue units | [Open card](commands/workflow/queue/list.md) |

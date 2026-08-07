@@ -1264,6 +1264,13 @@ pub enum WorkflowCommand {
     Profile(WorkflowProfileArgs),
 
     #[command(
+        name = "defaults",
+        about = "Show the saved workflow provider profile candidate",
+        long_about = "Call POST /bridge/v2/workflows/defaults. This read-only command discloses a Host-saved provider profile candidate; it does not authorize submission."
+    )]
+    Defaults(WorkflowDefaultsArgs),
+
+    #[command(
         about = "Prepare a self-owned agent workflow handoff bundle",
         long_about = "Call POST /bridge/v2/workflows/agent-run. This read-only command returns a downloadable workflow context bundle for the calling agent. Requires --workflow and either --selection or --none. It does not accept workflow options or provider profiles and does not start a backend task."
     )]
@@ -1481,6 +1488,8 @@ pub enum WorkflowProfileCommand {
     Describe(WorkflowProfileDescribeArgs),
     #[command(about = "Validate and normalize one backend provider profile")]
     Validate(WorkflowProfileValidateArgs),
+    #[command(about = "Refresh an ACP backend provider catalog")]
+    Refresh(WorkflowProfileRefreshArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1490,6 +1499,18 @@ pub struct WorkflowProfileDescribeArgs {
         help = "Configured backend id whose provider profile is described"
     )]
     pub backend: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowProfileRefreshArgs {
+    #[arg(long, help = "Configured ACP backend id to probe and refresh")]
+    pub backend: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowDefaultsArgs {
+    #[arg(long, help = "Workflow id whose saved provider profile candidate is disclosed")]
+    pub workflow: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -3071,6 +3092,47 @@ mod tests {
                         Some("{\"backendId\":\"acp-opencode\"}")
                     ),
                     _ => panic!("expected workflow profile validate"),
+                },
+                _ => panic!("expected workflow profile"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_defaults_and_profile_refresh_commands() {
+        let defaults = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "defaults",
+            "--workflow",
+            "literature-analysis",
+        ]);
+        match defaults.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Defaults(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                }
+                _ => panic!("expected workflow defaults"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+
+        let refresh = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "profile",
+            "refresh",
+            "--backend",
+            "acp-opencode",
+        ]);
+        match refresh.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Profile(args) => match args.command {
+                    WorkflowProfileCommand::Refresh(input) => {
+                        assert_eq!(input.backend, "acp-opencode");
+                    }
+                    _ => panic!("expected workflow profile refresh"),
                 },
                 _ => panic!("expected workflow profile"),
             },

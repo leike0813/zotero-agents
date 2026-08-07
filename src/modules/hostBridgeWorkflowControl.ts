@@ -88,8 +88,17 @@ import {
   describeProviderProfile,
   listProviderProfileBackends,
   validateProviderProfile,
+  type ProviderProfileValidationSource,
   type ProviderProfileDescriptor,
+  ProviderProfileError,
 } from "../providers/profile";
+import { listBackendInstances } from "../backends/registry";
+import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
+import { persistBackendsConfig } from "./backendManager";
+import {
+  getWorkflowSettings,
+  getWorkflowSettingsRevision,
+} from "./workflowSettings";
 import {
   acknowledgeHostBridgeNotificationEvents,
   listHostBridgeNotificationEvents,
@@ -230,6 +239,7 @@ export type HostBridgeWorkflowSubmitPlan = {
     backendId?: string;
     providerOptions: Record<string, unknown>;
   };
+  providerProfileProvided: boolean;
   executionOptions: WorkflowExecutionOptions;
 };
 
@@ -334,6 +344,7 @@ export type HostBridgeProviderProfileDescribeRequest = {
 export type HostBridgeProviderProfileValidateRequest = {
   providerProfile?: unknown;
   workflowId?: unknown;
+  source?: unknown;
 };
 
 export type HostBridgeProviderProfileValidateResult = {
@@ -345,6 +356,8 @@ export type HostBridgeProviderProfileValidateResult = {
   };
   descriptor: ProviderProfileDescriptor;
   diagnostics: [];
+  source: ProviderProfileValidationSource;
+  profileFingerprint: string;
 };
 
 export type HostBridgeTaskFilters = {
@@ -538,6 +551,8 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "GET /bridge/v2/workflows/provider-profiles",
       "POST /bridge/v2/workflows/provider-profiles/describe",
       "POST /bridge/v2/workflows/provider-profiles/validate",
+      "POST /bridge/v2/workflows/provider-profiles/refresh",
+      "POST /bridge/v2/workflows/defaults",
       "POST /bridge/v2/workflows/submit",
       "POST /bridge/v2/workflows/agent-run",
       "POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply",
@@ -847,6 +862,10 @@ export function parseHostBridgeWorkflowSubmitRequest(
   return {
     ...base,
     providerProfile,
+    providerProfileProvided: Object.prototype.hasOwnProperty.call(
+      payload || {},
+      "providerProfile",
+    ),
     executionOptions: buildWorkflowExecutionOptions({
       workflowOptions: base.workflowOptions,
       providerProfile,
@@ -1054,6 +1073,84 @@ export async function listHostBridgeProviderProfiles() {
   };
 }
 
+export async function getHostBridgeWorkflowDefaults(payload: {
+  workflowId?: unknown;
+}) {
+  const workflowId = normalizeString(payload?.workflowId);
+  if (!workflowId) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_defaults_request",
+      "workflowId is required",
+    );
+  }
+  const workflow = getWorkflowById(workflowId);
+  if (!workflow) {
+    const error = new Error("workflow not found");
+    (error as { code?: string }).code = "workflow_not_found";
+    throw error;
+  }
+  const settings = getWorkflowSettings(workflowId);
+  const backendId = normalizeString(settings.backendId);
+  const providerOptions = isObject(settings.providerOptions)
+    ? { ...settings.providerOptions }
+    : {};
+  let candidateDiagnostics: Array<{ code: string; message: string }> = [];
+  let descriptor: ProviderProfileDescriptor | undefined;
+  try {
+    rejectUnsafeProviderProfileValue(
+      providerOptions,
+      "providerProfile.providerOptions",
+    );
+  } catch (error) {
+    candidateDiagnostics = [
+      {
+        code: "invalid_provider_profile",
+        message:
+          error instanceof Error
+            ? error.message
+            : String(error || "invalid provider profile"),
+      },
+    ];
+  }
+  if (backendId && candidateDiagnostics.length === 0) {
+    try {
+      descriptor = await describeProviderProfile(backendId);
+    } catch (error) {
+      candidateDiagnostics = [
+        {
+          code:
+            (error as { code?: string }).code || "provider_profile_unavailable",
+          message:
+            error instanceof Error
+              ? error.message
+              : String(error || "unknown error"),
+        },
+      ];
+    }
+  }
+  return {
+    schema: "zotero-bridge.workflow-defaults.v1",
+    workflowId,
+    workflowLabel: localizeWorkflowLabel(workflow),
+    settingsRevision: getWorkflowSettingsRevision(),
+    hasDefault: Boolean(backendId),
+    diagnostics: candidateDiagnostics,
+    ...(backendId &&
+    candidateDiagnostics.every(
+      (entry) => entry.code !== "invalid_provider_profile",
+    )
+      ? {
+          providerProfile: {
+            schema: "zotero-bridge.provider-profile.v1",
+            backendId,
+            providerOptions,
+          },
+          ...(descriptor ? { descriptor } : {}),
+        }
+      : {}),
+  };
+}
+
 export async function describeHostBridgeProviderProfile(
   payload: HostBridgeProviderProfileDescribeRequest,
 ) {
@@ -1075,12 +1172,65 @@ export async function validateHostBridgeProviderProfile(
       "provider profile validate does not accept workflowId",
     );
   }
-  const result = await validateProviderProfile(payload?.providerProfile);
+  const source =
+    payload?.source === "environment-default" ||
+    payload?.source === "host-default"
+      ? payload.source
+      : "explicit";
+  const result = await validateProviderProfile(
+    payload?.providerProfile,
+    source,
+  );
   return {
     valid: true,
     normalizedProfile: result.normalizedProfile,
     descriptor: result.descriptor,
     diagnostics: [],
+    source: result.source,
+    profileFingerprint: result.profileFingerprint,
+  };
+}
+
+export async function refreshHostBridgeProviderProfile(payload: {
+  backendId?: unknown;
+}) {
+  const backendId = normalizeString(payload?.backendId);
+  if (!backendId) {
+    throw codedWorkflowValidationError(
+      "invalid_provider_profile_request",
+      "backendId is required",
+    );
+  }
+  const backends = await listBackendInstances();
+  const backend = backends.find((entry) => entry.id === backendId);
+  if (!backend) {
+    throw new ProviderProfileError(
+      "provider_profile_backend_not_found",
+      `Backend not found: ${backendId}`,
+      { backendId },
+    );
+  }
+  if (backend.type !== "acp") {
+    throw codedWorkflowValidationError(
+      "provider_profile_refresh_unsupported",
+      "Profile refresh is only supported for ACP backends",
+    );
+  }
+  const result = await probeAcpBackendRuntimeOptions({ backend });
+  persistBackendsConfig(
+    backends.map((entry) => (entry.id === backendId ? result.backend : entry)),
+  );
+  if (!result.ok) {
+    throw codedWorkflowValidationError(
+      "provider_profile_refresh_failed",
+      result.error || "ACP profile refresh failed",
+    );
+  }
+  return {
+    schema: "zotero-bridge.provider-profile-refresh.v1",
+    backendId,
+    refreshed: true,
+    descriptor: await describeProviderProfile(backendId),
   };
 }
 
@@ -1173,10 +1323,13 @@ export async function prepareHostBridgeWorkflowSubmit(
       "providerProfile.backendId is not compatible with this workflow",
     );
   }
-  if (descriptor.requiresBackendProfile && !explicitBackendId) {
+  if (
+    descriptor.requiresBackendProfile &&
+    (!plan.providerProfileProvided || !explicitBackendId)
+  ) {
     throw codedWorkflowValidationError(
-      "invalid_workflow_submit_request",
-      "providerProfile.backendId is required for this workflow",
+      "provider_profile_required",
+      "A provider profile is required for this workflow; validate and submit an explicit profile.",
     );
   }
   if (explicitBackendId) {

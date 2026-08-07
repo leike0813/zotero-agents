@@ -1,14 +1,14 @@
-# `zotero-bridge workflow profile validate`
+# `zotero-bridge workflow defaults`
 
-Validate and normalize one backend provider profile
+Show the saved workflow provider profile candidate
 
 ## Usage
 
 ```console
-zotero-bridge workflow profile validate [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow defaults [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW>
 ```
 
-The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
 
 ## Global parameters
 
@@ -23,7 +23,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| --provider-profile | provider_profile | option | no | — | JSON_OR_FILE | no | — | — | Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE |
+| --workflow | workflow | option | yes | — | WORKFLOW | no | — | — | Workflow id whose saved provider profile candidate is disclosed |
 
 ## Invocation schema
 
@@ -31,44 +31,21 @@ The global options may appear before or after the leaf command. Use `--schema` t
 {
   "additionalProperties": false,
   "properties": {
-    "provider-profile": {
-      "description": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE",
+    "workflow": {
+      "description": "Workflow id whose saved provider profile candidate is disclosed",
       "type": "string"
     }
   },
-  "required": [],
+  "required": [
+    "workflow"
+  ],
   "type": "object"
 }
 ```
 
 ## Structured input schemas
 
-### `--provider-profile` (provider_profile)
-
-Required: `false`.
-
-```json
-{
-  "additionalProperties": false,
-  "properties": {
-    "backendId": {
-      "minLength": 1,
-      "type": "string"
-    },
-    "providerOptions": {
-      "additionalProperties": true,
-      "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
-      "type": "object",
-      "x-openPropertiesReason": "The selected provider owns its option vocabulary."
-    },
-    "schema": {
-      "const": "zotero-bridge.provider-profile.v1"
-    }
-  },
-  "required": [],
-  "type": "object"
-}
-```
+This command has no structured JSON input parameter.
 
 ## Composed payload schema
 
@@ -76,8 +53,8 @@ Required: `false`.
 {
   "additionalProperties": false,
   "properties": {
-    "provider_profile": {
-      "description": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE",
+    "workflow": {
+      "description": "Workflow id whose saved provider profile candidate is disclosed",
       "type": "string"
     }
   },
@@ -100,29 +77,19 @@ This command has no separate field-mapping program. Its binding mode is executab
   "properties": {
     "response": {
       "additionalProperties": true,
-      "description": "Response object returned by POST /bridge/v2/workflows/provider-profiles/validate.",
+      "description": "Response object returned by POST /bridge/v2/workflows/defaults.",
       "type": "object",
-      "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      "x-openPropertiesReason": "The workflow defaults endpoint owns the response fields."
     }
   },
   "type": "object",
-  "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  "x-openPropertiesReason": "The endpoint returns a command-specific object."
 }
 ```
 
 ## Examples
 
-### provider_profile: shape-only
-
-Minimal JSON shape for --provider-profile.
-
-```console
-zotero-bridge workflow profile validate --provider-profile '{}'
-```
-
-Prerequisites:
-
-- Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution.
+No structured-input example applies. Build argv from the parameter tables and confirm the command with `surface describe` before execution.
 
 ## Complete command descriptor
 
@@ -132,7 +99,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 {
   "approvalContract": {
     "kind": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "scope": "No Zotero UI approval.",
     "timing": "none"
   },
   "arguments": [
@@ -141,107 +108,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
-      "help": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE",
-      "id": "provider_profile",
+      "help": "Workflow id whose saved provider profile candidate is disclosed",
+      "id": "workflow",
       "kind": "option",
       "possibleValues": [],
       "repeatable": false,
-      "required": false,
+      "required": true,
       "takesValue": true,
-      "token": "--provider-profile",
+      "token": "--workflow",
       "valueNames": [
-        "JSON_OR_FILE"
+        "WORKFLOW"
       ]
     }
   ],
   "argv": [
     "workflow",
-    "profile",
-    "validate"
+    "defaults"
   ],
   "argvBindings": [
     {
       "kind": "option",
-      "property": "provider-profile",
-      "required": false,
+      "property": "workflow",
+      "required": true,
       "takesValue": true,
-      "token": "--provider-profile",
+      "token": "--workflow",
       "valueNames": [
-        "JSON_OR_FILE"
+        "WORKFLOW"
       ]
     }
   ],
-  "binding": "overlay",
+  "binding": "object",
   "category": "read",
-  "command": "workflow profile validate",
+  "command": "workflow defaults",
   "composition": null,
   "danger": "none",
   "effects": [
     {
-      "description": "Reads state without changing Zotero-managed data.",
+      "description": "Reads a saved workflow provider profile candidate without authorizing submission.",
       "kind": "none",
       "stateChanged": false
     }
   ],
   "handleTransitions": [],
   "hiddenFromIntentSearch": false,
-  "inputSchemas": {
-    "provider_profile": {
-      "examples": [
-        {
-          "description": "Minimal JSON shape for --provider-profile.",
-          "kind": "shape-only",
-          "prerequisites": [
-            "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
-          ],
-          "value": {}
-        }
-      ],
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "additionalProperties": false,
-        "properties": {
-          "backendId": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "providerOptions": {
-            "additionalProperties": true,
-            "description": "Provider-owned options are intentionally open and are validated by the selected provider.",
-            "type": "object",
-            "x-openPropertiesReason": "The selected provider owns its option vocabulary."
-          },
-          "schema": {
-            "const": "zotero-bridge.provider-profile.v1"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "schemaSource": "inline",
-      "token": "--provider-profile"
-    }
-  },
+  "inputSchemas": {},
   "invocationSchema": {
     "additionalProperties": false,
     "properties": {
-      "provider-profile": {
-        "description": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE",
+      "workflow": {
+        "description": "Workflow id whose saved provider profile candidate is disclosed",
         "type": "string"
       }
     },
-    "required": [],
+    "required": [
+      "workflow"
+    ],
     "type": "object"
   },
   "operationalAliases": [
-    "workflow profile validate",
+    "workflow defaults",
     "workflow",
-    "profile",
-    "validate",
-    "provider_profile",
-    "provider-profile",
-    "JSON_OR_FILE"
+    "defaults",
+    "WORKFLOW"
   ],
   "outputBoundary": {
     "strategy": "fixed"
@@ -250,8 +178,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "payloadSchema": {
     "additionalProperties": false,
     "properties": {
-      "provider_profile": {
-        "description": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE",
+      "workflow": {
+        "description": "Workflow id whose saved provider profile candidate is disclosed",
         "type": "string"
       }
     },
@@ -260,7 +188,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
   },
   "recovery": [
     {
-      "action": "Inspect the error and retry only when retryable is true.",
+      "action": "Inspect the structured error and retry only when retryable is true.",
       "nextCommand": "surface describe",
       "requiresHandles": [],
       "stateCheck": "none",
@@ -272,19 +200,19 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "properties": {
       "response": {
         "additionalProperties": true,
-        "description": "Response object returned by POST /bridge/v2/workflows/provider-profiles/validate.",
+        "description": "Response object returned by POST /bridge/v2/workflows/defaults.",
         "type": "object",
-        "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+        "x-openPropertiesReason": "The workflow defaults endpoint owns the response fields."
       }
     },
     "type": "object",
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+    "x-openPropertiesReason": "The endpoint returns a command-specific object."
   },
-  "summary": "Validate and normalize one backend provider profile",
+  "summary": "Show the saved workflow provider profile candidate",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "POST /bridge/v2/workflows/provider-profiles/validate"
+      "target": "POST /bridge/v2/workflows/defaults"
     }
   ]
 }
@@ -297,27 +225,27 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.
 - `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.
 - `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.
-- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.
+- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.
 - `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.
 - `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.
 - Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.
 
 ## Operational contract
 
-- Canonical argv path: `workflow` `profile` `validate`.
+- Canonical argv path: `workflow` `defaults`.
 - Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
-- Structured binding mode: `overlay`.
+- Structured binding mode: `object`.
 - Intent visibility: `visible`.
-- Operational aliases: `workflow profile validate`, `workflow`, `profile`, `validate`, `provider_profile`, `provider-profile`, `JSON_OR_FILE`.
+- Operational aliases: `workflow defaults`, `workflow`, `defaults`, `WORKFLOW`.
 
 ### Effects
 
 ```json
 [
   {
-    "description": "Reads state without changing Zotero-managed data.",
+    "description": "Reads a saved workflow provider profile candidate without authorizing submission.",
     "kind": "none",
     "stateChanged": false
   }
@@ -329,7 +257,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 {
   "kind": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "scope": "No Zotero UI approval.",
   "timing": "none"
 }
 ```
@@ -346,7 +274,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 ```json
 [
   {
-    "action": "Inspect the error and retry only when retryable is true.",
+    "action": "Inspect the structured error and retry only when retryable is true.",
     "nextCommand": "surface describe",
     "requiresHandles": [],
     "stateCheck": "none",
@@ -361,7 +289,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v2/workflows/provider-profiles/validate"
+    "target": "POST /bridge/v2/workflows/defaults"
   }
 ]
 ```

@@ -33,6 +33,8 @@ import {
   describeHostBridgeProviderProfile,
   listHostBridgeProviderProfiles,
   validateHostBridgeProviderProfile,
+  getHostBridgeWorkflowDefaults,
+  refreshHostBridgeProviderProfile,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -2408,6 +2410,97 @@ async function validateProviderProfile(request: HttpRequest) {
   }
 }
 
+async function workflowDefaults(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow defaults endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: { workflowId?: unknown };
+  try {
+    payload = parseJsonBody(request.body) as { workflowId?: unknown };
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_defaults_request",
+        "Workflow defaults request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_defaults_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await getHostBridgeWorkflowDefaults(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_defaults_request",
+    );
+    const status = code === "workflow_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(code, errorMessage(error), "validation"),
+      code,
+    );
+  }
+}
+
+async function refreshProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile refresh endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: { backendId?: unknown };
+  try {
+    payload = parseJsonBody(request.body) as { backendId?: unknown };
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile_request",
+        "Provider profile refresh request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await refreshHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "provider_profile_refresh_failed",
+    );
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
+    );
+  }
+}
+
 async function workflowRequirements(request: HttpRequest) {
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -4257,6 +4350,14 @@ async function handleHttpRequestImpl(
 
     if (request.path === "/bridge/v2/workflows/provider-profiles/validate") {
       return validateProviderProfile(request);
+    }
+
+    if (request.path === "/bridge/v2/workflows/provider-profiles/refresh") {
+      return refreshProviderProfile(request);
+    }
+
+    if (request.path === "/bridge/v2/workflows/defaults") {
+      return workflowDefaults(request);
     }
 
     if (request.path === "/bridge/v2/workflows/validate") {

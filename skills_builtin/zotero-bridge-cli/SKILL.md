@@ -118,6 +118,39 @@ The catalog is intentionally compact. It owns discovery by user intent, while th
 
 When a request spans families, preserve the boundary between each result and the next input. A context read does not authorize a mutation, workflow validation does not authorize submission, run termination does not prove Product delivery, and a maintenance receipt does not prove an unrelated model is current.
 
+### Provider profile authority
+
+Resolve provider profiles in this order: an explicit `--provider-profile`, then
+`ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`, then a Host-saved workflow candidate,
+then no profile. The explicit flag always wins, including explicit `{}`. The
+environment value is an already configured default: validate it and use the
+normalized result without asking the operator to confirm that same profile.
+The environment value may be inline JSON or `@absolute-file`; never use stdin,
+relative paths, credentials, endpoints, or local paths in it.
+
+When no environment default exists, read `workflow defaults --workflow <id>`
+after the live workflow requirements and selection/options contract. A saved
+Host value is only a candidate. Present the workflow, backend id/label/type,
+plugin provider, ACP model provider and model, mode, reasoning effort,
+`autoApproveAcpPermissions`, catalog source/revision/freshness, and the
+profile fingerprint. A request to “run this workflow”, silence, refusal, or
+“pick anything” is not confirmation of an unknown profile. Stop until the
+operator confirms the displayed candidate or supplies an explicit profile.
+
+After confirmation, run workflow validation and provider-profile validation
+again, then submit the exact normalized profile returned by validation. Keep
+provider-profile validation, environment-default authorization, Zotero UI
+workflow approval, and ACP tool-permission approval as separate boundaries.
+If no profile is available for a backend-required workflow, stop on
+`provider_profile_required` and follow its declared safe next action.
+
+For ACP backends, use `workflow profile refresh --backend <id>` when the
+descriptor reports a missing, stale, or inconsistent catalog. Model choices are
+grouped by `acpModelProvider`; do not flatten one provider's models into a
+global list or invent a missing model. `workflow profile validate` returns only
+the normalized profile, non-sensitive source, catalog diagnostics, and a
+fingerprint; it never returns environment-variable text or file paths.
+
 ### Confirm the selected command
 
 Before execution, answer all of these questions from the live descriptor and detailed reference:

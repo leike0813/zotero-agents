@@ -45,6 +45,10 @@ export type BackendInstance = {
     };
     runtimeOptionsCache?: {
       refreshedAt?: string;
+      revision?: string;
+      source?: "acp-probe" | "session" | "persisted";
+      status?: "ready" | "stale" | "unavailable";
+      diagnostics?: Array<{ code: string; message: string }>;
       modes?: Array<{ id: string; label: string; description?: string }>;
       currentModeId?: string;
       rawModels?: Array<{ id: string; label: string; description?: string }>;

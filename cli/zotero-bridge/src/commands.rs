@@ -40,7 +40,8 @@ use crate::{
         WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
         WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
         WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
-        WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
+        WorkflowDefaultsArgs, WorkflowProfileArgs, WorkflowProfileCommand,
+        WorkflowProfileDescribeArgs,
         WorkflowProfileValidateArgs, WorkflowQueueArgs, WorkflowQueueCancelArgs,
         WorkflowQueueCommand, WorkflowQueueListArgs, WorkflowRequirementsArgs, WorkflowRunArgs,
         WorkflowSubmissionArgs, WorkflowSubmissionCommand, WorkflowSubmissionGetArgs,
@@ -417,6 +418,7 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::Queue(args) => workflow_queue(config, args),
         WorkflowCommand::Submission(args) => workflow_submission(config, args),
         WorkflowCommand::Profile(args) => workflow_profile(config, args),
+        WorkflowCommand::Defaults(args) => workflow_defaults(config, args),
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::AgentBundle(args) => workflow_agent_bundle(args),
         WorkflowCommand::AgentResult(args) => workflow_agent_result(args),
@@ -1068,7 +1070,26 @@ fn workflow_profile(config: &BridgeConfig, args: WorkflowProfileArgs) -> Result<
                     .as_deref(),
             )?,
         ),
+        WorkflowProfileCommand::Refresh(args) => {
+            let backend = args.backend.trim();
+            if backend.is_empty() {
+                return Err(CliError::validation(
+                    "missing_backend_id",
+                    "workflow profile refresh requires --backend",
+                ));
+            }
+            client::post(
+                config,
+                "/workflows/provider-profiles/refresh",
+                json!({ "backendId": backend }),
+            )
+        }
     }
+}
+
+fn workflow_defaults(config: &BridgeConfig, args: WorkflowDefaultsArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "defaults")?;
+    client::post(config, "/workflows/defaults", json!({ "workflowId": workflow }))
 }
 
 pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
@@ -1467,12 +1488,16 @@ fn workflow_profile_validate_input(
     args: WorkflowProfileValidateArgs,
     environment_default: Option<&str>,
 ) -> Result<Value, CliError> {
-    Ok(json!({
+    let mut input = json!({
         "providerProfile": resolved_provider_profile_arg(
             args.provider_profile.as_deref(),
             environment_default,
         )?
-    }))
+    });
+    if args.provider_profile.is_none() && environment_default.is_some() {
+        input["source"] = json!("environment-default");
+    }
+    Ok(input)
 }
 
 fn workflow_requirements_input(args: WorkflowRequirementsArgs) -> Result<Value, CliError> {
@@ -1531,13 +1556,14 @@ fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
         "workflowId": workflow,
         "selection": workflow_selection(&args)?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
-        "providerProfile": resolved_provider_profile_arg(
-            args.provider_profile.as_deref(),
-            std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE")
-                .ok()
-                .as_deref(),
-        )?
     });
+    let environment_default = std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE").ok();
+    if args.provider_profile.is_some() || environment_default.is_some() {
+        input["providerProfile"] = resolved_provider_profile_arg(
+            args.provider_profile.as_deref(),
+            environment_default.as_deref(),
+        )?;
+    }
     if let Some(max_concurrency) = args.max_concurrency {
         input["hostOptions"] = json!({
             "queue": {
@@ -3099,8 +3125,7 @@ mod tests {
                 "selection": {
                     "kind": "none"
                 },
-                "workflowOptions": {},
-                "providerProfile": {}
+                "workflowOptions": {}
             })
         );
     }

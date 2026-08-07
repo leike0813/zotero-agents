@@ -95,6 +95,11 @@ function cloneBackendInstance(backend: BackendInstance): BackendInstance {
                   backend.acp.runtimeOptionsCache.reasoningEfforts?.map(
                     (entry) => ({ ...entry }),
                   ),
+                diagnostics: backend.acp.runtimeOptionsCache.diagnostics?.map(
+                  (entry) => ({
+                    ...entry,
+                  }),
+                ),
               }
             : undefined,
         }
@@ -601,6 +606,35 @@ function normalizeBackendEntry(
           refreshedAt:
             String(runtimeOptionsCacheRaw.refreshedAt || "").trim() ||
             undefined,
+          revision:
+            String(runtimeOptionsCacheRaw.revision || "").trim() || undefined,
+          source:
+            runtimeOptionsCacheRaw.source === "acp-probe" ||
+            runtimeOptionsCacheRaw.source === "session" ||
+            runtimeOptionsCacheRaw.source === "persisted"
+              ? (runtimeOptionsCacheRaw.source as
+                  | "acp-probe"
+                  | "session"
+                  | "persisted")
+              : undefined,
+          status:
+            runtimeOptionsCacheRaw.status === "ready" ||
+            runtimeOptionsCacheRaw.status === "stale" ||
+            runtimeOptionsCacheRaw.status === "unavailable"
+              ? (runtimeOptionsCacheRaw.status as
+                  | "ready"
+                  | "stale"
+                  | "unavailable")
+              : undefined,
+          diagnostics: Array.isArray(runtimeOptionsCacheRaw.diagnostics)
+            ? runtimeOptionsCacheRaw.diagnostics
+                .filter(isObject)
+                .map((entry) => ({
+                  code: String(entry.code || "").trim(),
+                  message: String(entry.message || "").trim(),
+                }))
+                .filter((entry) => entry.code && entry.message)
+            : undefined,
           modes: normalizeAcpOptionArray(runtimeOptionsCacheRaw.modes),
           currentModeId: String(
             runtimeOptionsCacheRaw.currentModeId || "",
