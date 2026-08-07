@@ -1,6 +1,6 @@
 import { rewriteMarkdownLocalImages } from "./literatureBundle.mjs";
 import { listWorkbenchEmbeddedPayloadBlocksForNote } from "./embeddedPayloadAttachments.mjs";
-import { renderResearchBundleReadme } from "./researchBundleReadme.mjs";
+import { renderResearchBundleIndex, renderResearchBundleReadme } from "./researchBundleReadme.mjs";
 
 export const RESEARCH_SELECTION_SCHEMA = "research_bundle.selection";
 export const RESEARCH_PRODUCT_SCHEMA = "research_bundle.product";
@@ -36,6 +36,11 @@ export function computeResearchPaperScore(args = {}) {
   return semantic * 0.6 + number(args.graph) * 0.2 + topic * 0.15 + readiness * 0.05;
 }
 
+function isTopicMandatoryPaper(entry) {
+  return array(entry?.matched_topic_ids).length > 0
+    || array(entry?.candidate_sources).some((source) => text(source).startsWith("topic:"));
+}
+
 export function normalizeResearchSelection(value) {
   if (!value || typeof value !== "object" || value.schema_id !== RESEARCH_SELECTION_SCHEMA) {
     throw new Error("research selection schema_id is invalid");
@@ -65,7 +70,8 @@ export function normalizeResearchSelection(value) {
     const paperRef = text(entry?.paper_ref);
     const semantic = number(entry?.semantic_relevance);
     if (!paperRef || seen.has(paperRef)) throw new Error("research paper refs must be unique");
-    if (semantic < 0.45) throw new Error(`research paper relevance is below threshold: ${paperRef}`);
+    const mandatory = isTopicMandatoryPaper(entry);
+    if (semantic < 0.45 && !mandatory) throw new Error(`research paper relevance is below threshold: ${paperRef}`);
     seen.add(paperRef);
     const computedScore = computeResearchPaperScore({
       semantic,
@@ -86,7 +92,8 @@ export function normalizeResearchSelection(value) {
     };
   }).sort((left, right) => right.score - left.score || left.paper_ref.localeCompare(right.paper_ref));
   const coreCount = papers.filter((entry) => entry.role === "core").length;
-  if (papers.length > limits.max_related_papers || coreCount > limits.max_core_papers) {
+  const optionalCount = papers.filter((entry) => !isTopicMandatoryPaper(entry)).length;
+  if (optionalCount > limits.max_related_papers || coreCount > limits.max_core_papers) {
     throw new Error("research selection exceeds workflow limits");
   }
   if (papers.some((entry, index) => (index < coreCount) !== (entry.role === "core"))) {
@@ -146,10 +153,11 @@ export function researchPayloadArtifactPath(args = {}) {
 const BETTER_BIBTEX_TRANSLATOR_ID = "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
 const NATIVE_BIBTEX_TRANSLATOR_ID = "9cb70025-a888-4a29-a210-93ec52da40d4";
 
-export async function materializeResearchProduct(args) {
-  const selection = normalizeResearchSelection(args.selection);
+export async function buildResearchProduct(args) {
+  const selection = args.normalizedSelection === true
+    ? args.selection
+    : normalizeResearchSelection(args.selection);
   const host = args.runtime.hostApi;
-  const productStorage = args.productStorage;
   const assets = [];
   const warnings = [...selection.diagnostics];
   const entries = [];
@@ -238,7 +246,7 @@ export async function materializeResearchProduct(args) {
         source = { kind: "pdf", path: sourcePath, assets: [] };
       } else warnings.push({ code: "core_source_missing", paper_ref: selected.paper_ref });
     }
-    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, role: selected.role, score: selected.score, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
+    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, title: text(item.getField?.("title")), role: selected.role, score: selected.score, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
   }
 
   let bibliography;
@@ -320,6 +328,8 @@ export async function materializeResearchProduct(args) {
     bibliography,
     warningCount: warnings.length,
   });
+  const index = renderResearchBundleIndex({ topics: topicManifest, papers: paperManifest });
+  addText("index", "index.md", index, "text/markdown");
   addText("readme", "README.md", readme, "text/markdown");
   const measured = await host.archive.measureEntries(entries);
   const manifest = {
@@ -333,13 +343,23 @@ export async function materializeResearchProduct(args) {
     warnings,
   };
   assets.push({ assetId: "manifest", productAssetPath: "manifest.json", contentType: "application/json", source: { kind: "inline-text", text: `${JSON.stringify(manifest, null, 2)}\n` } });
-  const product = await productStorage.registerProduct({
+  return { selection, manifest, assets, entries };
+}
+
+export async function materializeResearchProduct(args) {
+  const built = await buildResearchProduct(args);
+  const product = await args.productStorage.registerProduct({
     productKey: "export-research-bundle",
     kind: "research_bundle",
-    title: selection.intent.paper_title,
+    title: built.selection.intent.paper_title,
     failurePolicy: "atomic",
-    metadata: { articleType: selection.intent.article_type, topicCount: selection.topics.length, corePaperCount: paperManifest.filter((paper) => paper.role === "core").length, relatedPaperCount: paperManifest.length },
-    assets,
+    metadata: {
+      articleType: built.selection.intent.article_type,
+      topicCount: built.selection.topics.length,
+      corePaperCount: built.manifest.papers.filter((paper) => paper.role === "core").length,
+      relatedPaperCount: built.manifest.papers.length,
+    },
+    assets: built.assets,
   });
-  return { selection, manifest, product };
+  return { selection: built.selection, manifest: built.manifest, product };
 }

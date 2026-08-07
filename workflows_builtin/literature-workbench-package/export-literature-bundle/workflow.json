@@ -2,12 +2,12 @@
   "schemaVersion": 2,
   "id": "export-literature-bundle",
   "label": "Export Literature Bundle",
-  "description": "Export selected literature and its generated analysis artifacts into a portable bundle.",
+  "description": "Export literature from the current selection, a Zotero collection, or the current library into a portable Research Product.",
   "executionModes": ["auto"],
   "version": "1.0.0",
   "provider": "pass-through",
   "trigger": {
-    "requiresSelection": true
+    "requiresSelection": false
   },
   "inputs": {
     "member": {
@@ -22,18 +22,9 @@
       "selection": {
         "allowMixed": false,
         "counts": {
-          "parents": {
-            "min": 1
-          },
-          "attachments": {
-            "exact": 0
-          },
-          "notes": {
-            "exact": 0
-          },
-          "children": {
-            "exact": 0
-          }
+          "attachments": { "exact": 0 },
+          "notes": { "exact": 0 },
+          "children": { "exact": 0 }
         }
       }
     },
@@ -43,6 +34,27 @@
     "filters": []
   },
   "parameters": {
+    "mode": {
+      "type": "string",
+      "title": "Export mode",
+      "description": "Choose the current selection, a collection, or the current library.",
+      "enum": ["selection", "collection", "library"],
+      "default": "selection"
+    },
+    "targetCollection": {
+      "type": "string",
+      "title": "Target collection",
+      "description": "Required in collection mode; use libraryId:collectionKey.",
+      "required": false,
+      "allowCustom": false,
+      "optionsSource": {
+        "kind": "zotero.collections",
+        "library": "current",
+        "includeEmpty": true,
+        "valueFormat": "collectionRef",
+        "labelFormat": "path"
+      }
+    },
     "sourceOnly": {
       "type": "boolean",
       "title": "仅导出原文",

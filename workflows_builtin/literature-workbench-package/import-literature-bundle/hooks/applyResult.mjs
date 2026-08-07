@@ -6,7 +6,7 @@ import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
 async function applyResultImpl({ runtime }) {
   return assertLiteratureBundleImportSucceeded(
-    await importLiteratureBundle({ host: requireHostApi(runtime) }),
+    await importLiteratureBundle({ host: requireHostApi(runtime), runtime }),
   );
 }
 

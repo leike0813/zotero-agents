@@ -37,7 +37,7 @@ Optional parameters:
 - `articleType`: free string; default `original research`.
 - `maxTopics`: integer 0-5; default 5.
 - `maxCorePapers`: integer 1-20; default 20.
-- `maxRelatedPapers`: integer 1-80; default 80. This count includes core papers.
+- `maxRelatedPapers`: integer 1-80; default 80. This count limits only non-Topic additional papers; every paper resolved by a selected Topic is retained even when the total exceeds this value.
 
 There is no `language` parameter and no Zotero selection input.
 
@@ -281,7 +281,7 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 ### Must Be Done By The Runtime
 
 - Lock runner input, locate Host Bridge, execute and page Host reads, and record receipts.
-- Merge and cap candidates, generate assessment packets, validate payload shape and exact coverage, and persist SQLite state.
+- Merge and cap candidates, preserve every selected-Topic paper while capping only non-Topic candidates, generate assessment packets, validate payload shape and exact coverage, and persist SQLite state.
 - Determine graph availability, graph importance, Topic coverage, material readiness, score, stable order, and role.
 - Handle diagnostics, remote-delivery state, business cancellation, selection validation, and final rendering.
 
@@ -295,14 +295,14 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 
 ## Selection Policy
 
-- Papers with `semantic_relevance < 0.45` are excluded.
+- Papers with `semantic_relevance < 0.45` are excluded unless they are associated with a selected Topic's resolved paper set; Topic-associated papers are mandatory.
 - Topic coverage is the fraction of selected Topics matched through persisted Topic source membership or validated `matched_topic_ids`; it is 0 when no Topic is selected.
 - Material readiness is 1.0 for source Markdown, 0.8 for PDF-only, and 0 otherwise.
 - Graph importance is the maximum available normalized foundation, frontier, PageRank, and in-degree signal.
 - With a ready per-paper graph row: `0.60 semantic + 0.20 graph + 0.15 topic + 0.05 readiness`.
 - With missing, stale, or absent per-paper graph state: `0.80 semantic + 0.15 topic + 0.05 readiness`.
 - Papers are ordered by descending score and then ascending `paper_ref`.
-- The list is capped at `maxRelatedPapers`; its first `maxCorePapers` entries are core. Core is always a subset and highest-scoring prefix of related papers.
+- Non-Topic additional papers are capped at `maxRelatedPapers`; mandatory Topic papers can make the final list larger. The first `maxCorePapers` entries are core. Core is always a subset and highest-scoring prefix of the final list.
 
 ## Failure And Resume
 
@@ -324,7 +324,7 @@ Terminal cancellation reasons are exactly:
 
 - `invalid_input`: required runner input is absent or invalid.
 - `host_unavailable`: required Host Bridge access is unavailable.
-- `no_related_literature`: no assessed paper meets the semantic threshold.
+- `no_related_literature`: no assessed paper meets the semantic threshold and no selected Topic resolved a paper.
 
 Completion is defined only by gate `stage: "completed"`, not by the success of the last command. A completed gate may contain either selection success or business cancellation.
 

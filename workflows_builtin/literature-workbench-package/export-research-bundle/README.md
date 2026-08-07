@@ -23,11 +23,11 @@
 | `articleType` | string | `original research` | 稿件类型；当前主要针对原创研究论文优化 |
 | `maxTopics` | number | `5` | 最多纳入的相关 Topic 数量，范围为 0–5 |
 | `maxCorePapers` | number | `20` | 最多纳入的核心文献数量，范围为 1–20 |
-| `maxRelatedPapers` | number | `80` | 最多纳入的相关文献总量，包含核心文献，范围为 1–80 |
+| `maxRelatedPapers` | number | `80` | 最多纳入的非 Topic 额外文献数，范围为 1–80；选中 Topic 的关联文献不受此上限淘汰 |
 
 ## 执行方式
 
-全自动执行。系统会从现有 Topic、Zotero 文献和可用的引用图谱上下文中发现候选材料，进行有界评估后区分核心文献与相关文献。
+全自动执行。系统会从现有 Topic、Zotero 文献和可用的引用图谱上下文中发现候选材料，进行有界评估后区分核心文献与相关文献。选中 Topic 的 `resolved_paper_set` 会按 `paper_ref` 去重并强制保留，即使语义评分低于普通阈值或总数超过非 Topic 文献上限。
 
 Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读取的证据继续执行，并在结果中记录诊断和警告。若没有满足条件的文献，则此次运行会结束而不登记研究产品。
 
@@ -39,7 +39,8 @@ Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读
 
 成功后，Dashboard Products 会新增一个只读 Research Bundle。其内容包括：
 
-- 根目录 `README.md`：面向 agent 和人类的入口说明，给出建议读取顺序、浅层文件命名、Topic/文献索引，以及 `manifest.json` 与警告的使用语义；固定说明会按当前插件 locale 输出，不支持的 locale 使用英文
+- 根目录 `index.md`：只将 Topic 标识和文献标题映射到稳定逻辑目录，供 Agent 快速定位
+- 根目录 `README.md`：面向 agent 和人类的入口说明，建议先从 `index.md` 定位材料，再使用 `manifest.json` 查阅完整清单与诊断；固定说明会按当前插件 locale 输出，不支持的 locale 使用英文
 - 根目录 `manifest.json`：机器可读的权威清单，记录 v2 产物路径、溯源、文件完整性与详细诊断
 - 根目录 `references.bib`：实际成功写入研究包的全部核心文献和相关文献的 BibTeX 引用；优先使用 Better BibTeX，无法导出时回退到 Zotero 原生 BibTeX，并在清单中记录实际格式与回退原因
 - 已选 Topic 的报告（可用时）
