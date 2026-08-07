@@ -1,8 +1,17 @@
 import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
+import {
+  buildResearchProduct,
+  RESEARCH_PRODUCT_SCHEMA,
+} from "./researchBundle.mjs";
+import { attachWorkbenchPayloadToNote } from "./embeddedPayloadAttachments.mjs";
 
 export const LITERATURE_BUNDLE_KIND = "zotero-agents-literature-bundle";
 export const LITERATURE_BUNDLE_SCHEMA_VERSION = 1;
 export const LITERATURE_BUNDLE_SOURCE_ONLY_KIND = "zotero-agents-literature-bundle-source-only";
+export const LITERATURE_EXPORT_MODES = new Set(["selection", "collection", "library"]);
+const EXCLUDED_ITEM_TYPES = new Set(["attachment", "note", "annotation"]);
+const LIST_PAGE_LIMIT = 200;
+const LIST_PAGE_GUARD = 10000;
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -297,6 +306,59 @@ export async function verifyLiteratureBundleFiles(manifest, archive) {
   }
 }
 
+export function validateResearchProductManifest(value, archiveEntries) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("research product manifest must be an object");
+  }
+  if (value.schema_id !== RESEARCH_PRODUCT_SCHEMA || String(value.schema_version) !== "2.0.0") {
+    throw new Error("unsupported research product schema");
+  }
+  if (!Array.isArray(value.papers) || !value.files || typeof value.files !== "object") {
+    throw new Error("research product papers/files are missing");
+  }
+  const declared = Object.keys(value.files).map(normalizeEntryPath).sort();
+  if (new Set(declared).size !== declared.length) throw new Error("duplicate declared file path");
+  for (const path of declared) {
+    const detail = value.files[path];
+    if (!Number.isInteger(detail?.size) || detail.size < 0 || !/^[a-f0-9]{64}$/.test(normalizeText(detail?.sha256))) {
+      throw new Error(`invalid file integrity record: ${path}`);
+    }
+  }
+  const declaredSet = new Set(declared);
+  const referenced = ["README.md", "index.md"];
+  if (value.bibliography?.path) referenced.push(value.bibliography.path);
+  for (const topic of value.topics || []) if (topic?.report_path) referenced.push(topic.report_path);
+  for (const paper of value.papers) {
+    if (!paper?.metadata_path) throw new Error("research product paper metadata is missing");
+    referenced.push(paper.metadata_path);
+    if (paper.source?.path) referenced.push(paper.source.path);
+    for (const asset of paper.source?.assets || []) if (asset?.path) referenced.push(asset.path);
+    for (const payload of paper.payloads || []) {
+      if (!new Set(["digest-markdown", "references-json", "citation-analysis-json", "conversation-note-markdown"]).has(normalizeText(payload?.payload_type))) {
+        throw new Error("unsupported research product payload type");
+      }
+      if (payload?.path) referenced.push(payload.path);
+    }
+  }
+  for (const path of referenced.map(normalizeEntryPath)) {
+    if (!declaredSet.has(path)) throw new Error(`unresolved research product file ref: ${path}`);
+  }
+  const actual = (archiveEntries || []).map(normalizeEntryPath).filter((path) => path !== "manifest.json").sort();
+  if (JSON.stringify(declared) !== JSON.stringify(actual)) throw new Error("research product file closure does not match archive entries");
+  return value;
+}
+
+export async function verifyResearchProductFiles(manifest, archive) {
+  if (typeof archive?.measureEntries !== "function") throw new Error("extracted archive integrity measurement is unavailable");
+  const measured = await archive.measureEntries(Object.keys(manifest.files || {}));
+  for (const [path, expected] of Object.entries(manifest.files || {})) {
+    const actual = measured?.files?.[path];
+    if (actual?.size !== expected.size || actual?.sha256 !== expected.sha256) {
+      throw new Error(`research product file integrity mismatch: ${path}`);
+    }
+  }
+}
+
 function attachmentMetadata(attachment) {
   return {
     title: normalizeText(attachment?.getField?.("title")),
@@ -527,7 +589,153 @@ function parentIdsFromSelection(selection) {
     .filter((id) => Number.isFinite(id) && id > 0);
 }
 
+function exportValidationError(code, message) {
+  const error = new Error(message);
+  error.code = "validation_failed";
+  error.structuredResult = {
+    kind: "literature_bundle_export",
+    status: "validation_failed",
+    itemCount: 0,
+    warnings: [{ code }],
+  };
+  return error;
+}
+
+function isTopLevelRegularSummary(item) {
+  const itemType = normalizeText(item?.itemType ?? item?.item_type).toLowerCase();
+  return Boolean(itemType)
+    && !EXCLUDED_ITEM_TYPES.has(itemType)
+    && !item?.parent
+    && Number(item?.parentItemID ?? item?.parentID ?? 0) === 0;
+}
+
+function paperRefFromSummary(item, fallbackLibraryId) {
+  const libraryId = Number(item?.libraryId ?? item?.libraryID ?? fallbackLibraryId);
+  const key = normalizeText(item?.key ?? item?.itemKey ?? item?.item_key);
+  return libraryId > 0 && key ? `${libraryId}:${key}` : "";
+}
+
+async function listTopLevelRegularParents(host, args) {
+  const byRef = new Map();
+  let cursor;
+  for (let pageIndex = 0; pageIndex < LIST_PAGE_GUARD; pageIndex += 1) {
+    const input = { libraryId: args.libraryId, limit: LIST_PAGE_LIMIT };
+    if (args.collectionKey) input.collectionKey = args.collectionKey;
+    if (cursor !== undefined) input.cursor = cursor;
+    const page = await host.library.listItems(input);
+    for (const summary of Array.isArray(page?.items) ? page.items : []) {
+      if (!isTopLevelRegularSummary(summary)) continue;
+      const paperRef = paperRefFromSummary(summary, args.libraryId);
+      if (!paperRef || byRef.has(paperRef)) continue;
+      const [libraryId, key] = paperRef.split(":");
+      const item = host.items.getByLibraryAndKey(Number(libraryId), key);
+      if (item?.isRegularItem?.()) byRef.set(paperRef, item);
+    }
+    if (page?.hasMore !== true) {
+      return [...byRef.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, item]) => item);
+    }
+    const nextCursor = normalizeText(page?.nextCursor);
+    if (!nextCursor || nextCursor === cursor) {
+      throw exportValidationError("invalid_pagination", "Literature export received hasMore without a new cursor");
+    }
+    cursor = nextCursor;
+  }
+  throw exportValidationError("pagination_guard_exceeded", "Literature export exceeded the library pagination guard");
+}
+
+export async function resolveLiteratureBundleParents(args) {
+  const host = args.host;
+  const mode = normalizeText(args.mode) || "selection";
+  if (!LITERATURE_EXPORT_MODES.has(mode)) {
+    throw exportValidationError("invalid_export_mode", `Unsupported literature export mode: ${mode}`);
+  }
+  if (mode === "selection") {
+    const seen = new Set();
+    const parents = [];
+    for (const id of parentIdsFromSelection(args.selectionContext)) {
+      const item = host.items.get(id);
+      const ref = item ? `${Number(item.libraryID ?? item.libraryId)}:${normalizeText(item.key)}` : "";
+      if (item?.isRegularItem?.() && ref && !seen.has(ref)) {
+        seen.add(ref);
+        parents.push(item);
+      }
+    }
+    if (!parents.length) {
+      throw exportValidationError("selection_required", "Selection mode requires at least one top-level regular Zotero item");
+    }
+    return parents;
+  }
+  if (mode === "collection") {
+    const target = normalizeText(args.targetCollection);
+    const match = /^([1-9][0-9]*):([A-Za-z0-9]+)$/.exec(target);
+    if (!match) {
+      throw exportValidationError("target_collection_required", "Collection mode requires targetCollection as libraryId:collectionKey");
+    }
+    const parents = await listTopLevelRegularParents(host, {
+      libraryId: Number(match[1]),
+      collectionKey: match[2],
+    });
+    if (!parents.length) {
+      throw exportValidationError("collection_empty", "The target collection has no top-level regular items");
+    }
+    return parents;
+  }
+  const view = host.context.getCurrentView() || {};
+  const libraryId = Number(view.libraryId ?? view.libraryID ?? 0);
+  if (!libraryId) {
+    throw exportValidationError("library_unavailable", "The current Zotero library is unavailable");
+  }
+  const parents = await listTopLevelRegularParents(host, { libraryId });
+  if (!parents.length) {
+    throw exportValidationError("library_empty", "The current library has no top-level regular items");
+  }
+  return parents;
+}
+
+function literatureResearchSelection(parents, mode) {
+  const papers = parents.map((parent, index) => ({
+    paper_ref: `${Number(parent.libraryID ?? parent.libraryId)}:${normalizeText(parent.key)}`,
+    role: "core",
+    semantic_relevance: 1,
+    graph_available: false,
+    graph_importance: 0,
+    topic_coverage: 0,
+    material_readiness: 0,
+    score: 0.8,
+    reason: `Included by literature export ${mode} mode.`,
+    matched_topic_ids: [],
+    candidate_sources: [`literature-export:${mode}:${index + 1}`],
+  }));
+  return {
+    schema_id: "research_bundle.selection",
+    schema_version: "1.0.0",
+    intent: {
+      paper_title: "Literature Export",
+      article_type: "literature collection",
+      research_content: `Zotero literature exported in ${mode} mode.`,
+    },
+    limits: {
+      max_topics: 0,
+      max_core_papers: Math.max(1, papers.length),
+      max_related_papers: Math.max(1, papers.length),
+    },
+    query_plan: {},
+    topics: [],
+    papers,
+    diagnostics: [],
+  };
+}
+
 export async function exportLiteratureBundle(args) {
+  const mode = normalizeText(args.mode) || "selection";
+  const parents = await resolveLiteratureBundleParents({
+    host: args.host,
+    mode,
+    targetCollection: args.targetCollection,
+    selectionContext: args.selectionContext,
+  });
   const selectedTargetPath = await args.host.file.pickSaveFile({
     title: "Export Literature Bundle",
     filters: [["Literature bundle", "*.zip"]],
@@ -539,10 +747,6 @@ export async function exportLiteratureBundle(args) {
   const targetPath = /\.zip$/i.test(selectedTargetPath)
     ? selectedTargetPath
     : `${selectedTargetPath}.zip`;
-  const parents = parentIdsFromSelection(args.selectionContext)
-    .map((id) => args.host.items.get(id))
-    .filter((item) => item?.isRegularItem?.());
-  if (!parents.length) throw new Error("export-literature-bundle requires at least one parent item");
   if (args.sourceOnly) {
     const built = await buildLiteratureBundleSourceOnlyExport({ host: args.host, parents });
     await args.host.archive.writeZipAtomic({
@@ -559,7 +763,11 @@ export async function exportLiteratureBundle(args) {
       warnings: built.warnings,
     };
   }
-  const built = await buildLiteratureBundleExport({ host: args.host, parents });
+  const built = await buildResearchProduct({
+    selection: literatureResearchSelection(parents, mode),
+    normalizedSelection: true,
+    runtime: args.runtime || { hostApi: args.host },
+  });
   await args.host.archive.writeZipAtomic({
     targetPath,
     entries: [
@@ -568,12 +776,11 @@ export async function exportLiteratureBundle(args) {
     ],
   });
   return {
-    kind: "literature_bundle_export",
+    kind: "literature_research_product_export",
     status: "completed",
-    itemCount: built.manifest.items.length,
-    attachmentCount: built.manifest.items.reduce((sum, item) => sum + item.attachments.length, 0),
-    noteCount: built.manifest.items.reduce((sum, item) => sum + item.notes.length, 0),
-    warnings: built.warnings,
+    schemaId: RESEARCH_PRODUCT_SCHEMA,
+    itemCount: built.manifest.papers.length,
+    warnings: built.manifest.warnings,
   };
 }
 
@@ -698,6 +905,96 @@ export async function importLiteratureBundleArchive(args) {
   };
 }
 
+function productPayloadForImport(payloadType, content) {
+  if (payloadType === "digest-markdown" || payloadType === "conversation-note-markdown") {
+    return { format: "markdown", content };
+  }
+  return JSON.parse(content);
+}
+
+function productPayloadNoteKind(payloadType) {
+  return payloadType === "digest-markdown"
+    ? "digest"
+    : payloadType === "references-json"
+      ? "references"
+      : payloadType === "citation-analysis-json"
+        ? "citation-analysis"
+        : "conversation-note";
+}
+
+export async function importResearchProductArchive(args) {
+  const { host, archive, manifest } = args;
+  const target = args.target || resolveLiteratureBundleImportTarget(host);
+  const { view, libraryID } = target;
+  const importedItems = [];
+  const failedItems = [];
+  const warnings = [...(manifest.warnings || [])];
+  for (const paper of manifest.papers) {
+    let parent = null;
+    const createdChildren = [];
+    try {
+      const metadata = JSON.parse(await archive.readText(paper.metadata_path));
+      parent = await host.items.createFromJson({ itemJson: metadata, libraryID });
+      if (view.currentCollection?.id && Number(view.currentCollection.libraryId) === libraryID) {
+        await host.collections.add(parent, view.currentCollection.id);
+      }
+      if (paper.source?.path) {
+        const isMarkdown = paper.source.kind === "markdown" || /\.md$/i.test(paper.source.path);
+        const attachment = await host.attachments.importStoredFile({
+          parent,
+          path: archive.resolvePath(paper.source.path),
+          title: "Research source",
+          mimeType: isMarkdown ? "text/markdown" : "application/pdf",
+          companionFiles: isMarkdown
+            ? (paper.source.assets || []).map((asset) => ({
+                sourcePath: archive.resolvePath(asset.path),
+                relativePath: asset.source_relative_path || asset.relativePath,
+              }))
+            : [],
+        });
+        createdChildren.push(attachment);
+      }
+      for (const payload of paper.payloads || []) {
+        const content = await archive.readText(payload.path);
+        const noteKind = productPayloadNoteKind(payload.payload_type);
+        const note = await host.parents.addNote(parent, {
+          content: `<div data-zs-note-kind="${noteKind}"></div>`,
+        });
+        createdChildren.push(note);
+        await attachWorkbenchPayloadToNote({
+          runtime: args.runtime || { hostApi: host },
+          note,
+          noteKind,
+          payloadType: payload.payload_type,
+          payload: productPayloadForImport(payload.payload_type, content),
+        });
+      }
+      importedItems.push({ bundleItemId: paper.logical_id, itemId: parent.id, itemKey: parent.key });
+    } catch (error) {
+      appendLiteratureBundleImportLog(host, {
+        stage: "research-product-paper-import-failed",
+        operation: "materialize-paper",
+        details: { paperId: paper.logical_id },
+        error,
+      });
+      for (const child of createdChildren.reverse()) {
+        try { await host.items.remove(child); } catch { warnings.push({ code: "import_cleanup_failed", itemId: paper.logical_id }); }
+      }
+      if (parent) {
+        try { await host.items.remove(parent); } catch { warnings.push({ code: "import_cleanup_failed", itemId: paper.logical_id }); }
+      }
+      failedItems.push({ bundleItemId: paper.logical_id, code: "parent_import_failed" });
+    }
+  }
+  return {
+    kind: "literature_bundle_import",
+    status: failedItems.length || warnings.length ? "partial" : "completed",
+    importedItems,
+    failedItems,
+    warnings,
+  };
+}
+
 function appendLiteratureBundleImportLog(host, args) {
   try {
     host.logging?.appendRuntimeLog?.({
@@ -773,15 +1070,19 @@ export async function importLiteratureBundle(args) {
       callbackStarted = true;
       let manifest;
       try {
-        manifest = validateLiteratureBundleManifest(
-          JSON.parse(await archive.readText("manifest.json")),
-          archive.entries,
-        );
+        const raw = JSON.parse(await archive.readText("manifest.json"));
+        manifest = raw?.schema_id === RESEARCH_PRODUCT_SCHEMA
+          ? validateResearchProductManifest(raw, archive.entries)
+          : validateLiteratureBundleManifest(raw, archive.entries);
       } catch (error) {
         return literatureBundleValidationFailure(args.host, "manifest", error);
       }
       try {
-        await verifyLiteratureBundleFiles(manifest, archive);
+        if (manifest?.schema_id === RESEARCH_PRODUCT_SCHEMA) {
+          await verifyResearchProductFiles(manifest, archive);
+        } else {
+          await verifyLiteratureBundleFiles(manifest, archive);
+        }
       } catch (error) {
         return literatureBundleValidationFailure(args.host, "integrity", error);
       }
@@ -792,12 +1093,16 @@ export async function importLiteratureBundle(args) {
         return throwLiteratureBundleImportFailure(args.host, "target", error);
       }
       try {
-        return await importLiteratureBundleArchive({
+        const importArgs = {
           host: args.host,
           archive,
           manifest,
           target,
-        });
+          runtime: args.runtime,
+        };
+        return manifest?.schema_id === RESEARCH_PRODUCT_SCHEMA
+          ? await importResearchProductArchive(importArgs)
+          : await importLiteratureBundleArchive(importArgs);
       } catch (error) {
         return throwLiteratureBundleImportFailure(
           args.host,

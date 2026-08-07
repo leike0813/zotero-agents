@@ -2,13 +2,13 @@
 
 ## 这个 Workflow 做什么？
 
-将 [导出文献包](../export-literature-bundle/README.md) 生成的 ZIP 导入当前 Zotero 文献库，恢复其中的父条目、标签、附件、笔记、笔记内嵌图片，以及同一文献包内父条目之间的关联关系。
+将 [导出文献包](../export-literature-bundle/README.md) 生成的旧 v1 文献包或新的 Research Product ZIP 导入当前 Zotero 文献库。Research Product 会恢复每篇文献的 metadata、source、Markdown 图片 companion files 和嵌入分析 payload。
 
 适合在另一台设备、另一套 Zotero 文献库或协作者提供的文献包中恢复完整文献。它不是 [研究包导出](../export-research-bundle/README.md) 的导入入口。
 
 ## 前置准备
 
-- 准备由“导出文献包”生成的 ZIP 文件
+- 准备由“导出文献包”生成的 ZIP 文件（旧 `zotero-agents-literature-bundle@1` 或 `research_bundle.product@2.0.0`）
 - 确认当前打开的是需要写入的 Zotero 文献库
 
 导入前会验证文献包类型和版本、归档路径、文件清单、文件大小与完整性。验证失败时不会改动 Zotero 文献库。
@@ -37,6 +37,7 @@
 - 导入可用的本地附件与 Markdown 附件的配套本地图片
 - 恢复 URL 附件、子笔记和笔记内嵌图片
 - 恢复同一文献包中成功导入父条目之间的关联关系
+- Research Product 的 README、`index.md`、Topic 报告和 `references.bib` 仅作为 Agent 消费材料验证，不直接写入 Zotero
 
 导入不会复用原 Zotero 的条目 ID 或 key，也不会与现有条目去重、合并或覆盖。因此重复导入同一个文献包会得到独立的新条目图。
 

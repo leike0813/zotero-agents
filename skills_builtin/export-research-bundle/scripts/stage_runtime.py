@@ -170,7 +170,12 @@ def record_stage(conn: sqlite3.Connection, stage_id: str, result: dict[str, Any]
     conn.execute(
         "INSERT INTO stage_state(stage_id,status,result_json,updated_at) VALUES(?,?,?,?) "
         "ON CONFLICT(stage_id) DO UPDATE SET status=excluded.status,result_json=excluded.result_json,updated_at=excluded.updated_at",
-        (stage_id, "completed", json.dumps(result, ensure_ascii=False, sort_keys=True), utc_now()),
+        (
+            stage_id,
+            "completed",
+            json.dumps(result, ensure_ascii=False, sort_keys=True),
+            utc_now(),
+        ),
     )
     conn.commit()
 
@@ -184,7 +189,13 @@ def record_receipt(
 ) -> None:
     conn.execute(
         "INSERT INTO action_receipts(stage_id,action,status,details_json,created_at) VALUES(?,?,?,?,?)",
-        (stage_id, action, status, json.dumps(details, ensure_ascii=False, sort_keys=True), utc_now()),
+        (
+            stage_id,
+            action,
+            status,
+            json.dumps(details, ensure_ascii=False, sort_keys=True),
+            utc_now(),
+        ),
     )
     conn.commit()
 
@@ -199,7 +210,13 @@ def add_diagnostic(
 ) -> None:
     conn.execute(
         "INSERT INTO diagnostics(severity,code,message,details_json,created_at) VALUES(?,?,?,?,?)",
-        (severity, code, message, json.dumps(details or {}, ensure_ascii=False, sort_keys=True), utc_now()),
+        (
+            severity,
+            code,
+            message,
+            json.dumps(details or {}, ensure_ascii=False, sort_keys=True),
+            utc_now(),
+        ),
     )
     conn.commit()
 
@@ -257,7 +274,9 @@ def input_parameters(value: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def normalize_intent_and_limits(parameters: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
+def normalize_intent_and_limits(
+    parameters: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, int]]:
     title = clean(parameters.get("paperTitle"))
     content = clean(parameters.get("researchContent"))
     if not title or not content:
@@ -292,7 +311,11 @@ def bridge_executable(run_root: Path) -> Path:
         candidates.append(Path(str(os.environ["ZOTERO_BRIDGE_BIN"])))
     bridge_dir = run_root / ".zotero-bridge/bin"
     candidates.extend(
-        [bridge_dir / "zotero-bridge.cmd", bridge_dir / "zotero-bridge.exe", bridge_dir / "zotero-bridge"]
+        [
+            bridge_dir / "zotero-bridge.cmd",
+            bridge_dir / "zotero-bridge.exe",
+            bridge_dir / "zotero-bridge",
+        ]
     )
     for candidate in candidates:
         if candidate.exists():
@@ -310,9 +333,13 @@ def unwrap_bridge(value: Any) -> Any:
     if isinstance(current, dict) and "data" in current:
         current = current["data"]
     if isinstance(current, dict) and current.get("ok") is False:
-        raise RuntimeError(json.dumps(current.get("error") or current, ensure_ascii=False))
-    if isinstance(current, dict) and "data" in current and (
-        len(current) == 1 or "approval" in current or "capability" in current
+        raise RuntimeError(
+            json.dumps(current.get("error") or current, ensure_ascii=False)
+        )
+    if (
+        isinstance(current, dict)
+        and "data" in current
+        and (len(current) == 1 or "approval" in current or "capability" in current)
     ):
         current = current["data"]
     if isinstance(current, dict) and isinstance(current.get("result"), dict):
@@ -530,7 +557,11 @@ def run_stage_00(conn: sqlite3.Connection, run_root: Path, input_path: str | Non
         status = run_bridge_args(run_root, ["bridge", "status"], "stage00-bridge-status")
     except Exception as exc:  # noqa: BLE001
         add_diagnostic(conn, "host_bridge_unavailable", str(exc), severity="error")
-        result = write_canceled(run_root, "host_unavailable", "Required Zotero Host Bridge access is unavailable.")
+        result = write_canceled(
+            run_root,
+            "host_unavailable",
+            "Required Zotero Host Bridge access is unavailable.",
+        )
         set_meta(conn, "final_output", result)
         record_stage(conn, "stage_00_runtime_setup", {"status": "canceled"})
         return result
@@ -612,23 +643,52 @@ def run_stage_20(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
                 f"stage20-library-search-{index + 1}",
             )
             successful_searches += 1
-            items = result if isinstance(result, list) else result.get("items", []) if isinstance(result, dict) else []
+            items = (
+                result
+                if isinstance(result, list)
+                else result.get("items", [])
+                if isinstance(result, dict)
+                else []
+            )
             for item in items:
                 if isinstance(item, dict):
-                    upsert_candidate(search_candidates, paper_ref_from_row(item), metadata=item, source=f"query:{query}")
+                    upsert_candidate(
+                        search_candidates,
+                        paper_ref_from_row(item),
+                        metadata=item,
+                        source=f"query:{query}",
+                    )
         except Exception as exc:  # noqa: BLE001
             add_diagnostic(conn, "library_search_failed", str(exc), details={"query": query})
     set_meta(conn, "search_candidates", list(search_candidates.values()))
-    topic_rows = [json.loads(row[0]) for row in conn.execute("SELECT row_json FROM topic_candidates ORDER BY topic_id")]
-    write_json(run_root / "runtime/views/03-topic-candidates.json", {"topics": topic_rows})
-    write_json(run_root / "runtime/views/04-library-search-candidates.json", {"papers": list(search_candidates.values())})
-    result = {"topic_count": len(topic_rows), "search_candidate_count": len(search_candidates), "successful_searches": successful_searches}
+    topic_rows = [
+        json.loads(row[0])
+        for row in conn.execute(
+            "SELECT row_json FROM topic_candidates ORDER BY topic_id"
+        )
+    ]
+    write_json(
+        run_root / "runtime/views/03-topic-candidates.json", {"topics": topic_rows}
+    )
+    write_json(
+        run_root / "runtime/views/04-library-search-candidates.json",
+        {"papers": list(search_candidates.values())},
+    )
+    result = {
+        "topic_count": len(topic_rows),
+        "search_candidate_count": len(search_candidates),
+        "successful_searches": successful_searches,
+    }
     record_stage(conn, "stage_20_discovery_collect", result)
     limits = get_meta(conn, "limits", {})
     if int(limits.get("max_topics", 5)) == 0 or not topic_rows:
         conn.execute("DELETE FROM selected_topics")
         conn.commit()
-        record_stage(conn, "stage_30_topic_assessment", {"topics": [], "automatic_library_only": True})
+        record_stage(
+            conn,
+            "stage_30_topic_assessment",
+            {"topics": [], "automatic_library_only": True},
+        )
     render_resume_view(conn, run_root)
     return result
 
@@ -688,7 +748,10 @@ def manifest_digest_paths(run_root: Path, manifest_path: Path) -> dict[str, str]
             continue
         ref = clean(paper.get("paper_ref"))
         for artifact in paper.get("artifacts", []):
-            if not isinstance(artifact, dict) or clean(artifact.get("artifact_type")) != "digest":
+            if (
+                not isinstance(artifact, dict)
+                or clean(artifact.get("artifact_type")) != "digest"
+            ):
                 continue
             content_file = clean(artifact.get("content_file"))
             target = run_root / content_file
@@ -737,11 +800,18 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             raise ExternalActionRequired(clean(pending.get("message")) or "Remote artifact delivery must be downloaded and unpacked")
         digest_paths = manifest_digest_paths(run_root, manifest_path)
         for ref, digest_path in digest_paths.items():
-            conn.execute("UPDATE paper_candidates SET digest_path=? WHERE paper_ref=?", (digest_path, ref))
+            conn.execute(
+                "UPDATE paper_candidates SET digest_path=? WHERE paper_ref=?",
+                (digest_path, ref),
+            )
         conn.commit()
         set_meta(conn, "pending_delivery", {})
         packets = prepare_assessment_packets(conn, run_root)
-        result = {"candidate_count": len(load_candidates(conn)), "assessment_batches": len(packets), "resumed_delivery": True}
+        result = {
+            "candidate_count": len(load_candidates(conn)),
+            "assessment_batches": len(packets),
+            "resumed_delivery": True,
+        }
         record_stage(conn, "stage_40_evidence_prepare", result)
         render_resume_view(conn, run_root)
         return result
@@ -766,14 +836,24 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             review = run_bridge_query(
                 run_root,
                 ["synthesis", "topic", "get-review-input"],
-                {"topicId": topic_id, "maxGraphNodes": 100, "maxGraphEdges": 200, "maxChars": 20000, "includePaperArtifacts": False},
+                {
+                    "topicId": topic_id,
+                    "maxGraphNodes": 100,
+                    "maxGraphEdges": 200,
+                    "maxChars": 20000,
+                    "includePaperArtifacts": False,
+                },
                 f"stage40-topic-review-{index + 1}",
             )
             resolved_set = (
-                review.get("resolved_paper_set")
-                or review.get("resolvedPaperSet")
-                or {}
-            ) if isinstance(review, dict) else {}
+                (
+                    review.get("resolved_paper_set")
+                    or review.get("resolvedPaperSet")
+                    or {}
+                )
+                if isinstance(review, dict)
+                else {}
+            )
             refs = sorted(collect_paper_refs(resolved_set))
             conn.execute(
                 "UPDATE selected_topics SET source_paper_refs_json=? WHERE topic_id=?",
@@ -782,7 +862,12 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             for ref in refs:
                 upsert_candidate(candidates, ref, source=f"topic:{topic_id}", topic_id=topic_id)
         except Exception as exc:  # noqa: BLE001
-            add_diagnostic(conn, "topic_review_input_unavailable", str(exc), details={"topic_id": topic_id})
+            add_diagnostic(
+                conn,
+                "topic_review_input_unavailable",
+                str(exc),
+                details={"topic_id": topic_id},
+            )
     conn.commit()
 
     seed_refs = sorted(candidates)
@@ -791,11 +876,22 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             graph = run_bridge_query(
                 run_root,
                 ["synthesis", "graph", "query-cluster"],
-                {"source_paper_refs": seed_refs[:250], "cluster_policy": "bounded_external", "max_external_nodes": 0, "max_nodes": 500, "max_edges": 1000},
+                {
+                    "source_paper_refs": seed_refs[:250],
+                    "cluster_policy": "bounded_external",
+                    "max_external_nodes": 0,
+                    "max_nodes": 500,
+                    "max_edges": 1000,
+                },
                 "stage40-graph-cluster",
             )
             for row in graph_library_candidates(graph):
-                upsert_candidate(candidates, row["paper_ref"], metadata=row["metadata"], source="graph_cluster")
+                upsert_candidate(
+                    candidates,
+                    row["paper_ref"],
+                    metadata=row["metadata"],
+                    source="graph_cluster",
+                )
         except Exception as exc:  # noqa: BLE001
             add_diagnostic(conn, "graph_cluster_unavailable", str(exc))
 
@@ -809,9 +905,24 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             row["paper_ref"],
         ),
     )
-    if len(ranked) > budget:
-        add_diagnostic(conn, "candidate_pool_truncated", "Candidate pool exceeded the deterministic assessment budget.", details={"available": len(ranked), "budget": budget})
-    ranked = ranked[:budget]
+    mandatory = [
+        row
+        for row in ranked
+        if any(clean(source).startswith("topic:") for source in row.get("sources", []))
+    ]
+    optional = [row for row in ranked if row not in mandatory]
+    if len(optional) > budget:
+        add_diagnostic(
+            conn,
+            "candidate_pool_truncated",
+            "Non-Topic candidates exceeded the deterministic assessment budget.",
+            details={
+                "mandatory": len(mandatory),
+                "optional": len(optional),
+                "budget": budget,
+            },
+        )
+    ranked = mandatory + optional[:budget]
     save_candidates(conn, ranked)
     refs = [row["paper_ref"] for row in ranked]
 
@@ -838,15 +949,28 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             export = run_bridge_query(
                 run_root,
                 ["synthesis", "artifact", "export-filtered"],
-                {"run_root": str(run_root), "paper_refs": refs, "artifact_types": ["digest"]},
+                {
+                    "run_root": str(run_root),
+                    "paper_refs": refs,
+                    "artifact_types": ["digest"],
+                },
                 "stage40-artifact-export",
             )
             if not isinstance(export, dict):
                 export = {}
-            delivery = export.get("delivery") if isinstance(export.get("delivery"), dict) else {}
-            manifest_file = clean(export.get("manifest_file")) or "runtime/payloads/paper-artifacts-manifest.json"
+            delivery = (
+                export.get("delivery")
+                if isinstance(export.get("delivery"), dict)
+                else {}
+            )
+            manifest_file = (
+                clean(export.get("manifest_file"))
+                or "runtime/payloads/paper-artifacts-manifest.json"
+            )
             if clean(delivery.get("mode")) == "bridge-download":
-                delivery_path = run_root / "runtime/payloads/paper-artifacts-export-delivery.json"
+                delivery_path = (
+                    run_root / "runtime/payloads/paper-artifacts-export-delivery.json"
+                )
                 write_json(delivery_path, {"delivery": delivery, "export_data": export})
                 message = "; ".join(
                     value
@@ -857,12 +981,23 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
                     ]
                     if value
                 )
-                set_meta(conn, "pending_delivery", {"manifest_file": manifest_file, "delivery_path": posix(delivery_path), "message": message})
+                set_meta(
+                    conn,
+                    "pending_delivery",
+                    {
+                        "manifest_file": manifest_file,
+                        "delivery_path": posix(delivery_path),
+                        "message": message,
+                    },
+                )
                 raise ExternalActionRequired(message)
             manifest_path = run_root / manifest_file
             digest_paths = manifest_digest_paths(run_root, manifest_path)
             for ref, digest_path in digest_paths.items():
-                conn.execute("UPDATE paper_candidates SET digest_path=? WHERE paper_ref=?", (digest_path, ref))
+                conn.execute(
+                    "UPDATE paper_candidates SET digest_path=? WHERE paper_ref=?",
+                    (digest_path, ref),
+                )
             conn.commit()
         except ExternalActionRequired:
             raise
@@ -885,13 +1020,20 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
                 metadata = {**candidate.get("metadata", {}), **detail}
                 conn.execute(
                     "UPDATE paper_candidates SET metadata_json=?,abstract_text=? WHERE paper_ref=?",
-                    (json.dumps(metadata, ensure_ascii=False, sort_keys=True), abstract_text, ref),
+                    (
+                        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                        abstract_text,
+                        ref,
+                    ),
                 )
         except Exception as exc:  # noqa: BLE001
             add_diagnostic(conn, "item_detail_unavailable", str(exc), details={"paper_ref": ref})
     conn.commit()
     packets = prepare_assessment_packets(conn, run_root)
-    result = {"candidate_count": len(load_candidates(conn)), "assessment_batches": len(packets)}
+    result = {
+        "candidate_count": len(load_candidates(conn)),
+        "assessment_batches": len(packets),
+    }
     record_stage(conn, "stage_40_evidence_prepare", result)
     render_resume_view(conn, run_root)
     return result
@@ -937,7 +1079,11 @@ def submit_stage_50(conn: sqlite3.Connection, run_root: Path, payload: dict[str,
         if not isinstance(matched, list) or any(clean(topic) not in selected_topics for topic in matched):
             raise ValueError("matched_topic_ids must contain only selected topic ids")
         matched_ids = sorted({clean(topic) for topic in matched if clean(topic)})
-        if not isinstance(evidence, list) or not evidence or any(clean(value) not in allowed_evidence for value in evidence):
+        if (
+            not isinstance(evidence, list)
+            or not evidence
+            or any(clean(value) not in allowed_evidence for value in evidence)
+        ):
             raise ValueError("evidence_basis contains an unsupported value")
         if not isinstance(caveats, list) or any(not clean(value) for value in caveats):
             raise ValueError("caveats must be an array of non-empty strings")
@@ -970,9 +1116,21 @@ def submit_stage_50(conn: sqlite3.Connection, run_root: Path, payload: dict[str,
     conn.commit()
     remaining = next_assessment_packet(conn)
     if not remaining:
-        record_stage(conn, "stage_50_paper_assessment", {"assessment_count": conn.execute("SELECT COUNT(*) FROM paper_assessments").fetchone()[0]})
+        record_stage(
+            conn,
+            "stage_50_paper_assessment",
+            {
+                "assessment_count": conn.execute(
+                    "SELECT COUNT(*) FROM paper_assessments"
+                ).fetchone()[0]
+            },
+        )
     render_resume_view(conn, run_root)
-    return {"batch_id": batch_id, "accepted": len(normalized), "remaining_packet": remaining}
+    return {
+        "batch_id": batch_id,
+        "accepted": len(normalized),
+        "remaining_packet": remaining,
+    }
 
 
 def clamp01(value: Any) -> float:
@@ -998,7 +1156,18 @@ def paper_score(semantic: float, graph: float, topic: float, readiness: float, g
     return semantic * 0.60 + graph * 0.20 + topic * 0.15 + readiness * 0.05
 
 
-def page_graph_metrics(run_root: Path, refs: list[str]) -> tuple[dict[str, dict[str, Any]], str, str, bool]:
+def topic_mandatory_paper(paper: dict[str, Any]) -> bool:
+    matched_topics = paper.get("matched_topic_ids")
+    sources = paper.get("candidate_sources")
+    return bool(matched_topics if isinstance(matched_topics, list) else []) or any(
+        clean(source).startswith("topic:")
+        for source in (sources if isinstance(sources, list) else [])
+    )
+
+
+def page_graph_metrics(
+    run_root: Path, refs: list[str]
+) -> tuple[dict[str, dict[str, Any]], str, str, bool]:
     items: dict[str, dict[str, Any]] = {}
     cursor = "0"
     graph_hash = ""
@@ -1016,7 +1185,11 @@ def page_graph_metrics(run_root: Path, refs: list[str]) -> tuple[dict[str, dict[
             break
         status = clean(data.get("status")) or "missing"
         graph_hash = clean(data.get("graph_hash"))
-        available = bool(data.get("ok")) and status == "ready" and not bool((data.get("diagnostics") or {}).get("stale"))
+        available = (
+            bool(data.get("ok"))
+            and status == "ready"
+            and not bool((data.get("diagnostics") or {}).get("stale"))
+        )
         for row in data.get("metrics", []):
             if isinstance(row, dict) and clean(row.get("paper_ref")):
                 items[clean(row.get("paper_ref"))] = row
@@ -1033,7 +1206,12 @@ def readiness_for_paper(run_root: Path, paper_ref: str, ordinal: int) -> tuple[f
     result = run_bridge_query(
         run_root,
         ["library", "readiness", "audit"],
-        {"libraryId": int(library_id), "query": key, "checks": ["pdf", "markdown"], "limit": 10},
+        {
+            "libraryId": int(library_id),
+            "query": key,
+            "checks": ["pdf", "markdown"],
+            "limit": 10,
+        },
         f"stage60-readiness-{ordinal}",
     )
     items = result.get("items", []) if isinstance(result, dict) else []
@@ -1049,16 +1227,24 @@ def readiness_for_paper(run_root: Path, paper_ref: str, ordinal: int) -> tuple[f
     )
     if not exact:
         return 0.0, {"status": "missing", "paper_ref": paper_ref}
-    readiness = exact.get("readiness") if isinstance(exact.get("readiness"), dict) else {}
+    readiness = (
+        exact.get("readiness") if isinstance(exact.get("readiness"), dict) else {}
+    )
     markdown = clean(readiness.get("markdown")) == "present"
     pdf = clean(readiness.get("pdf")) == "present"
-    return (1.0 if markdown else 0.8 if pdf else 0.0), {"status": "available", "readiness": readiness, "evidence": exact.get("evidence") or {}}
+    return (1.0 if markdown else 0.8 if pdf else 0.0), {
+        "status": "available",
+        "readiness": readiness,
+        "evidence": exact.get("evidence") or {},
+    }
 
 
 def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     rows = list(
         conn.execute(
-            "SELECT a.*,c.sources_json,c.topic_ids_json FROM paper_assessments a JOIN paper_candidates c USING(paper_ref) WHERE a.semantic_relevance>=?",
+            "SELECT a.*,c.sources_json,c.topic_ids_json FROM paper_assessments a "
+            "JOIN paper_candidates c USING(paper_ref) "
+            "WHERE a.semantic_relevance>=? OR json_array_length(c.topic_ids_json)>0",
             (RELATED_THRESHOLD,),
         )
     )
@@ -1073,7 +1259,12 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             add_diagnostic(conn, "graph_metrics_unavailable", str(exc))
     if refs and not graph_ready:
-        add_diagnostic(conn, "graph_metrics_fallback", "Citation graph metrics are missing or stale; fallback score weights were used.", details={"status": graph_status})
+        add_diagnostic(
+            conn,
+            "graph_metrics_fallback",
+            "Citation graph metrics are missing or stale; fallback score weights were used.",
+            details={"status": graph_status},
+        )
 
     topic_ids = {row[0] for row in conn.execute("SELECT topic_id FROM selected_topics")}
     papers: list[dict[str, Any]] = []
@@ -1085,8 +1276,16 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         try:
             material, readiness_evidence = readiness_for_paper(run_root, ref, ordinal)
         except Exception as exc:  # noqa: BLE001
-            material, readiness_evidence = 0.0, {"status": "unavailable", "message": str(exc)}
-            add_diagnostic(conn, "material_readiness_unavailable", str(exc), details={"paper_ref": ref})
+            material, readiness_evidence = (
+                0.0,
+                {"status": "unavailable", "message": str(exc)},
+            )
+            add_diagnostic(
+                conn,
+                "material_readiness_unavailable",
+                str(exc),
+                details={"paper_ref": ref},
+            )
         source_topics = set(json.loads(row["topic_ids_json"]))
         semantic_topics = set(json.loads(row["matched_topic_ids_json"]))
         matched_topics = sorted((source_topics | semantic_topics) & topic_ids)
@@ -1115,16 +1314,44 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         )
         conn.execute(
             "INSERT OR REPLACE INTO graph_metrics VALUES(?,?,?,?,?)",
-            (ref, 1 if per_paper_graph else 0, graph_status if per_paper_graph else "unavailable", graph_hash if per_paper_graph else "", json.dumps(metric if per_paper_graph else {}, ensure_ascii=False, sort_keys=True)),
+            (
+                ref,
+                1 if per_paper_graph else 0,
+                graph_status if per_paper_graph else "unavailable",
+                graph_hash if per_paper_graph else "",
+                json.dumps(
+                    metric if per_paper_graph else {},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ),
         )
         conn.execute(
             "INSERT OR REPLACE INTO material_readiness VALUES(?,?,?)",
-            (ref, material, json.dumps(readiness_evidence, ensure_ascii=False, sort_keys=True)),
+            (
+                ref,
+                material,
+                json.dumps(readiness_evidence, ensure_ascii=False, sort_keys=True),
+            ),
         )
     conn.commit()
     papers.sort(key=lambda row: (-row["score"], row["paper_ref"]))
     limits = get_meta(conn, "limits", {})
-    papers = papers[: int(limits.get("max_related_papers", 80))]
+    related_limit = int(limits.get("max_related_papers", 80))
+    selected_topic_ids = {
+        clean(row[0]) for row in conn.execute("SELECT topic_id FROM selected_topics")
+    }
+    mandatory = [
+        paper
+        for paper in papers
+        if selected_topic_ids.intersection(paper.get("matched_topic_ids") or [])
+        or topic_mandatory_paper(paper)
+    ]
+    optional = [paper for paper in papers if paper not in mandatory]
+    papers = sorted(
+        mandatory + optional[:related_limit],
+        key=lambda row: (-row["score"], row["paper_ref"]),
+    )
     max_core = int(limits.get("max_core_papers", 20))
     for index, paper in enumerate(papers):
         paper["role"] = "core" if index < max_core else "related"
@@ -1143,24 +1370,45 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         "diagnostics": diagnostics(conn),
     }
     set_meta(conn, "selection", selection)
-    record_stage(conn, "stage_60_enrich_and_select", {"related_count": len(papers), "core_count": sum(1 for paper in papers if paper["role"] == "core")})
+    record_stage(
+        conn,
+        "stage_60_enrich_and_select",
+        {
+            "related_count": len(papers),
+            "core_count": sum(1 for paper in papers if paper["role"] == "core"),
+        },
+    )
     write_json(run_root / "runtime/views/06-selection-preview.json", selection)
     render_resume_view(conn, run_root)
-    return {"related_count": len(papers), "core_count": sum(1 for paper in papers if paper["role"] == "core")}
+    return {
+        "related_count": len(papers),
+        "core_count": sum(1 for paper in papers if paper["role"] == "core"),
+    }
 
 
 def validate_selection(selection: Any) -> None:
-    if not isinstance(selection, dict) or selection.get("schema_id") != "research_bundle.selection":
+    if (
+        not isinstance(selection, dict)
+        or selection.get("schema_id") != "research_bundle.selection"
+    ):
         raise ValueError("selection schema_id is invalid")
     intent = selection.get("intent")
     limits = selection.get("limits")
     papers = selection.get("papers")
     topics = selection.get("topics")
-    if not isinstance(intent, dict) or not clean(intent.get("paper_title")) or not clean(intent.get("research_content")):
+    if (
+        not isinstance(intent, dict)
+        or not clean(intent.get("paper_title"))
+        or not clean(intent.get("research_content"))
+    ):
         raise ValueError("selection intent is incomplete")
-    if not isinstance(limits, dict) or not isinstance(papers, list) or not isinstance(topics, list):
+    if (
+        not isinstance(limits, dict)
+        or not isinstance(papers, list)
+        or not isinstance(topics, list)
+    ):
         raise ValueError("selection limits, topics, and papers are required")
-    if len(topics) > int(limits.get("max_topics", 5)) or len(papers) > int(limits.get("max_related_papers", 80)):
+    if len(topics) > int(limits.get("max_topics", 5)):
         raise ValueError("selection exceeds configured limits")
     refs: set[str] = set()
     core_count = 0
@@ -1171,7 +1419,13 @@ def validate_selection(selection: Any) -> None:
         ref = clean(paper.get("paper_ref"))
         semantic = require_finite(paper.get("semantic_relevance"), "semantic_relevance")
         score = float(paper.get("score"))
-        if not ref or ref in refs or semantic < RELATED_THRESHOLD or not math.isfinite(score):
+        mandatory = topic_mandatory_paper(paper)
+        if (
+            not ref
+            or ref in refs
+            or (semantic < RELATED_THRESHOLD and not mandatory)
+            or not math.isfinite(score)
+        ):
             raise ValueError("selection paper identity, threshold, or score is invalid")
         refs.add(ref)
         key = (-score, ref)
@@ -1186,6 +1440,9 @@ def validate_selection(selection: Any) -> None:
             raise ValueError("selection paper role is invalid")
     if core_count > int(limits.get("max_core_papers", 20)):
         raise ValueError("selection exceeds maxCorePapers")
+    optional_count = sum(1 for paper in papers if not topic_mandatory_paper(paper))
+    if optional_count > int(limits.get("max_related_papers", 80)):
+        raise ValueError("selection exceeds maxRelatedPapers for non-Topic papers")
 
 
 def run_stage_70(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
@@ -1193,7 +1450,11 @@ def run_stage_70(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     validate_selection(selection)
     papers = selection.get("papers", []) if isinstance(selection, dict) else []
     if not papers:
-        result = write_canceled(run_root, "no_related_literature", "No related Zotero literature met the relevance threshold.")
+        result = write_canceled(
+            run_root,
+            "no_related_literature",
+            "No related Zotero literature met the relevance threshold.",
+        )
         set_meta(conn, "final_output", result)
         record_stage(conn, "stage_70_render_result", {"status": "canceled"})
         render_resume_view(conn, run_root)
@@ -1242,7 +1503,10 @@ def current_stage(conn: sqlite3.Connection) -> str:
     if get_meta(conn, "final_output", None) is not None:
         return "completed"
     completed = completed_stages(conn)
-    if "stage_40_evidence_prepare" in completed and "stage_50_paper_assessment" not in completed:
+    if (
+        "stage_40_evidence_prepare" in completed
+        and "stage_50_paper_assessment" not in completed
+    ):
         if not next_assessment_packet(conn):
             record_stage(conn, "stage_50_paper_assessment", {"assessment_count": 0})
             completed.add("stage_50_paper_assessment")
@@ -1298,7 +1562,13 @@ def submit_current_payload_stage(
         if stage not in handlers:
             raise ValueError(f"current stage {stage} does not accept a payload")
         result = handlers[stage]()
-        record_receipt(conn, stage, "submit", "completed", {"payload_path": posix(Path(payload_path)), "result": result})
+        record_receipt(
+            conn,
+            stage,
+            "submit",
+            "completed",
+            {"payload_path": posix(Path(payload_path)), "result": result},
+        )
         return {"stage": stage, "result": result}
     finally:
         conn.close()
