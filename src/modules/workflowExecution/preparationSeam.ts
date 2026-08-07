@@ -26,6 +26,7 @@ import type {
   WorkflowPreflightExecutionState,
   WorkflowRequestBuildPlan,
 } from "./contracts";
+import type { WorkflowScopedSelectionContext } from "../../workflows/workflowInputPlanning";
 import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
 import { shouldShowWorkflowNotifications } from "./feedbackPolicy";
@@ -360,6 +361,7 @@ export async function runWorkflowPreparationSeam(
     executionOptionsOverride?: WorkflowExecutionOptions;
     ignoreSavedWorkflowSettings?: boolean;
     selectedItemsOverride?: Zotero.Item[];
+    selectionContextOverride?: WorkflowScopedSelectionContext;
     suppressUiFeedback?: boolean;
   },
   deps: Partial<PreparationDeps> = {},
@@ -370,7 +372,9 @@ export async function runWorkflowPreparationSeam(
   };
   const selectedItems = Array.isArray(args.selectedItemsOverride)
     ? args.selectedItemsOverride
-    : args.win.ZoteroPane?.getSelectedItems?.() || [];
+    : args.selectionContextOverride !== undefined
+      ? []
+      : args.win.ZoteroPane?.getSelectedItems?.() || [];
   const workflowLabel = localizeWorkflowLabel(args.workflow);
   if (
     selectedItems.length === 0 &&
@@ -459,9 +463,12 @@ export async function runWorkflowPreparationSeam(
         error: previewError,
       });
     }
-    selectionContext = (await resolved.buildSelectionContext(
-      selectedItems,
-    )) as PreparedWorkflowExecution["selectionContext"];
+    selectionContext =
+      args.selectionContextOverride !== undefined
+        ? args.selectionContextOverride
+        : ((await resolved.buildSelectionContext(
+            selectedItems,
+          )) as PreparedWorkflowExecution["selectionContext"]);
     plan = await resolved.planWorkflowExecutionUnits({
       workflow: args.workflow,
       selectionContext,
@@ -721,6 +728,7 @@ export async function buildWorkflowExecutionUnitPreview(
     workflow: LoadedWorkflow;
     executionOptionsOverride?: WorkflowExecutionOptions;
     selectedItemsOverride?: Zotero.Item[];
+    selectionContextOverride?: WorkflowScopedSelectionContext;
   },
   deps: Partial<PreparationDeps> = {},
 ): Promise<WorkflowExecutionUnitPreviewState> {
@@ -729,11 +737,14 @@ export async function buildWorkflowExecutionUnitPreview(
     ...deps,
   };
   try {
-    const selectedItems = Array.isArray(args.selectedItemsOverride)
-      ? args.selectedItemsOverride
-      : args.win.ZoteroPane?.getSelectedItems?.() || [];
     const selectionContext =
-      await resolved.buildSelectionContext(selectedItems);
+      args.selectionContextOverride !== undefined
+        ? args.selectionContextOverride
+        : await resolved.buildSelectionContext(
+            Array.isArray(args.selectedItemsOverride)
+              ? args.selectedItemsOverride
+              : args.win.ZoteroPane?.getSelectedItems?.() || [],
+          );
     const preview = resolved.resolveWorkflowExecutionOptionsPreview({
       workflow: args.workflow,
       executionOptionsOverride: args.executionOptionsOverride,

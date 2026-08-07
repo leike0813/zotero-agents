@@ -19,6 +19,7 @@ import {
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import {
   buildPreparedWorkflowUnitExecution,
+  buildWorkflowExecutionUnitPreview,
   runWorkflowPreparationSeam,
 } from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
@@ -800,6 +801,95 @@ describe("workflow execution seams", function () {
     assert.equal(result.status, "halted");
     assert.include(alerts[0], "skipped=2");
     assert.include(logs, "trigger-no-valid-input");
+  });
+
+  it("reuses an explicit selection-context snapshot across preview and preparation", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-selection-context-override",
+        label: "Selection Context Override",
+        hooks: { applyResult: "hooks/applyResult.js" },
+        inputs: { member: { kind: "parent" }, grouping: { mode: "each" } },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "pass-through-local",
+        type: "pass-through",
+        baseUrl: "local://pass-through",
+        auth: { kind: "none" },
+      },
+      requestKind: "pass-through.run.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "pass-through",
+    };
+    const lockedContext = {
+      selectionType: "parent",
+      items: { parents: [{ item: { id: 101, title: "Locked Parent" } }] },
+      summary: { parentCount: 1 },
+    };
+    const plannedContexts: unknown[] = [];
+    const deps = {
+      buildSelectionContext: async () => {
+        throw new Error("live selection must not be read");
+      },
+      resolveWorkflowExecutionOptionsPreview: () =>
+        ({
+          workflowParams: {},
+          providerOptions: {},
+          runOptions: {},
+        }) as any,
+      planWorkflowExecutionUnits: async (args: {
+        selectionContext: unknown;
+      }) => {
+        plannedContexts.push(args.selectionContext);
+        return planSingleWorkflowUnit({
+          selectionContext: args.selectionContext,
+        });
+      },
+      resolveWorkflowExecutionContext: async () => fakeExecutionContext as any,
+      appendRuntimeLog: () => undefined,
+      alertWindow: () => undefined,
+    };
+
+    const preview = await buildWorkflowExecutionUnitPreview(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => {
+              throw new Error("preview must not read live selection");
+            },
+          },
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+        selectionContextOverride: lockedContext,
+      },
+      deps,
+    );
+    assert.equal(preview.status, "success");
+
+    const preparation = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => {
+              throw new Error("preparation must not read live selection");
+            },
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+        selectedItemsOverride: [{} as Zotero.Item],
+        messageFormatter: createLocalizedMessageFormatter(),
+        selectionContextOverride: lockedContext,
+      },
+      deps,
+    );
+    assert.equal(preparation.status, "ready");
+    assert.lengthOf(plannedContexts, 2);
+    assert.strictEqual(plannedContexts[0], lockedContext);
+    assert.strictEqual(plannedContexts[1], lockedContext);
   });
 
   it("resolves SkillRunner skill display metadata during preparation", async function () {
@@ -1896,6 +1986,7 @@ describe("workflow execution seams", function () {
       itemType: "journalArticle",
       fields: { title: "Seam Configurable Gate Failure Parent" },
     });
+    let selectionReads = 0;
     const toasts: string[] = [];
     const runtime = globalThis as typeof globalThis & {
       ztoolkit?: Record<string, unknown>;
@@ -1938,7 +2029,10 @@ describe("workflow execution seams", function () {
       await executeWorkflowFromCurrentSelection({
         win: {
           ZoteroPane: {
-            getSelectedItems: () => [parent],
+            getSelectedItems: () => {
+              selectionReads += 1;
+              return [parent];
+            },
           },
           alert: (message: string) => {
             throw new Error(`unexpected modal alert: ${message}`);
@@ -1969,6 +2063,7 @@ describe("workflow execution seams", function () {
       ),
       `missing settings gate failure toast: ${JSON.stringify(toasts)}`,
     );
+    assert.equal(selectionReads, 1);
 
     const logs = listRuntimeLogs({
       workflowId: "seam-configurable-gate-failure",
@@ -1983,6 +2078,44 @@ describe("workflow execution seams", function () {
     assert.isOk(failureLog);
     assert.equal(failureDetails.workflowSource, "");
     assert.equal(failureDetails.gateStage, "dialog-open");
+  });
+
+  it("fails closed when the trigger-time selection snapshot cannot be captured", async function () {
+    clearRuntimeLogs();
+    const workflow = {
+      manifest: {
+        id: "seam-selection-capture-failure",
+        label: "Selection Capture Failure",
+        provider: "pass-through",
+        execution: { feedback: { showNotifications: true } },
+        hooks: { applyResult: "hooks/applyResult.js" },
+      },
+    } as any;
+
+    await executeWorkflowFromCurrentSelection({
+      win: {
+        ZoteroPane: {
+          getSelectedItems: () => {
+            throw new Error("selection unavailable");
+          },
+        },
+        alert: () => undefined,
+      } as unknown as _ZoteroTypes.MainWindow,
+      workflow,
+    });
+
+    const logs = listRuntimeLogs({
+      workflowId: "seam-selection-capture-failure",
+    });
+    const failure = logs.find(
+      (entry) => entry.stage === "selection-context-capture-failed",
+    );
+    assert.isOk(failure);
+    assert.equal(
+      (failure?.details as Record<string, unknown>)?.reason,
+      "selection unavailable",
+    );
+    assert.isFalse(logs.some((entry) => entry.stage === "trigger-start"));
   });
 
   it("supports feedback seam verification without UI runtime", function () {
