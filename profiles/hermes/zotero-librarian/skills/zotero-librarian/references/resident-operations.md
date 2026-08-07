@@ -6,6 +6,12 @@ Run `scripts/zotero_librarian_service.py` for every resident operation. Global o
 
 The normal JSON shape is `zotero-librarian.operation-receipt.v1` with `operation`, `status`, `generatedAt`, and optional `summary` or `data`. A failed pass adds `error.code`, `error.message`, and optional `error.details`, prints JSON, and exits nonzero. `--quiet` renders only an `unchanged` receipt as `[SILENT]`; changed, attention, and failed results remain visible.
 
+## Profile workspace selection
+
+The service resolves one profile workspace before the bounded pass. Agents and cron jobs do not need to supply a workspace path: `--profile` wins over `ZOTERO_BRIDGE_PROFILE`, and an omitted profile uses the platform well-known connection profile and its default `$HERMES_HOME/zotero-librarian/state.sqlite`. Explicit profile paths are normalized and assigned a SHA-256 workspace below `workspaces/`; the service passes the same explicit profile to every bridge call and prefers that workspace's `.zotero-bridge/bin` executable.
+
+`--db` is allowed only for a path inside the selected workspace. A failed profile lookup, path normalization, workspace-root check, connection, or containment check is fail closed and returns a failed receipt; it never falls back to another profile's database. Profile identity does not read profile JSON or include credentials. Switching profiles therefore switches catalog, index, watched-run, notification, and local CLI state as one unit.
+
 ## Operation contract matrix
 
 | Command | Reads | Local effect | Receipt data and meaning |
