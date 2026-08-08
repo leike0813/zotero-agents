@@ -631,36 +631,7 @@ def run_stage_20(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
                 "INSERT OR REPLACE INTO topic_candidates VALUES(?,?)",
                 (topic_id, json.dumps(topic, ensure_ascii=False, sort_keys=True)),
             )
-    search_candidates: dict[str, dict[str, Any]] = {}
-    successful_searches = 0
-    for index, row in enumerate(conn.execute("SELECT query_text FROM queries ORDER BY ordinal")):
-        query = row[0]
-        try:
-            result = run_bridge_query(
-                run_root,
-                ["library", "item", "search"],
-                {"query": query, "limit": 50},
-                f"stage20-library-search-{index + 1}",
-            )
-            successful_searches += 1
-            items = (
-                result
-                if isinstance(result, list)
-                else result.get("items", [])
-                if isinstance(result, dict)
-                else []
-            )
-            for item in items:
-                if isinstance(item, dict):
-                    upsert_candidate(
-                        search_candidates,
-                        paper_ref_from_row(item),
-                        metadata=item,
-                        source=f"query:{query}",
-                    )
-        except Exception as exc:  # noqa: BLE001
-            add_diagnostic(conn, "library_search_failed", str(exc), details={"query": query})
-    set_meta(conn, "search_candidates", list(search_candidates.values()))
+    set_meta(conn, "search_candidates", [])
     topic_rows = [
         json.loads(row[0])
         for row in conn.execute(
@@ -670,15 +641,7 @@ def run_stage_20(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     write_json(
         run_root / "runtime/views/03-topic-candidates.json", {"topics": topic_rows}
     )
-    write_json(
-        run_root / "runtime/views/04-library-search-candidates.json",
-        {"papers": list(search_candidates.values())},
-    )
-    result = {
-        "topic_count": len(topic_rows),
-        "search_candidate_count": len(search_candidates),
-        "successful_searches": successful_searches,
-    }
+    result = {"topic_count": len(topic_rows)}
     record_stage(conn, "stage_20_discovery_collect", result)
     limits = get_meta(conn, "limits", {})
     if int(limits.get("max_topics", 5)) == 0 or not topic_rows:
@@ -725,19 +688,6 @@ def submit_stage_30(conn: sqlite3.Connection, run_root: Path, payload: dict[str,
     write_json(run_root / "runtime/views/05-selected-topics.json", {"topics": normalized})
     render_resume_view(conn, run_root)
     return {"topics": normalized}
-
-
-def graph_library_candidates(graph: Any) -> list[dict[str, Any]]:
-    if not isinstance(graph, dict):
-        return []
-    rows = []
-    for node in graph.get("nodes", []):
-        if not isinstance(node, dict) or clean(node.get("kind")) != "library_paper":
-            continue
-        ref = paper_ref_from_row(node)
-        if ref:
-            rows.append({"paper_ref": ref, "metadata": node})
-    return rows
 
 
 def manifest_digest_paths(run_root: Path, manifest_path: Path) -> dict[str, str]:
@@ -817,43 +767,38 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         return result
 
     candidates: dict[str, dict[str, Any]] = {}
-    for row in get_meta(conn, "search_candidates", []):
-        if isinstance(row, dict):
-            upsert_candidate(
-                candidates,
-                clean(row.get("paper_ref")),
-                metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
-                source="library_search",
-            )
-            for source in row.get("sources", []):
-                if clean(source):
-                    upsert_candidate(candidates, clean(row.get("paper_ref")), source=clean(source))
 
     selected_rows = list(conn.execute("SELECT topic_id FROM selected_topics ORDER BY relevance DESC, topic_id"))
     for index, topic_row in enumerate(selected_rows):
         topic_id = topic_row[0]
         try:
-            review = run_bridge_query(
+            context = run_bridge_query(
                 run_root,
-                ["synthesis", "topic", "get-review-input"],
-                {
-                    "topicId": topic_id,
-                    "maxGraphNodes": 100,
-                    "maxGraphEdges": 200,
-                    "maxChars": 20000,
-                    "includePaperArtifacts": False,
-                },
-                f"stage40-topic-review-{index + 1}",
+                ["synthesis", "topic", "get-context"],
+                {"topicId": topic_id},
+                f"stage40-topic-context-{index + 1}",
             )
-            resolved_set = (
-                (
-                    review.get("resolved_paper_set")
-                    or review.get("resolvedPaperSet")
-                    or {}
+            if not isinstance(context, dict) or not any(
+                key in context for key in ("resolved_paper_set", "resolvedPaperSet")
+            ):
+                add_diagnostic(
+                    conn,
+                    "topic_resolved_papers_unavailable",
+                    "Topic context did not expose a resolved paper set.",
+                    details={"topic_id": topic_id},
                 )
-                if isinstance(review, dict)
-                else {}
-            )
+                continue
+            resolved_set = context.get("resolved_paper_set")
+            if resolved_set is None:
+                resolved_set = context.get("resolvedPaperSet")
+            if not isinstance(resolved_set, (dict, list)):
+                add_diagnostic(
+                    conn,
+                    "topic_resolved_papers_unavailable",
+                    "Topic context returned an invalid resolved paper set.",
+                    details={"topic_id": topic_id},
+                )
+                continue
             refs = sorted(collect_paper_refs(resolved_set))
             conn.execute(
                 "UPDATE selected_topics SET source_paper_refs_json=? WHERE topic_id=?",
@@ -864,36 +809,78 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             add_diagnostic(
                 conn,
-                "topic_review_input_unavailable",
+                "topic_context_unavailable",
                 str(exc),
                 details={"topic_id": topic_id},
             )
     conn.commit()
 
-    seed_refs = sorted(candidates)
-    if seed_refs:
+    selected_view = []
+    for row in conn.execute(
+        "SELECT topic_id,relevance,reason,source_paper_refs_json FROM selected_topics ORDER BY relevance DESC, topic_id"
+    ):
+        selected_view.append(
+            {
+                "topic_id": row[0],
+                "relevance": row[1],
+                "reason": row[2],
+                "source_paper_refs": json.loads(row[3] or "[]"),
+            }
+        )
+    write_json(
+        run_root / "runtime/views/05-selected-topics.json",
+        {"topics": selected_view},
+    )
+
+    search_candidates: dict[str, dict[str, Any]] = {}
+    successful_searches = 0
+    for index, row in enumerate(
+        conn.execute("SELECT query_text FROM queries ORDER BY ordinal")
+    ):
+        query = row[0]
         try:
-            graph = run_bridge_query(
+            result = run_bridge_query(
                 run_root,
-                ["synthesis", "graph", "query-cluster"],
-                {
-                    "source_paper_refs": seed_refs[:250],
-                    "cluster_policy": "bounded_external",
-                    "max_external_nodes": 0,
-                    "max_nodes": 500,
-                    "max_edges": 1000,
-                },
-                "stage40-graph-cluster",
+                ["library", "item", "search"],
+                {"query": query, "limit": 50},
+                f"stage40-library-search-{index + 1}",
             )
-            for row in graph_library_candidates(graph):
+            successful_searches += 1
+            items = (
+                result
+                if isinstance(result, list)
+                else result.get("items", [])
+                if isinstance(result, dict)
+                else []
+            )
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                ref = paper_ref_from_row(item)
+                upsert_candidate(
+                    search_candidates,
+                    ref,
+                    metadata=item,
+                    source=f"query:{query}",
+                )
                 upsert_candidate(
                     candidates,
-                    row["paper_ref"],
-                    metadata=row["metadata"],
-                    source="graph_cluster",
+                    ref,
+                    metadata=item,
+                    source=f"query:{query}",
                 )
         except Exception as exc:  # noqa: BLE001
-            add_diagnostic(conn, "graph_cluster_unavailable", str(exc))
+            add_diagnostic(
+                conn,
+                "library_search_failed",
+                str(exc),
+                details={"query": query},
+            )
+    set_meta(conn, "search_candidates", list(search_candidates.values()))
+    write_json(
+        run_root / "runtime/views/04-library-search-candidates.json",
+        {"papers": list(search_candidates.values())},
+    )
 
     policy = get_meta(conn, "runtime_policy", {})
     budget = int(policy.get("candidate_budget", 160))
@@ -1033,6 +1020,7 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     result = {
         "candidate_count": len(load_candidates(conn)),
         "assessment_batches": len(packets),
+        "successful_searches": successful_searches,
     }
     record_stage(conn, "stage_40_evidence_prepare", result)
     render_resume_view(conn, run_root)

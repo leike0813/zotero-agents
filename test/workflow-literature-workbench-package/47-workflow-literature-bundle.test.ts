@@ -11,7 +11,9 @@ import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import {
   buildLiteratureBundleExport,
+  buildLiteratureProduct,
   importLiteratureBundleArchive,
+  importLiteratureProductArchive,
   makePortableNoteHtml,
   restorePortableNoteHtml,
   resolveLiteratureBundleParents,
@@ -20,7 +22,9 @@ import {
   exportLiteratureBundle,
   validateResearchProductManifest,
   validateLiteratureBundleManifest,
+  validateLiteratureProductManifest,
   verifyLiteratureBundleFiles,
+  verifyLiteratureProductFiles,
 } from "../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
 import { applyResult as applyLiteratureBundleImport } from "../../workflows_builtin/literature-workbench-package/import-literature-bundle/hooks/applyResult.mjs";
 import {
@@ -135,7 +139,7 @@ describe("literature portable bundle workflows", function () {
     assert.equal(calls[1].cursor, "opaque");
   });
 
-  it("exports the default selection as a Research Product ZIP with an index", async function () {
+  it("exports the default selection as an independent Literature Product", async function () {
     const root = await mkTempDir("literature-research-product-export");
     const targetPath = joinPath(root, "product.zip");
     const item: any = {
@@ -179,13 +183,15 @@ describe("literature portable bundle workflows", function () {
       runtime: { hostApi: host },
       selectionContext: { items: { parents: [{ item: { id: 11 } }] } },
     });
-    assert.equal(result.schemaId, "research_bundle.product");
+    assert.equal(result.schemaId, "literature_bundle.product");
     await archive.withExtractedZip(targetPath, async (extracted: any) => {
-      const manifest = validateResearchProductManifest(
-        JSON.parse(await extracted.readText("manifest.json")),
-        extracted.entries,
-      );
-      assert.equal(manifest.papers[0].role, "core");
+      const manifest = JSON.parse(await extracted.readText("manifest.json"));
+      assert.equal(manifest.schema_id, "literature_bundle.product");
+      assert.equal(manifest.schema_version, "1.0.0");
+      assert.notProperty(manifest.papers[0], "role");
+      assert.property(manifest.papers[0], "attachments");
+      assert.property(manifest.papers[0], "notes");
+      assert.property(manifest.papers[0], "payloads");
       assert.include(extracted.entries, "index.md");
       assert.property(manifest.files, "index.md");
     });
@@ -267,7 +273,10 @@ describe("literature portable bundle workflows", function () {
 
     assert.equal(pickerCalls, 0);
     assert.equal(publishedPath, targetPath);
-    assert.equal(result.resourceOutputs[0].fileId, "file-remote-literature-bundle");
+    assert.equal(
+      result.resourceOutputs[0].fileId,
+      "file-remote-literature-bundle",
+    );
     await archive.withExtractedZip(targetPath, async (extracted: any) => {
       assert.include(extracted.entries, "manifest.json");
       assert.include(extracted.entries, "index.md");
@@ -418,6 +427,106 @@ describe("literature portable bundle workflows", function () {
     assert.throws(
       () => validateLiteratureBundleManifest(manifest, ["manifest.json"]),
       /declared file closure/i,
+    );
+  });
+
+  it("rejects unresolved Literature Product source and payload references", function () {
+    const files = {
+      "README.md": { size: 1, sha256: "a".repeat(64) },
+      "index.md": { size: 1, sha256: "a".repeat(64) },
+      "papers/paper-001/metadata.json": {
+        size: 1,
+        sha256: "a".repeat(64),
+      },
+      "papers/paper-001/attachments/a1/paper.pdf": {
+        size: 1,
+        sha256: "a".repeat(64),
+      },
+      "papers/paper-001/notes/n1/note.html": {
+        size: 1,
+        sha256: "a".repeat(64),
+      },
+      "papers/paper-001/notes/n1/images/e1/payload.png": {
+        size: 1,
+        sha256: "a".repeat(64),
+      },
+      "papers/paper-001/payloads/digest-001.md": {
+        size: 1,
+        sha256: "a".repeat(64),
+      },
+    };
+    const base: any = {
+      schema_id: "literature_bundle.product",
+      schema_version: "1.0.0",
+      bibliography: { status: "not_generated" },
+      warnings: [],
+      files,
+      papers: [
+        {
+          logical_id: "paper-001",
+          metadata_path: "papers/paper-001/metadata.json",
+          related_paper_ids: [],
+          attachments: [
+            {
+              id: "a1",
+              kind: "file",
+              path: "papers/paper-001/attachments/a1/paper.pdf",
+              assets: [],
+            },
+          ],
+          notes: [
+            {
+              id: "n1",
+              htmlPath: "papers/paper-001/notes/n1/note.html",
+              images: [
+                {
+                  id: "e1",
+                  path: "papers/paper-001/notes/n1/images/e1/payload.png",
+                },
+              ],
+            },
+          ],
+          payloads: [
+            {
+              id: "p1",
+              payload_type: "digest-markdown",
+              format: "markdown",
+              path: "papers/paper-001/payloads/digest-001.md",
+              source_note_id: "n1",
+              source_image_id: "e1",
+              anchor_status: "present",
+            },
+          ],
+          primary_source: {
+            attachment_id: "a1",
+            kind: "pdf",
+            path: "papers/paper-001/attachments/a1/paper.pdf",
+          },
+        },
+      ],
+    };
+    const entries = ["manifest.json", ...Object.keys(files)];
+    assert.doesNotThrow(() => validateLiteratureProductManifest(base, entries));
+    const badSource = JSON.parse(JSON.stringify(base));
+    badSource.papers[0].primary_source.attachment_id = "missing";
+    assert.throws(
+      () => validateLiteratureProductManifest(badSource, entries),
+      /primary source attachment/i,
+    );
+    const badPayload = JSON.parse(JSON.stringify(base));
+    badPayload.papers[0].payloads[0].source_image_id = "missing";
+    assert.throws(
+      () => validateLiteratureProductManifest(badPayload, entries),
+      /payload source/i,
+    );
+    const badOwner = JSON.parse(JSON.stringify(base));
+    badOwner.papers[0].attachments[0].path =
+      "papers/paper-001/payloads/digest-001.md";
+    badOwner.papers[0].primary_source.path =
+      "papers/paper-001/payloads/digest-001.md";
+    assert.throws(
+      () => validateLiteratureProductManifest(badOwner, entries),
+      /attachment ownership/i,
     );
   });
 
@@ -911,6 +1020,8 @@ describe("literature portable bundle workflows", function () {
     const sourcePath = joinPath(root, "paper.md");
     await writeUtf8(sourcePath, "# Portable\n\n![asset](asset.png)");
     await writeUtf8(joinPath(root, "asset.png"), "image-bytes");
+    const pdfPath = joinPath(root, "paper.pdf");
+    await writeUtf8(pdfPath, "%PDF-1.4\nportable");
     const parent = await handlers.item.createFromJson({
       libraryID: Zotero.Libraries.userLibraryID,
       itemJson: {
@@ -929,11 +1040,27 @@ describe("literature portable bundle workflows", function () {
       title: "Portable Text",
       mimeType: "text/markdown",
     });
+    await handlers.attachment.createFromPath({
+      parent,
+      path: pdfPath,
+      title: "Original PDF",
+      mimeType: "application/pdf",
+    });
     const note = await handlers.parent.addNote(parent, {
       content:
         '<div data-zs-note-kind="conversation-note"><p>Conversation</p></div>',
     });
     const host = createWorkflowHostApi();
+    host.items.exportText = async () => ({
+      ok: true,
+      content: "@article{portable, title={Portable Round Trip}}\n",
+      translator: {
+        translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+        label: "Better BibTeX",
+      },
+      fallbackUsed: false,
+      attempts: [],
+    });
     const embedded = await host.notes.importEmbeddedImage(note, {
       bytes: new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
       mimeType: "image/png",
@@ -995,6 +1122,9 @@ describe("literature portable bundle workflows", function () {
         ...fixture,
       });
     }
+    await handlers.parent.addNote(parent, {
+      content: "<div><p>Ordinary note title and content</p></div>",
+    });
     const relatedParent = await handlers.item.createFromJson({
       libraryID: Zotero.Libraries.userLibraryID,
       itemJson: { itemType: "book", title: "Portable Related Parent" },
@@ -1002,10 +1132,29 @@ describe("literature portable bundle workflows", function () {
     await handlers.parent.addRelated(parent, relatedParent);
     await handlers.parent.addRelated(relatedParent, parent);
 
-    const built = await buildLiteratureBundleExport({
+    const built = await buildLiteratureProduct({
       host,
       parents: [parent, relatedParent],
+      runtime: {
+        hostApi: host,
+        hostApiVersion: 8,
+        TextEncoder,
+        TextDecoder,
+        Buffer,
+      },
     });
+    assert.equal(built.manifest.schema_id, "literature_bundle.product");
+    assert.lengthOf(built.manifest.papers[0].attachments, 2);
+    assert.equal(built.manifest.papers[0].primary_source.kind, "markdown");
+    assert.sameMembers(
+      built.manifest.papers[0].payloads.map((entry: any) => entry.payload_type),
+      [
+        "conversation-note-markdown",
+        "digest-markdown",
+        "references-json",
+        "citation-analysis-json",
+      ],
+    );
     const bundlePath = joinPath(root, "portable.zip");
     await host.archive.writeZipAtomic({
       targetPath: bundlePath,
@@ -1016,12 +1165,12 @@ describe("literature portable bundle workflows", function () {
     });
 
     await host.archive.withExtractedZip(bundlePath, async (archive) => {
-      const manifest = validateLiteratureBundleManifest(
+      const manifest = validateLiteratureProductManifest(
         JSON.parse(await archive.readText("manifest.json")),
         archive.entries,
       );
-      await verifyLiteratureBundleFiles(manifest, archive);
-      const first = await importLiteratureBundleArchive({
+      await verifyLiteratureProductFiles(manifest, archive);
+      const first = await importLiteratureProductArchive({
         host,
         archive,
         manifest,
@@ -1030,7 +1179,7 @@ describe("literature portable bundle workflows", function () {
           libraryID: Zotero.Libraries.userLibraryID,
         },
       });
-      const second = await importLiteratureBundleArchive({
+      const second = await importLiteratureProductArchive({
         host,
         archive,
         manifest,
@@ -1039,8 +1188,12 @@ describe("literature portable bundle workflows", function () {
           libraryID: Zotero.Libraries.userLibraryID,
         },
       });
-      assert.equal(first.status, "completed", JSON.stringify(first));
-      assert.equal(second.status, "completed", JSON.stringify(second));
+      assert.equal(first.status, "partial", JSON.stringify(first));
+      assert.equal(second.status, "partial", JSON.stringify(second));
+      assert.include(
+        first.warnings.map((warning: any) => warning.code),
+        "primary_source_missing",
+      );
       assert.notEqual(
         first.importedItems[0].itemId,
         second.importedItems[0].itemId,
@@ -1052,7 +1205,7 @@ describe("literature portable bundle workflows", function () {
       assert.equal(imported.getField("DOI"), "10.1000/roundtrip");
       assert.deepEqual(imported.getCreators(), parent.getCreators());
       assert.deepEqual(imported.getTags(), parent.getTags());
-      assert.lengthOf(imported.getAttachments(), 1);
+      assert.lengthOf(imported.getAttachments(), 2);
       const importedAttachment = Zotero.Items.get(
         imported.getAttachments()[0],
       )!;
@@ -1065,7 +1218,15 @@ describe("literature portable bundle workflows", function () {
           joinPath(storageRoot, "assets", "m1", "asset.png"),
         ),
       );
-      assert.lengthOf(imported.getNotes(), 4);
+      assert.lengthOf(imported.getNotes(), 5);
+      assert.isTrue(
+        imported
+          .getNotes()
+          .map((noteId: number) => Zotero.Items.get(noteId)?.getNote() || "")
+          .some((html: string) =>
+            html.includes("Ordinary note title and content"),
+          ),
+      );
       const importedNote = Zotero.Items.get(imported.getNotes()[0])!;
       assert.notInclude(importedNote.getNote(), embedded.attachmentKey);
       assert.match(importedNote.getNote(), /data-attachment-key="[^"]+"/);

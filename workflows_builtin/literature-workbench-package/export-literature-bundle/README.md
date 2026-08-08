@@ -2,7 +2,7 @@
 
 ## 这个 Workflow 做什么？
 
-将 Zotero 文献导出为可移植 ZIP。默认输出 Research Product，适合交给 Agent 消费；也可以开启 `sourceOnly` 输出旧的扁平原文包。
+将 Zotero 文献导出为可移植 ZIP。默认输出独立的 Literature Product，既可在不同 Zotero 实例间完整迁移，也可直接交给 Agent 消费；也可以开启 `sourceOnly` 输出扁平原文包。
 
 文献包会保存父条目的书目信息、标签、子笔记、可读取的附件、笔记内嵌图片、Markdown 附件引用的本地图片，以及本次同时导出的父条目之间的关联关系。
 
@@ -27,12 +27,14 @@
 
 ## 产出什么？
 
-默认生成一个 `research_bundle.product@2.0.0` ZIP，其中包含：
+默认生成一个 `literature_bundle.product@1.0.0` ZIP，其中包含：
 
-- `index.md`：将文献标题映射到 `paper-###` 目录
+- `index.md`：将文献标题映射到 `paper-###` 目录和首选原文
 - `README.md`、`manifest.json`、`references.bib`
-- 每个父条目的 `papers/paper-###/metadata.json`、可用的 `source.md` 或 `source.pdf`
-- digest、references、citation-analysis、conversation payload 及 Markdown 图片 companion files
+- 每个父条目的可移植 metadata、全部直接附件、全部子笔记和笔记图片
+- 一份指向现有附件的首选原文索引：Markdown 优先，PDF 回退，不会重复写入原文字节
+- digest、references、citation-analysis、conversation payload 的 Agent 可读文本投影，以及 Markdown 图片 companion files
+- 本次同时导出父条目之间的包内关联关系
 
 以下情况会保留其他可导出内容，并在结果中报告警告：
 
@@ -46,7 +48,7 @@
 |------|------|--------|------|
 | 导出模式 (`mode`) | 枚举 | `selection` | `selection`、`collection` 或 `library`。 |
 | 目标 Collection (`targetCollection`) | `libraryId:collectionKey` | 无 | 仅 Collection 模式使用，由 `zotero.collections` 动态提供选项。 |
-| 仅导出原文 (`sourceOnly`) | 布尔 | 否 | 保留旧的 `zotero-agents-literature-bundle-source-only` 扁平包：`items/` 中每篇文献一个文件，**无法被导入 workflow 导入**。 |
+| 仅导出原文 (`sourceOnly`) | 布尔 | 否 | 生成 `zotero-agents-literature-bundle-source-only` 扁平包：`items/` 中每篇文献一个文件，**无法被导入 workflow 导入**。 |
 
 ## 模型建议
 

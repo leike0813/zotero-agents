@@ -37,6 +37,7 @@
     "literature-workbench-package/lib/zipStore.mjs",
     "literature-workbench-package/lib/literatureDeepReadingBundle.mjs",
     "literature-workbench-package/lib/literatureBundle.mjs",
+    "literature-workbench-package/lib/bundleBibliography.mjs",
     "literature-workbench-package/lib/markdownLocalImages.mjs",
     "literature-workbench-package/lib/researchBundle.mjs",
     "literature-workbench-package/lib/researchBundleReadme.mjs",

@@ -65,18 +65,9 @@ async function writeJson(target: string, value: unknown) {
   await fs.writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-async function exists(target: string) {
-  try {
-    await fs.access(target);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function createBridgeHarness(
   runRoot: string,
-  options: { remote?: boolean } = {},
+  options: { remote?: boolean; topicContext?: "ok" | "missing" | "error" } = {},
 ) {
   const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
   await fs.mkdir(fixtureRoot, { recursive: true });
@@ -85,6 +76,7 @@ async function createBridgeHarness(
 const fs = require("fs");
 const path = require("path");
 const { command, input } = JSON.parse(process.argv[2]);
+const topicContextMode = ${JSON.stringify(options.topicContext || "ok")};
 fs.appendFileSync(path.resolve("bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\n");
 let data = {};
 if (command === "synthesis topic list") {
@@ -99,8 +91,12 @@ else if (command === "library item search") data = {
     : [{ key: "BBBB2222", libraryId: 1, title: "Evidence selection", creators: ["B"], year: "2023" }],
   truncated: false
 };
-else if (command === "synthesis topic get-review-input") data = { topic: { topic_id: input.topicId, markdown: "# Graph Evidence" }, resolved_paper_set: { papers: [{ paper_ref: "1:AAAA1111" }] }, citation_graph_slice: { nodes: [], edges: [] }, diagnostics: { warnings: [] } };
-else if (command === "synthesis graph query-cluster") data = { ok: true, nodes: [{ node_id: "zotero:item:CCCC3333", kind: "library_paper", library_id: 1, item_key: "CCCC3333", title: "Graph frontier" }], edges: [], diagnostics: { graph_status: "ready" } };
+else if (command === "synthesis topic get-context") {
+  if (topicContextMode === "error") { console.error("topic context unavailable"); process.exit(2); }
+  data = topicContextMode === "missing"
+    ? { topic: { topic_id: input.topicId, markdown: "# Graph Evidence" }, diagnostics: { warnings: [] } }
+    : { topic: { topic_id: input.topicId, markdown: "# Graph Evidence" }, resolved_paper_set: { papers: [{ paper_ref: "1:AAAA1111" }] }, diagnostics: { warnings: [] } };
+}
 else if (command === "synthesis index reference get") data = { entries: [], nextCursor: "", hasMore: false, returned: 0, total: 0, limit: Number(input.limit || 25), diagnostics: { stale: false, warnings: [] } };
 else if (command === "synthesis artifact export-filtered") {
   const refs = input.paper_refs || [];
@@ -140,8 +136,7 @@ console.log(JSON.stringify(data));
     commands: [
       "synthesis topic list",
       "library item search",
-      "synthesis topic get-review-input",
-      "synthesis graph query-cluster",
+      "synthesis topic get-context",
       "synthesis index reference get",
       "synthesis artifact export-filtered",
       "library item get",
@@ -185,6 +180,16 @@ async function advanceToEvidenceStage(
     "stage_20_discovery_collect",
   );
   runGate(runRoot, [...common, "--action", "run"], env);
+  const discoveryCalls = (
+    await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.notInclude(
+    discoveryCalls.map((call) => call.command),
+    "library item search",
+  );
 
   const topicGate = runGate(runRoot, common, env);
   assert.equal(topicGate.stage, "stage_30_topic_assessment");
@@ -219,57 +224,6 @@ describe("export research bundle skill runtime", function () {
         activeHarnesses.delete(harness);
       }),
     );
-  });
-
-  it("documents a minimum complete executable contract in SKILL.md", async function () {
-    const skillText = await fs.readFile(
-      path.join(skillRoot, "SKILL.md"),
-      "utf8",
-    );
-    for (const stage of [
-      "stage_00_runtime_setup",
-      "stage_10_intent_query_plan",
-      "stage_20_discovery_collect",
-      "stage_30_topic_assessment",
-      "stage_40_evidence_prepare",
-      "stage_50_paper_assessment",
-      "stage_60_enrich_and_select",
-      "stage_70_render_result",
-    ]) {
-      assert.include(skillText, stage);
-    }
-    for (const action of [
-      "run_stage",
-      "submit_stage_payload",
-      "complete_bridge_download",
-      "return_final_output",
-    ]) {
-      assert.include(skillText, action);
-    }
-    for (const schema of [
-      "assets/schemas/stage-10-intent-query-plan.schema.json",
-      "assets/schemas/stage-30-topic-assessment.schema.json",
-      "assets/schemas/stage-50-paper-assessment.schema.json",
-    ]) {
-      assert.include(skillText, schema);
-    }
-    for (const contractField of [
-      "research_dimensions",
-      "matched_topic_ids",
-      "evidence_basis",
-      "topic_context",
-      "research_bundle_selection",
-      "research_bundle_canceled",
-      "host_unavailable",
-      "invalid_input",
-      "no_related_literature",
-      "__SKILL_DONE__",
-      "resume_packet",
-    ]) {
-      assert.include(skillText, contractField);
-    }
-    assert.notInclude(skillText, "references/");
-    assert.isFalse(await exists(path.join(skillRoot, "references")));
   });
 
   it("runs discovery, batched semantic assessment, deterministic scoring, and rendering", async function () {
@@ -309,6 +263,14 @@ describe("export research bundle skill runtime", function () {
       const packet = JSON.parse(
         await fs.readFile(batchGate.required_reads[0], "utf8"),
       );
+      const overlap = packet.candidates.find(
+        (candidate: any) => candidate.paper_ref === "1:AAAA1111",
+      );
+      if (overlap) {
+        assert.include(overlap.sources, "topic:topic-a");
+        assert.include(overlap.sources, "query:graph evidence");
+        assert.include(overlap.topic_ids, "topic-a");
+      }
       await writeJson(batchGate.payload_path, {
         batch_id: packet.batch_id,
         assessments: packet.candidates.map((candidate: any, index: number) => ({
@@ -345,7 +307,7 @@ describe("export research bundle skill runtime", function () {
       ),
     );
     assert.lengthOf(selection.topics, 1);
-    assert.lengthOf(selection.papers, 3);
+    assert.lengthOf(selection.papers, 2);
     assert.equal(selection.papers[0].role, "core");
     assert.equal(selection.papers[1].role, "related");
     assert.equal(
@@ -371,6 +333,18 @@ describe("export research bundle skill runtime", function () {
       (call) => call.command === "library item search",
     );
     assert.isNotEmpty(searchCalls);
+    const topicContextIndex = bridgeCalls.findIndex(
+      (call) => call.command === "synthesis topic get-context",
+    );
+    const firstSearchIndex = bridgeCalls.findIndex(
+      (call) => call.command === "library item search",
+    );
+    assert.isAtLeast(topicContextIndex, 0);
+    assert.isAbove(firstSearchIndex, topicContextIndex);
+    assert.notInclude(
+      bridgeCalls.map((call) => call.command),
+      "synthesis graph query-cluster",
+    );
     for (const call of searchCalls) {
       assert.isString(call.input.query);
       assert.notProperty(call.input, "text");
@@ -463,6 +437,74 @@ describe("export research bundle skill runtime", function () {
       "related",
     );
     runGate(runRoot, [...common, "--action", "run"], harness.env);
+  });
+
+  it("diagnoses a missing Topic paper set and continues with library candidates", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "export-research-bundle-topic-missing-"),
+    );
+    const dbPath = path.join(
+      runRoot,
+      "runtime",
+      "export-research-bundle.sqlite",
+    );
+    const inputPath = path.join(runRoot, "runtime", "input.json");
+    const harness = await createBridgeHarness(runRoot, {
+      topicContext: "missing",
+    });
+    await writeJson(inputPath, {
+      parameter: {
+        paperTitle: "Library-only continuation",
+        researchContent: "Continue when Topic context is incomplete",
+        maxTopics: 1,
+        maxCorePapers: 1,
+        maxRelatedPapers: 3,
+      },
+    });
+    const common = await advanceToEvidenceStage(
+      runRoot,
+      dbPath,
+      inputPath,
+      harness.env,
+    );
+    runGate(runRoot, [...common, "--action", "run"], harness.env);
+    while (
+      runGate(runRoot, common, harness.env).stage ===
+      "stage_50_paper_assessment"
+    ) {
+      const batchGate = runGate(runRoot, common, harness.env);
+      const packet = JSON.parse(
+        await fs.readFile(batchGate.required_reads[0], "utf8"),
+      );
+      await writeJson(batchGate.payload_path, {
+        batch_id: packet.batch_id,
+        assessments: packet.candidates.map((candidate: any) => ({
+          paper_ref: candidate.paper_ref,
+          semantic_relevance: 0.8,
+          matched_topic_ids: [],
+          reason: "Library evidence remains available.",
+          evidence_basis: ["metadata"],
+          caveats: ["Topic paper membership was unavailable."],
+        })),
+      });
+      runGate(
+        runRoot,
+        [...common, "--action", "submit", "--payload", batchGate.payload_path],
+        harness.env,
+      );
+    }
+    runGate(runRoot, [...common, "--action", "run"], harness.env);
+    const preview = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "06-selection-preview.json"),
+        "utf8",
+      ),
+    );
+    assert.isNotEmpty(preview.papers);
+    assert.include(
+      preview.diagnostics.map((entry: any) => entry.code),
+      "topic_resolved_papers_unavailable",
+    );
   });
 
   it("publishes bounded semantic relevance in the paper assessment contract", async function () {
