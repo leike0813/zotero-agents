@@ -170,13 +170,12 @@ Two matching routes intentionally coexist:
 
 Refresh and workflow apply must not call `buildReferenceMatcherIndex`, `resolveReferenceWithPolicy`, or the advanced external dedupe pass. Advanced matching must be explicit, progress-reporting, and stale-tolerant; accepted binding or redirect fact changes may trigger a separate visible Citation Graph cache incremental refresh and then related-items sync, but never layout rebuild. Related-items sync must read accepted facts only and must not run matcher logic.
 
-The sidecar owns a private Reference Matching/Review application boundary for
-this advanced route. It exposes strict in-process prepare/apply/discard,
-proposal paging, and batch review contracts to later transport work, while its
-Node composition owns a separate SQLite connection and the durable matching
-state, preparation, and proposal tables. The application is initialized with
-the sidecar lifecycle but has no public HTTP route, Host proxy method, or
-effect-protocol command in the current runtime.
+The Rust production Reference Matching/Review application exposes typed
+prepare/apply/discard, proposal paging, and batch review operations through the
+native client. It owns durable matching state, preparations, and proposals in
+the production repository. Required Zotero metadata is obtained through the
+bounded reverse-Host read port; accepted effects promote only after the same
+Host/repository basis is recaptured.
 
 The application reads bounded Host metadata and captures active raw references,
 effective redirects, accepted bindings, and canonical evidence before invoking

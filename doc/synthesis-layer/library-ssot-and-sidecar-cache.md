@@ -1,6 +1,11 @@
 # Library SSOT and Sidecar Cache
 
-This document defines the current Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin. The plugin still owns all production data and canonical files; only Citation Graph layout and metrics compute currently cross the shared supervised sidecar worker, without changing the data truth defined here.
+This document defines the current Synthesis data boundary after the index model
+reset. Zotero Library remains the SSOT for Zotero-owned facts. The XPI-bundled
+Rust runtime owns production Synthesis application state, SQLite projections,
+durable decisions, canonical Topic files, and workers. The plugin owns UI
+orchestration and bounded reverse-Host authority for Zotero, credentials,
+network, files, and export delivery.
 
 ## Decision
 
@@ -43,7 +48,7 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 - No startup reconcile that fans out Zotero library changes into sidecar work.
 - No dirty-event queue whose purpose is to keep Synthesis in lockstep with Zotero.
 - No full Registry rebuild on normal startup, snapshot read, or topic workflow read.
-- Production Citation Graph layout requires the ready supervised sidecar worker and fails closed when it is unavailable; all data correctness and previous-layout retention remain plugin-owned.
+- Production Citation Graph layout requires the Rust worker and fails closed when it is unavailable; the Rust application/repository owns basis checks and previous-layout retention.
 
 ## Allowed Update Paths
 

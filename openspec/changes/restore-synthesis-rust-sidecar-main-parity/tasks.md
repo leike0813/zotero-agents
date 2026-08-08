@@ -50,15 +50,15 @@
 
 ## 8. Complete Domain Restoration
 
-- [ ] 8.1 Complete Workbench/Topic/Workflow baseline parity
-- [ ] 8.2 Complete Reference/Matching baseline parity
-- [ ] 8.3 Complete Citation baseline parity
-- [ ] 8.4 Complete Tag/Concept/Topic Graph baseline parity
-- [ ] 8.5 Complete import/export/WebDAV/durable/reset/recovery/debug baseline parity
+- [x] 8.1 Complete Workbench/Topic/Workflow baseline parity
+- [x] 8.2 Complete Reference/Matching baseline parity
+- [x] 8.3 Complete Citation baseline parity
+- [x] 8.4 Complete Tag/Concept/Topic Graph baseline parity
+- [x] 8.5 Complete import/export/WebDAV/durable/reset/recovery/debug baseline parity
 
 ## 9. Documentation and Verification
 
-- [ ] 9.1 Correct active architecture, runtime, persistence, performance, and migration documentation to match executable ownership and bounds
+- [x] 9.1 Correct active architecture, runtime, persistence, performance, and migration documentation to match executable ownership and bounds
 - [ ] 9.2 Run strict OpenSpec, contract/surface, invariant, TypeScript, Rust fmt/clippy/workspace, production-route, performance, and production-build gates
 - [ ] 9.3 Run representative Zotero 7 and Zotero 9 Workbench/workflow checks and record remaining evidence without claiming release
 - [x] 9.4 Confirm both R9b deletion changes remain blocked unless every task and external acceptance gate is complete

@@ -1,10 +1,32 @@
 # Synthesis Sidecar Rust 迁移总计划
 
 > 日期：2026-07-18  
-> 状态：已批准的后续实施路线；Rust 尚未进入生产  
+> 状态：Rust 已是 manifest v3/XPI-only 生产 owner；R9b 验收与物理 retirement 未完成
 > 上游计划：`artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`  
 > 转向依据：`artifact/synthesis_sidecar_stage1_ws5_self_review_20260718.md` 及五平台 Node prebuild 实测  
 > 治理 change：`openspec/changes/pivot-synthesis-sidecar-runtime-to-rust/`
+
+## 当前实现状态（2026-08-08）
+
+manifest v3 从安装的 XPI materialize 唯一 Rust native runtime；固定
+`current` 目录、launch session 和 `state/synthesis.lock` 构成当前生命
+周期，不读取 active/previous pointer、activation receipt、owner marker 或
+lease 文件。Rust 已拥有 production application、53 表/46 索引的 repository
+foundation v2、Topic canonical store 和 bounded worker；TypeScript 只保留
+grouped-client/UI 编排与 reverse-Host 的 Zotero、凭据、文件、网络和 export
+delivery 权限。Node/TypeScript service、repository、application 与 engine
+仅作差分 oracle，不能成为生产 fallback 或 live owner。
+
+完整 domain parity 与 96-operation production route（95 个 baseline
+operation 加 `client.controlPublicMaintenanceOperation`）已有 candidate
+evidence，并已对照固定 131-method baseline 与 23 项授权 retirement。该证据
+尚未完成七平台正式构建、Zotero 7/9 实机、完整生产/性能 gate、签名、XPI
+发布和 release 验收，因此两个 R9b 删除 change 继续阻塞。
+
+本文后续 R0-R9a 段落保留各日期下的迁移决策与历史证据。凡其中出现
+manifest v2、shadow/private candidate、plugin production owner、
+active/previous pointer 或 receipt-bound activation，均是当时阶段记录，
+已由上述 manifest v3 当前实现取代，不得作为当前运行指令。
 
 ## 1. 决策摘要
 
@@ -54,7 +76,7 @@ Stage 1 的 WS0-WS5 已经建立了可迁移的边界：插件侧 `SynthesisClie
 - Zotero selection、item/PDF、prefs、notifier 等宿主能力；
 - 非跨进程 DTO 与纯插件状态。
 
-这些模块可以因 runtime manifest v2、launch/discovery/handshake 契约而做适配，但不能引入 Rust 或 Node runtime 到插件进程。
+这些模块按当前 runtime manifest v3、launch/discovery/handshake 契约适配，但不能引入 Rust 或 Node runtime 到插件进程。
 
 ### 2.4 当前实现规模
 
@@ -68,7 +90,7 @@ Stage 1 的 WS0-WS5 已经建立了可迁移的边界：插件侧 `SynthesisClie
 | `packages/synthesis-repository` | 6,663 | 迁移 SQLite/canonical durable semantics |
 | `packages/synthesis-engine` | 11,577 | 按确定性与风险分组迁移计算内核 |
 
-当前公开 sidecar surface 有 8 个 capability：
+在 2026-07-18 制定本计划时，公开 sidecar surface 只有以下 8 个 capability（历史基线，已被当前 96-operation production manifest 取代）：
 
 - `system.handshake`
 - `system.shutdown`
@@ -295,7 +317,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **退出条件**：所有 consumer 能识别 v2；旧 cache 有清晰 invalidation/rebuild；D3 runtime 及其 XPI inventory gate 可删除；不存在隐式 v1/v2 混读。
 
-### R7：repository、canonical store 与 application parity
+### R7：repository、canonical store 与 application parity（历史阶段）
 
 **目标**：在隔离 roots 中复刻 durable semantics，而非复刻 Node 类结构。
 
@@ -303,7 +325,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **canonical store 必须保持**：CAS、exclusive staging、file/directory fsync、atomic promotion、journal phase、backup/forward recovery、durable import receipt。
 
-**状态（2026-07-26）**：repository 与 canonical-store durable parity 已通过独立 roots、51 表/40 索引、PRAGMA、transaction、journal、receipt 和 recovery corpus 验证。此前 Rust application crate 的十三类通用状态机只证明 inventory，不能证明 application parity，现已删除。change `establish-synthesis-rust-typed-application-parity-harness` 建立了第一份真实 typed differential：Workbench 与 Topic 分别通过 typed repository/canonical/Structured Artifact ports 执行 Node oracle 与 Rust candidate，并比较公开 DTO、稳定 code/warning、全部表、canonical bytes/hash/receipt 和 reopen 结果。之后三个 change 依次覆盖 Citation Graph 与 Reference、Tag Vocabulary 与 Concept/Topic Graph，以及最后的 Knowledge Checkpoint、Durable Bundle、WebDAV Sync 与 Debug/Maintenance。各领域均通过 typed repository/CAS、显式 compute/Host ports 和物理隔离的 Node/Rust roots 比较公开 DTO、全部 51 表、远端或 canonical side effects 与 reopen 状态；生产 Host、HTTP capability、runtime manifest 和 `SynthesisClient` 所有权保持不变。候选 `serve` 仍只暴露 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary。R7 typed application parity 已完成，R8 可以在新的独立 change 中启动。
+**状态（2026-07-26）**：repository 与 canonical-store durable parity 已通过独立 roots、51 表/40 索引、PRAGMA、transaction、journal、receipt 和 recovery corpus 验证。此前 Rust application crate 的十三类通用状态机只证明 inventory，不能证明 application parity，现已删除。change `establish-synthesis-rust-typed-application-parity-harness` 建立了第一份真实 typed differential：Workbench 与 Topic 分别通过 typed repository/canonical/Structured Artifact ports 执行 Node oracle 与 Rust candidate，并比较公开 DTO、稳定 code/warning、全部表、canonical bytes/hash/receipt 和 reopen 结果。之后三个 change 依次覆盖 Citation Graph 与 Reference、Tag Vocabulary 与 Concept/Topic Graph，以及最后的 Knowledge Checkpoint、Durable Bundle、WebDAV Sync 与 Debug/Maintenance。各领域均通过 typed repository/CAS、显式 compute/Host ports 和物理隔离的 Node/Rust roots 比较公开 DTO、全部 51 表、远端或 canonical side effects 与 reopen 状态；生产 Host、HTTP capability、runtime manifest 和 `SynthesisClient` 所有权保持不变。候选 `serve` 当时仍只暴露 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary。R7 typed application parity 已完成；该 51 表/40 索引 shadow 记录已被当前 53 表/46 索引 production foundation v2 与完整 native route 取代。
 
 **退出条件**：
 
@@ -313,13 +335,13 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 - Workbench、Topic 与后续领域簇的公开 DTO、稳定失败、durable side effects 和 reopen 结果全绿；
 - 任何差异都有显式 schema/version 决策，不以兼容分支掩盖。
 
-### R8：native service、lifecycle 与 manifest v2
+### R8：native service、lifecycle 与 manifest v2（历史阶段，已被 manifest v3 取代）
 
 **目标**：让插件只认识 native executable，而不认识 Node runtime 结构。
 
 **状态（2026-07-27）**：change `introduce-synthesis-native-runtime-manifest-v2` 已建立并完成本地实现。manifest/pointer、installer snapshot、launch/discovery/health/handshake 已切换为 v2 native identity；supervisor 只启动已验证的 `<binary> serve --config <path>`；Rust service 已接管 owner/discovery、lease/stdin/shutdown 与真实 HTTP smoke。候选 workflow 已合并为一个五平台只读矩阵，并修复 Rust Action/toolchain 调用。Node 只保留为差分 oracle，不能进入安装、rollback 或生产 fallback。生产 DB、canonical owner、Host、HTTP mutation capability 和 `SynthesisClient` 所有权仍未切换。
 
-**剩余远端证据**：五平台 candidate workflow 尚未由本 change 调度；正式签名资产、同步、XPI 与实机证据属于后续受控执行。完成本地 R8 不授权 R9。
+**当时剩余远端证据**：五平台 candidate workflow 尚未由本 change 调度；正式签名资产、同步、XPI 与实机证据属于后续受控执行。manifest v2 的 pointer/activation 生命周期已被当前 XPI-only manifest v3 固定 `current` 模型取代；本段不描述当前运行时。
 
 **任务**：
 
@@ -332,7 +354,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **退出条件**：candidate native bundle 在不触碰生产 roots 的情况下通过插件集成、生命周期、升级/回滚、损坏/过期/错平台拒绝测试。
 
-### R9：生产切换、删除 Node 与实机验收
+### R9：生产切换、删除 Node 与实机验收（R9a 历史切换，R9b 当前阻塞）
 
 **目标**：一次完成 Rust production ownership 与 Node 删除，避免双栈长期存在。
 
@@ -349,7 +371,7 @@ default-client 路由已经组成一次 receipt-bound 原子交接。预 admissi
 `artifact/synthesis_r9a_retirement_baseline_20260727.md` 的保留清单作为
 差分 oracle/兼容工件存在，不能成为生产路径。R8 七平台远端、签名/XPI
 和 clean-machine 实机证据迁入依赖的 R9b 验收，不阻塞本地切换，也不得
-据此宣告发布完成。
+据此宣告发布完成。R9a 的 receipt-bound activation 是切换期机制；当前 manifest v3 启动只使用固定 `current`、launch session、认证 discovery/handshake 与 OS lock。
 
 **后续边界**：R9b 只能按 `remove-synthesis-plugin-legacy-owner` 与
 `remove-synthesis-node-sidecar-stack` 两个依赖 change 的顺序处理物理删除。
@@ -377,6 +399,10 @@ default-client 路由已经组成一次 receipt-bound 原子交接。预 admissi
 **退出条件**：生产 owner 唯一指向 Rust；XPI 不含 Node/npm/JS service/D3 runtime；旧 Node 入口不能被配置重新启用；实机 smoke、数据恢复和 release gate 全绿。
 
 ## 7. 所有权与双实现规则
+
+下表是迁移阶段的历史所有权序列。当前生产 owner 已固定为 manifest v3
+Rust sidecar；Node/TypeScript 只允许在隔离 fixture 上执行差分验证。
+
 
 | 阶段 | 生产 owner | Node | Rust | 允许共享 live roots |
 | --- | --- | --- | --- | --- |
@@ -449,9 +475,11 @@ CI 必须同时报告未压缩、stripped 与最终归档大小，并显示相�
 - release 只接受 CI 生成且 fingerprint 匹配的 prebuild；
 - XPI assembly 不从开发机或缓存目录捡取未登记 binary。
 
-## 10. runtime manifest v2 边界
+## 10. runtime manifest v2 历史边界（已被 v3 取代）
 
-manifest v2 表达：
+以下内容记录 R8 当时的 manifest v2 合约，不能用于当前 runtime 选择。当前 manifest v3 仅接受 XPI 内置 Rust inventory，并 materialize 固定 `current`。
+
+manifest v2 当时表达：
 
 - `implementation: "rust-native"`；
 - manifest、protocol 与 service 版本；
@@ -467,13 +495,13 @@ manifest v2 表达：
 
 ## 11. 回滚与恢复
 
-### 11.1 迁移期间
+### 11.1 迁移期间（历史）
 
 生产 owner 仍是现有实现，Rust 使用隔离 roots。发现问题时禁用 candidate 即可，不需要回滚数据，也不允许 Rust 触碰 production root 后再声称“shadow”。
 
-### 11.2 native cutover 后
+### 11.2 native cutover 后（历史 v2 规则）
 
-- active/previous 只指向 manifest v2 的兼容 Rust bundles；
+- 当时的 active/previous 只指向 manifest v2 的兼容 Rust bundles；当前 v3 不读取这些 pointer；
 - schema migration 必须有 preflight、备份和 forward recovery；
 - canonical promotion 保持 journal/backup/recovery；
 - 不允许把 Node bundle 作为 previous；
@@ -481,7 +509,7 @@ manifest v2 表达：
 
 ## 12. OpenSpec 实施序列
 
-建议按以下独立 change 推进，名称可在创建时微调但边界不得合并成一个巨型 change：
+以下列表是原始历史序列；当前执行由 active OpenSpec change 与顶部状态说明治理。原计划建议按以下独立 change 推进，名称可在创建时微调但边界不得合并成一个巨型 change：
 
 1. `define-synthesis-cross-language-canonical-semantics`
 2. `introduce-synthesis-rust-sidecar-metrics-vertical-slice`
@@ -555,4 +583,4 @@ manifest v2 表达：
 - active docs、OpenSpec、build inventory 与真实代码一致；
 - 仅保留兼容 Rust bundle 之间的回滚路径，不存在隐藏 Node fallback。
 
-在这些条件满足前，应使用“Rust 迁移进行中”，不得描述为“WS5 后 Node sidecar 已可进入正式实机交付”或“Rust sidecar 已完成”。
+当前可表述为“Rust 已拥有本地 production route，R9b 验收进行中”。在七平台、Zotero 7/9 实机、完整 gate、签名和发布条件满足前，不得宣称迁移验收、物理 retirement 或 release 已完成。

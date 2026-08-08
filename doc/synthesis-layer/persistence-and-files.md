@@ -77,15 +77,11 @@ are inert and remain untouched.
 The launch config directly supplies `state/synthesis.db`,
 `data/synthesis`, reverse Host, and session identity. Rust holds the production
 OS lock before opening either root. Marker, receipt, admission, activation, and
-lease files are not runtime inputs. Interrupted `running`
-operations can become `canceled`; terminal operation history and cache-basis
-rows remain. The production database stores strict Topic application state,
-JSON-safe derived graph/concept/interest/discovery projections, and private
-Citation Graph structure, metrics, layout, and active-basis state. These rows
-are private application state, not a production repository mirror. Independent
-Concept KB and Topic Graph aggregates add complete rows, manifest revisions,
-stale markers, and last-good index payloads. Shutdown
-closes the handle but does not delete the shadow root.
+lease files are not runtime inputs. The production repository foundation v2 has
+53 tables and 46 indexes. One serialized writer owns mutation transactions and
+at most four read-only connections serve bounded reads while external Host,
+file, network, and worker work remains outside write transactions. Shutdown
+closes these production handles; it does not delete or demote the live roots.
 
 On a new profile, absence is valid only when the database, SQLite sidecars, and
 canonical root are all absent. Rust creates the database and canonical root
@@ -102,58 +98,42 @@ or discard. Proposal, accepted binding, redirect, rejection, supersession, and
 retarget decisions survive restart. Accepted-fact changes mark isolated graph
 and related projections stale without executing either downstream effect.
 
-Tag Vocabulary application state records the active vocabulary revision and
+Tag Vocabulary production state records the active vocabulary revision and
 index basis beside strict entry, alias, abbreviation, protocol, warning, staged
-suggestion, audit, and effect rows. Validation and index construction occur
-outside SQLite; promotion recaptures the vocabulary revision and commits the
-vocabulary/staging/effect transition atomically. Host delivery occurs only after
-commit, and a missing or failed Host port leaves the effect pending without
-rolling back vocabulary state. This private table family has no public route and
-does not own production import, checkpoint, WebDAV, or projection manifests.
+suggestion, audit, and effect rows. The Rust application validates and builds
+indexes outside SQLite, recaptures the revision, and commits the
+vocabulary/staging/effect transition through the single writer. Zotero Tag
+effects are dispatched only after commit through the reverse-Host port; Host
+failure leaves the effect pending and cannot roll back vocabulary state.
 
-The private knowledge checkpoint coordinator exports a strict, versioned,
-bounded snapshot of active Tag Vocabulary rows, all six Concept KB row
-families, and all three Topic Graph row families. Its hash covers normalized
-payload, domain bases, and contract version, but not generation time. Preview
-holds at most one process-local, single-use receipt bound to the captured Tag
-revision and Concept/Topic manifests. Acknowledged apply performs complete
-three-domain replacement under one SQLite transaction and three-basis CAS.
-Tag staged suggestions, audit rows, and pending effects remain local; last-good
-indexes retain their payloads and become stale. Restart, discard, service
-stop, or any apply attempt invalidates the receipt. The coordinator has no
-public route and does not replace production checkpoint files, durable bundles,
-or WebDAV synchronization.
+The Rust knowledge-checkpoint application exports and verifies a strict,
+versioned, bounded snapshot of active Tag Vocabulary, Concept KB, and Topic
+Graph aggregates. Preview issues one basis-bound, single-use receipt.
+Acknowledged apply performs complete three-domain replacement through one
+SQLite transaction and three-basis CAS. Tag staged suggestions, audit rows, and
+pending effects remain local; last-good indexes retain their payloads and become
+stale. Restart, discard, stop, or any apply attempt invalidates the receipt.
 
-The private durable bundle application is a portable-state boundary, not another
-SSOT or cache. It recognizes the complete 23-kind durable contract, emits only
-deterministic v2 bundles, and verifies both v2 and strict legacy v1 inputs. It
-captures SQLite rows and Topic registry bases first, reads only validated
-canonical `current` JSON/Markdown source assets, then recaptures the repository
-and canonical hashes. A missing, damaged, or changed basis fails the whole
-export. Sinks receive path-sorted bundles before the manifest commit marker, so
-a partial write is never a newly verifiable complete export. This foundation
-also previews deterministic base/local/remote diffs and retains at most one
-single-use receipt. Apply rejects conflicts and tombstones, requires explicit
-acknowledgement for unbased updates, recaptures the SQLite aggregate and sync
-index, then commits live facts, stale projection bases, sync metadata, and a
-canonical recovery receipt in one transaction. Topic JSON/Markdown is staged
-before that commit and promoted synchronously afterward; restart either rolls a
-matching batch forward or discards an uncommitted batch. It does not contact
-WebDAV or expose a public capability. The sibling private WebDAV application
-orchestrates that durable port with an injected secret-free Host port. Its Node
-composition persists only strict identity-bound control state, defaults the Host
-port to disabled, is never invoked automatically, and exposes no public route.
+The Rust durable-bundle application owns deterministic v2 export, strict v1/v2
+verification, preview, import, repository CAS, sync metadata, and recoverable
+multi-Topic canonical promotion. It captures repository and canonical bases
+before export and recaptures them before commit. Import preserves absent local
+facts, marks rebuildable projections stale, and cannot apply unresolved
+conflicts or tombstones.
 
-The sibling Topic canonical shadow uses the same opaque profile/data-root
-identity but never receives a caller-supplied canonical path. Complete snapshots
-are canonicalized and fsynced in global staging before a CAS-guarded rename;
-the one journal and receipt recover an interrupted commit without scanning Topic
-content. Per-Topic corruption is reported as `invalid` by
-`topics.canonical.inspect`; identity or malformed journal state fails closed.
-Production `data/synthesis/topics/**`, Topic apply, archives, assets, discovery,
-and WebDAV remain plugin-owned. Internally, the service-owned Topic application
-may read one complete shadow current and promote a bounded materialized bundle;
-this method is not exposed through authenticated RPC and accepts no caller path.
+The Rust WebDAV application composes that durable port with a secret-free
+reverse-Host port. The plugin adapter alone reads preferences and encrypted
+credentials, resolves remote URLs, performs HTTP, and owns abort authority. The
+Rust application receives no credentials or unrestricted filesystem/network
+access; WebDAV never gains a second repository or canonical owner.
+
+The production Topic canonical store uses the opaque profile/data-root identity
+and never accepts a caller-supplied canonical path. Complete snapshots are
+canonicalized and fsynced in staging before basis-guarded promotion; journal and
+receipt recovery never scans unrelated Topic content. Rust owns
+`data/synthesis/topics/**`, Topic apply, archives, assets, and coordination
+with repository projections. Zotero source/artifact reads and remote export
+delivery remain reverse-Host authorities.
 
 ## SQLite Table Families
 
@@ -211,9 +191,10 @@ merge/create/review outcomes. Failed, cancelled, oversized, or malformed
 results leave durable rows and the existing projection registry state
 unchanged.
 
-The private Concept KB application owns the isolated proposal/review/display/
-delete policy and dispatches index/query through the bounded worker. It promotes
-only against the captured manifest and never exposes a public service route.
+The Rust Concept KB application owns production proposal, review, display,
+delete, index, and query policy. It invokes bounded workers, promotes only
+against the captured manifest, exposes public DTOs through the native client,
+and never writes repository state during a query.
 
 Topic Graph nodes, edges, review items, and relation decisions remain
 SQLite-owned. The environment-neutral Topic Graph index engine receives only
@@ -224,31 +205,27 @@ assembles Workbench filters, or updates the projection registry. Failed,
 cancelled, oversized, or malformed results leave graph rows and existing
 projection registry state unchanged.
 
-The private Topic Graph application owns the isolated snapshot, upsert,
-proposal/review/decision, deletion-cleanup, and index-promotion policy. Topic
+The Rust Topic Graph application owns production snapshot, upsert,
+proposal/review/decision, deletion cleanup, and index-promotion policy. Topic
 soft-delete marks matching nodes and relations deleted after canonical and
-repository promotion; a Graph failure is reported as a warning and does not
-reverse the completed soft-delete. Purge removes only deleted Graph rows, so a
-rebuilt active node, edge, or review remains intact. Index
-construction runs through the bounded worker; manifest supersession or worker
-failure preserves the last-good index. The Rust Topic application owns
-canonical/repository lifecycle coordination and the compatibility dispatcher
-only rebuilds strict DTOs and maps wire fields.
+repository promotion; a Graph warning does not reverse the completed
+soft-delete. Purge removes only deleted Graph rows, preserving rebuilt active
+state. Worker failure or manifest supersession preserves the last-good index;
+typed routing only rebuilds DTOs and maps wire fields.
 
 Topic structured artifacts are computed through the environment-neutral Topic
-Structured Artifact engine. Its bounded DTOs validate complete and patch
-manifests, assemble and validate the current artifact, and apply section
-read-set CAS/merge. The application remains the sole owner of workspace file
-reads, digest availability checks, canonical file names and hashes, current
-promotion, metadata/index writes, downstream proposal ingestion, discovery,
-event logs, and WebDAV autosync. Engine failure cannot create or replace a
-topic current directory.
+Structured Artifact engine. The Rust application owns workspace coordination,
+digest availability checks, canonical file names and hashes, current promotion,
+metadata/index writes, downstream proposal ingestion, discovery, event logs,
+and WebDAV scheduling. Zotero/file inputs that require Host authority cross
+bounded reverse-Host ports. Engine failure cannot create or replace a Topic
+current directory.
 
 ## `data/synthesis` Boundary
 
-Normal startup and Workbench snapshot may read `data/synthesis/topics` and
-`data/synthesis/sidecar` when building topic artifact views. They must not treat
-legacy `data/synthesis/state` as active data.
+Normal startup and Workbench reads use `state/synthesis.db` plus canonical
+`data/synthesis/topics/**`. They do not read legacy
+`data/synthesis/sidecar/**` or `data/synthesis/state/**` as active data.
 
 Allowed `data/synthesis` writes:
 
@@ -346,7 +323,11 @@ The Workbench Review & Overrides view should aggregate bounded DTOs:
 
 ## Import and Export
 
-Export/checkpoint renders from DB and canonical Topic artifacts into a portable bundle. The private sidecar exporter performs only this read path; production import continues to validate and write through repository/domain APIs. Neither path copies arbitrary file trees back into runtime state.
+Export/checkpoint renders from the Rust-owned repository and canonical Topic
+store into a portable bundle. The same production durable application validates
+and applies imports through domain APIs. Remote ZIP materialization and WebDAV
+HTTP remain Host-adapter responsibilities; neither path copies arbitrary file
+trees into runtime state.
 
 WebDAV Sync uses this rule as a hard contract:
 

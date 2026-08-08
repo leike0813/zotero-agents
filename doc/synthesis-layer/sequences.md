@@ -196,10 +196,10 @@ Constraints:
 - Graph cache refresh does not mark topic source-check state changed.
 - Graph metrics are optional enrichment for topic workflows.
 
-## `seq.graph.transfer_worker_canary`
+## `seq.graph.transfer_worker`
 
-The internal canary exercises large graph-build compute without acquiring
-production read or write authority.
+The Rust production transfer path executes large graph-build compute without
+giving the worker repository, canonical, or Host authority.
 
 ```mermaid
 sequenceDiagram
@@ -230,8 +230,7 @@ Constraints:
 - The worker receives no staging path, DB, canonical-file, Host, Zotero, or
   subprocess capability.
 - A failed attempt returns to sealed input; session cancel destroys all state.
-- Production basis recapture and repository promotion are not part of this
-  sequence.
+- After the attempt commits, the Rust application recaptures the durable basis and promotes through the single repository writer.
 
 ## `seq.discovery.digest_apply_match`
 
@@ -331,15 +330,14 @@ Constraints:
 - Same-entity local and remote edits block import.
 - Unbased remote updates block unless the composition explicitly acknowledges them.
 - A second HEAD observation or conditional write conflict fails retryably; it never overwrites a changed pointer.
-- The private Node composition uses the same sequence with a disabled Host port, no public route, and no automatic trigger.
 - Projection rows are not imported as durable facts; they become stale after durable import.
 - `zotero-agents.db`, `synthesis.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter WebDAV bundles.
 
 ## `seq.import.preview_apply`
 
-Import is preview-first and sidecar-scoped. This sequence describes the private
-isolated-shadow durable application; production WebDAV keeps its existing
-plugin-owned orchestration.
+Import is preview-first and sidecar-scoped. The Rust production durable
+application owns validation, repository CAS, and canonical promotion; remote
+WebDAV credentials and HTTP remain in the secret-free Host adapter.
 
 ```mermaid
 sequenceDiagram
@@ -347,7 +345,7 @@ sequenceDiagram
   participant I as Import Service
   participant B as File Bundle
   participant S as Sidecar Repository
-  participant C as Topic Canonical Shadow
+  participant C as Topic Canonical Store
 
   U->>I: import preview
   I->>B: read explicit bundle

@@ -7,24 +7,20 @@ on top of the Synthesis sidecar cache. It provides a canonical file-based asset
 store, a projection/index system for runtime queries, and a WebDAV durable
 bundle service for cross-instance knowledge sharing.
 
-Core modules implementing this subsystem are:
+Core production modules are:
 
-| Module | File | Role |
-|--------|------|------|
-| Foundation | `src/modules/synthesis/foundation.ts` | Canonical store, envelopes, sharding, transaction support, projection registry |
-| WebDAV Sync | `src/modules/synthesis/webDavSync.ts` | Durable bundle synchronization through the Host WebDAV port |
-| Citation Graph | `src/modules/synthesis/citationGraph.ts` | Legacy paper identity adapter and canonical graph envelope |
-| Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
-| Topic Graph | `packages/synthesis-application/src/topicGraphApplication.ts`, `packages/synthesis-repository/src/topicGraph.ts`, `src/modules/synthesis/topicGraph.ts` | Shared isolated aggregate/policy plus production canonical, discovery, projection, checkpoint, and public compatibility composition |
-| Topic Graph Index Engine | `packages/synthesis-engine/src/topicGraphIndex.ts` | Bounded environment-neutral root and unplaced-topic derivation |
-| Topic Structured Artifact Engine | `packages/synthesis-engine/src/topicStructuredArtifact.ts` | Bounded environment-neutral manifest validation, artifact assembly/validation, and section-patch computation |
-| Concept KB | `packages/synthesis-application/src/conceptKbApplication.ts`, `packages/synthesis-repository/src/conceptKb.ts`, `src/modules/synthesis/conceptKb.ts` | Shared isolated aggregate/policy plus production canonical, projection, diagnostics, import/export, and public query composition |
-| Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
-| Tag Vocabulary | `packages/synthesis-application/src/tagVocabularyApplication.ts`, `packages/synthesis-repository/src/tagVocabulary.ts`, `src/modules/synthesis/tagVocabulary.ts` | Shared isolated application/repository rules plus production plugin import, checkpoint, WebDAV, Host-effect, and projection compatibility composition |
-| Tag Vocabulary Engine | `packages/synthesis-engine/src/tagVocabulary.ts` | Bounded environment-neutral TagVocab v1 validation and index construction |
-| Knowledge Checkpoint | `packages/synthesis-contracts/src/knowledgeCheckpoint.ts`, `packages/synthesis-application/src/knowledgeCheckpointApplication.ts`, `packages/synthesis-repository/src/knowledgeCheckpoint.ts` | Strict private SQLite-only checkpoint capture, verification, preview, and atomic full replacement across active Tag Vocabulary, Concept KB, and Topic Graph aggregates |
-| Reference Matcher Engine | `packages/synthesis-engine/src/referenceMatcher.ts` | Bounded environment-neutral reference binding and clustered canonical deduplication |
-| Registry | `src/modules/synthesis/registry.ts` | Reference sidecar registry index rows |
+| Module | Production owner | Role |
+| --- | --- | --- |
+| Application | `native/synthesis-sidecar/crates/synthesis-application` | Topic/Graph/Concept/Tag/Reference/checkpoint/durable/WebDAV use cases, validation, receipts, and promotion policy |
+| Repository | `native/synthesis-sidecar/crates/synthesis-repository` | Foundation v2 SQLite facts, bounded queries, migrations, and the single-writer boundary |
+| Canonical store | `native/synthesis-sidecar/crates/synthesis-canonical-store` | Topic canonical bytes, hashes, staging, journal, receipt, and recovery |
+| Worker engines | Rust engine crates and bounded worker mode | Deterministic graph, matcher, Tag, Concept, Topic Graph, and structured-artifact compute without commit authority |
+| Client/Host composition | TypeScript `SynthesisClient` and Host ports | UI orchestration, DTO transport, Zotero reads/effects, WebDAV credentials/HTTP, and export delivery |
+
+The TypeScript `packages/synthesis-*` implementations and legacy
+`src/modules/synthesis/**` services are retained only as differential oracles
+or client/Host adapters; they are not production repository or application
+owners.
 
 Core concepts:
 
@@ -208,16 +204,15 @@ when the service is invalidated.
 
 Each knowledge domain follows a similar service pattern:
 
-| Domain | Entry Function | Core Operations |
-|--------|---------------|-----------------|
-| Citation Graph | `SynthesisCitationGraphBuildEngine` plus application adapters | Full/source-slice production records and legacy `buildUnifiedCitationGraph()` projection; bounded metrics v2 and force/radial/components layout engines remain sibling compute seams |
-| Topic Graph | `SynthesisTopicGraphIndexEngine` plus shared/private and production application adapters | Strict asynchronous `buildIndex()` placement computation. The private sidecar application owns isolated manifest CAS, proposals, decisions, cleanup, and guarded index promotion; production composition retains canonical assets, discovery cascade, checkpoint export, projection registration, and public DTOs. |
-| Topic artifact lifecycle | `SynthesisTopicStructuredArtifactEngine` plus application adapter | Four strict asynchronous compute methods; application-owned workspace reads, digest checks, hashes, canonical promotion, metadata/index, proposal ingestion, discovery, and autosync |
-| Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
-| Tag Vocabulary | `SynthesisTagVocabularyEngine` plus shared/private and production application adapters | Strict bounded `validate()` and `buildIndex()` computation. The private sidecar application owns isolated CAS transactions, staged suggestions, audits, index promotion, and durable pending Host effects; production plugin composition retains import/checkpoint, manifests, WebDAV, progress, projection registration, and Host adapters. |
-| Knowledge Checkpoint | `createSynthesisKnowledgeCheckpointApplication()` | Builds and verifies deterministic active-knowledge checkpoints, previews complete replacement, and applies one acknowledged receipt under a shared three-domain CAS transaction. It excludes runtime and rebuildable rows, remains private to the isolated sidecar, and does not replace production checkpoint or WebDAV composition. |
-| Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |
-| Registry | `buildReferenceSidecarIndexRow()` | Scan note payloads, compute 5 facets (identity/metadata/artifact/reference/topic_usage) |
+| Domain | Rust production behavior |
+| --- | --- |
+| Citation Graph | Bounded build, slice, metrics, layout, basis recapture, and repository promotion; large builds use authenticated paged transfer. |
+| Topic Graph | Manifest-CAS proposals, decisions, cleanup, discovery coordination, public DTOs, and guarded index promotion. |
+| Topic artifact lifecycle | Structured validation/assembly plus Rust-owned canonical hashing, promotion, metadata, and downstream coordination. |
+| Concept KB | Proposal/review/delete/query behavior and captured-manifest index promotion. |
+| Tag Vocabulary | Validation, import/checkpoint state, staged suggestions, pending Host effects, and revision-CAS index promotion. |
+| Knowledge Checkpoint | Deterministic capture, verification, preview, and atomic three-domain replacement. |
+| Reference Matcher | Bounded binding/dedupe compute and basis-guarded promotion of accepted facts or review proposals. |
 
 ### Topic Graph Relations
 
@@ -235,11 +230,10 @@ through the environment-neutral `SynthesisTopicGraphIndexEngine`. Requests are
 strictly JSON-safe and capped at 25,000 nodes, 100,000 edges, and 4,096 code
 units per string. The application rejoins those identifiers with complete
 node, edge, review, and diagnostic rows, then promotes projection registry
-state only after strict result validation. Proposal ingestion, cycle checks,
-review decisions, mutations, and Workbench neighborhood/search filtering do
-not cross this compute boundary. Production remains in-process; the private
-sidecar application uses one internal bounded worker operation, promotes only
-against the captured manifest, and preserves its last-good index on failure.
+state only after strict result validation. Proposal ingestion, cycle checks, review decisions, mutations, and Workbench
+neighborhood/search filtering do not cross this compute boundary. The Rust
+production application invokes the bounded worker, promotes only against the
+captured manifest, and preserves the last-good index on failure.
 
 ### Concept KB Structure
 
@@ -266,7 +260,8 @@ aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per
 string. The application continues to own SQLite reads and writes, manifest
 basis, relations and review rows, projection registry promotion, diagnostics,
 public snake_case DTO assembly, and all proposal merge/create/review decisions.
-The production engine remains in-process. The private sidecar application uses internal worker index/query operations, promotes only against a captured manifest, and keeps query repository-read-only.
+The Rust production application uses bounded worker index/query operations,
+promotes only against a captured manifest, and keeps queries repository-read-only.
 
 ### Tag Vocabulary Facets
 
@@ -281,10 +276,10 @@ The environment-neutral engine enforces the tag pattern
 (`^[a-z_]+:[a-zA-Z0-9/_.-]+$`), facet and abbreviation rules, replacement and
 alias checks, active-tag selection, and search-index construction. Requests are
 strictly JSON-safe and bounded to 25,000 entries, 50,000 global aliases, 10,000
-abbreviations, and 256 facets. The application service invokes synchronous
-validation inside the existing repository transaction; it continues to own
-SQLite mapping, canonical manifests and hashes, import merge policy,
-diagnostics, projection registry writes, and WebDAV autosync.
+abbreviations, and 256 facets. The Rust production application invokes bounded validation and owns SQLite
+mapping, canonical manifests and hashes, import policy, diagnostics, projection
+promotion, and WebDAV scheduling. Network and credential authority remains in
+the reverse-Host adapter.
 
 Staged suggestions remain application-owned: new tags are proposed via
 `stageTagSuggestions()`, then promoted to the live vocabulary via

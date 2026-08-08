@@ -135,7 +135,14 @@ This refresh must expose progress from real counts: scanned artifact sources, ch
 
 On success, reference refresh marks `reference-sidecar:library` ready in `synt_cache_basis`. It also marks `citation-graph:library` and `related-items-sync:global` stale with bounded diagnostics for changed source refs, binding canonical ids, and redirect canonical ids where applicable. It does not start graph refresh, graph bootstrap, or related-items sync. Refresh progress and terminal failure are recorded in `synt_operation`; operation rows are not data-readiness sources.
 
-The sidecar now composes the same boundary as a private shadow Reference Refresh application. `prepareRefresh` receives stable library summaries and complete digest/references/citation-analysis descriptors, compares them with persisted artifact state, and returns only changed references plus same-source citation-analysis reads. Digest is descriptor-only. `applyRefresh` consumes exactly one locator/hash-bound materialization, projects shared quality/role/canonical/deterministic-binding rules outside SQLite, then compare-and-swap promotes a full or at-most-100-source projection. It preserves unrelated rows and protected user decisions; protected stale canonicals produce revision-review rows. This application has no HTTP capability, Host adapter, automatic invocation, Advanced Matching, graph execution, related-items effect, production fallback, or `SynthesisClient` route.
+The Rust production Reference application implements this boundary.
+`prepareRefresh` captures stable library summaries and complete
+digest/references/citation-analysis descriptors once, compares them with
+persisted artifact state, and requests only changed Reference content plus
+same-source citation analysis. `applyRefresh` consumes locator/hash-bound
+materialization, computes outside the writer, and basis-guards a full or
+at-most-100-source promotion. The native client exposes the operation receipt;
+Zotero scans and artifact bodies cross bounded reverse-Host ports.
 
 ## Workflow Apply
 
@@ -168,17 +175,12 @@ Advanced Reference Matching is separate from ordinary refresh because it may nee
 - User actions accept or reject proposals; accepted proposals write binding or canonical redirect facts.
 - Accepted fact changes may trigger a separate visible source-slice graph refresh and then a visible related-items sync. Open proposals never create graph edges or related-item writes.
 
-The sidecar also composes this policy as a private shadow Matching and Review
-application. `prepareMatching` hashes one bounded materialized Zotero-item
-snapshot, captures the active reference basis, and executes both strict matcher
-passes outside SQLite. `applyMatching` accepts the single-use preparation only
-after the caller recaptures the same Host basis and the repository still exposes
-the captured reference hash. Proposal decisions use the shared five-state
-proposal persistence and the same fact-revocation rules as production. The
-designated Node adapter persists only
-isolated facts and bounded graph/related stale deltas; it has no Host adapter,
-HTTP/RPC capability, automatic invocation, graph execution, related-items
-effect, production fallback, or `SynthesisClient` route.
+The Rust production Matching and Review application captures one bounded
+Host/reference basis, executes both matcher passes outside SQLite, and promotes
+the single-use preparation only after recapturing the same basis. Proposal
+decisions and fact revocation use the same repository state. Accepted fact
+changes mark Graph/related projections stale; Host effects remain explicit
+reverse-Host operations.
 
 The Synthesis Index harness runs the same cluster-first dedupe algorithm as a
 debug tool for current index state. Harness runs write only the isolated debug
@@ -192,15 +194,18 @@ and capped raw support as documented in
 
 Full graph rebuild, source-slice incremental refresh, and sidecar-backed related-items fallback share `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical redirects, accepted bindings, and a deterministic durable-fact basis under the library lock, then releases the lock before Host metadata reads and graph assembly. The strict JSON-safe engine contract is capped at 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets and returns nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics. Full and source-slice writes recapture the same basis immediately before promotion; a superseded or failed build leaves the last-good graph and cache basis untouched. Related-items fallback reads accepted engine edges without persisting graph rows.
 
-An authenticated internal `compute.citation_graph_build` canary executes small
-full and source-slice requests through the shared sidecar worker for process and
-DTO parity. Production graph rebuild does not call it. The existing 8 MiB,
-250,000-request-node, and 50,000-response-node wire limits are intentionally
-below the engine's maximum envelope, so production routing remains blocked on a
-separate bounded transfer/data-layout change. Canary failure has no repository,
-basis, promotion, canonical-file, or operation authority.
+Production Graph build uses the authenticated paged-transfer path when the
+canonical input/output cannot fit the ordinary control envelope. Rust validates
+pages, executes the bounded worker, atomically publishes attempt output,
+recaptures the durable basis, and promotes through the production repository.
+The worker has no repository, canonical, Host, or staging-path authority.
 
-The sidecar also composes a private Citation Graph shadow application over its identity-bound isolated repository. It accepts only full-scope build-engine requests, uses a null expected graph only for initial creation, returns unchanged for an identical canonical input unless forced, and compare-and-swap promotes structure plus light metrics. Complex metrics run after that commit and return a stable warning on failure; layout remains an explicit operation. Slice, metrics, and layout reads are bounded persisted projections. This application is not an HTTP capability, is never invoked automatically, and does not read or fall back to the production graph repository.
+The Rust production Citation Graph application owns full and source-slice
+builds, bounded slice/metrics/layout reads, explicit metrics/layout
+recomputation, and basis-guarded promotion over the live repository. Structure
+and light metrics promote together; complex metrics and layout promote only for
+the still-active graph. No plugin or Node fallback can read or replace the
+production graph repository.
 
 Citation graph structure is derived from:
 

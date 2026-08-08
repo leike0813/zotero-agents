@@ -4,7 +4,7 @@ WebDAV is the sole durable-sync transport for Synthesis. It exchanges determinis
 
 ## Ownership
 
-The shared application service owns durable export/import orchestration, conflict handling, retry state, progress, and lifecycle. Production composition owns preferences, encrypted credentials, remote URL construction, the HTTP client, and the abort signal. The application sees only the strict, secret-free `SynthesisHostWebDavSyncPort` and the durable bundle port.
+The Rust production application owns durable export/import orchestration, conflict handling, retry state, progress, and lifecycle. The plugin Host adapter owns preferences, encrypted credentials, remote URL construction, the HTTP client, and the abort signal. Rust sees only the strict, secret-free `SynthesisHostWebDavSyncPort` and the durable bundle port.
 
 The remote collection contains immutable snapshots and one mutable `HEAD.json` pointer. Local staging lives under `runtime/synthesis/webdav-sync/**` and is disposable.
 
@@ -14,7 +14,9 @@ New manifests advertise `webdav-sync.v1`. Readers validate schema, paths, hashes
 
 The production codec delegates its v2 canonical envelope, bundle, chunk, manifest, strict v1/v2 verification, live identity, sync-index validation, and three-way classification rules to the shared durable-bundle foundation. Existing remote paths, canonical text length fields, hashes, progress, preview/apply results, preferences, credentials, and Host port wire shape remain unchanged. Production WebDAV now delegates environment-neutral HEAD/ETag, publication ordering, retry, conflict, and lifecycle policy to the shared application through adapters over its existing roots.
 
-The Node service privately composes the same application after durable recovery. Its state store is atomically persisted beneath `shadow-webdav-sync/<dataRootId>` and bound to the opaque profile/data-root identity. The default Host port is disabled, so this composition performs no remote effects unless an internal composition injects a port. It has no HTTP/RPC route, public capability, startup autosync, credential access, or production mutation authority.
+The retained Node/TypeScript WebDAV implementation is a differential oracle
+only. Tests give it isolated roots and a disabled Host port; no production
+startup, RPC route, credential access, fallback, or mutation can select it.
 
 Durable bundles include user-owned and non-rebuildable Synthesis facts. They exclude:
 

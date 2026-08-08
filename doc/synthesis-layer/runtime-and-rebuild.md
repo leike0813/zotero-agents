@@ -34,22 +34,31 @@ adapters and bounded Host effects, not a second production owner.
 
 The production owner injects the sidecar-backed `SynthesisClient` after the
 authenticated Rust handshake succeeds. Rust owns the production Synthesis
-application, SQLite state, canonical Topic files, and bounded compute workers;
-the Zotero plugin owns only the reverse-Host adapters and their Zotero effects.
-Compute request and response envelopes are each capped at 8 MiB; general and
-system calls retain the 1 MiB request cap.
-Reverse-Host calls retain a 1 MiB/two-second default. Artifact descriptor scan
-has a 1 MiB/ten-second capability policy, while `library.artifacts.read` has an
-8 MiB/ten-second policy. Both artifact operations therefore tolerate bounded
-Host-library latency without widening the descriptor response budget.
-The production operation manifest supplies the native deadline and the plugin
-transport waits for that deadline plus two seconds. Ordinary operations use ten
-seconds; the three Reference Refresh entry points use sixty seconds so Rust can
-return `operation_timeout` before the plugin reports a transport timeout.
-The active domain runtime model remains explicit, bounded cache maintenance
-rather than automatic library-wide synchronization.
+application, SQLite state, canonical Topic files, and bounded workers; the
+Zotero plugin owns UI orchestration and reverse-Host adapters for Zotero,
+credentials, filesystem delivery, and network authority. Ordinary control and
+page DTOs target 768 KiB and have a 1 MiB hard limit. Large Topic assets,
+artifact/review bodies, and exports use authenticated transfer, locator, or
+delivery paths instead of widening that control envelope.
 
-Workflow Topic option queries, startup runtime reconciliation, protected database reset, default-client invalidation, related-items notifier echo classification, Workflow Host synthesis operations, both production and read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, WebDAV Sync commands, and all Host Bridge Synthesis capabilities enter through grouped `SynthesisClient` capabilities. Both Workbench paths keep chrome and surfaces separate and do not use the legacy full snapshot. Sync commands use `client.sync.webDav`; every command invalidates the cached client and legacy default service before acquiring fresh composition. Production composition injects the strict, secret-free `SynthesisHostWebDavSyncPort`; the WebDAV adapter alone reads current prefs/credentials, resolves remote URLs, and invokes the default HTTP client. Missing and readonly bindings are explicitly disabled and never fall back to prefs, fetch, or credentials. Ordinary Host Bridge and debug calls use the cached default client, whose legacy ports resolve the current default service per invocation. MCP derives its tool definitions and handlers from the Host Bridge catalog and passes local delivery mode; remote Host Bridge Topic Context and filtered artifact export carry remote delivery mode outside ordinary request JSON. Persisted operation progress remains the side-effect-free 500 ms `workbench.readProgress()` poll, and Sync commands preserve their chrome refresh fast path. Strict canonical DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside client contracts. Production Workbench phased prewarm remains plugin-side orchestration over chrome and ordered surface reads. The Workflow Host exposes twelve use-case methods, snapshots live Zotero items, and materializes Topic assets before invoking the client. Reverse library and artifact reads use the bounded, JSON-safe `SynthesisHostReadPort`; artifact refresh compares payload-free descriptors before requesting a single hash-guarded payload. Topic digest representative images use the independent `SynthesisHostRepresentativeImageReadPort`, which resolves note-child image attachments into a bounded canonical DTO without exposing note HTML or local paths. Related Items mutations cross `SynthesisHostRelatedItemsEffectPort`. Staged Tag parent identities cross `SynthesisHostStagedTagBindingMigrationPort` only while legacy numeric rows exist, then persist as stable refs; bound-parent Tag writes cross `SynthesisHostTagEffectPort` as semantic ensure-present effects and receipts. Zotero item objects and raw Host errors remain in production adapters. Topic mirror runtime is retired: no service method, codec, recovery planner, UI state, or Zotero adapter reads or writes legacy anchor/shard items. The legacy composition root owns the grouped read adapters, representative-image adapter, Related Items effect adapter, staged Tag migration adapter, Tag effect adapter, WebDAV runtime adapter, default service instance, and invalidation. The readonly harness injects grouped library/artifact read capability plus explicitly disabled WebDAV runtime and omits representative-image file reads, binding migration, and Host writes. These boundaries remain in-process, so they do not change process, database, canonical file, or Zotero ownership. The legacy composition root remains the only production consumer of the current 113-method service until the R9a route switch. That service surface is adapted to the code-owned 97-method grouped client through a 96-operation flat port, including the audited maintenance-operation control extension; the older 108-method client planning count is stale.
+Full-library and worker-backed mutations return
+`SynthesisPublicMaintenanceOperation` within the short control-plane
+deadline. Their operation-specific controllers publish bounded progress and
+exactly one success, failure, cancellation, or timeout terminal; callers poll
+the read-only operation API and use the control extension for cancel, continue,
+or retry. Reverse-Host calls keep their capability-specific bounds, including
+the larger hash-guarded artifact-read path.
+
+All normal Synthesis capabilities enter through the 96-operation native
+production manifest: 95 routes reconciled to the fixed 131-method baseline plus
+the approved `client.controlPublicMaintenanceOperation` extension. TypeScript
+composition owns grouped-client validation, UI orchestration, large-content
+staging/resolution, and reverse-Host adapters. Rust owns typed domain dispatch,
+application behavior, repository transactions, canonical Topic files, and
+workers. Zotero item objects, preferences, credentials, local delivery paths,
+and raw Host errors never cross the public client contract. The retained
+113-method service in TypeScript and the Node packages are differential-only
+and cannot receive a production request.
 
 The Stage 1 seam/oracle history is documented in
 `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`; the Rust
@@ -59,12 +68,14 @@ OpenSpec changes. `apps/synthesis-service` remains independently compilable for
 differential tests, but production supervision accepts only verified
 `rust-native` manifest identity and an absolute native executable.
 
-The durable and application parity corpora fix the 51-table/40-index inventory,
-SQLite PRAGMAs, canonical bytes/hashes, fault points, public DTOs, stable codes,
-canonical tree, journal/receipt state and reopen behavior. The seven-platform
-candidate workflow runs those gates plus the native manifest/lifecycle corpus,
-license inventory, Rust tests and service smoke. It is read-only and does not
-publish or synchronize assets.
+The durable and application parity corpora fix repository foundation v2 at 53
+tables and 46 indexes, together with SQLite PRAGMAs, canonical bytes/hashes,
+fault points, public DTOs, stable codes, journal/receipt state, and reopen
+behavior. The registered v1→v2 migration preserves Topic, approved
+binding/redirect/review, operation, sync, and last-good projection facts while
+marking rebuildable cache state stale. Production uses one serialized writer
+and at most four read-only connections. Seven-platform candidate execution is
+evidence only and does not publish or synchronize assets.
 
 Plugin startup non-blockingly installs, launches, discovers, and supervises the
 native production owner. Startup reconciliation runs after current-session
@@ -75,9 +86,26 @@ Remote Topic Context and filtered paper-artifact delivery cross the bounded `Syn
 
 Citation Graph layout computation crosses the environment-neutral `SynthesisCitationGraphLayoutEngine` seam. The application derives one deterministic default projection: active library nodes precede shared external nodes, each tier is ID-sorted, single-source hover-only external nodes are excluded, and retained edges are ID-sorted and endpoint-closed. It projects one full graph hash plus at most 20,000 nodes and 80,000 edges into canonical compute DTOs, awaits the authenticated sidecar worker without holding the library write lock, then reacquires a short lock and promotes only if the current DB graph hash still matches. Superseded or failed results preserve the previous layout content. Layout has a ten-second hard deadline while metrics and other direct operations retain five seconds; the pool still has one active task and two waiting tasks. Complete UTF-8 request and response envelopes remain independently capped at 8 MiB; compute request JSON is capped at 1,000,000 structural nodes and compute response JSON at 200,000, with depth 32 and 64 KiB strings. These wire limits do not promise transport for every theoretical maximum-string DTO admitted by the engine count bounds. Oversized traffic fails without truncation, compression, persistence, retry, or in-process fallback. Request ID and service-instance identity are validated before strict result rebuilding and graph-basis promotion.
 
-Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsEngine` seam with independent 5,000-node and 20,000-edge bounds. The application captures graph rows and persistence mappings under a short lock, sends the strict DTO through the authenticated Node service outside the lock, and the shared pool executes it in the Rust child. It then rechecks the DB graph hash before replacing complex metrics. Full rebuild, source-slice incremental refresh, and explicit metrics refresh use this one path. A superseded or failed result preserves previous metrics; graph structure and its ready cache basis remain readable while metrics report their existing stale or missing state. Canonical metrics hashing remains in the application adapter. Metrics shares the layout worker's one active slot, two waiting slots, five-second deadline, cancellation, replacement counters, and degraded fuse without retry or local fallback. Backend switches normally terminate the idle Node or Rust process so only one compute worker is resident.
+Citation Graph complex metrics cross the sibling
+`SynthesisCitationGraphMetricsEngine` seam with independent 5,000-node and
+20,000-edge bounds. The Rust application captures graph rows and persistence
+mappings through bounded repository reads, executes PageRank/component/role
+compute in the Rust worker without holding the writer, and rechecks the graph
+hash before replacing complex metrics. Full rebuild, source-slice incremental
+refresh, and explicit metrics refresh use this one path. A superseded or failed
+result preserves previous metrics; graph structure remains readable while
+metrics report stale or missing state.
 
-Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the authenticated Node worker remains an internal canary rather than a production route. The sibling `compute.citation_graph_build_transfer` capability stages canonical pages and can explicitly execute sealed input through a packed, one-page-at-a-time worker attempt with atomic paged output. It does not alter production state. See [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md).
+Citation Graph structure construction crosses
+`SynthesisCitationGraphBuildEngine`. The Rust application captures active raw
+references, effective canonical ids, accepted bindings, and a durable-fact basis
+through bounded repository reads, obtains required Zotero metadata through the
+reverse-Host port, and computes outside the writer transaction. Full rebuild and
+source-slice promotion recapture the same basis before replacing rows. Large
+builds use authenticated canonical transfer pages and atomic attempt output;
+the worker has no repository, canonical-file, Host, or staging-path authority.
+Superseded, malformed, canceled, or oversized attempts preserve the last-good
+graph.
 
 Workbench Citation Graph reads are repository-backed windows. The first Graph
 surface response contains at most 200 ranked primary nodes, 400 primary edges,
@@ -103,17 +131,12 @@ path without advancing the sequential cursor. Topic HTML export independently
 drains every page for every exported layout and fails with a typed safety-limit
 error rather than emitting a partial graph.
 
-The explicit sidecar benchmark can execute synthetic graph builds while
-separating request rebuild/serialization, direct compute, strict result
-rebuild, structured-clone worker round trip, authenticated HTTP admission,
-CPU/memory, event-loop responsiveness, and cancellation. Its
-2,000-source/20,000-reference boundary already exceeds the request JSON-node and
-both response limits; the normal tier also times out in the worker because
-complete result validation recomputes the canonical graph. This evidence is a
-reason not to raise monolithic limits or route production traffic. The bounded
-transfer contract now executes an explicit packed worker canary and publishes
-attempt-scoped paged results. Production basis recapture and repository
-promotion execute inside the Rust-owned application transaction.
+The governed benchmark exercises TypeScript native composition, HTTP, Rust
+dispatch, SQLite, workers, and reverse Host. Earlier monolithic graph evidence
+established why large graph bodies cannot use the general JSON envelope; the
+production path therefore uses authenticated paged transfer while the Rust
+application retains basis recapture and repository promotion. Transfer failure
+or cancellation cannot publish partial graph state.
 
 Concept KB search, overlay, and bounded exact label/alias queries cross
 `SynthesisConceptKbIndexEngine`. The application reads and sorts SQLite-owned
@@ -139,9 +162,9 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Citation Graph build compute accepts at most 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets, keeps Host reads and assembly outside the write lock, and replaces rows only for the captured durable sidecar-fact basis.
 - Advanced Reference Matching uses one bounded engine with separate binding and canonical-dedupe contracts. It captures repository facts under a short lock, computes both passes outside the lock, recaptures Host and repository basis, and atomically promotes accepted facts and proposals only when the basis remains current.
 - Tag Vocabulary validation and index construction use one strict engine capped at 25,000 entries, 50,000 aliases, 10,000 abbreviations, and 256 facets. The Rust application computes through two paged operations outside SQLite, recaptures the vocabulary revision, and promotes by CAS inside the Rust-owned repository transaction. Index failure or malformed output cannot advance active index state.
-- Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. The private application invokes two paged Rust operations, promotes only against the captured manifest, and never writes during query. Production projection promotion remains plugin-owned; proposal matching is not part of the engine.
-- Topic Graph index computation uses one strict asynchronous engine capped at 25,000 nodes, 100,000 edges, and 4,096 code units per string. It derives only roots and unplaced identifiers. The private application invokes one paged Rust operation and promotes only against the captured manifest; production graph/review rows, canonical files, discovery effects, public DTOs, and projection registry remain plugin-owned.
-- Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production executes in the Rust sidecar inside canonical-write serialization.
+- Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. The Rust production application invokes the bounded worker, promotes only against the captured manifest, and never writes during query.
+- Topic Graph index computation uses one strict asynchronous engine capped at 25,000 nodes, 100,000 edges, and 4,096 code units per string. The Rust production application owns graph/review rows, proposal decisions, discovery coordination, public DTOs, and basis-guarded index promotion.
+- Topic Structured Artifact computation uses strict manifest validation, assembly, artifact validation, and section-patch operations. The Rust production application owns canonical serialization, hashing, promotion, repository metadata, and downstream coordination; Zotero and export file authority crosses bounded reverse-Host ports.
 - Synthesis runtime packaging supports Windows x64, macOS x64/arm64, and Linux x86/x64/arm/arm64. Installation reads only packaged assets and writes only `runtime/synthesis/service-runtime`. The supervisor launches only the verified absolute product runtime with a sealed environment and never resolves system commands.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
@@ -251,7 +274,13 @@ Legacy sidecar state files, sidecar index files, graph index files, and graph ma
 
 ## Two-Stage Reference Sidecar Refresh
 
-The private sidecar foundation represents this boundary as `prepareRefresh` plus `applyRefresh`. Preparation retains its 8 MiB/250,000-node admission and returns only changed references plus same-source citation-analysis reads. Production sorts sources by `paper_ref` and feeds the application source-scoped batches of at most 100 sources. Descriptor `estimated_size` fills batches conservatively; every rebuilt apply request is then measured against the independent materialized limit of two 8 MiB artifact responses plus 64 KiB of envelope capacity and the corresponding two-artifact JSON-node bound.
+The Rust production Reference application implements this boundary as
+`prepareRefresh` plus `applyRefresh`. It captures Host item and artifact
+identity once, compares payload-free descriptors, and reads only changed
+Reference and same-source citation-analysis artifacts. Source batches contain at
+most 100 refs, with at most two ordered artifact reads active at once. Each
+promotion is source-keyed and basis-guarded; a final payload-free sweep removes
+sources no longer present.
 
 Each successful batch performs its own reference-hash CAS and becomes readable immediately. A measured multi-source overflow discards its preparation and is split in half; a single-source overflow returns `reference_refresh_payload_too_large` with measured and configured capacity. Later failure or deadline exhaustion stops new batches but retains completed batches and reports processed/failed source refs for retry. Retry compares current descriptor hashes and does not reread a completed source that remains current. Once every current source converges, one payload-free full-scope sweep removes sources no longer present in Zotero. Missing, extra, duplicate, stale, or mismatched payloads still consume their preparation before any batch write. Parsing and quality/canonical/binding projection run outside SQLite, and every promotion rechecks the active reference hash in one transaction. Advanced Matching, generic review mutations, graph execution, related-item effects, and preparation paging beyond the 8 MiB/250,000-node descriptor bound remain outside this boundary.
 

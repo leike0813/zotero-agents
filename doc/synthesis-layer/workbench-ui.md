@@ -47,7 +47,13 @@ The monolithic full Workbench snapshot is debug-only. It must not be used by `re
 
 Chrome is not a content surface. It may read operation rows, cache-basis rows, storage status, and local pending command state, but it must not read Citation Graph nodes/edges, Index rows, Review proposal evidence, Tag/Concept projections, or Topic Graph data.
 
-The environment-neutral `packages/synthesis-application` query owns the stable operational subset: fixed Reference Sidecar/Citation Graph cache readiness and bounded running/current-failure jobs. Production chrome reads this subset from the plugin-owned repository and composes storage, sync, review, canonical maintenance, and local pending state in the plugin. The authenticated sidecar `workbench.chrome.read` capability is an isolated-shadow canary for that subset only; the Workbench host and public `SynthesisClient` do not route to it.
+The Rust production application owns chrome and every named Workbench surface
+projection over the production repository. Chrome remains a bounded operational
+query and cannot substitute for content surfaces. The TypeScript Workbench host
+routes both chrome and surfaces through the native `SynthesisClient`, manages
+surface-scoped UI state, and joins only the bounded Zotero facts that require
+reverse-Host authority. No plugin repository or shadow canary services a normal
+Workbench read.
 
 Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
 

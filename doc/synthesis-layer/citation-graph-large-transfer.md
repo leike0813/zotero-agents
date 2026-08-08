@@ -1,11 +1,10 @@
 # Citation Graph Build Large Transfer
 
-Citation Graph Build has an authenticated sidecar transfer capability for data
-sets that do not fit one compute request or response. Sealed input runs through
-the shared Rust child with acknowledged canonical row pages; this capability is not a production
-compute route. Production graph build runs in plugin
-composition, which still owns Host capture, the durable-fact basis, basis
-recapture, `synthesis.db` promotion, canonical files, and last-good state.
+Citation Graph Build uses an authenticated transfer capability when canonical
+input or output cannot fit one control envelope. The Rust production service
+owns the transfer session, bounded worker attempt, durable-basis recapture, and
+repository promotion. TypeScript only stages/resolves the client transport;
+Node is a differential oracle and is absent from the production carrier.
 
 The single capability `compute.citation_graph_build_transfer` supports strict
 `begin`, `put_input_page`, `seal_input`, `execute`, `status`, `get_output_manifest`,
@@ -52,26 +51,17 @@ best-effort and retried at startup. Sessions are never recovered after a
 service restart. Health and handshake report only in-memory state, session
 count, and staged bytes.
 
-The owner retains only descriptor/path/byte-range metadata after atomic upload.
-The service, pool, and worker share one canonical page-frame carrier. Each
-admitted page is rebuilt once into a canonical UTF-8 artifact whose bytes, byte
-length, and SHA-256 are reused for staging and transfer. During an attempt, the
-service main thread hash-checks and reads one canonical input frame, transfers
-it through a task-scoped `MessagePort`, and waits for worker acknowledgement
-before reading another. The Rust child strictly validates every input frame,
-moves typed rows into the shared graph-build kernel, and streams the typed
-result directly into canonical output page artifacts. The same staged bytes and
-raw result artifact are reused; Node does not materialize a full graph, create a
-base64 copy, or own a second transfer representation. The owner is the only output validation
-and staging boundary: it strictly rebuilds each returned frame, compares its
-canonical bytes and descriptor, and only then stages it atomically. The worker
-never receives a staging path or database, canonical-file, Host, Zotero-global,
-or subprocess authority.
+The Rust transfer owner retains only descriptor, path, and byte-range metadata
+after atomic upload. It admits one canonical input page at a time, validates the
+page hash and typed rows, and waits for worker acknowledgement before advancing.
+The bounded worker streams typed output pages back to the owner and has no
+staging path, repository, canonical-file, Host, or Zotero authority. The owner
+strictly rebuilds each result page and atomically publishes the attempt manifest
+before the Rust application may recapture basis and promote repository state.
 
 Output pages are written below an attempt directory and become addressable only
-after the service rebuilds the final manifest and atomically commits it. Failure
-returns the session to `input_sealed` with a structured error and permits an
-explicit retry; session `cancel` still destroys all state. Core 202 hard-gates
-the 2,000-source/100,000-reference normal profile under the 256 MiB worker old
-generation limit. Target/stress profiles are report-only. Production routing,
-basis recapture, and repository promotion are outside this capability.
+after the service rebuilds the final manifest and atomically commits it.
+Failure returns the session to sealed input for explicit retry; cancellation
+destroys all session state. Production basis recapture and repository promotion
+occur only after a complete committed attempt, so partial or canceled transfer
+cannot replace the last-good graph.
