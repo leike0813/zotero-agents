@@ -8,10 +8,12 @@ import {
   ASSISTANT_WORKSPACE_REGION_REGISTRY,
   ACP_CHAT_WORKSPACE_DOMAIN_MAPPING,
   ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
+  SKILLRUNNER_WORKSPACE_DOMAIN_MAPPING,
   assertAssistantWorkspacePublication,
   assertAssistantWorkspacePublicationAck,
   createAcpChatWorkspaceOwner,
   createAcpSkillsWorkspaceOwner,
+  createSkillRunnerWorkspaceOwner,
   createAssistantWorkspaceUnownedScope,
   createLoadingTranscriptRegion,
   projectAssistantWorkspacePermissionRequest,
@@ -20,6 +22,7 @@ import {
   type AssistantWorkspacePublication,
   type AssistantWorkspacePublicationKind,
 } from "../../src/modules/assistantWorkspacePublication";
+import { parseAssistantWorkspaceTranscriptPageRequest } from "../../src/modules/assistantWorkspaceTranscriptPublication";
 import type { AssistantWorkspaceTranscriptRegion } from "../../src/modules/assistantWorkspaceTranscriptPublication";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
 import {
@@ -87,7 +90,11 @@ const workspaceRegionKinds = [
 // Publication payloads fed to these tests are produced by the production
 // workspace surface readers against seeded ACP Skills / ACP Chat state; only
 // the envelope shells (publicationId/regionRevision/deliverySequence/schema)
-// stay hand-written because they are runtime artifacts.
+// stay hand-written because they are runtime artifacts. The skillrunner
+// fixtures stay hand-written until the Stage 2 surface adapter lands
+// (openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence):
+// no production skillrunner region reader exists yet, so the payloads below
+// pin the contract shapes the adapter will have to produce.
 let skillsOwner: Extract<AssistantWorkspaceOwner, { source: "acp-skills" }>;
 let skillsNavigation: AssistantWorkspaceOwnerNavigation;
 let skillsRegions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind>;
@@ -96,6 +103,13 @@ let chatOwner: Extract<AssistantWorkspaceOwner, { source: "acp-chat" }>;
 let chatNavigation: AssistantWorkspaceOwnerNavigation;
 let chatRegions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind>;
 let chatTranscript: AssistantWorkspaceTranscriptRegion;
+let skillrunnerOwner: Extract<
+  AssistantWorkspaceOwner,
+  { source: "skillrunner" }
+>;
+let skillrunnerNavigation: AssistantWorkspaceOwnerNavigation;
+let skillrunnerRegions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind>;
+let skillrunnerTranscript: AssistantWorkspaceTranscriptRegion;
 
 describe("Assistant Workspace ACP publication data plane v1", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -167,9 +181,130 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         }
       }
     }
+
+    // SkillRunner owner identity is request-scoped (design Decision 1):
+    // ownerKey is the request id when assigned and falls back to the run key
+    // for unassigned local runs. The owner must come from the production
+    // constructor, never a hand-written literal.
+    skillrunnerOwner = createSkillRunnerWorkspaceOwner({
+      requestId: "sr-request-1",
+      runKey: "sr-run-1",
+    });
+    skillrunnerNavigation = {
+      selectedOwner: skillrunnerOwner,
+      selectedGroupId: "backend-sr",
+      groups: [
+        {
+          groupId: "backend-sr",
+          label: "SkillRunner Backend",
+          status: "running",
+          disabledReason: null,
+        },
+      ],
+      entries: [
+        {
+          owner: skillrunnerOwner,
+          groupId: "backend-sr",
+          label: "SkillRunner Task",
+          subtitle: null,
+          description: null,
+          groupLabel: "SkillRunner Backend",
+          status: "running",
+          backendStatus: "running",
+          applyState: null,
+          attention: null,
+          updatedAt: "2026-07-21T00:00:00.000Z",
+          messageCount: 1,
+          submission: null,
+          resumptionPending: false,
+        },
+      ],
+      queuedEntries: [],
+      canCreateOwner: false,
+      notice: "Showing recent runs only. View older records in Dashboard.",
+    };
+    skillrunnerRegions = {
+      "owner-control": {
+        status: "running",
+        busy: true,
+        hint: { kind: "running", message: null },
+        interaction: null,
+        connection: {
+          status: "connected",
+          sessionAvailable: true,
+          connected: true,
+          canConnect: false,
+          canDisconnect: false,
+        },
+        execution: { canCancel: true, canInterrupt: false },
+        authentication: {
+          required: false,
+          canAuthenticate: false,
+          methodId: null,
+        },
+        permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
+        badges: {
+          control: { state: "streaming", tone: "success", title: null },
+          autoReply: {
+            active: true,
+            remainingSeconds: 30,
+            progressPercent: 50,
+          },
+        },
+      },
+      "message-counts": { counts: null },
+      permission: { request: null },
+      composer: {
+        reply: { status: "enabled" },
+        runtimeOptions: {
+          mode: { selectedOptionId: null, options: [], enabled: false },
+          model: { selectedOptionId: null, options: [], enabled: false },
+          reasoningEffort: {
+            selectedOptionId: null,
+            options: [],
+            enabled: false,
+          },
+        },
+      },
+      "owner-presentation": {
+        title: "SkillRunner Task",
+        subtitle: null,
+        description: null,
+        notice: null,
+        metadata: [],
+        usage: null,
+      },
+    };
+    skillrunnerTranscript = {
+      owner: skillrunnerOwner,
+      status: "ready",
+      error: null,
+      transcriptRevision: 1,
+      page: {
+        pageKey: `${skillrunnerOwner.ownerKey}\ntail:80`,
+        startCursor: 0,
+        limit: 80,
+        totalVisibleItemCount: 1,
+        previousCursor: null,
+        nextCursor: null,
+        sourceEventSeq: 1,
+        items: [
+          {
+            itemId: "sr-message-1",
+            itemKind: "message",
+            role: "assistant",
+            text: "hello from skillrunner",
+            status: "complete",
+            createdAt: "2026-07-21T00:00:00.000Z",
+            updatedAt: null,
+            revision: null,
+          },
+        ],
+      },
+    };
   });
 
-  it("defines one exhaustive strict registry for both ACP sources", function () {
+  it("defines one exhaustive strict registry for all three sources", function () {
     assert.deepEqual(ASSISTANT_WORKSPACE_PUBLICATION_KINDS, expectedKinds);
     assert.deepEqual(
       Object.keys(ASSISTANT_WORKSPACE_REGION_REGISTRY),
@@ -183,11 +318,37 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       Object.keys(ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING),
       expectedKinds,
     );
+    assert.deepEqual(
+      Object.keys(SKILLRUNNER_WORKSPACE_DOMAIN_MAPPING),
+      expectedKinds,
+    );
     assert.equal(ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING.plan, "plan");
     assert.equal(
       ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING["owner-details"],
       "owner-details",
     );
+    // SkillRunner has no plan surface and reports backend health through the
+    // banner rather than service-status (design Decision 3).
+    assert.equal(SKILLRUNNER_WORKSPACE_DOMAIN_MAPPING.plan, "not-applicable");
+    assert.equal(
+      SKILLRUNNER_WORKSPACE_DOMAIN_MAPPING["service-status"],
+      "not-applicable",
+    );
+    for (const kind of expectedKinds) {
+      if (kind === "plan" || kind === "service-status") {
+        assert.notInclude(
+          ASSISTANT_WORKSPACE_REGION_REGISTRY[kind].sources,
+          "skillrunner",
+          `${kind} must not admit the skillrunner source`,
+        );
+      } else {
+        assert.include(
+          ASSISTANT_WORKSPACE_REGION_REGISTRY[kind].sources,
+          "skillrunner",
+          `${kind} must admit the skillrunner source`,
+        );
+      }
+    }
     assert.include(
       ASSISTANT_WORKSPACE_REGION_REGISTRY["owner-control"].managedRegions,
       "hint",
@@ -335,9 +496,169 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       ASSISTANT_WORKSPACE_ACTION_REGISTRY["request-owner-details"],
       {
         scope: "selected-owner",
-        sources: ["acp-chat", "acp-skills"],
+        sources: ["acp-chat", "acp-skills", "skillrunner"],
         payloadKeys: [],
       },
+    );
+    // Actions with identical semantics and payloads gain "skillrunner" in
+    // their sources; skillrunner-only actions join as typed entries (design
+    // Decision 4).
+    assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["cancel-run"], {
+      scope: "selected-owner",
+      sources: ["acp-skills", "skillrunner"],
+      payloadKeys: [],
+    });
+    assert.deepInclude(
+      ASSISTANT_WORKSPACE_ACTION_REGISTRY["cancel-queued-workflow-unit"],
+      {
+        scope: "global",
+        sources: ["acp-skills", "skillrunner"],
+        payloadKeys: ["queueId"],
+      },
+    );
+    assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["select-task"], {
+      scope: "target-owner",
+      sources: ["skillrunner"],
+      payloadKeys: [],
+    });
+    assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["auth-import-run"], {
+      scope: "selected-owner",
+      sources: ["skillrunner"],
+      payloadKeys: ["providerId", "files", "error"],
+    });
+    assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["open-auth-url"], {
+      scope: "global",
+      sources: ["skillrunner"],
+      payloadKeys: ["url"],
+    });
+  });
+
+  it("admits the skillrunner owner and rejects legacy vocabulary and non-applicable kinds", function () {
+    assert.equal(skillrunnerOwner.ownerKey, "sr-request-1");
+    assert.equal(skillrunnerOwner.runKey, "sr-run-1");
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner: skillrunnerOwner,
+          kind: "owner-control",
+          payload: skillrunnerRegions["owner-control"]!,
+        }),
+      ),
+    );
+    // Unassigned local runs fall back to the run key (design Decision 1).
+    const localOwner = createSkillRunnerWorkspaceOwner({
+      runKey: "sr-run-local",
+    });
+    assert.isNull(localOwner.requestId);
+    assert.equal(localOwner.ownerKey, "sr-run-local");
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner: localOwner,
+          kind: "owner-control",
+          payload: skillrunnerRegions["owner-control"]!,
+        }),
+      ),
+    );
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner: createAssistantWorkspaceUnownedScope("skillrunner"),
+          kind: "owner-navigation",
+          payload: skillrunnerNavigation,
+        }),
+      ),
+    );
+    assert.throws(() =>
+      createSkillRunnerWorkspaceOwner({ requestId: "sr-request-2" }),
+    );
+    // plan and service-status stay ACP-only (design Decision 3).
+    for (const kind of ["plan", "service-status"] as const) {
+      assert.throws(() =>
+        assertAssistantWorkspacePublication(
+          assistantWorkspaceTestPublication({
+            owner: skillrunnerOwner,
+            kind,
+            payload: (kind === "plan" ? { items: [] } : { items: [] }) as never,
+          }),
+        ),
+      );
+      assert.throws(() =>
+        assertAssistantWorkspacePublication(
+          assistantWorkspaceTestPublication({
+            owner: createAssistantWorkspaceUnownedScope("skillrunner"),
+            kind,
+            payload: { items: [] } as never,
+          }),
+        ),
+      );
+    }
+    // Owner invariants: strict key set plus the ownerKey derivation rule.
+    for (const owner of [
+      {
+        source: "skillrunner",
+        ownerKey: "sr-run-1",
+        requestId: null,
+        runKey: "other-run",
+      },
+      { source: "skillrunner", ownerKey: "sr-run-1", requestId: null },
+      {
+        source: "skillrunner",
+        ownerKey: "sr-run-1",
+        requestId: null,
+        runKey: "sr-run-1",
+        taskKey: "sr-run-1",
+      },
+      {
+        source: "skillrunner",
+        ownerKey: "sr-run-1",
+        requestId: "",
+        runKey: "sr-run-1",
+      },
+    ]) {
+      assert.throws(() =>
+        assertAssistantWorkspacePublication(
+          assistantWorkspaceTestPublication({
+            owner: owner as never,
+            kind: "owner-control",
+            payload: skillrunnerRegions["owner-control"]!,
+          }),
+        ),
+      );
+    }
+    // The legacy bridge vocabulary does not leak into the v1 registry:
+    // panel-local drawer/dialog actions stay out of
+    // ASSISTANT_WORKSPACE_ACTION_REGISTRY (design Decision 4).
+    for (const action of [
+      "toggle-drawer",
+      "close-drawer",
+      "toggle-group-collapse",
+      "toggle-finished-collapse",
+      "close-dialog",
+    ]) {
+      assert.notProperty(ASSISTANT_WORKSPACE_ACTION_REGISTRY, action);
+    }
+    // Transcript page requests parse the skillrunner owner branch, including
+    // the run-key fallback for unassigned local runs.
+    assert.deepEqual(
+      parseAssistantWorkspaceTranscriptPageRequest({
+        owner: skillrunnerOwner,
+        request: { cursor: null, limit: 80 },
+      }),
+      { owner: skillrunnerOwner, request: { cursor: null, limit: 80 } },
+    );
+    assert.deepEqual(
+      parseAssistantWorkspaceTranscriptPageRequest({
+        owner: localOwner,
+        request: { cursor: 40, limit: 80 },
+      }),
+      { owner: localOwner, request: { cursor: 40, limit: 80 } },
+    );
+    assert.isNull(
+      parseAssistantWorkspaceTranscriptPageRequest({
+        owner: { ...skillrunnerOwner, ownerKey: "sr-run-1" },
+        request: { cursor: null, limit: 80 },
+      }),
     );
   });
 
@@ -880,9 +1201,23 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
-  for (const source of ["acp-chat", "acp-skills"] as const) {
+  for (const source of ["acp-chat", "acp-skills", "skillrunner"] as const) {
     it(`initializes ${source} owner-first and batch-reads owned regions once`, async function () {
-      const owner = source === "acp-chat" ? chatOwner : skillsOwner;
+      const owner =
+        source === "acp-chat"
+          ? chatOwner
+          : source === "acp-skills"
+            ? skillsOwner
+            : skillrunnerOwner;
+      // SkillRunner publishes every region kind except plan and
+      // service-status (design Decision 3), so its adapter neither supports
+      // plan nor receives a service-status initialization payload.
+      const supportedKinds =
+        source === "skillrunner"
+          ? expectedKinds.filter(
+              (kind) => kind !== "plan" && kind !== "service-status",
+            )
+          : expectedKinds;
       const posts: AssistantWorkspacePublication[] = [];
       const materializations: Array<{
         kind: AssistantWorkspacePublicationKind;
@@ -891,7 +1226,6 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         materializationSource: string;
       }> = [];
       let batchReads = 0;
-      const supportedKinds = expectedKinds;
       const adapter = defineAssistantWorkspacePublicationAdapter({
         source,
         supportedKinds,
@@ -902,18 +1236,32 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           publicationKinds: [],
         }),
         readOwnerNavigation: async () =>
-          source === "acp-chat" ? chatNavigation : skillsNavigation,
+          source === "acp-chat"
+            ? chatNavigation
+            : source === "acp-skills"
+              ? skillsNavigation
+              : skillrunnerNavigation,
         readOwnerRegions: async ({ kinds }) => {
           batchReads += 1;
           return source === "acp-chat"
             ? readAcpChatWorkspaceRegions({ owner: chatOwner, kinds })
-            : readAcpSkillRunWorkspaceRegions({
-                requestId: skillsOwner.requestId,
-                kinds,
-              });
+            : source === "acp-skills"
+              ? readAcpSkillRunWorkspaceRegions({
+                  requestId: skillsOwner.requestId,
+                  kinds,
+                })
+              : (Object.fromEntries(
+                  kinds
+                    .filter((kind) => skillrunnerRegions[kind])
+                    .map((kind) => [kind, skillrunnerRegions[kind]]),
+                ) as Partial<AssistantWorkspacePublicationRuntimePayloadByKind>);
         },
         readTranscriptPage: async () =>
-          source === "acp-chat" ? chatTranscript : skillsTranscript,
+          source === "acp-chat"
+            ? chatTranscript
+            : source === "acp-skills"
+              ? skillsTranscript
+              : skillrunnerTranscript,
       });
       const coordinator = new AssistantWorkspacePublicationCoordinator({
         scopeKey: source,
@@ -950,7 +1298,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         adapter,
         context: {},
         cause: "activation",
-        serviceStatus: { items: [] },
+        ...(source === "skillrunner" ? {} : { serviceStatus: { items: [] } }),
       });
       assert.equal(batchReads, 1);
       assert.deepInclude(materializations[0], {
@@ -971,21 +1319,29 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
             kind !== "owner-details",
         ),
       );
+      const expectedHead: Array<[string, string | null]> =
+        source === "skillrunner"
+          ? [
+              ["owner-navigation", null],
+              ["transcript", "loading"],
+              ["transcript", "ready"],
+            ]
+          : [
+              ["owner-navigation", null],
+              ["service-status", null],
+              ["transcript", "loading"],
+              ["transcript", "ready"],
+            ];
       assert.deepEqual(
         posts
-          .slice(0, 4)
+          .slice(0, expectedHead.length)
           .map((entry) => [
             entry.publicationKind,
             entry.publicationKind === "transcript"
               ? (entry.payload as { status?: string }).status
               : null,
           ]),
-        [
-          ["owner-navigation", null],
-          ["service-status", null],
-          ["transcript", "loading"],
-          ["transcript", "ready"],
-        ],
+        expectedHead,
       );
     });
   }
@@ -1228,9 +1584,14 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     assert.equal(rebases, 1);
   });
 
-  for (const source of ["acp-chat", "acp-skills"] as const) {
+  for (const source of ["acp-chat", "acp-skills", "skillrunner"] as const) {
     it(`keeps the ${source} live-tail mutation base across out-of-order historical page responses`, function () {
-      const selectedOwner = source === "acp-chat" ? chatOwner : skillsOwner;
+      const selectedOwner =
+        source === "acp-chat"
+          ? chatOwner
+          : source === "acp-skills"
+            ? skillsOwner
+            : skillrunnerOwner;
       const posts: AssistantWorkspacePublication[] = [];
       const coordinator = new AssistantWorkspacePublicationCoordinator({
         scopeKey: `page-cache-${source}`,
@@ -1346,7 +1707,12 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     });
 
     it(`projects ${source} historical snapshots as cache pages without replacing the selected tail`, function () {
-      const selectedOwner = source === "acp-chat" ? chatOwner : skillsOwner;
+      const selectedOwner =
+        source === "acp-chat"
+          ? chatOwner
+          : source === "acp-skills"
+            ? skillsOwner
+            : skillrunnerOwner;
       const message = (itemId: string, text: string, status = "complete") => ({
         itemId,
         itemKind: "message" as const,

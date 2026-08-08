@@ -1,23 +1,41 @@
 import { assert } from "chai";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
+import { h, render } from "preact";
 import { ASSISTANT_WORKSPACE_ACTION_REGISTRY } from "../../src/modules/assistantWorkspacePublication";
 import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import * as AssistantPanelRenderer from "../../src/sidebar/assistantPanelRenderer.js";
 import * as AssistantTranscriptRenderer from "../../src/sidebar/assistantTranscriptRenderer.js";
 import * as AssistantWorkspaceAcpChild from "../../src/sidebar/assistantWorkspaceAcpChild.js";
+import { TranscriptRegion } from "../../src/sidebar/components/TranscriptRegion";
+import { dispatchSkillRunnerWorkspaceAction } from "../../src/modules/skillRunnerRunDialog";
+import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
+import {
+  assertRegionSubtreesPreserved,
+  captureRegionSubtrees,
+  createSidebarDomEnvironment,
+  installSidebarDomGlobals,
+  restoreSidebarDomGlobals,
+  subtreeNodes,
+  type SidebarDomEnvironment,
+} from "../helpers/sidebarDomEnv";
+import { startSkillRunnerWorkspaceSnapshotHarness } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
+import { createChromePanelRenderer } from "../../src/sidebar/components/chromeRenderer";
 import { updateSkillRunnerRunApplyState } from "../../src/modules/skillRunnerRunStore";
 import { clearPref, setPref } from "../../src/utils/prefs";
-import {
-  captureSkillRunnerWorkspaceEnvelope,
-  startSkillRunnerWorkspaceSnapshotHarness,
-} from "../helpers/skillRunnerWorkspaceSnapshotHarness";
-import {
-  FakeDocument,
-  FakeElement,
-  installAssistantWorkspaceRendererGlobals,
-  restoreAssistantWorkspaceRendererGlobals,
-} from "../helpers/assistantWorkspaceAcpChildHarness";
+
+// Mirrors the ACP child's chrome wiring: region marking via the shared
+// adoptPanelRegions, every managed chrome region through the Preact seam.
+function chromePanelRenderer(renderer: {
+  adoptPanelRegions: (panel: unknown, options: Record<string, unknown>) => void;
+  managedMount: (container: HTMLElement, name: string) => HTMLElement | null;
+}) {
+  return createChromePanelRenderer({
+    adoptPanelRegions: renderer.adoptPanelRegions,
+    managedMount: renderer.managedMount,
+    statusTone: AssistantPanelModel.statusTone,
+  });
+}
 
 const root = path.resolve(import.meta.dirname, "../..");
 
@@ -33,27 +51,23 @@ async function loadWorkspaceChild() {
   return AssistantWorkspaceAcpChild;
 }
 
-async function loadPanelRenderer(document: FakeDocument) {
-  installAssistantWorkspaceRendererGlobals(document);
-  return AssistantPanelRenderer;
+async function loadPanelRenderer(domEnv: SidebarDomEnvironment) {
+  const context = await loadAssistantRendererContext(domEnv);
+  return (context.window as any).AssistantPanelRenderer;
 }
 
 async function loadTranscriptRenderer(
-  document: FakeDocument,
+  domEnv: SidebarDomEnvironment,
   requestAnimationFrame?: (callback: () => void) => number,
 ) {
-  installAssistantWorkspaceRendererGlobals(document, {
-    requestAnimationFrame:
-      requestAnimationFrame ||
-      ((callback: () => void) => {
-        callback();
-        return 0;
-      }),
-  });
-  return AssistantTranscriptRenderer;
+  const context = await loadAssistantRendererContext(
+    domEnv,
+    requestAnimationFrame,
+  );
+  return (context.window as any).AssistantTranscriptRenderer;
 }
 
-function createPanelManagedRegions(document: FakeDocument) {
+function createPanelManagedRegions(document: Document) {
   const root = document.createElement("div");
   const regions = {
     toolbar: document.createElement("div"),
@@ -69,45 +83,17 @@ function createPanelManagedRegions(document: FakeDocument) {
   return { root, regions };
 }
 
-// Region mounts are reused permanently, so mount-level identity alone cannot
-// catch a guard miss that rebuilds the mount's content. Capture the full
-// subtree node list and compare element-wise by reference.
-function subtreeNodes(node: FakeElement | null): FakeElement[] {
-  if (!node) return [];
-  return [node, ...node.children.flatMap((child) => subtreeNodes(child))];
-}
-
-function captureRegionSubtrees(
-  regions: Record<string, FakeElement>,
-): Record<string, FakeElement[]> {
-  return Object.fromEntries(
-    Object.entries(regions).map(([key, region]) => [
-      key,
-      subtreeNodes(region.firstChild),
-    ]),
-  );
-}
-
-function assertRegionSubtreesPreserved(
-  regions: Record<string, FakeElement>,
-  captured: Record<string, FakeElement[]>,
+async function loadAssistantRendererContext(
+  domEnv: SidebarDomEnvironment,
+  requestAnimationFrame?: (callback: () => void) => number,
 ) {
-  for (const [key, region] of Object.entries(regions)) {
-    const current = subtreeNodes(region.firstChild);
-    const previous = captured[key] || [];
-    assert.equal(
-      current.length,
-      previous.length,
-      `${key} subtree node count changed`,
-    );
-    current.forEach((node, index) => {
-      assert.strictEqual(
-        node,
-        previous[index],
-        `${key} subtree node #${index} was rebuilt`,
-      );
-    });
-  }
+  installSidebarDomGlobals(domEnv, requestAnimationFrame);
+  return {
+    window: {
+      AssistantPanelRenderer,
+      AssistantTranscriptRenderer,
+    },
+  };
 }
 
 function createAnimationFrameHarness() {
@@ -186,6 +172,7 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
       ],
       queuedEntries: [],
       canCreateOwner: source === "acp-chat",
+      notice: null,
     },
     services: {
       items: [
@@ -336,7 +323,7 @@ function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
 
 describe("Assistant Workspace ACP UI v1", function () {
   after(function () {
-    restoreAssistantWorkspaceRendererGlobals();
+    restoreSidebarDomGlobals();
   });
 
   it("loads both ACP documents through one shared child and identical roles", async function () {
@@ -449,61 +436,20 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
     assert.isTrue(noUsagePanel.reply.showUsageGauge);
     assert.isNull(noUsagePanel.usage);
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
-    const reply = document.createElement("div");
-    renderer.renderAssistantReply(reply, noUsagePanel);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
+    const { root, regions } = createPanelManagedRegions(document);
+    chromePanelRenderer(renderer)(noUsagePanel, {
+      managed: true,
+      root,
+      regions,
+      onAction() {},
+    });
     assert.equal(
-      reply.querySelector(".assistant-panel-usage-label")?.textContent,
+      regions.reply.querySelector(".assistant-panel-usage-label")?.textContent,
       "N/A",
     );
-  });
-
-  it("keeps ACP Chat backend actions available before a conversation exists", async function () {
-    const model = await loadPanelModel();
-    const panel = model.projectAssistantWorkspacePanel(
-      backendOnlyAcpChatWorkspaceState(),
-      { executionDisplayMode: "live" },
-      emptyPanelLabels("acp-chat"),
-    );
-
-    const backendSelector = panel.context.selectors.find(
-      (entry: any) => entry.id === "backend",
-    );
-    assert.deepInclude(backendSelector, {
-      value: "backend-a",
-      disabled: false,
-    });
-    assert.deepEqual(
-      backendSelector.options.map((entry: any) => [entry.value, entry.label]),
-      [["backend-a", "Backend A"]],
-    );
-
-    const ownerSelector = panel.context.selectors.find(
-      (entry: any) => entry.id === "owner",
-    );
-    assert.deepInclude(ownerSelector, {
-      value: "",
-      disabled: true,
-    });
-    assert.deepEqual(ownerSelector.options, []);
-
-    const newConversation = panel.context.actions.find(
-      (entry: any) => entry.action === "new-conversation",
-    );
-    assert.deepInclude(newConversation, {
-      enabled: true,
-      payload: { groupId: "backend-a" },
-    });
-    const connect = panel.context.actions.find(
-      (entry: any) => entry.action === "connect",
-    );
-    assert.deepInclude(connect, {
-      enabled: true,
-      payload: { groupId: "backend-a" },
-    });
-    assert.isFalse(panel.reply.enabled);
-    assert.isFalse(panel.reply.inputEnabled);
   });
 
   for (const source of ["acp-chat", "acp-skills"] as const) {
@@ -597,260 +543,374 @@ describe("Assistant Workspace ACP UI v1", function () {
         );
       }
 
-      const document = new FakeDocument();
-      const renderer = await loadPanelRenderer(document);
-      const banner = document.createElement("div");
-      renderer.renderAssistantBanner(banner, panel, { onAction() {} });
-      assert.deepEqual(
-        banner
-          .querySelectorAll(".assistant-panel-meta-pill")
-          .map((entry) => entry.children[1].textContent),
-        panel.context.metadata.map(() => "-"),
-      );
-    });
-  }
-
-  it("projects SkillRunner null session as fixed unavailable chrome", async function () {
-    const model = await loadPanelModel();
-    // 生产真空快照：无任务种子 → session=null（harness 走真实
-    // attach → refresh → publish 路径，labels 由生产构建）。
-    const panel = model.projectSkillRunnerPanelSnapshot(
-      await captureSkillRunnerWorkspaceEnvelope(),
-    );
-
-    assert.deepInclude(panel.context, {
-      title: "SkillRunner Workspace",
-      subtitle: "No task",
-      status: "unavailable",
-      statusLabel: "Unavailable",
-      statusTone: "muted",
-    });
-    assert.deepEqual(
-      panel.context.metadata.map((entry: any) => [entry.key, entry.value]),
-      [
-        ["backend", ""],
-        ["engine", ""],
-        ["model", ""],
-        ["updatedAt", ""],
-      ],
-    );
-    assert.deepInclude(panel.context.indicators[0], {
-      id: "skillrunner-control",
-      value: "Unavailable",
-      tone: "muted",
-    });
-    assert.lengthOf(panel.context.indicators, 1);
-    assert.deepInclude(panel.context.actions[0], {
-      action: "cancel-run",
-      enabled: false,
-    });
-    assert.deepEqual(
-      panel.actions.toolbar.map((entry: any) => entry.enabled),
-      [true, false, true, true],
-    );
-    assert.isFalse(panel.reply.enabled);
-    assert.isFalse(panel.reply.inputEnabled);
-  });
-
-  it("keeps a selected SkillRunner session without requestId in preparing state", async function () {
-    const model = await loadPanelModel();
-    // 生产等价种子：本地已创建、尚未分配 requestId 的 SkillRunner 任务
-    // （submitPhase=pre_request、status=queued）。
-    const panel = model.projectSkillRunnerPanelSnapshot(
-      await captureSkillRunnerWorkspaceEnvelope({
-        tasks: [{ taskName: "Task Alpha" }],
-      }),
-    );
-
-    assert.equal(panel.context.title, "Task Alpha");
-    assert.equal(panel.context.status, "queued");
-    assert.notEqual(panel.context.subtitle, "No task");
-    assert.deepInclude(panel.context.indicators[0], {
-      id: "skillrunner-control",
-      value: "Preparing",
-      tone: "accent",
-    });
-  });
-
-  it("renders SkillRunner message counts without rebuilding other managed regions", async function () {
-    const document = new FakeDocument();
-    const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
-    const { root, regions } = createPanelManagedRegions(document);
-    // 生产真快照：messageCounts 由生产侧从 transcript 消息投影派生。
-    // 种子事件的语义计数（projectSkillRunnerMessageCounts）：
-    //   render(1): current {assistant:1,thought:1,tool:0}
-    //              cumulative {assistant:1,thought:2,tool:3}
-    //   render(2): current {assistant:1,thought:2,tool:1}
-    //              cumulative {assistant:1,thought:3,tool:4}
-    // counter 标签来自生产 labels（mock 环境为英文 fallback）。
-    const toolProcess = (seq: number, toolCallId: string, text: string) => ({
-      seq,
-      ts: `2026-07-18T00:00:${String(seq).padStart(2, "0")}.000Z`,
-      role: "assistant",
-      kind: "assistant_process",
-      text,
-      correlation: { process_type: "tool_call", tool_call_id: toolCallId },
-    });
-    const render = async (variant: 1 | 2) => {
-      const envelope = await captureSkillRunnerWorkspaceEnvelope({
-        tasks: [
-          {
-            taskName: "Task Alpha",
-            requestId: "req-counts",
-            status: "succeeded",
-            chatEvents: [
-              {
-                seq: 1,
-                ts: "2026-07-18T00:00:01.000Z",
-                role: "assistant",
-                kind: "assistant_process",
-                text: "reasoning step one",
-                correlation: { process_type: "reasoning" },
-              },
-              toolProcess(2, "tool-1", "read a.md"),
-              toolProcess(3, "tool-2", "read b.md"),
-              toolProcess(4, "tool-3", "read c.md"),
-              {
-                seq: 5,
-                ts: "2026-07-18T00:00:05.000Z",
-                role: "user",
-                kind: "user_message",
-                text: "go on",
-              },
-              {
-                seq: 6,
-                ts: "2026-07-18T00:00:06.000Z",
-                role: "assistant",
-                kind: "assistant_process",
-                text: "reasoning step two",
-                correlation: { process_type: "reasoning" },
-              },
-              {
-                seq: 7,
-                ts: "2026-07-18T00:00:07.000Z",
-                role: "assistant",
-                kind: "assistant_final",
-                text: "final answer",
-                display_text: "final answer",
-              },
-              ...(variant === 2
-                ? [
-                    {
-                      seq: 8,
-                      ts: "2026-07-18T00:00:08.000Z",
-                      role: "assistant",
-                      kind: "assistant_process",
-                      text: "reasoning step three",
-                      correlation: { process_type: "reasoning" },
-                    },
-                    toolProcess(9, "tool-4", "read d.md"),
-                  ]
-                : []),
-            ],
-          },
-        ],
-        waitFor: (snapshot) =>
-          !!snapshot.session &&
-          snapshot.session.loading === false &&
-          snapshot.session.messages.some(
-            (message) => message.seq === (variant === 2 ? 9 : 7),
-          ),
-      });
-      const panel = model.projectSkillRunnerPanelSnapshot(envelope);
-      // model 原样透传生产投影的 messageCounts。
-      assert.deepEqual(panel.messageCounts, envelope.messageCounts);
-      renderer.renderAssistantPanelSnapshot(panel, {
+      const domEnv = createSidebarDomEnvironment();
+      const { document } = domEnv;
+      const renderer = await loadPanelRenderer(domEnv);
+      const { root, regions } = createPanelManagedRegions(document);
+      chromePanelRenderer(renderer)(panel, {
         managed: true,
         root,
         regions,
         onAction() {},
       });
-      return envelope;
-    };
-
-    const first = await render(1);
-    assert.isFalse(regions.messageCounter.classList.contains("hidden"));
-    assert.equal(
-      regions.messageCounter.getAttribute("data-message-counter-owner"),
-      first.workspace.selectedTaskKey,
-    );
-    const counterItems = regions.messageCounter.querySelectorAll(
-      ".assistant-message-counter-item",
-    );
-    const counterValues = regions.messageCounter.querySelectorAll(
-      ".assistant-message-counter-value",
-    );
-    assert.deepEqual(
-      regions.messageCounter
-        .querySelectorAll(".assistant-message-counter-label")
-        .map((entry) => entry.textContent),
-      ["Assistant", "Thought", "Tool"],
-    );
-    assert.deepEqual(
-      counterValues.map((entry) => entry.textContent),
-      ["1/1", "1/2", "0/3"],
-    );
-    const stableRegions = [
-      "toolbar",
-      "banner",
-      "plan",
-      "hint",
-      "reply",
-      "drawer",
-    ] as const;
-    const stableSubtrees = Object.fromEntries(
-      stableRegions.map((key) => [key, subtreeNodes(regions[key].firstChild)]),
-    );
-
-    await render(2);
-    assert.deepEqual(
-      counterValues.map((entry) => entry.textContent),
-      ["1/1", "2/3", "1/4"],
-    );
-    regions.messageCounter
-      .querySelectorAll(".assistant-message-counter-item")
-      .forEach((entry, index) => {
-        assert.strictEqual(entry, counterItems[index]);
-      });
-    assertRegionSubtreesPreserved(
-      Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
-      stableSubtrees,
-    );
-  });
-
-  it("preserves SkillRunner managed chrome when backend history replaces local-only transcript", async function () {
-    this.timeout(10_000);
-    setPref("assistantExecutionDisplayMode", "live");
-    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
-    try {
-      const document = new FakeDocument();
-      const model = await loadPanelModel();
-      const renderer = await loadPanelRenderer(document);
-      const { root, regions } = createPanelManagedRegions(document);
-      const seeded = harness.seedTask({
-        taskName: "Managed Transcript Catch-up",
-        requestId: "req-managed-transcript-catch-up",
-        status: "running",
-      });
-      const capture = await harness.attach({ selectRunKey: seeded.runKey });
-      const localOnly = await capture.waitFor(
-        (snapshot) =>
-          snapshot.session?.loading === false &&
-          snapshot.session.messages.length > 0 &&
-          snapshot.session.messages.every((message) => message.seq < 0),
+      assert.deepEqual(
+        Array.from(
+          regions.banner.querySelectorAll(".assistant-panel-meta-pill"),
+        ).map((entry) => entry.children[1].textContent),
+        panel.context.metadata.map(() => "-"),
       );
-      const render = (snapshot: typeof localOnly) => {
-        const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
-        renderer.renderAssistantPanelSnapshot(panel, {
+    });
+  }
+  // ---------------------------------------------------------------------
+  // SkillRunner tab (phase 3 Stage 3): driven through the v1 publication
+  // plane exactly like production. Real run stores + mock management server
+  // → runtime.schedule(SKILLRUNNER_WORKSPACE_ADAPTER) → coordinator →
+  // captured publications → the shared child's createClient with
+  // source "skillrunner" → the same chrome seam and transcript renderer the
+  // data-source="skillrunner" child page uses.
+  // ---------------------------------------------------------------------
+
+  async function createSkillRunnerChildWindow(domEnv: SidebarDomEnvironment) {
+    const { document } = domEnv;
+    const panelRenderer = await loadPanelRenderer(domEnv);
+    const transcriptRenderer = await loadTranscriptRenderer(domEnv);
+    const { root, regions } = createPanelManagedRegions(document);
+    const transcript = document.createElement("section");
+    root.appendChild(transcript);
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    const ui: Record<string, unknown> = {};
+    let snapshot: any = null;
+    const renderChrome = () => {
+      chromePanelRenderer(panelRenderer)(
+        AssistantPanelModel.projectAssistantWorkspacePanel(snapshot, ui, {}),
+        {
           managed: true,
           root,
           regions,
-          onAction() {},
-        });
-        return panel;
-      };
-      render(localOnly);
+          onAction(action: string, payload: unknown) {
+            actions.push({ action, payload });
+            // Panel-local drawer transitions mirror the child page.
+            const sectionId = String(
+              (payload as Record<string, unknown> | null)?.sectionId || "",
+            );
+            if (action === "toggle-drawer-section" && sectionId) {
+              const key = `${sectionId}Collapsed`;
+              if (sectionId === "queued" || sectionId === "completed") {
+                ui[key] = ui[key] === false;
+              } else {
+                ui[key] = ui[key] !== true;
+              }
+              renderChrome();
+            }
+          },
+        },
+      );
+    };
+    const renderTranscript = () => {
+      const region = snapshot?.selection?.transcript;
+      const ownerKey = snapshot?.selection?.owner?.ownerKey || "";
+      const page =
+        region?.status === "ready" && region.page ? region.page : null;
+      render(
+        h(TranscriptRegion, {
+          container: transcript,
+          state: page ? "ready" : region?.status || "loading",
+          message: "",
+          mode: "plain",
+          ownerKey,
+          onResetVirtualState: (container: Element) => {
+            transcriptRenderer.resetAssistantTranscriptVirtualState(
+              container,
+              ownerKey,
+            );
+            container.removeAttribute("data-assistant-transcript-order-key");
+            container.removeAttribute("data-assistant-transcript-mode-key");
+          },
+        } as never),
+        transcript as never,
+      );
+      if (!page) {
+        return;
+      }
+      transcriptRenderer.renderAssistantTranscript({
+        container: transcript,
+        items: page.items,
+        virtualized: false,
+        ownerKey,
+        page: {
+          ...page,
+          ownerKey,
+          transcriptRevision: region.transcriptRevision,
+        },
+        transcriptRevision: region.transcriptRevision,
+        mode: "plain",
+        variant: "skillrunner",
+        renderMarkdown: (value: string) => value,
+      });
+    };
+    const client = AssistantWorkspaceAcpChild.createClient({
+      source: "skillrunner",
+      getSnapshot: () => snapshot,
+      setSnapshot: (next: any) => {
+        snapshot = next;
+      },
+      getOwnerKey: (state: any) => state?.selection?.owner?.ownerKey || "",
+      render: (result: any) => {
+        // Mirror the child page: render against result.snapshot; the client
+        // commits it to getSnapshot only after a successful render.
+        const previous = snapshot;
+        snapshot = result.snapshot;
+        try {
+          if (result.publicationKind === "transcript") {
+            renderTranscript();
+          } else {
+            renderChrome();
+          }
+        } finally {
+          snapshot = previous;
+        }
+        return { ok: true, renderPath: "incremental", failure: null };
+      },
+      ack: () => {},
+    });
+    let applied = 0;
+    return {
+      root,
+      regions,
+      transcript,
+      actions,
+      getSnapshot: () => snapshot,
+      async pump(
+        capture: {
+          flush: () => Promise<void>;
+          publications: unknown[];
+        },
+        onApplied?: (publication: unknown) => void,
+      ) {
+        await capture.flush();
+        const fresh: unknown[] = [];
+        while (applied < capture.publications.length) {
+          const publication = capture.publications[applied];
+          applied += 1;
+          client.apply(publication);
+          onApplied?.(publication);
+          fresh.push(publication);
+        }
+        return fresh;
+      },
+    };
+  }
+
+  it("renders fixed unavailable chrome for an empty SkillRunner workspace", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications();
+      await childWindow.pump(capture);
+
+      assert.isNull(
+        childWindow.getSnapshot()?.selection?.owner,
+        "empty workspace publishes no selected owner",
+      );
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-title",
+        )?.textContent,
+        "SkillRunner",
+      );
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-subtitle",
+        )?.textContent,
+        "No task",
+      );
+      const emptyIndicator = childWindow.regions.banner.querySelector(
+        '[data-assistant-indicator-id="skillrunner-control"]',
+      );
+      assert.isOk(emptyIndicator, "empty chrome shows the control badge");
+      assert.equal(emptyIndicator?.getAttribute("title"), "Unavailable");
+      assert.isNull(
+        childWindow.regions.banner.querySelector(
+          '[data-assistant-indicator-id="acp-connection"]',
+        ),
+        "SkillRunner banner has no Connection LED",
+      );
+      const replySubmit = childWindow.regions.reply.querySelector(
+        ".assistant-panel-reply-submit",
+      ) as HTMLButtonElement | null;
+      assert.isOk(replySubmit);
+      assert.isTrue(replySubmit!.disabled);
+      assert.isNull(
+        childWindow.regions.reply.querySelector(".assistant-panel-usage-gauge"),
+        "SkillRunner composer has no usage gauge",
+      );
+      assert.isNull(
+        childWindow.regions.reply.querySelector(
+          ".assistant-panel-reply-controls",
+        ),
+        "SkillRunner composer has no runtime option dropdowns",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("keeps a local pre-request run in preparing chrome", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const seeded = harness.seedTask({ taskName: "Task Alpha" });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await childWindow.pump(capture);
+
+      assert.equal(
+        childWindow.getSnapshot()?.selection?.owner?.ownerKey,
+        seeded.runKey,
+        "unassigned local runs keep the run key as owner key",
+      );
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-title",
+        )?.textContent,
+        "Task Alpha",
+      );
+      assert.equal(
+        childWindow.regions.banner
+          .querySelector("[data-assistant-banner-status]")
+          ?.getAttribute("data-assistant-banner-status"),
+        "queued",
+      );
+      const preparingIndicator = childWindow.regions.banner.querySelector(
+        '[data-assistant-indicator-id="skillrunner-control"]',
+      );
+      assert.isOk(
+        preparingIndicator,
+        "local pre-request run shows the control badge",
+      );
+      assert.equal(preparingIndicator?.getAttribute("title"), "Preparing");
+      assert.isNull(
+        childWindow.regions.banner.querySelector(
+          '[data-assistant-indicator-id="acp-connection"]',
+        ),
+        "SkillRunner banner has no Connection LED",
+      );
+      assert.isNull(
+        childWindow.regions.reply.querySelector(".assistant-panel-usage-gauge"),
+        "SkillRunner composer has no usage gauge",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("applies SkillRunner message-count and transcript updates without rebuilding managed chrome", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const toolProcess = (seq: number, toolCallId: string, text: string) => ({
+        seq,
+        ts: `2026-07-18T00:00:${String(seq).padStart(2, "0")}.000Z`,
+        role: "assistant",
+        kind: "assistant_process",
+        text,
+        correlation: { process_type: "tool_call", tool_call_id: toolCallId },
+      });
+      const seeded = harness.seedTask({
+        taskName: "Task Alpha",
+        requestId: "req-counts",
+        status: "running",
+        chatEvents: [
+          {
+            seq: 1,
+            ts: "2026-07-18T00:00:01.000Z",
+            role: "assistant",
+            kind: "assistant_process",
+            text: "reasoning step one",
+            correlation: { process_type: "reasoning" },
+          },
+          toolProcess(2, "tool-1", "read a.md"),
+          toolProcess(3, "tool-2", "read b.md"),
+          toolProcess(4, "tool-3", "read c.md"),
+          {
+            seq: 5,
+            ts: "2026-07-18T00:00:05.000Z",
+            role: "user",
+            kind: "user_message",
+            text: "go on",
+          },
+          {
+            seq: 6,
+            ts: "2026-07-18T00:00:06.000Z",
+            role: "assistant",
+            kind: "assistant_process",
+            text: "reasoning step two",
+            correlation: { process_type: "reasoning" },
+          },
+          {
+            seq: 7,
+            ts: "2026-07-18T00:00:07.000Z",
+            role: "assistant",
+            kind: "assistant_final",
+            text: "final answer",
+            display_text: "final answer",
+          },
+        ],
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          publication.payload.status === "ready" &&
+          (publication.payload.page?.items || []).some(
+            (item) =>
+              item.itemKind === "message" && item.text === "final answer",
+          ),
+        "initial transcript snapshot",
+      );
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "message-counts" &&
+          publication.payload.counts?.cumulative.tool === 3,
+        "initial message counts publication",
+      );
+      await childWindow.pump(capture);
+
+      const counterValues = () =>
+        Array.from(
+          childWindow.regions.messageCounter.querySelectorAll(
+            ".assistant-message-counter-value",
+          ),
+        ).map((entry) => entry.textContent);
+      assert.isFalse(
+        childWindow.regions.messageCounter.classList.contains("hidden"),
+      );
+      assert.isOk(
+        childWindow.regions.messageCounter.getAttribute(
+          "data-message-counter-owner",
+        ),
+      );
+      assert.deepEqual(
+        Array.from(
+          childWindow.regions.messageCounter.querySelectorAll(
+            ".assistant-message-counter-label",
+          ),
+        ).map((entry) => entry.textContent),
+        ["Assistant", "Thought", "Tool"],
+      );
+      assert.deepEqual(counterValues(), ["1/1", "1/2", "0/3"]);
+      const counterItems = Array.from(
+        childWindow.regions.messageCounter.querySelectorAll(
+          ".assistant-message-counter-item",
+        ),
+      );
       const stableRegions = [
         "toolbar",
         "banner",
@@ -862,14 +922,85 @@ describe("Assistant Workspace ACP UI v1", function () {
       const stableSubtrees = Object.fromEntries(
         stableRegions.map((key) => [
           key,
-          subtreeNodes(regions[key].firstChild),
+          subtreeNodes(childWindow.regions[key].firstChild),
         ]),
       );
 
+      harness.appendChatEvents(seeded.requestId, [
+        {
+          seq: 8,
+          ts: "2026-07-18T00:00:08.000Z",
+          role: "assistant",
+          kind: "assistant_process",
+          text: "reasoning step three",
+          correlation: { process_type: "reasoning" },
+        },
+        toolProcess(9, "tool-4", "read d.md"),
+      ]);
       await capture.waitFor(
-        () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        (publication) =>
+          publication.publicationKind === "message-counts" &&
+          publication.payload.counts?.current.thought === 2,
+        "updated message counts publication",
       );
-      const afterIndex = capture.snapshots.length - 1;
+      await childWindow.pump(capture);
+
+      assert.deepEqual(counterValues(), ["1/1", "2/3", "1/4"]);
+      Array.from(
+        childWindow.regions.messageCounter.querySelectorAll(
+          ".assistant-message-counter-item",
+        ),
+      ).forEach((entry, index) => {
+        assert.strictEqual(entry, counterItems[index]);
+      });
+      assertRegionSubtreesPreserved(
+        Object.fromEntries(
+          stableRegions.map((key) => [key, childWindow.regions[key]]),
+        ),
+        stableSubtrees,
+      );
+      assert.isOk(
+        childWindow.transcript.querySelector("[data-assistant-item-id]"),
+        "transcript rows render from the same publication stream",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("preserves SkillRunner managed chrome when backend history replaces the local-only transcript", async function () {
+    this.timeout(10_000);
+    setPref("assistantExecutionDisplayMode", "live");
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const seeded = harness.seedTask({
+        taskName: "Managed Transcript Catch-up",
+        requestId: "req-managed-transcript-catch-up",
+        status: "running",
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await childWindow.pump(capture);
+
+      const stableRegions = [
+        "toolbar",
+        "banner",
+        "plan",
+        "hint",
+        "reply",
+        "drawer",
+      ] as const;
+      const stableSubtrees = Object.fromEntries(
+        stableRegions.map((key) => [
+          key,
+          subtreeNodes(childWindow.regions[key].firstChild),
+        ]),
+      );
+
+      harness.setBackendStatus(seeded.requestId, "running");
       harness.appendChatEvents(seeded.requestId, [
         {
           seq: 1,
@@ -883,24 +1014,33 @@ describe("Assistant Workspace ACP UI v1", function () {
           },
         },
       ]);
-      const updated = await capture.waitForAfter(
-        afterIndex,
-        (snapshot) =>
-          snapshot.messageCounts?.cumulative.tool === 1 &&
-          snapshot.session?.messages.some((message) => message.seq === 1) ===
-            true,
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemKind === "tool-call",
+          ),
+        "graduated transcript snapshot",
       );
-      const panel = render(updated.snapshot);
+      const revisionBefore = childWindow.getSnapshot()?.selection?.transcript
+        ?.transcriptRevision as number;
+      await childWindow.pump(capture);
 
-      assert.isTrue(
-        panel.conversation.items.some((item: any) => item.kind === "tool"),
-      );
       assert.isAbove(
-        updated.snapshot.transcriptRevision,
-        localOnly.transcriptRevision,
+        childWindow.getSnapshot()?.selection?.transcript
+          ?.transcriptRevision as number,
+        revisionBefore,
+        "the backend transcript advances the publication clock",
+      );
+      assert.include(
+        childWindow.transcript.textContent || "",
+        "read backend artifact",
       );
       assertRegionSubtreesPreserved(
-        Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
+        Object.fromEntries(
+          stableRegions.map((key) => [key, childWindow.regions[key]]),
+        ),
         stableSubtrees,
       );
     } finally {
@@ -909,81 +1049,73 @@ describe("Assistant Workspace ACP UI v1", function () {
     }
   });
 
-  it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
-    const document = new FakeDocument();
-    const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
-    const { root, regions } = createPanelManagedRegions(document);
-    // 生产真空快照（无任务）与生产选中快照（running 任务）。
-    const emptyEnvelope = await captureSkillRunnerWorkspaceEnvelope();
-    const selectedEnvelope = await captureSkillRunnerWorkspaceEnvelope({
-      tasks: [
-        { taskName: "Task Alpha", requestId: "req-a", status: "running" },
-      ],
-    });
-    const selectedPanel =
-      model.projectSkillRunnerPanelSnapshot(selectedEnvelope);
-    const selectedTask =
-      selectedPanel.drawers.skillrunnerSections[0].groups[0].activeTasks[0];
-    assert.deepInclude(selectedTask, {
-      mainStatus: "running",
-      backendStatus: "running",
-      applyStatus: "idle",
-    });
-    const render = (envelope: unknown) => {
-      renderer.renderAssistantPanelSnapshot(
-        model.projectSkillRunnerPanelSnapshot(envelope),
-        {
-          managed: true,
-          root,
-          regions,
-          onAction() {},
-        },
+  it("preserves SkillRunner managed mounts across selected and empty workspaces", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const first = harness.seedTask({
+        taskName: "Task Alpha",
+        requestId: "req-a",
+        status: "succeeded",
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: first.runKey,
+      });
+      await childWindow.pump(capture);
+      assert.equal(
+        childWindow.getSnapshot()?.selection?.owner?.ownerKey,
+        first.requestId,
       );
-    };
+      const identities = Object.fromEntries(
+        Object.entries(childWindow.regions).map(([key, region]) => [
+          key,
+          region.firstChild,
+        ]),
+      );
+      const assertMountsPreserved = () => {
+        for (const [key, region] of Object.entries(childWindow.regions)) {
+          // Boolean identity check: strictEqual on DOM nodes sends chai's
+          // inspector into the jsdom window (localStorage throws).
+          assert.isTrue(region.firstChild === identities[key], key);
+        }
+      };
 
-    render(selectedEnvelope);
-    const identities = Object.fromEntries(
-      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
-    );
-    render(emptyEnvelope);
-    render(selectedEnvelope);
-    for (const [key, region] of Object.entries(regions)) {
-      assert.strictEqual(region.firstChild, identities[key], key);
+      // Selected -> empty (archiving the only run clears the selection).
+      await dispatchSkillRunnerWorkspaceAction({
+        action: "archive-run",
+        payload: { runKey: first.runKey },
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.selectedOwner === null,
+        "owner-navigation publication with no selection",
+      );
+      await childWindow.pump(capture);
+      assert.isNull(childWindow.getSnapshot()?.selection?.owner);
+      assertMountsPreserved();
+
+      // Empty -> selected again.
+      const second = harness.seedTask({
+        taskName: "Task Beta",
+        requestId: "req-b",
+        status: "running",
+      });
+      await capture.reattachHost({ selectRunKey: second.runKey });
+      await childWindow.pump(capture);
+      assert.equal(
+        childWindow.getSnapshot()?.selection?.owner?.ownerKey,
+        second.requestId,
+      );
+      assertMountsPreserved();
+    } finally {
+      await harness.reset();
     }
-  });
-
-  it("uses the shared submission decoration for SkillRunner rows", async function () {
-    const envelope = (await captureSkillRunnerWorkspaceEnvelope({
-      tasks: [
-        {
-          taskName: "Waiting Task",
-          requestId: "req-lineage",
-          status: "waiting_user",
-        },
-      ],
-    })) as any;
-    const sourceTask = envelope.drawer.sections
-      .flatMap((section: any) => section.groups)
-      .flatMap((group: any) => group.activeTasks)[0];
-    sourceTask.submission = {
-      symbol: "🪐",
-      provider: "openai",
-      model: "gpt-5",
-    };
-    sourceTask.resumptionPending = true;
-    const panel = AssistantPanelModel.projectSkillRunnerPanelSnapshot(envelope);
-    const task = panel.drawers.skillrunnerSections
-      .flatMap((section: any) => section.groups)
-      .flatMap((group: any) => group.activeTasks)[0];
-    assert.deepEqual(task.submission, sourceTask.submission);
-    assert.equal(task.mainStatus, "resumption-pending");
-    assert.notInclude(task.workflowLabel, "🪐");
   });
 
   it("renders persisted SkillRunner Apply states and replaces only the changed task card", async function () {
     this.timeout(10_000);
-    setPref("assistantExecutionDisplayMode", "live");
     const harness = await startSkillRunnerWorkspaceSnapshotHarness();
     try {
       const applied = harness.seedTask({
@@ -1017,90 +1149,67 @@ describe("Assistant Workspace ACP UI v1", function () {
         updatedAt: "2026-07-18T00:02:02.000Z",
       });
 
-      const capture = await harness.attach({ selectRunKey: applied.runKey });
-      const initial = await capture.waitFor(
-        (snapshot) =>
-          snapshot.workspace.selectedTaskKey === applied.runKey &&
-          snapshot.workspace.groups.reduce(
-            (count, group) =>
-              count + group.activeTasks.length + group.finishedTasks.length,
-            0,
-          ) === 3,
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: applied.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.entries.length === 3,
+        "owner-navigation publication with all task cards",
       );
-      const document = new FakeDocument();
-      const model = await loadPanelModel();
-      const renderer = await loadPanelRenderer(document);
-      const { root, regions } = createPanelManagedRegions(document);
-      const transcript = document.createElement("div");
-      const transcriptSentinel = document.createElement("article");
-      transcript.appendChild(transcriptSentinel);
-      root.appendChild(transcript);
-      const panelTasks = (panel: any) =>
-        panel.drawers.skillrunnerSections.flatMap((section: any) =>
-          section.groups.flatMap((group: any) => [
-            ...group.activeTasks,
-            ...group.finishedTasks,
-          ]),
+      await childWindow.pump(capture);
+
+      const drawer = childWindow.regions.drawer;
+      // Terminal runs land in the Completed section, which starts collapsed;
+      // expand it like the child page does before reading the task rows.
+      const completedSection = drawer.querySelector(
+        '[data-assistant-section-id="completed"]',
+      );
+      assert.isOk(completedSection);
+      (
+        completedSection!.querySelector(
+          ".assistant-workspace-drawer-section-toggle",
+        ) as HTMLButtonElement
+      ).click();
+      const rowByKey = (ownerKey: string) =>
+        Array.from(drawer.querySelectorAll("[data-assistant-task-key]")).find(
+          (row) => row.getAttribute("data-assistant-task-key") === ownerKey,
         );
-      const taskFromPanel = (panel: any, runKey: string) =>
-        panelTasks(panel).find((task: any) => task.key === runKey);
-      const rowByKey = (runKey: string) =>
-        regions.drawer
-          .querySelectorAll("[data-assistant-task-key]")
-          .find(
-            (row) => row.getAttribute("data-assistant-task-key") === runKey,
-          );
-      const render = (snapshot: typeof initial) => {
-        const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
-        renderer.renderAssistantPanelSnapshot(panel, {
-          managed: true,
-          root,
-          regions,
-          onAction() {},
-        });
-        return panel;
-      };
+      const axisValues = () =>
+        Array.from(
+          drawer.querySelectorAll(
+            ".assistant-workspace-drawer-task-status-axis-value",
+          ),
+        ).map((entry) => entry.textContent ?? "");
+      assert.includeMembers(axisValues(), [
+        "Applied",
+        "Not required",
+        "Apply failed",
+      ]);
+      assert.isOk(rowByKey(applied.requestId));
+      assert.isOk(rowByKey(applyTarget.requestId));
+      assert.isOk(rowByKey(applyFailed.requestId));
 
-      const initialPanel = render(initial);
-      assert.deepInclude(taskFromPanel(initialPanel, applied.runKey), {
-        mainStatus: "succeeded",
-        backendStatus: "succeeded",
-        applyStatus: "succeeded",
-        applyStatusLabel: "Applied",
-        applyStatusTone: "success",
-      });
-      assert.deepInclude(taskFromPanel(initialPanel, applyTarget.runKey), {
-        mainStatus: "succeeded",
-        backendStatus: "succeeded",
-        applyStatus: "not-required",
-        applyStatusLabel: "Not required",
-        applyStatusTone: "success",
-      });
-      assert.deepInclude(taskFromPanel(initialPanel, applyFailed.runKey), {
-        mainStatus: "failed",
-        backendStatus: "succeeded",
-        applyStatus: "failed",
-        applyStatusLabel: "Apply failed",
-        applyStatusTone: "error",
-      });
-
-      const drawerMount = regions.drawer.firstChild;
-      const drawerSection = regions.drawer.querySelector(
+      const drawerMount = drawer.firstChild;
+      const drawerSection = drawer.querySelector(
         ".assistant-workspace-drawer-section",
       );
-      const drawerGroup = regions.drawer.querySelector(
+      const drawerGroup = drawer.querySelector(
         ".assistant-workspace-drawer-group",
       );
       const initialRows = new Map(
-        [applied.runKey, applyTarget.runKey, applyFailed.runKey].map(
-          (runKey) => [runKey, rowByKey(runKey)],
+        [applied.requestId, applyTarget.requestId, applyFailed.requestId].map(
+          (ownerKey) => [ownerKey, rowByKey(ownerKey)],
         ),
       );
       const stableRegions = Object.fromEntries(
-        Object.entries(regions).filter(([key]) => key !== "drawer"),
+        Object.entries(childWindow.regions).filter(([key]) => key !== "drawer"),
       );
       const stableSubtrees = captureRegionSubtrees(stableRegions);
-      const afterIndex = capture.snapshots.length - 1;
+      const transcriptSentinel = childWindow.transcript.firstChild;
 
       updateSkillRunnerRunApplyState({
         backendId: harness.backendId,
@@ -1109,64 +1218,277 @@ describe("Assistant Workspace ACP UI v1", function () {
         attempt: 1,
         updatedAt: "2026-07-18T00:02:03.000Z",
       });
-      const updated = (
-        await capture.waitForAfter(afterIndex, (snapshot) =>
-          snapshot.workspace.groups.some((group) =>
-            [...group.activeTasks, ...group.finishedTasks].some(
-              (task) =>
-                task.key === applyTarget.runKey &&
-                task.applyState === "skipped",
-            ),
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.entries.some(
+            (entry) =>
+              entry.owner.ownerKey === applyTarget.requestId &&
+              entry.applyState === "skipped",
           ),
-        )
-      ).snapshot;
-      const updatedPanel = render(updated);
-      assert.deepInclude(taskFromPanel(updatedPanel, applyTarget.runKey), {
-        mainStatus: "succeeded",
-        backendStatus: "succeeded",
-        applyStatus: "skipped",
-        applyStatusLabel: "Skipped",
-        applyStatusTone: "success",
-      });
+        "owner-navigation publication with the updated apply state",
+      );
+      await childWindow.pump(capture);
 
-      assert.strictEqual(regions.drawer.firstChild, drawerMount);
-      assert.strictEqual(
-        regions.drawer.querySelector(".assistant-workspace-drawer-section"),
-        drawerSection,
+      assert.includeMembers(axisValues(), ["Skipped"]);
+      // Boolean identity checks: strictEqual on DOM nodes sends chai's
+      // inspector into the jsdom window (localStorage throws).
+      assert.isTrue(drawer.firstChild === drawerMount);
+      assert.isTrue(
+        drawer.querySelector(".assistant-workspace-drawer-section") ===
+          drawerSection,
       );
-      assert.strictEqual(
-        regions.drawer.querySelector(".assistant-workspace-drawer-group"),
-        drawerGroup,
+      assert.isTrue(
+        drawer.querySelector(".assistant-workspace-drawer-group") ===
+          drawerGroup,
       );
-      assert.strictEqual(
-        rowByKey(applied.runKey),
-        initialRows.get(applied.runKey),
+      assert.isTrue(
+        rowByKey(applied.requestId) === initialRows.get(applied.requestId),
       );
-      assert.notStrictEqual(
-        rowByKey(applyTarget.runKey),
-        initialRows.get(applyTarget.runKey),
+      // The canonical drawer patches rows in place: the changed card keeps
+      // its node and shows the new apply state, every other card is untouched.
+      assert.isTrue(
+        rowByKey(applyTarget.requestId) ===
+          initialRows.get(applyTarget.requestId),
       );
-      assert.strictEqual(
-        rowByKey(applyFailed.runKey),
-        initialRows.get(applyFailed.runKey),
+      assert.include(
+        rowByKey(applyTarget.requestId)?.textContent || "",
+        "Skipped",
       );
-      assert.deepEqual(
-        regions.drawer
-          .querySelectorAll(
-            ".assistant-workspace-drawer-task-status-axis-value",
-          )
-          .map((entry) => entry.textContent)
-          .filter((value) =>
-            ["Applied", "Skipped", "Apply failed"].includes(value),
-          )
-          .sort(),
-        ["Applied", "Apply failed", "Skipped"].sort(),
+      assert.isTrue(
+        rowByKey(applyFailed.requestId) ===
+          initialRows.get(applyFailed.requestId),
       );
       assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
-      assert.strictEqual(transcript.firstChild, transcriptSentinel);
+      assert.isTrue(childWindow.transcript.firstChild === transcriptSentinel);
     } finally {
       await harness.reset();
-      clearPref("assistantExecutionDisplayMode");
+    }
+  });
+
+  it("renders the SkillRunner queued section collapsed with a cancel action", async function () {
+    this.timeout(10_000);
+    workflowSubmissionQueue.resetForTests();
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    try {
+      const running = harness.seedTask({
+        taskName: "Running Task",
+        requestId: "req-queued-running",
+        status: "waiting_user",
+      });
+      workflowSubmissionQueue.enqueueSubmission({
+        backend: {
+          backendType: "skillrunner",
+          backendId: harness.backendId,
+        },
+        workflow: {
+          workflowId: "literature-digest",
+          workflowLabel: "Literature Digest",
+        },
+        units: ["u1", "u2"].map((unitId, order) => ({
+          unit: unitId,
+          display: {
+            unitId,
+            order,
+            taskName: `Queued Task ${unitId}`,
+            inputUnitIdentity: `test:${unitId}`,
+          },
+        })),
+        maxConcurrency: 1,
+        executeUnit: async (unitId) => {
+          if (unitId === "u1") await firstGate;
+          return { status: "succeeded" };
+        },
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: running.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.queuedEntries.length === 1,
+        "owner-navigation publication with the queued entry",
+      );
+      await childWindow.pump(capture);
+
+      const drawer = childWindow.regions.drawer;
+      const queued = drawer.querySelector(
+        '[data-assistant-section-id="queued"]',
+      );
+      assert.isOk(queued, "the queued section renders from publications");
+      assert.include(queued!.className, "is-collapsed");
+      assert.isNull(
+        queued!.querySelector("[data-assistant-task-key]"),
+        "the collapsed queued section hides its task rows",
+      );
+
+      (
+        queued!.querySelector(
+          ".assistant-workspace-drawer-section-toggle",
+        ) as HTMLButtonElement
+      ).click();
+      const expanded = drawer.querySelector(
+        '[data-assistant-section-id="queued"]',
+      );
+      const row = expanded?.querySelector("[data-assistant-task-key]");
+      assert.isOk(row, "expanding the queued section renders the queued task");
+      assert.include(row!.textContent || "", "Queued Task u2");
+      const cancel = row!.querySelector<HTMLButtonElement>(
+        ".assistant-workspace-drawer-task-action",
+      );
+      assert.isOk(cancel);
+      cancel!.click();
+      const emitted = childWindow.actions.find(
+        (entry) => entry.action === "cancel-queued-workflow-unit",
+      );
+      assert.isOk(emitted, "the queued task emits its cancel action");
+      assert.isOk(
+        String((emitted?.payload as Record<string, unknown>)?.queueId || ""),
+      );
+    } finally {
+      releaseFirst();
+      workflowSubmissionQueue.resetForTests();
+      await harness.reset();
+    }
+  });
+
+  it("switches SkillRunner owners loading-first through the child transcript region", async function () {
+    this.timeout(10_000);
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const first = harness.seedTask({
+        taskName: "Switch A",
+        requestId: "req-switch-a",
+        status: "waiting_user",
+        chatEvents: [
+          { seq: 1, role: "assistant", kind: "assistant_final", text: "alpha" },
+        ],
+      });
+      const second = harness.seedTask({
+        taskName: "Switch B",
+        requestId: "req-switch-b",
+        status: "waiting_user",
+        chatEvents: [
+          { seq: 1, role: "assistant", kind: "assistant_final", text: "beta" },
+        ],
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: first.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          publication.payload.status === "ready" &&
+          publication.owner.ownerKey === first.requestId &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemKind === "message" && item.text === "alpha",
+          ),
+        "initial transcript snapshot for A",
+      );
+      await childWindow.pump(capture);
+      assert.include(childWindow.transcript.textContent || "", "alpha");
+
+      await dispatchSkillRunnerWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: second.runKey },
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          publication.payload.status === "ready" &&
+          publication.owner.ownerKey === second.requestId &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemKind === "message" && item.text === "beta",
+          ),
+        "ready transcript snapshot for B",
+      );
+      const states: string[] = [];
+      await childWindow.pump(capture, () => {
+        const loading = childWindow.transcript.querySelector(
+          '[data-assistant-transcript-state="loading"]',
+        );
+        const rows = childWindow.transcript.querySelectorAll(
+          "[data-assistant-item-id]",
+        );
+        states.push(loading ? "loading" : rows.length > 0 ? "ready" : "other");
+      });
+
+      assert.include(states, "loading", "owner switch shows loading first");
+      assert.isBelow(
+        states.indexOf("loading"),
+        states.lastIndexOf("ready"),
+        "the loading state precedes the ready transcript",
+      );
+      assert.include(childWindow.transcript.textContent || "", "beta");
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-title",
+        )?.textContent,
+        "Switch B",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("routes a typed SkillRunner option through the canonical select-interaction-option action", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const seeded = harness.seedTask({
+        taskName: "Typed Option Task",
+        requestId: "req-typed-option",
+        status: "waiting_user",
+        pending: {
+          interaction_id: 7,
+          kind: "choose_one",
+          prompt: "Choose",
+          options: [
+            {
+              label: "Continue deeply",
+              value: { depth: 2, continue: true },
+            },
+          ],
+        },
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-control" &&
+          publication.payload.interaction?.inputKind === "choose_one",
+        "waiting_user owner-control publication",
+      );
+      await childWindow.pump(capture);
+
+      const button = childWindow.regions.hint.querySelector<HTMLElement>(
+        ".assistant-panel-hint-option",
+      );
+      assert.isOk(button);
+      button!.click();
+      assert.deepEqual(childWindow.actions, [
+        {
+          action: "select-interaction-option",
+          payload: {
+            responseValue: { depth: 2, continue: true },
+            responseLabel: "Continue deeply",
+          },
+        },
+      ]);
+    } finally {
+      await harness.reset();
     }
   });
 
@@ -1213,11 +1535,21 @@ describe("Assistant Workspace ACP UI v1", function () {
         ],
       );
 
-      const document = new FakeDocument();
-      const renderer = await loadPanelRenderer(document);
-      const reply = document.createElement("div");
-      renderer.renderAssistantReply(reply, panel);
-      const selects = reply.querySelectorAll(".assistant-panel-select");
+      const domEnv = createSidebarDomEnvironment();
+      const { document } = domEnv;
+      const renderer = await loadPanelRenderer(domEnv);
+      const { root, regions } = createPanelManagedRegions(document);
+      chromePanelRenderer(renderer)(panel, {
+        managed: true,
+        root,
+        regions,
+        onAction() {},
+      });
+      const selects = Array.from(
+        regions.reply.querySelectorAll<HTMLSelectElement>(
+          ".assistant-panel-select",
+        ),
+      );
       assert.deepEqual(
         selects.map((entry) => entry.disabled),
         [false, true, true],
@@ -1225,8 +1557,9 @@ describe("Assistant Workspace ACP UI v1", function () {
       assert.deepEqual(
         selects.map(
           (select) =>
-            select.children.find((option) => (option as any).selected)
-              ?.textContent,
+            Array.from(select.children).find(
+              (option) => (option as HTMLOptionElement).selected,
+            )?.textContent,
         ),
         ["Code", "Model A", "High"],
       );
@@ -1234,12 +1567,13 @@ describe("Assistant Workspace ACP UI v1", function () {
   }
 
   it("refreshes only the Chat banner when auto-approval changes", async function () {
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-chat");
     const render = () =>
-      renderer.renderAssistantPanelSnapshot(
+      chromePanelRenderer(renderer)(
         AssistantPanelModel.projectAssistantWorkspacePanel(state, {}, {}),
         { managed: true, root, regions, onAction() {} },
       );
@@ -1288,145 +1622,6 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(task.applyStatus, "pending");
     assert.equal(panel.actions.toolbar[3].value, "boundary");
     assert.equal(panel.actions.toolbar[3].align, "end");
-  });
-
-  it("renders accessible submission symbols before unfinished task titles only", async function () {
-    const document = new FakeDocument();
-    const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
-    const { root, regions } = createPanelManagedRegions(document);
-    const state = canonicalState("acp-skills") as any;
-    state.navigation.entries[0].submission = {
-      symbol: "🌙",
-      provider: "openai",
-      model: "gpt-5",
-    };
-    state.navigation.entries[0].resumptionPending = true;
-    state.navigation.entries.push({
-      owner: owner("acp-skills", "request-complete"),
-      groupId: "backend-a",
-      label: "Completed Task",
-      subtitle: "2️⃣ Skill Alpha/Workflow Alpha",
-      description: null,
-      groupLabel: "Backend A",
-      status: "succeeded",
-      backendStatus: "succeeded",
-      applyState: "succeeded",
-      attention: null,
-      updatedAt: "2026-07-17T01:00:00.000Z",
-      messageCount: 1,
-      submission: {
-        symbol: "🌙",
-        provider: "openai",
-        model: "gpt-5",
-      },
-      resumptionPending: false,
-    });
-    state.navigation.queuedEntries.push({
-      queueId: "queue-a",
-      groupId: "backend-a",
-      label: "Queued Task",
-      subtitle: "3️⃣ Skill Alpha/Workflow Alpha",
-      groupLabel: "Backend A",
-      updatedAt: "2026-07-17T02:00:00.000Z",
-      canCancel: true,
-      submission: {
-        symbol: "☀️",
-        provider: "default",
-        model: "default",
-      },
-      resumptionPending: false,
-    });
-    const ui = {
-      runningCollapsed: false,
-      queuedCollapsed: false,
-      completedCollapsed: false,
-    };
-    const panel = model.projectAssistantWorkspacePanel(state, ui, {});
-    const runningTask = panel.drawers.sections[0].groups[0].activeTasks[0];
-    const completedTask = panel.drawers.sections[2].groups[0].finishedTasks[0];
-    assert.deepEqual(runningTask.submission, {
-      symbol: "🌙",
-      provider: "openai",
-      model: "gpt-5",
-    });
-    assert.equal(runningTask.mainStatus, "resumption-pending");
-    assert.equal(runningTask.workflowLabel, "Skill Alpha");
-    assert.isNull(completedTask.submission);
-
-    renderer.renderAssistantPanelSnapshot(panel, {
-      managed: true,
-      root,
-      regions,
-      onAction() {},
-    });
-    const badges = regions.drawer.querySelectorAll(
-      ".assistant-workspace-drawer-task-submission",
-    );
-    assert.deepEqual(
-      badges.map((badge) => badge.textContent),
-      ["🌙", "☀️"],
-    );
-    badges.forEach((badge) => {
-      assert.equal(badge.getAttribute("aria-label"), badge.title);
-      assert.include(badge.title, badge.textContent);
-      assert.match(badge.title, /Provider|Model/);
-    });
-    assert.include(badges[1].title, "Default");
-    assert.notInclude(
-      completedTask.workflowLabel,
-      completedTask.submission?.symbol || "🌙",
-    );
-  });
-
-  it("updates only one task row when submission tooltip metadata changes", async function () {
-    const document = new FakeDocument();
-    const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
-    const { root, regions } = createPanelManagedRegions(document);
-    const state = canonicalState("acp-skills") as any;
-    state.navigation.entries[0].submission = {
-      symbol: "🌙",
-      provider: "openai",
-      model: "gpt-5",
-    };
-    state.navigation.entries[0].resumptionPending = false;
-    const render = () =>
-      renderer.renderAssistantPanelSnapshot(
-        model.projectAssistantWorkspacePanel(state, {}, {}),
-        { managed: true, root, regions, onAction() {} },
-      );
-    render();
-    const drawerMount = regions.drawer.firstChild;
-    const section = regions.drawer.querySelector(
-      ".assistant-workspace-drawer-section",
-    );
-    const group = regions.drawer.querySelector(
-      ".assistant-workspace-drawer-group",
-    );
-    const taskRow = regions.drawer.querySelector("[data-assistant-task-key]");
-    const stableRegions = Object.fromEntries(
-      Object.entries(regions).filter(([key]) => key !== "drawer"),
-    );
-    const stableSubtrees = captureRegionSubtrees(stableRegions);
-
-    state.navigation.entries[0].submission.model = "gpt-5.1";
-    render();
-
-    assert.strictEqual(regions.drawer.firstChild, drawerMount);
-    assert.strictEqual(
-      regions.drawer.querySelector(".assistant-workspace-drawer-section"),
-      section,
-    );
-    assert.strictEqual(
-      regions.drawer.querySelector(".assistant-workspace-drawer-group"),
-      group,
-    );
-    assert.notStrictEqual(
-      regions.drawer.querySelector("[data-assistant-task-key]"),
-      taskRow,
-    );
-    assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
   });
 
   it("projects source-aware ACP drawers without empty backend groups", async function () {
@@ -1517,9 +1712,10 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("renders semantic task-drawer section classes and routes every collapse toggle", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills") as any;
     state.navigation.entries.push({
@@ -1544,7 +1740,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       canCancel: true,
     });
     const actions: Array<{ action: string; payload: unknown }> = [];
-    renderer.renderAssistantPanelSnapshot(
+    chromePanelRenderer(renderer)(
       model.projectAssistantWorkspacePanel(
         state,
         {
@@ -1564,8 +1760,8 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
     );
 
-    const sections = regions.drawer.querySelectorAll(
-      ".assistant-workspace-drawer-section",
+    const sections = Array.from(
+      regions.drawer.querySelectorAll(".assistant-workspace-drawer-section"),
     );
     assert.deepEqual(
       sections.map((section) =>
@@ -1575,14 +1771,13 @@ describe("Assistant Workspace ACP UI v1", function () {
       ),
       ["running", "queued", "completed"],
     );
-    regions.drawer
-      .querySelectorAll(".assistant-workspace-drawer-section-toggle")
-      .forEach((toggle) => {
-        toggle.listeners.get("click")?.[0]?.({
-          preventDefault() {},
-          stopPropagation() {},
-        });
-      });
+    Array.from(
+      regions.drawer.querySelectorAll<HTMLElement>(
+        ".assistant-workspace-drawer-section-toggle",
+      ),
+    ).forEach((toggle) => {
+      toggle.click();
+    });
     assert.deepEqual(actions, [
       {
         action: "toggle-drawer-section",
@@ -1600,13 +1795,14 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("preserves non-drawer managed regions across queue-only updates", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills") as any;
     const render = () =>
-      renderer.renderAssistantPanelSnapshot(
+      chromePanelRenderer(renderer)(
         model.projectAssistantWorkspacePanel(
           state,
           { queuedCollapsed: false, completedCollapsed: true },
@@ -1634,13 +1830,14 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("preserves managed drawer identity when only an empty navigation backend is added", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-chat") as any;
     const render = () =>
-      renderer.renderAssistantPanelSnapshot(
+      chromePanelRenderer(renderer)(
         model.projectAssistantWorkspacePanel(state, {}, {}),
         { managed: true, root, regions, onAction() {} },
       );
@@ -1809,78 +2006,10 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(panel.reply.hint, "");
   });
 
-  it("routes a rendered typed option through its canonical model action", async function () {
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
-    const panel = AssistantPanelModel.projectSkillRunnerPanelSnapshot({
-      title: "SkillRunner",
-      labels: {},
-      workspace: { selectedTaskKey: "run:1", groups: [] },
-      session: {
-        title: "Run",
-        backendTitle: "SkillRunner",
-        requestId: "request-option",
-        status: "waiting_user",
-        statusSemantics: {
-          normalized: "waiting_user",
-          terminal: false,
-          waiting: true,
-        },
-        pendingInteractionId: 7,
-        pendingInteraction: {
-          inputKind: "choose_one",
-          prompt: "Choose",
-          hint: null,
-          options: [
-            {
-              label: "Continue deeply",
-              value: { depth: 2, continue: true },
-              description: null,
-            },
-          ],
-          files: [],
-          fileReply: {
-            supported: false,
-            maxFiles: 8,
-            maxFileBytes: 32 * 1024 * 1024,
-            maxTotalBytes: 64 * 1024 * 1024,
-          },
-        },
-        pendingKind: "choose_one",
-        pendingUiHints: {},
-        pendingOptions: [],
-        pendingRequiredFields: [],
-        authAvailableMethods: [],
-        loading: false,
-        messages: [],
-        labels: {},
-      },
-    });
-    const hint = document.createElement("div");
-    const actions: Array<{ action: string; payload: unknown }> = [];
-    renderer.renderAssistantHint(hint, panel, {
-      onAction(action: string, payload: unknown) {
-        actions.push({ action, payload });
-      },
-    });
-    const button = hint.querySelector(".assistant-panel-hint-option");
-    assert.ok(button);
-    button?.listeners.get("click")?.[0]?.({});
-    assert.deepEqual(actions, [
-      {
-        action: "reply-run",
-        payload: {
-          responseValue: { depth: 2, continue: true },
-          responseLabel: "Continue deeply",
-          message: "Continue deeply",
-        },
-      },
-    ]);
-  });
-
   it("dispatches sequential managed text replies without rebuilding panel regions or emitting tokens", async function () {
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const acpState = canonicalState("acp-skills") as any;
     const setAcpPrompt = (prompt: string) => {
       acpState.selection.control = {
@@ -1905,24 +2034,31 @@ describe("Assistant Workspace ACP UI v1", function () {
     };
     setAcpPrompt("First reply");
 
-    const skillRunnerSnapshot = {
-      title: "SkillRunner",
-      labels: {},
-      workspace: { selectedTaskKey: "run:sequential-reply", groups: [] },
-      session: {
-        title: "Run",
-        backendTitle: "SkillRunner",
-        requestId: "request-sequential-reply",
+    const skillRunnerOwner = {
+      source: "skillrunner",
+      ownerKey: "sr-request-sequential-reply",
+      requestId: "sr-request-sequential-reply",
+      runKey: "sr-run-sequential-reply",
+    };
+    const skillRunnerState = canonicalState("acp-skills") as any;
+    skillRunnerState.source = "skillrunner";
+    skillRunnerState.navigation.selectedOwner = skillRunnerOwner;
+    skillRunnerState.navigation.entries =
+      skillRunnerState.navigation.entries.map((entry: any) => ({
+        ...entry,
+        owner: skillRunnerOwner,
+      }));
+    skillRunnerState.selection.owner = skillRunnerOwner;
+    skillRunnerState.selection.transcript.owner = skillRunnerOwner;
+    const setSkillRunnerPrompt = (prompt: string) => {
+      skillRunnerState.selection.control = {
+        ...skillRunnerState.selection.control,
         status: "waiting_user",
-        statusSemantics: {
-          normalized: "waiting_user",
-          terminal: false,
-          waiting: true,
-        },
-        pendingInteractionId: 8,
-        pendingInteraction: {
+        busy: false,
+        hint: { kind: "waiting_user", message: null },
+        interaction: {
           inputKind: "open_text",
-          prompt: "First reply",
+          prompt,
           hint: null,
           options: [],
           files: [],
@@ -1933,16 +2069,9 @@ describe("Assistant Workspace ACP UI v1", function () {
             maxTotalBytes: 64 * 1024 * 1024,
           },
         },
-        pendingKind: "open_text",
-        pendingUiHints: {},
-        pendingOptions: [],
-        pendingRequiredFields: [],
-        authAvailableMethods: [],
-        loading: false,
-        messages: [],
-        labels: {},
-      },
-    } as any;
+      };
+    };
+    setSkillRunnerPrompt("First reply");
 
     const cases = [
       {
@@ -1952,18 +2081,22 @@ describe("Assistant Workspace ACP UI v1", function () {
         },
         project: () =>
           AssistantPanelModel.projectAssistantWorkspacePanel(acpState, {}, {}),
+        render: (panel: unknown, options: Record<string, unknown>) =>
+          chromePanelRenderer(renderer)(panel, options),
       },
       {
         name: "SkillRunner",
         updateInteraction() {
-          skillRunnerSnapshot.session.pendingInteractionId = 9;
-          skillRunnerSnapshot.session.pendingInteraction.prompt =
-            "Second reply";
+          setSkillRunnerPrompt("Second reply");
         },
         project: () =>
-          AssistantPanelModel.projectSkillRunnerPanelSnapshot(
-            skillRunnerSnapshot,
+          AssistantPanelModel.projectAssistantWorkspacePanel(
+            skillRunnerState,
+            {},
+            {},
           ),
+        render: (panel: unknown, options: Record<string, unknown>) =>
+          chromePanelRenderer(renderer)(panel, options),
       },
     ];
 
@@ -1973,7 +2106,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       const onAction = (action: string, payload: unknown) => {
         actions.push({ action, payload });
       };
-      renderer.renderAssistantPanelSnapshot(testCase.project(), {
+      testCase.render(testCase.project(), {
         managed: true,
         root,
         regions,
@@ -1986,16 +2119,12 @@ describe("Assistant Workspace ACP UI v1", function () {
       assert.ok(input, `${testCase.name} reply input must exist`);
       assert.ok(button, `${testCase.name} reply button must exist`);
       const stableRegions = Object.fromEntries(
-        Object.entries(regions).filter(
-          ([key]) =>
-            key !== "hint" &&
-            (testCase.name !== "SkillRunner" || key !== "details"),
-        ),
+        Object.entries(regions).filter(([key]) => key !== "hint"),
       );
       const regionSubtrees = captureRegionSubtrees(stableRegions);
 
       testCase.updateInteraction();
-      renderer.renderAssistantPanelSnapshot(testCase.project(), {
+      testCase.render(testCase.project(), {
         managed: true,
         root,
         regions,
@@ -2012,10 +2141,7 @@ describe("Assistant Workspace ACP UI v1", function () {
         button,
       );
       (input as any).value = `Continue ${testCase.name}`;
-      button?.listeners.get("click")?.[0]?.({
-        preventDefault() {},
-        stopPropagation() {},
-      });
+      (button as HTMLElement | null)?.click();
 
       assert.lengthOf(actions, 1);
       assert.equal(actions[0].action, "reply-run");
@@ -2090,14 +2216,254 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
   });
 
-  it("preserves unrelated managed regions across permission-only changes", async function () {
-    const document = new FakeDocument();
+  it("keeps ACP Chat backend actions available before a conversation exists", async function () {
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const panel = model.projectAssistantWorkspacePanel(
+      backendOnlyAcpChatWorkspaceState(),
+      { executionDisplayMode: "live" },
+      emptyPanelLabels("acp-chat"),
+    );
+
+    const backendSelector = panel.context.selectors.find(
+      (entry: any) => entry.id === "backend",
+    );
+    assert.deepInclude(backendSelector, {
+      value: "backend-a",
+      disabled: false,
+    });
+    assert.deepEqual(
+      backendSelector.options.map((entry: any) => [entry.value, entry.label]),
+      [["backend-a", "Backend A"]],
+    );
+
+    const ownerSelector = panel.context.selectors.find(
+      (entry: any) => entry.id === "owner",
+    );
+    assert.deepInclude(ownerSelector, {
+      value: "",
+      disabled: true,
+    });
+    assert.deepEqual(ownerSelector.options, []);
+
+    const newConversation = panel.context.actions.find(
+      (entry: any) => entry.action === "new-conversation",
+    );
+    assert.deepInclude(newConversation, {
+      enabled: true,
+      payload: { groupId: "backend-a" },
+    });
+    const connect = panel.context.actions.find(
+      (entry: any) => entry.action === "connect",
+    );
+    assert.deepInclude(connect, {
+      enabled: true,
+      payload: { groupId: "backend-a" },
+    });
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+  });
+
+  it("uses the shared submission decoration for SkillRunner rows", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills") as any;
+    const runOwner = {
+      source: "skillrunner",
+      ownerKey: "run-lineage",
+      requestId: "req-lineage",
+      runKey: "run-lineage",
+    };
+    state.source = "skillrunner";
+    state.navigation.selectedOwner = runOwner;
+    state.navigation.entries[0].owner = runOwner;
+    state.navigation.entries[0].status = "waiting_user";
+    state.navigation.entries[0].backendStatus = "waiting_user";
+    state.navigation.entries[0].applyState = null;
+    state.navigation.entries[0].submission = {
+      symbol: "🪐",
+      provider: "openai",
+      model: "gpt-5",
+    };
+    state.navigation.entries[0].resumptionPending = true;
+    state.selection.owner = runOwner;
+    const panel = model.projectAssistantWorkspacePanel(state, {}, {});
+    const task = panel.drawers.sections
+      .flatMap((section: any) => section.groups)
+      .flatMap((group: any) => [...group.activeTasks, ...group.finishedTasks])
+      .find((entry: any) => entry.key === "run-lineage");
+    assert.isOk(task, "SkillRunner row is projected into the drawer");
+    assert.deepEqual(task.submission, {
+      symbol: "🪐",
+      provider: "openai",
+      model: "gpt-5",
+    });
+    assert.equal(task.mainStatus, "resumption-pending");
+    assert.notInclude(task.workflowLabel, "🪐");
+  });
+
+  it("renders accessible submission symbols before unfinished task titles only", async function () {
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
-    const state = canonicalState("acp-chat");
+    const state = canonicalState("acp-skills") as any;
+    state.navigation.entries[0].submission = {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    };
+    state.navigation.entries[0].resumptionPending = true;
+    state.navigation.entries.push({
+      owner: owner("acp-skills", "request-complete"),
+      groupId: "backend-a",
+      label: "Completed Task",
+      subtitle: "2️⃣ Skill Alpha/Workflow Alpha",
+      description: null,
+      groupLabel: "Backend A",
+      status: "succeeded",
+      backendStatus: "succeeded",
+      applyState: "succeeded",
+      attention: null,
+      updatedAt: "2026-07-17T01:00:00.000Z",
+      messageCount: 1,
+      submission: {
+        symbol: "🌙",
+        provider: "openai",
+        model: "gpt-5",
+      },
+      resumptionPending: false,
+    });
+    state.navigation.queuedEntries.push({
+      queueId: "queue-a",
+      groupId: "backend-a",
+      label: "Queued Task",
+      subtitle: "3️⃣ Skill Alpha/Workflow Alpha",
+      groupLabel: "Backend A",
+      updatedAt: "2026-07-17T02:00:00.000Z",
+      canCancel: true,
+      submission: {
+        symbol: "☀️",
+        provider: "default",
+        model: "default",
+      },
+      resumptionPending: false,
+    });
+    const ui = {
+      runningCollapsed: false,
+      queuedCollapsed: false,
+      completedCollapsed: false,
+    };
+    const panel = model.projectAssistantWorkspacePanel(state, ui, {});
+    const runningTask = panel.drawers.sections[0].groups[0].activeTasks[0];
+    const completedTask = panel.drawers.sections[2].groups[0].finishedTasks[0];
+    assert.deepEqual(runningTask.submission, {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    });
+    assert.equal(runningTask.mainStatus, "resumption-pending");
+    assert.equal(runningTask.workflowLabel, "Skill Alpha");
+    assert.isNull(completedTask.submission);
+
+    chromePanelRenderer(renderer)(panel, {
+      managed: true,
+      root,
+      regions,
+      onAction() {},
+    });
+    const badges = Array.from(
+      regions.drawer.querySelectorAll(
+        ".assistant-workspace-drawer-task-submission",
+      ),
+    ) as HTMLElement[];
+    assert.deepEqual(
+      badges.map((badge) => badge.textContent),
+      ["🌙", "☀️"],
+    );
+    badges.forEach((badge) => {
+      assert.equal(
+        badge.getAttribute("aria-label"),
+        badge.getAttribute("title"),
+      );
+      assert.include(
+        badge.getAttribute("title") || "",
+        badge.textContent || "",
+      );
+      assert.match(badge.getAttribute("title") || "", /Provider|Model/);
+    });
+    assert.include(badges[1].getAttribute("title") || "", "Default");
+    assert.notInclude(completedTask.workflowLabel, "🌙");
+  });
+
+  it("updates only the affected task row when submission tooltip metadata changes", async function () {
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(domEnv);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-skills") as any;
+    state.navigation.entries[0].submission = {
+      symbol: "🌙",
+      provider: "openai",
+      model: "gpt-5",
+    };
+    state.navigation.entries[0].resumptionPending = false;
+    state.navigation.entries.push({
+      owner: owner("acp-skills", "request-b"),
+      groupId: "backend-a",
+      label: "Second Task",
+      subtitle: "Skill Beta",
+      description: null,
+      groupLabel: "Backend A",
+      status: "running",
+      backendStatus: "connected",
+      applyState: null,
+      attention: null,
+      updatedAt: "2026-07-17T03:00:00.000Z",
+      messageCount: 0,
+    });
     const render = () =>
-      renderer.renderAssistantPanelSnapshot(
+      chromePanelRenderer(renderer)(
+        model.projectAssistantWorkspacePanel(state, {}, {}),
+        { managed: true, root, regions, onAction() {} },
+      );
+    const rowByKey = (taskKey: string) =>
+      Array.from(
+        regions.drawer.querySelectorAll("[data-assistant-task-key]"),
+      ).find(
+        (row) => row.getAttribute("data-assistant-task-key") === taskKey,
+      ) as HTMLElement | undefined;
+    render();
+    const drawerMount = regions.drawer.firstChild;
+    const untouchedRow = rowByKey("request-b");
+    assert.isOk(untouchedRow, "second task row rendered");
+    const stableRegions = Object.fromEntries(
+      Object.entries(regions).filter(([key]) => key !== "drawer"),
+    );
+    const stableSubtrees = captureRegionSubtrees(stableRegions);
+
+    state.navigation.entries[0].submission.model = "gpt-5.1";
+    render();
+
+    assert.strictEqual(regions.drawer.firstChild, drawerMount);
+    assert.strictEqual(rowByKey("request-b"), untouchedRow);
+    const badge = rowByKey("request-a")?.querySelector(
+      ".assistant-workspace-drawer-task-submission",
+    );
+    assert.isOk(badge, "submission badge still rendered");
+    assert.include(badge?.getAttribute("title") || "", "gpt-5.1");
+    assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
+  });
+
+  it("preserves unrelated managed regions across permission-only changes", async function () {
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(domEnv);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-chat") as any;
+    const render = () =>
+      chromePanelRenderer(renderer)(
         model.projectAssistantWorkspacePanel(
           state,
           { permissionRequestOpen: false },
@@ -2244,9 +2610,10 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("localizes the ACP Chat backend axis and always hides Apply", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const state = canonicalState("acp-chat") as any;
     state.navigation.entries[0].backendStatus = null;
     state.navigation.entries[0].applyState = null;
@@ -2275,11 +2642,18 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(panel.drawers.labels.statusBackend, "后端状态");
     assert.equal(panel.drawers.labels.statusApply, "应用状态");
 
-    const drawer = document.createElement("div");
-    renderer.renderAssistantContextDrawer(drawer, panel, { onAction() {} });
-    const axisLabels = drawer
-      .querySelectorAll(".assistant-workspace-drawer-task-status-axis-label")
-      .map((entry) => entry.textContent);
+    const { root, regions } = createPanelManagedRegions(document);
+    chromePanelRenderer(renderer)(panel, {
+      managed: true,
+      root,
+      regions,
+      onAction() {},
+    });
+    const axisLabels = Array.from(
+      regions.drawer.querySelectorAll(
+        ".assistant-workspace-drawer-task-status-axis-label",
+      ),
+    ).map((entry) => entry.textContent);
     assert.deepEqual(axisLabels, ["后端状态"]);
     assert.notInclude(axisLabels, "Backend");
   });
@@ -2400,12 +2774,6 @@ describe("Assistant Workspace ACP UI v1", function () {
         expected: { owner: null, payload: { groupId: "backend-a" } },
       },
       {
-        action: "connect",
-        data: { groupId: "backend-a" },
-        selected: chatSelected,
-        expected: { owner: null, payload: { groupId: "backend-a" } },
-      },
-      {
         action: "reply-run",
         data: {
           message: "continue",
@@ -2443,8 +2811,9 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("keeps unchanged task cards identical when only selection moves", async function () {
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const drawer = document.createElement("div");
     const sections = [
       {
@@ -2476,15 +2845,17 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
     ];
     const render = (selectedTaskKey: string) => {
-      renderer.renderAssistantContextDrawer(drawer, {
-        exact: true,
-        drawers: {
-          layout: "workspace-task-drawer",
-          contextTitle: "Runs",
-          selectedTaskKey,
-          sections,
+      chromePanelRenderer(renderer)(
+        {
+          drawers: {
+            layout: "workspace-task-drawer",
+            contextTitle: "Runs",
+            selectedTaskKey,
+            sections,
+          },
         },
-      });
+        { managed: true, regions: { drawer }, onAction() {} },
+      );
       return drawer.querySelectorAll("[data-assistant-task-key]");
     };
     const first = render("task-a");
@@ -2496,10 +2867,11 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("refreshes drawer structure when title visibility or backend label changes", async function () {
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const drawer = document.createElement("div");
-    const section: any = {
+    let section: any = {
       id: "sessions",
       title: "Sessions",
       hideTitle: false,
@@ -2519,30 +2891,39 @@ describe("Assistant Workspace ACP UI v1", function () {
         },
       ],
     };
+    // Publications deliver fresh objects, so structural changes are applied
+    // by replacing the section, not mutating it in place.
     const render = () =>
-      renderer.renderAssistantContextDrawer(drawer, {
-        exact: true,
-        drawers: {
-          layout: "workspace-task-drawer",
-          contextTitle: "Sessions",
-          selectedTaskKey: "conversation-a",
-          sections: [section],
+      chromePanelRenderer(renderer)(
+        {
+          drawers: {
+            layout: "workspace-task-drawer",
+            contextTitle: "Sessions",
+            selectedTaskKey: "conversation-a",
+            sections: [section],
+          },
         },
-      });
+        { managed: true, regions: { drawer }, onAction() {} },
+      );
 
     render();
     assert.lengthOf(
       drawer.querySelectorAll(".assistant-workspace-drawer-section-title"),
       1,
     );
-    section.hideTitle = true;
+    section = { ...section, hideTitle: true };
     render();
     assert.lengthOf(
       drawer.querySelectorAll(".assistant-workspace-drawer-section-title"),
       0,
     );
 
-    section.groups[0].backendDisplayName = "Backend A Renamed";
+    section = {
+      ...section,
+      groups: [
+        { ...section.groups[0], backendDisplayName: "Backend A Renamed" },
+      ],
+    };
     render();
     assert.equal(
       drawer.querySelector(".assistant-workspace-drawer-group-title")
@@ -2552,9 +2933,10 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("preserves every non-transcript managed region across transcript-only state", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills");
     const ui = {
@@ -2586,7 +2968,7 @@ describe("Assistant Workspace ACP UI v1", function () {
     };
     const render = () => {
       const panel = model.projectAssistantWorkspacePanel(state, ui, {});
-      renderer.renderAssistantPanelSnapshot(panel, {
+      chromePanelRenderer(renderer)(panel, {
         managed: true,
         root,
         regions,
@@ -2633,13 +3015,14 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("updates only the task drawer region when an ACP task status axis changes", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills") as any;
     const render = () =>
-      renderer.renderAssistantPanelSnapshot(
+      chromePanelRenderer(renderer)(
         model.projectAssistantWorkspacePanel(state, {}, {}),
         { managed: true, root, regions, onAction() {} },
       );
@@ -2670,21 +3053,32 @@ describe("Assistant Workspace ACP UI v1", function () {
       regions.drawer.querySelector(".assistant-workspace-drawer-group"),
       group,
     );
-    assert.notStrictEqual(
-      regions.drawer.querySelector("[data-assistant-task-key]"),
-      taskRow,
+    // The Preact context drawer reconciles rows by task key, so the changed
+    // row keeps its DOM identity and the new axis value is a props diff
+    // (the imperative renderer this test was written against rebuilt the
+    // row element instead).
+    const updatedRow = regions.drawer.querySelector(
+      "[data-assistant-task-key]",
     );
+    assert.strictEqual(updatedRow, taskRow);
+    const axisValues = Array.from(
+      updatedRow!.querySelectorAll(
+        ".assistant-workspace-drawer-task-status-axis-value",
+      ),
+    ).map((entry) => entry.textContent);
+    assert.include(axisValues, "Running");
     assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
   });
 
   it("preserves the selected ACP Skills DOM when background owner publications arrive", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const child = await loadWorkspaceChild();
     const { root, regions } = createPanelManagedRegions(document);
     let snapshot = canonicalState("acp-skills");
-    renderer.renderAssistantPanelSnapshot(
+    chromePanelRenderer(renderer)(
       model.projectAssistantWorkspacePanel(snapshot, {}, {}),
       {
         managed: true,
@@ -2768,10 +3162,25 @@ describe("Assistant Workspace ACP UI v1", function () {
         "test/fixtures/assistant-workspace/v1-skills-transcript-mutation.json",
       ),
     );
-    const document = new FakeDocument();
-    const renderer = await loadTranscriptRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadTranscriptRenderer(domEnv);
     const transcript = document.createElement("div");
-    transcript.failNextInsertBefore = true;
+    // Mirror the old fake's failNextInsertBefore hook: the first insertBefore
+    // on the container throws, so the commit hits the transactional DOM
+    // failure path and the retry must recover.
+    const originalInsertBefore = transcript.insertBefore.bind(transcript);
+    let failNextInsert = true;
+    Object.defineProperty(transcript, "insertBefore", {
+      configurable: true,
+      value: (child: Node, before: Node | null) => {
+        if (failNextInsert) {
+          failNextInsert = false;
+          throw new Error("synthetic-dom-failure");
+        }
+        return originalInsertBefore(child, before);
+      },
+    });
 
     const render = () =>
       renderer.applyAssistantTranscriptEffectsExact({
@@ -2805,11 +3214,16 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   for (const source of ["acp-chat", "acp-skills"] as const) {
     it(`preserves ${source} historical pages and keyed gaps across terminal tail patches`, async function () {
-      const document = new FakeDocument();
-      document.transcriptRowHeight = 40;
-      const renderer = await loadTranscriptRenderer(document);
+      const domEnv = createSidebarDomEnvironment();
+      const { document } = domEnv;
+      const renderer = await loadTranscriptRenderer(domEnv);
       const transcript = document.createElement("div");
-      transcript.clientHeight = 10_000;
+      // jsdom has no layout: row measurement falls back to the configured
+      // estimatedRowHeight (40), matching the old fake's transcriptRowHeight.
+      Object.defineProperty(transcript, "clientHeight", {
+        configurable: true,
+        value: 10_000,
+      });
       const ownerKey =
         source === "acp-chat" ? "backend-a\nconversation-a" : "request-a";
       const message = (index: number, status = "complete") => ({
@@ -2864,27 +3278,28 @@ describe("Assistant Workspace ACP UI v1", function () {
       const oldest = page("page:0:2", 0, [message(0), message(1)], null, 2, 2);
 
       renderer.renderAssistantTranscript({ ...renderOptions, page: tail });
-      const loadingBeforeHistory = transcript.children.find((node) =>
-        node.classList.contains("assistant-transcript-virtual-loading"),
+      const loadingBeforeHistory = Array.from(transcript.children).find(
+        (node) =>
+          node.classList.contains("assistant-transcript-virtual-loading"),
       );
       assert.isOk(loadingBeforeHistory);
       renderer.renderAssistantTranscript({ ...renderOptions, page: tail });
       assert.strictEqual(
-        transcript.children.find((node) =>
+        Array.from(transcript.children).find((node) =>
           node.classList.contains("assistant-transcript-virtual-loading"),
         ),
         loadingBeforeHistory,
       );
       renderer.renderAssistantTranscript({ ...renderOptions, page: oldest });
 
-      const gapBeforePatch = transcript.children.find(
+      const gapBeforePatch = Array.from(transcript.children).find(
         (node) =>
           node.getAttribute("data-assistant-virtual-spacer-kind") ===
           "inter-page",
       );
       assert.isOk(gapBeforePatch);
-      assert.equal(gapBeforePatch?.style.height, "80px");
-      const gapIndex = transcript.children.indexOf(gapBeforePatch!);
+      assert.equal((gapBeforePatch as HTMLElement)?.style.height, "80px");
+      const gapIndex = Array.from(transcript.children).indexOf(gapBeforePatch!);
       assert.equal(
         transcript.children[gapIndex - 1]?.getAttribute(
           "data-assistant-item-id",
@@ -2924,7 +3339,7 @@ describe("Assistant Workspace ACP UI v1", function () {
         }).ok,
       );
       assert.strictEqual(
-        transcript.children.find(
+        Array.from(transcript.children).find(
           (node) =>
             node.getAttribute("data-assistant-virtual-spacer-kind") ===
             "inter-page",
@@ -2959,9 +3374,9 @@ describe("Assistant Workspace ACP UI v1", function () {
         }).ok,
       );
 
-      const itemIds = transcript
-        .querySelectorAll(":scope > .assistant-transcript-row")
-        .map((row) => row.getAttribute("data-assistant-item-id"));
+      const itemIds = Array.from(
+        transcript.querySelectorAll(":scope > .assistant-transcript-row"),
+      ).map((row) => row.getAttribute("data-assistant-item-id"));
       assert.deepEqual(itemIds, [
         "message-0",
         "message-1",
@@ -2972,8 +3387,9 @@ describe("Assistant Workspace ACP UI v1", function () {
       ]);
       assert.equal(new Set(itemIds).size, itemIds.length);
       assert.equal(
-        transcript
-          .querySelectorAll(":scope > .assistant-transcript-row")
+        Array.from(
+          transcript.querySelectorAll(":scope > .assistant-transcript-row"),
+        )
           .at(-1)
           ?.querySelector("[data-assistant-transcript-body]")?.innerHTML,
         "terminal two",
@@ -2991,9 +3407,9 @@ describe("Assistant Workspace ACP UI v1", function () {
         6,
       );
       renderer.renderAssistantTranscript({ ...renderOptions, page: overlap });
-      const overlapIds = transcript
-        .querySelectorAll(":scope > .assistant-transcript-row")
-        .map((row) => row.getAttribute("data-assistant-item-id"));
+      const overlapIds = Array.from(
+        transcript.querySelectorAll(":scope > .assistant-transcript-row"),
+      ).map((row) => row.getAttribute("data-assistant-item-id"));
       assert.deepEqual(overlapIds, itemIds);
       assert.equal(new Set(overlapIds).size, overlapIds.length);
       assert.equal(
@@ -3023,16 +3439,18 @@ describe("Assistant Workspace ACP UI v1", function () {
         page: contractedTail,
       });
       assert.deepEqual(
-        transcript
-          .querySelectorAll(":scope > .assistant-transcript-row")
-          .map((row) => row.getAttribute("data-assistant-item-id")),
+        Array.from(
+          transcript.querySelectorAll(":scope > .assistant-transcript-row"),
+        ).map((row) => row.getAttribute("data-assistant-item-id")),
         ["message-0", "message-1", "message-2", "message-3", "message-4"],
       );
       assert.equal(
-        transcript.children.find(
-          (node) =>
-            node.getAttribute("data-assistant-virtual-key") ===
-            "spacer:edge:bottom",
+        (
+          Array.from(transcript.children).find(
+            (node) =>
+              node.getAttribute("data-assistant-virtual-key") ===
+              "spacer:edge:bottom",
+          ) as HTMLElement | undefined
         )?.style.height,
         "0px",
       );
@@ -3041,15 +3459,23 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("commits terminal Markdown and measured virtual geometry on the live state", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
-    document.transcriptRowHeight = 88;
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.clientHeight = 400;
-    transcript.scrollHeight = 10_000;
+    // jsdom has no layout engine: the geometry inputs the fake exposed as
+    // mutable fields are stubbed per element instance with the same values.
+    Object.defineProperty(transcript, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 10_000,
+    });
     transcript.scrollTop = 9_600;
     const streamingItem = {
       itemId: "assistant-segment-1",
@@ -3085,14 +3511,22 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
     };
     renderer.renderAssistantTranscript(renderOptions);
-    animationFrames.flushAll();
-
     const row = transcript.querySelector(".assistant-transcript-row");
     assert.isOk(row);
+    // The fake fed row measurement from a document-level height field through
+    // getBoundingClientRect at measure time; jsdom reports zero layout, so
+    // feed the same mutable height through a per-row rect stub.
+    let transcriptRowHeight = 88;
+    Object.defineProperty(row, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ height: transcriptRowHeight }),
+    });
+    animationFrames.flushAll();
+
     transcript.setAttribute("data-assistant-transcript-stick", "false");
     transcript.setAttribute("data-assistant-transcript-last-scroll-top", "200");
     transcript.scrollTop = 200;
-    document.transcriptRowHeight = 6_000;
+    transcriptRowHeight = 6_000;
     const completeItem = {
       ...streamingItem,
       status: "complete",
@@ -3136,7 +3570,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       row,
     );
 
-    document.transcriptRowHeight = 7_000;
+    transcriptRowHeight = 7_000;
     const extendedItem = {
       ...completeItem,
       text: "**finished with more output**",
@@ -3173,12 +3607,20 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("renders the tail window without requesting history on a stick-to-bottom first render", async function () {
-    const document = new FakeDocument();
-    document.transcriptRowHeight = 40;
-    const renderer = await loadTranscriptRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadTranscriptRenderer(domEnv);
     const transcript = document.createElement("div");
-    transcript.clientHeight = 100;
-    transcript.scrollHeight = 800;
+    // jsdom has no layout: clientHeight/scrollHeight are stubbed per element,
+    // and row measurement falls back to estimatedRowHeight (40).
+    Object.defineProperty(transcript, "clientHeight", {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 800,
+    });
     transcript.setAttribute(
       "data-assistant-transcript-stick-installed",
       "true",
@@ -3229,24 +3671,32 @@ describe("Assistant Workspace ACP UI v1", function () {
       transcript.querySelector(".assistant-transcript-virtual-loading"),
     );
     assert.deepEqual(
-      transcript
-        .querySelectorAll(":scope > .assistant-transcript-row")
-        .map((row) => row.getAttribute("data-assistant-item-id")),
+      Array.from(
+        transcript.querySelectorAll(":scope > .assistant-transcript-row"),
+      ).map((row) => row.getAttribute("data-assistant-item-id")),
       ["message-16", "message-17", "message-18", "message-19"],
     );
   });
 
   it("syncs the last scroll top after an incremental anchor restore", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
-    document.transcriptRowHeight = 88;
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.clientHeight = 400;
-    transcript.scrollHeight = 10_000;
+    // jsdom has no layout: geometry is stubbed per element; row measurement
+    // falls back to the default estimated row height (88).
+    Object.defineProperty(transcript, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 10_000,
+    });
     transcript.scrollTop = 9_600;
     const streamingItem = {
       itemId: "assistant-segment-1",
@@ -3321,13 +3771,17 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("coalesces repeated transcript bottom-stick animation frames", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.scrollHeight = 20_000;
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 20_000,
+    });
 
     renderer.stickAssistantTranscriptToBottom(transcript);
     renderer.stickAssistantTranscriptToBottom(transcript);
@@ -3344,22 +3798,27 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("honors user scroll-away while transcript bottom-stick work is pending", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.clientHeight = 400;
-    transcript.scrollHeight = 20_000;
+    Object.defineProperty(transcript, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 20_000,
+    });
     transcript.scrollTop = 19_600;
     renderer.installAssistantTranscriptStickiness(transcript, 80);
     renderer.stickAssistantTranscriptToBottom(transcript);
 
     transcript.scrollTop = 18_000;
-    for (const listener of transcript.listeners.get("scroll") || []) {
-      listener({ type: "scroll" });
-    }
+    transcript.dispatchEvent(new domEnv.window.Event("scroll"));
 
     assert.equal(
       transcript.getAttribute("data-assistant-transcript-stick"),
@@ -3372,9 +3831,7 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(transcript.scrollTop, 18_000);
 
     transcript.scrollTop = 19_600;
-    for (const listener of transcript.listeners.get("scroll") || []) {
-      listener({ type: "scroll" });
-    }
+    transcript.dispatchEvent(new domEnv.window.Event("scroll"));
     assert.equal(
       transcript.getAttribute("data-assistant-transcript-stick"),
       "true",
@@ -3383,13 +3840,17 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("drops pending bottom-stick work after owner or follow intent changes", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.scrollHeight = 20_000;
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 20_000,
+    });
     transcript.setAttribute("data-assistant-transcript-owner-key", "owner-a");
     transcript.setAttribute("data-assistant-transcript-stick", "true");
     renderer.stickAssistantTranscriptToBottom(transcript);

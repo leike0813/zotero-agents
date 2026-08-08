@@ -84,7 +84,17 @@ Built-in presets:
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
 | **Gemini CLI** | `gemini --experimental-acp` |
+| **Hermes** | `hermes acp` |
 | **Qwen Code** | `qwen --acp --experimental-skills` |
+| **GitHub Copilot** | `copilot --acp --stdio` |
+| **Qoder CLI** | `qodercli --acp` |
+| **Cursor Agent ACP** | `cursor-agent-acp` |
+| **DeepAgents** | `deepagents-acp` |
+| **Auggie** | `auggie --acp` |
+| **Kilo** | `kilo acp` |
+| **Cline** | `cline --acp` |
+| **CodeBuddy** | `codebuddy --acp` |
+| **Grok** | `grok agent stdio` |
 
 You can still manually modify any field after selecting a preset.
 

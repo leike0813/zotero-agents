@@ -343,8 +343,11 @@ describe("host bridge file downloads", function () {
       acquireHostBridgeUploadedFileLease([descriptor.fileId]),
     ]);
     const fulfilled = attempts.filter(
-      (entry): entry is PromiseFulfilledResult<Awaited<ReturnType<typeof acquireHostBridgeUploadedFileLease>>> =>
-        entry.status === "fulfilled",
+      (
+        entry,
+      ): entry is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof acquireHostBridgeUploadedFileLease>>
+      > => entry.status === "fulfilled",
     );
     const rejected = attempts.filter(
       (entry): entry is PromiseRejectedResult => entry.status === "rejected",

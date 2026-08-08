@@ -70,7 +70,10 @@ describe("provider profile ACP catalog projection", function () {
               runtimeOptionsCache: {
                 refreshedAt: "2020-01-01T00:00:00.000Z",
                 displayModels: [
-                  { id: "missing-provider/qwen3.7-plus", label: "qwen3.7-plus" },
+                  {
+                    id: "missing-provider/qwen3.7-plus",
+                    label: "qwen3.7-plus",
+                  },
                 ],
                 rawModels: [],
               },

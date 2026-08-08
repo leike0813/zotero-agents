@@ -1,6 +1,6 @@
 # 后端配置概览
 
-Zotero Agents 支持三种后端类型，每种后端适用于不同的使用场景。
+Zotero Agents 支持四种后端类型，每种后端适用于不同的使用场景。
 
 ## 如何选择
 
@@ -32,6 +32,12 @@ Docker 部署的 Skill Runner 独立于 Zotero 运行，支持多用户共享、
 
 → [Generic HTTP 后端配置](#doc/backends%2Fgeneric-http)
 
+### Pass-through
+
+用于完全在插件本地上下文中运行的 workflow——不涉及远程后端或外部 API 调用。导出/导入操作、标签审计和文件处理是典型示例。Pass-through workflow 无需服务器配置，完全在插件内部执行。
+
+→ [自定义 Workflow 架构](#doc/workflows%2Fcustom%2Findex)
+
 ## 后端类型对比
 
 | 类型 | 协议 | 执行方式 | 推荐度 | 适用场景 |
@@ -40,6 +46,7 @@ Docker 部署的 Skill Runner 独立于 Zotero 运行，支持多用户共享、
 | **Skill-Runner（Docker）** | HTTP API | 常驻服务 | 🥈 推荐 | 需要后台持续执行、局域网共享 |
 | **Skill-Runner（一键部署）** | HTTP API | 随插件启停 | 🥉 应急 | 完全不会安装 Agent / Docker |
 | **Generic HTTP** | HTTP | 远程服务 | 按需 | 调用特定 HTTP API（如 MinerU） |
+| **Pass-through** | 无（本地） | 插件内部 | 按需 | 纯本地操作（导出、标签审计、文件处理） |
 
 所有后端均通过 **[工具 → 后端管理器](#doc/backends%2Fbackend-manager)** 进行配置。
 

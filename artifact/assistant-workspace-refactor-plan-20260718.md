@@ -1,7 +1,7 @@
 # Assistant Workspace Refactor Plan
 
 Date: 2026-07-18
-Status: agreed direction, pre-execution
+Status: merged 2026-08-08 (dev-assistant-ui → dev, merge commit with dev-side re-lands)
 Supersedes/extends: `artifact/assistant-workspace-dev-ui-contract-audit-20260717.md`
 
 ## Problem statement
@@ -199,6 +199,12 @@ identity invariant tests green; no change to wire protocol.
   duplicated markdown-it initializations (consolidate on one shared renderer).
 - SkillRunner gains region isolation, owner-first switching, and the
   AGENTS.md transcript invariants it currently sits outside of.
+- Amended by the dev merge (2026-07-25, see notes below): the adapter must
+  inherit the transcript publication-clock semantics dev hardened on the
+  legacy path, and the acceptance baseline is the 2026-07-25 behavior
+  analysis artifact. The one sanctioned perceptible change is run switching
+  becoming owner-first (classified as an intended "smoother" improvement,
+  not a regression).
 
 Exit: one update paradigm for all three tabs; panel model/renderer slimmed
 by ~1/3.
@@ -263,3 +269,366 @@ Exit: mergeable duplication (2.5k–3.5k LOC) eliminated.
 - **Implementation-detail tests** (source-text regex in `test/core/71`;
   mount-granularity identity checks in `test/core/97`) must be migrated
   before the code they lock — sequenced in Phase 0.
+
+## Dev merge notes (2026-07-25)
+
+`dev` (~50 commits ahead of merge-base `a8908417`, up to v0.8.0) was merged
+into `dev-assistant-ui` after Phase 2 to reduce merge-back friction. Three
+textual conflicts (help-docs manifest timestamp — regenerated;
+`assistantWorkspaceAcpChild.js`; `test/core/97`), all resolved in favor of
+the Phase 2 structure with dev semantics re-landed. dev also landed two
+reference artifacts that now govern refactor acceptance:
+
+- `artifact/assistant-workspace-user-behavior-analysis-20260725.md` — the
+  user-visible behavior baseline; §6 and the §8.7 checklist are the
+  SkillRunner-tab acceptance contract for Phase 3.
+- `artifact/assistant-workspace-refactor-improvement-candidates-20260725.md`
+  — decision list; its column-E items (Chat writable while disconnected,
+  `TODO(contract)` ×5, …) stay parked and must not be piggybacked.
+
+### Classification of dev changes coupled to the refactor scope
+
+- **(C) Merges cleanly, no refactor interplay** (lands on code Phases 2–4
+  keep): ACP runtime-option resolution SSOT; atomic placeholder conversation
+  on backend switch; live-UI consistency fixes (scroll stickiness, terminal
+  Markdown, banner convergence); backend-scoped workflow settings; removal
+  of the interaction token; ACP Skills runtime-option SSOT + multi-page
+  transcript/scroll fixes (transcript renderer merges as-is); Kilo reasoning
+  fallback widening; recovery Host Bridge injection; the native workflow
+  queue core/wire/routing; SkillRunner observer lifecycle convergence (the
+  poll/reconcile model Phase 3 keeps).
+- **(B1) Overlaps Phase 2 — re-landed onto Preact ("Phase 2.5")**:
+  - owner-scoped transcript loading/empty placeholder → `TranscriptRegion`
+    gains an `ownerKey` dimension in memo comparison and reset effect
+    (AGENTS.md owner-scope isolation invariant);
+  - source-aware context drawer (Chat sessions-only section, empty backend
+    group filtering, section-scoped collapse keys), the Queued drawer
+    section with `cancel-queued-workflow-unit`, and the task-card
+    Backend/Apply status axis → `ContextDrawerRegion`;
+  - waiting_user interaction controls (open-text/option/confirm/file) →
+    `HintRegion`/`ReplyRegion`/`ActionControls`, driven by model-projected
+    action descriptors instead of the child's hand-made `reply` action;
+  - reply stale action/payload fix (the renderer's WeakMap mechanism has no
+    Preact equivalent; `ReplyRegion`'s memo equality must include the
+    action/payload or read them via ref).
+  No new OpenSpec change: these behaviors are already specified in
+  `openspec/specs/*` by the dev-side archived changes; Phase 2.5 brings the
+  refactored implementation back to spec.
+- **(B2) Lands on the legacy path Phase 3 deletes — semantics the
+  SkillRunner surface adapter must inherit** (recorded in the Phase 3
+  OpenSpec change):
+  - transcript publication clock: mode-aware transcript qualification, the
+    `isSkillRunnerDisabledLivePublishBoundary` classification SSOT (reused
+    as-is), the pending-boundary bit, and clock preservation across host
+    detach/reattach;
+  - capability-gated interaction file submission (`submit-interaction-files`);
+  - the Queued section in SkillRunner owner-navigation projection;
+  - test migrations (71, 65, 97 SkillRunner section, snapshot harness) must
+    carry dev's new assertions over to the publication boundary.
+
+### Phase 3 acceptance amendment
+
+Per the improvement-candidates artifact (column A/E, already decided): run
+switching on the SkillRunner tab changing from "full transcript rebuild +
+Loading conversation..." to owner-first spinner + page-first paint is the
+one sanctioned perceptible change; acceptance and release notes classify it
+as an intended improvement. Everything else in §6/§8.7 of the behavior
+analysis must hold byte-for-byte.
+
+## Phase 3 implementation notes (2026-07-26)
+
+**Status: implemented.** OpenSpec change:
+`openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence/`.
+Landed in five commits on `dev-assistant-ui`:
+
+- `63a27358` — wire schema admits `skillrunner` (third owner branch,
+  request-scoped owner key with run-key fallback; 26 typed actions; domain
+  mapping exhaustive for three sources with `plan`/`service-status`
+  declared not-applicable).
+- `4006024e` — read model + `SKILLRUNNER_WORKSPACE_ADAPTER` (dark).
+  Transcript publishes snapshots only; the publication runtime gained a
+  snapshot-only transcript lane (queued kind without mutations → flush
+  re-reads a full page) and the coordinator now accepts steady-state
+  snapshots. ACP mutation paths unchanged. Canonical conversation-entry →
+  transcript-item projection is a host-side SSOT in
+  `skillRunnerRunDialog.ts`.
+- `12f9caeb` — atomic cutover: `skillrunner.html` boots the shared
+  `acp-child.bundle.js` with `data-source="skillrunner"`; shell legacy
+  snapshot channel and legacy action forwarding deleted; child
+  source/envelope/action-owner branches added; sidebar actions routed
+  through the typed registry (`dispatchSkillRunnerWorkspaceAction`).
+  Includes the waiting_auth "auth suite" fix: the shared interaction DTO
+  gained an optional `auth` block (authUrl/userCode/lastError/methods/
+  importFiles) projected from the read model, so the hint region renders
+  the full auth affordances byte-identically to the legacy child. Test
+  migrations: 71 rewritten to publication-boundary behavior tests (11
+  cases), 97 SkillRunner section rewritten to drive the shared child
+  through publications with subtree node-identity assertions (9 cases).
+  Also fixed two real observer races exposed by the faster publication
+  funnel (stop-during-init stream leak; shutdown/start interleave orphan
+  observer).
+- `d078e255` — legacy deletion (−6772 LOC): `runDialog.js`,
+  `runDialogApp.js`, `chatThinkingCore.js`, `run-dialog.html`,
+  `skillRunnerSnapshotContract.ts`, the SkillRunner branches of
+  `assistantPanelModel.js`/`assistantPanelRenderer.js`,
+  `adaptLegacyTranscriptItem`, the push plane in
+  `skillRunnerRunDialog.ts` (6634→5555 LOC), standalone dialog mode.
+  `pushSnapshot` survives only as `publishRunWorkspaceState`: the
+  transcript publication clock plus the change-notify funnel. markdown-it
+  consolidated into the `src/sidebar/markdownParser.js` singleton.
+- Phase 3.5 — docs and gates (this note, AGENTS.md cold-mirror wording).
+
+Deviation notes:
+
+- Test 97's drawer task-card assertion changed from "card replaced" to
+  "card patched in place" — Preact keyed reconcile is strictly stronger;
+  the visible semantics (unchanged cards keep identity, changed card
+  content updates) are locked either way.
+- The waiting-state history catch-up test in 193 now triggers an explicit
+  workspace refresh: the old push path's ~60 localize calls incidentally
+  widened a re-sync window. Production semantics unchanged; a systematic
+  catch-up mechanism for waiting runs would be new feature work.
+- `assistantPanelRenderer.js`'s imperative chrome render functions no
+  longer have production callers but remain locked by test 97 — deferred
+  cleanup candidate for Phase 4.
+- One flake observed in `108-host-bridge-workflow-control` during a full
+  core run; passes in isolation and on rerun, unrelated to this change.
+
+Acceptance: `test:node:core` 2827 passing / 0 failing; build, lint,
+localization governance, help-docs, ssot-invariants, OpenSpec strict
+validation, and `test:lite` all green. A dedicated §6/§8.7 acceptance
+sweep against the behavior baseline found three regressions the test
+suites had missed (control-indicator badges, auto-reply indicator,
+backend-unreachable drawer groups) plus seven divergences (composer
+busy-Cancel and auth-paste labels, ACP-only dropdowns/usage gauge on the
+SkillRunner composer, "Loading conversation..." status row, details
+section depth, attention tooltip, empty-state text); all were restored
+to baseline and locked by new tests. Two perceptible changes are
+sanctioned (user-approved): owner-first run switching, and the
+permission "View details" sheet now opening (inert in the legacy UI).
+Manual Zotero 7/9 smoke remains a manual item before merge to `main`.
+
+## Phase 4 implementation notes (2026-08-01)
+
+**Status: implemented.** OpenSpec change:
+`openspec/changes/2026-08-01-assistant-workspace-data-plane-merge/`.
+Landed on `dev-assistant-ui` as one working tree (sub-deliverables were
+kept independently green but committed together — see deviation notes).
+
+### What landed
+
+- **Generic transcript mirror store** (`assistantTranscriptMirrorStore.ts`,
+  817 LOC) + two thin drivers (`acpChatTranscriptMirror.ts` 914,
+  `acpSkillRunTranscriptMirror.ts` 1496). All per-source variation is an
+  injected `AssistantTranscriptMirrorOwnerDescriptor`: owner key, pin
+  predicate, item-id allocation (random vs ordinal + hydrate recovery),
+  streaming segment tracking (dual assistant/thought vs single
+  `lastTextItem`), plan mode (`transcript-item` vs `external`), continuity
+  bookkeeping, cold-queue branch (`queueEventWhileMirrorCold` →
+  `"handled" | "continue"`), emit/persist callbacks. The one structural
+  divergence (plan handling) is an explicit mode, not a callback chain.
+  Mirror state hosting stays per-source; the store operates on a
+  `core(state)` projection handle and owns no global mirror map. The
+  Skills migration extended the descriptor with named hooks
+  (`prepareMirrorForEvent`, `resolveLoadedCounters`, `shouldReleaseOnEvict`,
+  hydrate lifecycle hooks) — each exercised by both drivers, judged
+  explicit coupling. `acpConversationTranscriptStore.ts` was **not**
+  folded (tests import the path directly; the two item unions are
+  genuinely distinct types) but its `as never` casts were replaced with
+  typed `as unknown as` casts.
+- **God-file splits** (domain / mirror / persistence / UI data-plane):
+  - `acpSessionManager.ts` 6136 → 4081 (+ `acpChatWorkspaceDataPlane.ts`
+    642, `acpChatSkillInjection.ts` 549, `acpChatWorkspaceEmissionFacade.ts`
+    55 cycle-breaker);
+  - `acpSkillRunStore.ts` 6513 → 3376 (+ `acpSkillRunPersistence.ts` 1220,
+    `acpSkillRunWorkspaceDataPlane.ts` 748);
+  - `assistantWorkspaceSidebar.ts` 4236 → 2181 (+
+    `assistantWorkspacePublicationHost.ts` 1313,
+    `assistantWorkspaceActionRouter.ts` 1094);
+  - `acpSkillRunnerOrchestrator.ts` 6091 → 2858 (+
+    `acpSkillRunRecovery.ts` 2177, `acpSkillRunExecutionSupport.ts` 1268).
+  All splits preserve their public export surface via barrel re-exports;
+  cross-layer emission moves through `configure*Host` injection
+  (facade pattern), keeping the runtime import graph acyclic.
+- **Shared action dispatch table** in `assistantWorkspaceActionRouter.ts`:
+  `ASSISTANT_WORKSPACE_HOST_ACTION_TABLE` keyed by action then source with
+  a uniform `(ctx) => Promise<void>` handler signature. Duplicated bodies
+  (`resolve-permission`, `copy-diagnostics`, `open-workspace`,
+  `set-mode/model/effort`, `cancel-queued-workflow-unit`,
+  `open-backend-manager`, `set-execution-display-mode`) exist once as
+  `*ForSource` implementations; `load-transcript-page` /
+  `request-owner-details` use a `Record<source, adapter>` lookup;
+  SkillRunner payload normalization is skillrunner-cell preprocessing.
+  The five `TODO(contract)` routes stay verbatim.
+- **Surface adapter skeleton** (`assistantWorkspaceSurfaceSkeleton.ts`,
+  170 LOC): change-kind mapper, region-read dispatcher, owner-control DTO
+  assembly, queued-entries navigation block, adapter literal factory.
+  Read models, hint projections, state machines, badges stay per-source.
+- **Permission/audit merges**: one `requestScopedPermission` in
+  `hostBridgePermissionManager.ts` parameterized by `{kind, ownerKey,
+  setRequest}` (pending state stays in the session snapshot / run record /
+  SkillRunner registry); shared `acpAuditAppendCore.ts` (140 LOC) owns the
+  buffered-NDJSON append lifecycle under both audit trails (Skills keeps
+  multi-file layout + sanitization, Chat keeps the discard latch).
+- **Dead chrome renderer cleanup**: `assistantPanelRenderer.js`
+  3051 → 141 LOC (`adoptPanelRegions`/`managedMount`/
+  `installOverlayDismiss`/`markRegion`/`shouldManageRegion` + verified
+  live dependencies). −2910 LOC.
+
+### Deviation notes
+
+- **≤ ~2k LOC target not met for the four split files** (4081 / 3376 /
+  2181 / 2858). The extractions followed the natural boundaries; the
+  remainders are cohesive domain cores (session lifecycle + skill
+  injection consumers; run-record domain + type block; shell host;
+  the ~2.3k-line `executeAcpSkillRunnerJob` family). Further splitting
+  would cut through cohesive logic — accepted as-is; Phase 5 may revisit.
+- **Test migrations (sanctioned, two files)**:
+  - `test/node/core/97-runtime-diagnostics-release-elision.test.ts`:
+    source-text timer-scheduling anchors re-pointed from
+    `acpSkillRunStore.ts` to `acpSkillRunPersistence.ts` /
+    `acpSkillRunWorkspaceDataPlane.ts` (assertions unchanged);
+  - `test/core/97-acp-ui-smoke.test.ts`: all six dead-renderer call
+    sites were **re-pointed** (none deleted — no publication-plane case
+    covered their semantics) to the Preact `chromePanelRenderer` seam
+    with assertion content unchanged. One substantive adjustment: the
+    drawer-structure case now feeds fresh objects instead of mutating
+    props in place, because the memoized `ContextDrawerRegion` compares
+    by signature — production always publishes fresh objects.
+- **Sidebar split kept three functions in the shell** (`postShellInit`,
+  `maybeShowAcpSkillWaitingToasts`, attention-indicator helpers) because
+  tests 95/138 anchor on their source text in
+  `assistantWorkspaceSidebar.ts`; `postShellInit` is injected into the
+  publication host.
+- **`inspectSyntheticAcpSkillRunReplayTimers` spans two owners** after
+  the store split (soft-persist half in persistence, change-emit half in
+  data-plane), composed with original warning/timer ordering.
+- **One yield-timing regression found and fixed during the adapter
+  skeleton extraction**: the region-read dispatcher initially `await`ed
+  every kind, adding microtask yields to the previously yield-free
+  SkillRunner read path; publications were byte-identical but test 97
+  lost 4 mount-preservation cases. Fixed by resolving synchronous readers
+  in the same tick. Lesson recorded for Phase 5: async restructuring of
+  publication read paths is timing-observable to the UI.
+- Sub-deliverable commits were not made; the phase landed as one
+  working tree. Each step was verified green before the next began, so
+  bisect granularity lives in the step sequence above rather than in git.
+
+### Quantitative outcome
+
+- Net diff: 32 files, +15100/−15604 (motion-heavy). Parallel
+  implementations single-sourced: mirror/LRU/streaming (~1.9k → 817
+  shared + thin driver diffs), action routing (3 copies → 1 table),
+  adapter skeleton, permission dispatch (3 → 1), audit append core
+  (2 → 1), dead chrome rendering (−2910). God files: 6136/6513/4236/
+  6091 → 4081/3376/2181/2858 with the extracted layers each ≤ ~2.2k.
+
+### Acceptance
+
+All gates green (recorded below).
+
+- Gates: `npm run build` green; `test:node:core` 2826 passing / 1
+  failing — the single failure was a 2s timeout flake in
+  `test/core/137-literature-search-ingest-workflow.test.ts` (unrelated to
+  this phase; 20/20 passing in isolation); `lint:check`,
+  `check:localization-governance`, `check:help-docs`,
+  `check:ssot-invariants`, `test:lite` (41 passed), and OpenSpec strict
+  validation all green. Change archived as
+  `openspec/changes/archive/2026-08-01-assistant-workspace-data-plane-merge/`.
+  Manual Zotero 7/9 smoke remains a manual item before merge to `main`.
+
+## Phase 5 implementation notes (2026-08-07)
+
+**Status: implemented.** OpenSpec change:
+`openspec/changes/2026-08-07-assistant-workspace-hardening-merge-prep/`.
+
+### Decisions recorded
+
+- **Transcript renderer: keep custom, component-wrapped (final).** The
+  Phase 2 design is the shipped state and needs no change:
+  `src/sidebar/components/TranscriptRegion.tsx` (memo + signature
+  equality) wraps the imperative
+  `src/sidebar/assistantTranscriptRenderer.js` (virtualization, row
+  identity). Rationale: virtualization and row identity are
+  performance-critical, the Phase 0 subtree node-identity tests lock the
+  observable semantics, and Preact's keyed diff offers no benefit inside
+  the transcript window. Decision closed.
+- **Phase 4 ≤ ~2k LOC split-target deviation: accepted, closed.** The
+  four split remainders (4081/3376/2181/2858 LOC) are cohesive domain
+  cores; further splitting would cut through cohesive logic. Not
+  revisited further.
+
+### What landed
+
+- **R3 production metric emission** (previously reserved-but-unemitted
+  names): the coordinator's region signature guard
+  (`assistantWorkspacePublicationCoordinator.ts` `publishRegion`) now
+  emits `panel_signature` / `panel_signature_bytes` /
+  `panel_signature_duration` on build and `panel_signature_skip` on hit
+  (labels: surface + kind; synchronous observations only). The
+  publication runtime funnels all three `readTranscriptPage` call sites
+  through `readProfiledTranscriptPage`, emitting `transcript_page_read` /
+  `transcript_page_scan_items` / `transcript_page_read_duration` (labels:
+  surface + phase; `initialization` phase is the host-side
+  first-paint proxy). Timing-neutral wraps only — no added microtask
+  yields (Phase 4 lesson); test 97 mount-preservation cases are the
+  tripwire and stay green.
+- **Baseline refresh**:
+  `artifact/performance-baselines/acp-runtime-after-workspace-refactor-*`
+  recorded via `scripts/record-acp-runtime-governance-baseline.ts
+  --output-prefix` (new option; default preserves the historical name).
+  The 2026-07-18 files are retained; label shapes are not comparable by
+  design (post-Phase-3/4 publication plane), noted in the new summary.
+- **Pre-existing gate fragility fixed**: the recorder's double-run
+  determinism gate was unpassable on unmodified HEAD because
+  `beginHostHttpRequestRead` measures wall-clock `Date.now()`; the R2
+  harness seam now freezes `Date.now` during the read, making
+  `host_input_duration` / `host_input_callback_max_duration`
+  machine-independent. Production code untouched.
+- **Test migration (sanctioned)**: `test/core/176` +
+  `test/helpers/acpRuntimePerformanceHarness.ts` — the synthetic R3
+  metric block was deleted; the harness now drives the real signature
+  guard (two identical `message-counts` publishes → build + skip) and
+  asserts the production-emitted counts.
+
+### Acceptance
+
+- Gates: `npm run build` green; `test:node:core` 2827 passing / 0
+  failing; `lint:check`, `check:localization-governance`,
+  `check:help-docs`, `check:ssot-invariants`, `test:lite` (41 passed)
+  green; OpenSpec strict validation of the change green
+  (`openspec validate --all --strict` shows 9 pre-existing spec warnings
+  unrelated to this refactor — recorded in the merge-prep artifact).
+- Live Zotero 9 replay matrix: **executed** (2026-08-07, Zotero 9
+  140 esr, dev profile). Seven matrices across four traces; archived
+  summaries and the full analysis in
+  `artifact/performance-baselines/replay-matrices/`:
+  - Pre-refactor chat trace (6653 events): accepted (live, logical).
+  - Pre-refactor workflow trace (15428 events): boundary/logical
+    **accepted ×2** (second run doubles as retry-with-fresh-owners);
+    like-for-like posted bytes 512,783 (2026-07-17 pre-refactor) →
+    508,717/508,756 (now) — no regression. The live-mode run was rejected
+    on the fixed byte budget exactly as the pre-refactor live-mode runs
+    were in July (635,763 then, 631,639 now — slightly fewer bytes).
+  - Fresh traces recorded on the refactored build (chat 208 events,
+    workflow 108145 events; opencode/kilo ACP backends): chat matrix
+    accepted; workflow matrix 9/9 complete, over the fixed budget only
+    because the trace is 6× the calibration trace — all governance shape
+    checks clean (steady-state deltas only, lifecycles accepted, no
+    rebase/recovery-full).
+  - Recorder/replay edge cases covered: save→replay handoff (automatic
+    prefill), live 9-record progress, Finish during an active turn,
+    automatic workflow completion, cancellation saving an incomplete
+    artifact, second recording round without restart, unicode stage
+    names in artifact filenames, replay with no running backend, stable
+    trace digest, surface attribution, 3×3 layout. Not exercised:
+    disconnect recovery, replacement-session notice, same-session
+    reconnect binding (open items for the Zotero 7 pass).
+  - SkillRunner tab smoke: backend-unavailable path verified live
+    (不可用 badge + empty state + composer render on the converged
+    plane). Full lifecycle smoke deferred — no reachable SkillRunner
+    backend (remote central down; local mock on 18030/8030 stayed
+    不可达 through the reachability governor; not investigated further,
+    out of scope).
+- Zotero 7 matrix: open pre-merge item (host not installed), tracked in
+  `artifact/assistant-workspace-merge-prep-20260807.md`.

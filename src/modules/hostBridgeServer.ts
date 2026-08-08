@@ -824,8 +824,7 @@ function workflowValidationErrorDetails(error: unknown) {
   const requiredFields = (error as { requiredFields?: unknown })
     ?.requiredFields;
   const details =
-    (error as { details?: Record<string, unknown> | undefined })?.details ||
-    {};
+    (error as { details?: Record<string, unknown> | undefined })?.details || {};
   const normalized = {
     ...details,
     ...(Array.isArray(requiredFields)

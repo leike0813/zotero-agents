@@ -2253,7 +2253,10 @@ describe("host bridge workflow control", function () {
 
   it("returns downloadable resource outputs from a direct workflow submission", async function () {
     const entry = workflow("bridge-output-workflow");
-    entry.manifest.supportedInvocationModes = ["interactive", "non-interactive"];
+    entry.manifest.supportedInvocationModes = [
+      "interactive",
+      "non-interactive",
+    ];
     entry.manifest.resourceRequirements = [
       {
         id: "report",

@@ -39,11 +39,11 @@ describe("skillrunner sidebar host runtime", function () {
     ]);
     assert.include(ts, "ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY");
     assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.INIT");
-    assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT");
+    assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION");
     assert.include(contract, '"__zsAssistantWorkspaceBridge"');
     assert.include(contract, '"assistant-workspace:init"');
-    assert.include(contract, '"assistant-workspace:child-snapshot"');
-    assert.include(ts, "dispatchRunWorkspaceAction");
+    assert.include(contract, '"assistant-workspace:child-publication"');
+    assert.include(ts, "dispatchSkillRunnerWorkspaceAction");
     assert.include(ts, "ACP_CHAT_WORKSPACE_ADAPTER");
     assert.include(ts, "new AssistantWorkspacePublicationRuntime");
     assert.notInclude(ts, "scheduleAssistantWorkspacePublicationChange");
@@ -100,8 +100,8 @@ describe("skillrunner sidebar host runtime", function () {
     );
 
     assert.include(workspaceHost, "createSkillRunnerHostActionHandler");
-    assert.include(workspaceHost, "publishLatestSkillRunnerChromeSnapshot");
-    assert.include(workspaceHost, "latestSkillRunnerBaseSnapshot");
+    assert.include(workspaceHost, "scheduleSkillRunnerPublications");
+    assert.include(workspaceHost, "dispatchSkillRunnerWorkspaceAction");
     assert.include(workspaceHost, "skillRunnerAttachedFrameWindow");
     assert.notInclude(workspaceHost, "refreshSkillRunnerWorkspacePresentation");
     assert.include(runDialog, "attachSkillRunnerSidebarHost");

@@ -267,7 +267,10 @@ describe("literature portable bundle workflows", function () {
 
     assert.equal(pickerCalls, 0);
     assert.equal(publishedPath, targetPath);
-    assert.equal(result.resourceOutputs[0].fileId, "file-remote-literature-bundle");
+    assert.equal(
+      result.resourceOutputs[0].fileId,
+      "file-remote-literature-bundle",
+    );
     await archive.withExtractedZip(targetPath, async (extracted: any) => {
       assert.include(extracted.entries, "manifest.json");
       assert.include(extracted.entries, "index.md");

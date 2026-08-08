@@ -317,9 +317,9 @@ instead of publishing a stale ACP Skills snapshot.
 
 Assistant Workspace child panels SHALL treat transcript rendering as isolated from managed panel chrome. A snapshot whose only visible change is transcript content, transcript pagination, transcript revision, streaming text or thought chunks, or transcript loading state SHALL NOT rebuild toolbar, banner, plan, hint, reply, context drawer, details drawer, or permission drawer DOM.
 
-Panel chrome signatures SHALL exclude transcript revision, transcript page signatures, streaming chunk contents, transcript item counts, and transcript event counts. Details drawer signatures SHALL be derived from details drawer content, drawer actions, and drawer open or collapse state, not from transcript activity.
+Panel chrome equivalence inputs SHALL exclude transcript revision, transcript page signatures, streaming chunk contents, transcript item counts, and transcript event counts. Details drawer equivalence inputs SHALL be derived from details drawer content, drawer actions, and drawer open or collapse state, not from transcript activity.
 
-Every managed non-transcript Assistant Workspace region SHALL have an explicit region-level signature guard. Toolbar, banner, plan, hint, reply, context drawer, details drawer, and permission drawer regions SHALL NOT be cleared or rebuilt when their own signature is unchanged.
+Every managed non-transcript Assistant Workspace region SHALL have an explicit region-level equivalence boundary containing only that region's user-visible content and open or collapsed state; on the ACP child this boundary is implemented as component props memoization. Toolbar, banner, plan, hint, reply, context drawer, details drawer, and permission drawer regions SHALL NOT be cleared, rebuilt, or otherwise mutated in the DOM when their own equivalence input is unchanged.
 
 Transcript loading indicators SHALL be scoped by the selected transcript owner, such as backend/conversation, request id, or task key. Repeated snapshots for the same owner and same loading semantic state SHALL preserve the loading indicator DOM node identity.
 
@@ -340,8 +340,8 @@ Transcript loading indicators SHALL be scoped by the selected transcript owner, 
 
 #### Scenario: Details content changes still refresh details drawer
 
-- **GIVEN** the details drawer has rendered with details signature `A`
-- **WHEN** a later snapshot changes details sections, details actions, or drawer open/collapse state and produces details signature `B`
+- **GIVEN** the details drawer has rendered with details equivalence input `A`
+- **WHEN** a later snapshot changes details sections, details actions, or drawer open/collapse state and produces details equivalence input `B`
 - **THEN** the details drawer MAY rebuild to reflect the new details content.
 
 #### Scenario: Repeated loading snapshots preserve transcript spinner DOM
@@ -628,16 +628,18 @@ Backend/conversation and run-list/selection changes SHALL use the canonical owne
 - **WHEN** Chat creates, renames, archives, or selects a conversation
 - **THEN** owner navigation updates without rebuilding transcript or masquerading as baseline status.
 
-### Requirement: Managed regions render by their own signatures
+### Requirement: Managed regions render by their own equivalence boundaries
 
-The runtime SHALL commit toolbar, banner, plan, hint, reply, context, details,
-and permission signatures only after successful rendering. Transcript, loading,
-streaming, and count-only changes SHALL NOT rebuild unrelated regions.
+The child SHALL apply toolbar, banner, plan, hint, reply, context, details,
+and permission region updates only after successful rendering. A failed
+region render SHALL leave the previously committed DOM and equivalence
+state untouched. Transcript, loading, streaming, and count-only changes
+SHALL NOT rebuild unrelated regions.
 
 #### Scenario: A region renderer fails
 
 - **WHEN** a render throws before commit
-- **THEN** the previous signature remains uncommitted
+- **THEN** the previous region DOM and equivalence state remain committed
 - **AND** the same publication content can be retried.
 
 ### Requirement: Managed regions preserve stable layout identity
@@ -663,14 +665,16 @@ Failed effects SHALL not commit signatures or partial renderer state.
 - **THEN** the ACK contains the bounded reconciliation failure
 - **AND** the next valid publication can retry without requiring stale state.
 
-### Requirement: Every shared ACP managed region has an independent signature
+### Requirement: Every shared ACP managed region has an independent equivalence boundary
 
 The Assistant Workspace SHALL reconcile toolbar, banner, message counts,
-transcript, plan, hint, composer, context drawer, details drawer, and permission
-drawer from an independent signature containing only that region's visible
+transcript, plan, hint, composer, context drawer, details drawer, and
+permission drawer from an independent region equivalence boundary —
+component props on the ACP child — containing only that region's visible
 content and local open or
 collapsed state. Transcript revision, page signature, streaming chunks, item
-counts, prompting tail, and log tail SHALL NOT enter non-transcript signatures.
+counts, prompting tail, and log tail SHALL NOT enter non-transcript region
+props.
 
 #### Scenario: A transcript-only publication is accepted
 
@@ -778,10 +782,35 @@ drawer-owned open/collapsed state.
 
 ### Requirement: Submission decoration SHALL be task-row scoped
 
-Submission symbol, tooltip, provider/model display metadata, and resumption-pending state SHALL enter only the affected task row and necessary task-drawer parent signatures. They MUST NOT enter transcript, toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, or whole-runner signatures.
+Submission symbol, tooltip, provider/model display metadata, and resumption-pending state SHALL enter only the affected task row's equivalence boundary and the necessary task-drawer parent equivalence inputs. They MUST NOT enter the equivalence boundaries of transcript, toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, or the whole-runner component; on the ACP child these boundaries are implemented as component props memoization.
 
 #### Scenario: Submission decoration changes
 
 - **WHEN** an unfinished row gains or changes resumption-pending or submission display fields
 - **THEN** the affected drawer row SHALL update
 - **AND** transcript, Runner pane, and every non-drawer managed region SHALL retain DOM identity
+
+### Requirement: SkillRunner tab refreshes flow through the publication plane
+
+The SkillRunner tab SHALL be refreshed only through v1 region publications
+delivered to the shared assistant child page. Transcript-only updates
+SHALL NOT rebuild toolbar, banner, message counts, hint, composer, context
+drawer, details drawer, or permission drawer DOM. Selecting a different
+run SHALL publish the new owner's loading-first state before any
+transcript page read, and transcript content SHALL render page first from
+the in-memory session history while background history hydration proceeds.
+No legacy full-snapshot channel SHALL remain.
+
+#### Scenario: SkillRunner transcript update preserves chrome DOM
+
+- **GIVEN** the SkillRunner tab has rendered a selected run with its chrome regions
+- **WHEN** the run receives a transcript-only snapshot while streaming
+- **THEN** only the transcript region MAY repaint
+- **AND** every non-transcript managed region SHALL preserve its DOM node identity.
+
+#### Scenario: SkillRunner owner switch is owner first
+
+- **GIVEN** the SkillRunner tab shows run A
+- **WHEN** the user selects run B whose history is not yet hydrated
+- **THEN** the workspace publishes run B's loading-first regions before reading its transcript page
+- **AND** the transcript renders the first available page without waiting for full history hydration.

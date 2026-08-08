@@ -1,4 +1,7 @@
-import { ensureRuntimeDirectory, getRuntimePersistencePaths } from "./runtimePersistence";
+import {
+  ensureRuntimeDirectory,
+  getRuntimePersistencePaths,
+} from "./runtimePersistence";
 import {
   registerHostBridgeWorkflowArtifactFile,
   resolveHostBridgeUploadedFile,
@@ -73,10 +76,7 @@ export function supportsHostBridgeNonInteractive(manifest: WorkflowManifest) {
     : manifest.supportedInvocationModes.includes("non-interactive");
 }
 
-function parseInputSlot(
-  slotId: string,
-  value: unknown,
-): { fileIds: string[] } {
+function parseInputSlot(slotId: string, value: unknown): { fileIds: string[] } {
   if (!isRecord(value) || !Array.isArray(value.fileIds)) {
     throw new HostBridgeWorkflowResourceError(
       "invalid_workflow_resource_bindings",
@@ -241,9 +241,7 @@ function assertAccepts(
 export async function validateWorkflowResourceBindings(args: {
   manifest: WorkflowManifest;
   raw: unknown;
-  resolveInput?: (
-    fileId: string,
-  ) => Promise<HostBridgeResolvedFileDownload>;
+  resolveInput?: (fileId: string) => Promise<HostBridgeResolvedFileDownload>;
 }) {
   const bindings = parseWorkflowResourceBindings(args.raw);
   const requirements = requirementMap(args.manifest);
@@ -255,7 +253,10 @@ export async function validateWorkflowResourceBindings(args: {
     );
   }
   if (!bindings && requirements.size === 0) {
-    return { bindings: undefined, inputs: {} as Record<string, WorkflowResourceFile[]> };
+    return {
+      bindings: undefined,
+      inputs: {} as Record<string, WorkflowResourceFile[]>,
+    };
   }
   if (!bindings) {
     throw new HostBridgeWorkflowResourceError(
@@ -297,9 +298,7 @@ export async function validateWorkflowResourceBindings(args: {
         ...(file.descriptor.size !== undefined
           ? { size: file.descriptor.size }
           : {}),
-        ...(file.descriptor.sha256
-          ? { sha256: file.descriptor.sha256 }
-          : {}),
+        ...(file.descriptor.sha256 ? { sha256: file.descriptor.sha256 } : {}),
       });
     }
     inputFiles[requirement.id] = resolved;

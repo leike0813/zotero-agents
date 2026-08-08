@@ -213,6 +213,7 @@ export function buildSkillRunnerSidebarSections<
   runningCollapsed?: boolean;
   completedCollapsed?: boolean;
   queuedCollapsed?: boolean;
+  unavailableCollapsed?: boolean;
   queuedEntries?: ReadonlyArray<{
     queueId: string;
     backendId: string;

@@ -133,9 +133,11 @@ import {
   createAssistantWorkspaceUnownedScope,
 } from "../../src/modules/assistantWorkspacePublication";
 import {
-  dispatchAssistantWorkspaceChildAction,
-  type AssistantWorkspaceHostRuntime,
-} from "../../src/modules/assistantWorkspaceSidebar";
+  configureAssistantWorkspaceActionRouterShellHost,
+  handleChildAction,
+} from "../../src/modules/assistantWorkspaceActionRouter";
+import type { AssistantWorkspaceTab } from "../../src/shared/assistantWireContract";
+import { type AssistantWorkspaceHostRuntime } from "../../src/modules/assistantWorkspaceSidebar";
 import { assistantWorkspaceTestPublication } from "../helpers/assistantWorkspacePublicationHarness";
 import { createAssistantWorkspaceAcpChildHarness } from "../helpers/assistantWorkspaceAcpChildHarness";
 
@@ -261,6 +263,16 @@ function createDeferred<T = void>() {
   });
   return { promise, resolve, reject };
 }
+
+configureAssistantWorkspaceActionRouterShellHost({
+  logAssistantWorkspaceDebug() {},
+  closeActiveSidebarHost() {
+    return false;
+  },
+  normalizeTab: (value) =>
+    String(value || "acp-skills") as AssistantWorkspaceTab,
+  resolveCurrentShellWindow: () => null,
+});
 
 function createAssistantWorkspaceDispatchHost() {
   return {
@@ -9296,13 +9308,17 @@ describe("ACP SkillRunner-compatible runner", function () {
         if (trigger === "click") {
           button.click();
         } else {
-          input.dispatchEvent({
-            type: "keydown",
-            key: "Enter",
-            ctrlKey: true,
-            metaKey: false,
-            preventDefault() {},
-          });
+          const KeyboardEventCtor =
+            input.ownerDocument.defaultView!.KeyboardEvent;
+          input.dispatchEvent(
+            new KeyboardEventCtor("keydown", {
+              key: "Enter",
+              ctrlKey: true,
+              metaKey: false,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
         }
         const envelope = child.actions
           .slice(actionCountBeforeReply)
@@ -9319,7 +9335,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         assert.deepEqual(envelope.owner, owner);
 
         if (trigger === "click") {
-          await dispatchAssistantWorkspaceChildAction(
+          await handleChildAction(
             createAssistantWorkspaceDispatchHost(),
             "library",
             {
@@ -9331,7 +9347,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           assert.equal(getAcpSkillRunRecord(requestId)?.status, "waiting_user");
         }
 
-        await dispatchAssistantWorkspaceChildAction(
+        await handleChildAction(
           createAssistantWorkspaceDispatchHost(),
           "library",
           envelope as any,

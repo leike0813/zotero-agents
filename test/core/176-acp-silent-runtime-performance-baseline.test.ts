@@ -114,9 +114,64 @@ describe("ACP silent runtime performance baseline", function () {
           ?.bytes || 0,
         0,
       );
+      // Production-emitted region-isolation metrics (coordinator guard):
+      // two identical message-counts publishes → two signature builds, one
+      // skip.
+      const signatureMetrics = r3(surface).metrics.filter(
+        (metric) =>
+          metric.labels.publicationKind === "message-counts" &&
+          metric.labels.publicationSurface === "acp-skills",
+      );
+      assert.equal(
+        signatureMetrics.find((metric) => metric.name === "panel_signature")
+          ?.counter,
+        2,
+      );
+      assert.equal(
+        signatureMetrics.find(
+          (metric) => metric.name === "panel_signature_skip",
+        )?.counter,
+        1,
+      );
+      assert.isAbove(
+        signatureMetrics.find(
+          (metric) => metric.name === "panel_signature_bytes",
+        )?.bytes || 0,
+        0,
+      );
+      assert.equal(
+        signatureMetrics.find(
+          (metric) => metric.name === "panel_signature_duration",
+        )?.durationCount,
+        2,
+      );
+      // Production-emitted transcript page-read metrics (runtime funnel):
+      // one initialization-phase page read of the one-item test page.
+      const pageReadMetrics = r3(surface).metrics.filter(
+        (metric) =>
+          metric.labels.publicationSurface === "acp-skills" &&
+          metric.labels.publicationPhase === "initialization",
+      );
+      assert.equal(
+        pageReadMetrics.find((metric) => metric.name === "transcript_page_read")
+          ?.counter,
+        1,
+      );
+      assert.equal(
+        pageReadMetrics.find(
+          (metric) => metric.name === "transcript_page_scan_items",
+        )?.counter,
+        1,
+      );
+      assert.equal(
+        pageReadMetrics.find(
+          (metric) => metric.name === "transcript_page_read_duration",
+        )?.durationCount,
+        1,
+      );
       assert.lengthOf(
         profile.metrics.filter((metric) => metric.name === "panel_post"),
-        3,
+        4,
         "bounded region kinds may create series, publication identity must not",
       );
       for (const metric of profile.metrics.filter(
@@ -125,7 +180,7 @@ describe("ACP silent runtime performance baseline", function () {
         assert.notProperty(metric.labels, "publicationId");
         assert.notProperty(metric.labels, "publicationDeliverySequence");
       }
-      assert.lengthOf(profile.publicationLifecycles || [], 4);
+      assert.lengthOf(profile.publicationLifecycles || [], 5);
       assert.isTrue(
         (profile.publicationLifecycles || []).every(
           (entry) =>

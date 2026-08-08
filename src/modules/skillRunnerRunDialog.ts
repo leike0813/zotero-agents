@@ -1,13 +1,9 @@
-import type { DialogHelper } from "zotero-plugin-toolkit";
-import { config } from "../../package.json";
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { getStringOrFallback as localize } from "../utils/locale";
-import { resolveAddonRef } from "../utils/runtimeBridge";
 import { isWindowAlive } from "../utils/window";
 import { copyText } from "../utils/ztoolkit";
-import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   type SkillRunnerManagementChatHistoryPayload,
   type SkillRunnerManagementAuthSession,
@@ -15,7 +11,10 @@ import {
   type SkillRunnerManagementSseFrame,
   isAbortErrorLike,
 } from "../providers/skillrunner/managementClient";
-import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
+import {
+  getSkillRunnerHttpStatus,
+  isSkillRunnerRunTerminalClientError,
+} from "../providers/skillrunner/errors";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import {
   guardSkillRunnerAutoReplyBeforeUserReply,
@@ -27,7 +26,6 @@ import {
 } from "./skillRunnerAutoReplyObserver";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
-  cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
   updateTaskDashboardHistoryStateByRequest,
   type TaskDashboardHistoryRecord,
@@ -82,11 +80,9 @@ import {
 import { ASSISTANT_SIDEBAR_STREAM_FLUSH_MS } from "./assistantSidebarViewModel";
 import {
   canPublishAssistantWorkspaceLiveUpdates,
-  getAssistantExecutionDisplayMode,
   isAssistantSilentExecutionMode,
   type AssistantWorkspacePublishReason,
 } from "./assistantExecutionDisplayPolicy";
-import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
 import {
   createAssistantMessageCounts,
   type AssistantMessageCountTriplet,
@@ -99,21 +95,27 @@ import {
   subscribeSkillRunnerHostBridgePermissionRequests,
 } from "./skillRunnerHostBridgePermissionRegistry";
 import {
-  resolveRunDialogMessageType,
-  type RunDialogBridgeType,
-  type RunDialogMessageType,
-} from "../shared/assistantWireContract";
-import {
-  assertSkillRunnerWorkspaceSnapshot,
-  SKILLRUNNER_SNAPSHOT_SCHEMA,
-  type RunDialogActionEnvelope,
-} from "../shared/skillRunnerSnapshotContract";
-import { isSkillRunnerSnapshotWireAssertAvailable } from "./debugMode";
-import {
+  projectAssistantPendingInteractionAuth,
   projectAssistantPendingInteractionFromHints,
   type AssistantInteractionFileReply,
+  type AssistantInteractionOption,
   type AssistantPendingInteraction,
+  type AssistantPendingInteractionAuth,
 } from "../shared/assistantInteractionContract";
+import {
+  createAssistantWorkspaceTranscriptPage,
+  type AssistantWorkspaceTranscriptItem,
+  type AssistantWorkspaceTranscriptRegion,
+} from "./assistantWorkspaceTranscriptPublication";
+import {
+  createFailedTranscriptRegion,
+  createReadyTranscriptRegion,
+  projectAssistantWorkspacePermissionRequest,
+  type AssistantWorkspaceDetailsFieldId,
+  type AssistantWorkspaceDetailsSectionId,
+  type AssistantWorkspaceOwner,
+  type AssistantWorkspaceOwnerDetails,
+} from "./assistantWorkspacePublication";
 import { resolveSkillRunnerBackendCapabilities } from "./skillRunnerHandshake";
 import { resolveSkillRunnerInteractionFileCapability } from "./skillRunnerHandshakeProtocol";
 import { pickAssistantInteractionFiles } from "./acpSkillRunInteractionFiles";
@@ -220,163 +222,15 @@ type RunSessionState = {
   error?: string;
   loading: boolean;
   historyLoading?: boolean;
-};
-
-type RunDialogSnapshot = {
-  title: string;
-  backendTitle: string;
-  requestId: string;
-  requestAssigned?: boolean;
-  backendInteractive?: boolean;
-  canOpenStream?: boolean;
-  canCancelBackendRun?: boolean;
-  canReply?: boolean;
-  canArchiveLocalRun?: boolean;
-  submitPhase?: string;
-  submitStartedAt?: string;
-  submitTimeoutAt?: string;
-  submitError?: string;
-  status: string;
-  statusSemantics: {
-    normalized: string;
-    terminal: boolean;
-    waiting: boolean;
-  };
-  applyState?: SkillRunnerRunApplyState;
-  applyAttempt?: number;
-  applyMaxAttempt?: number;
-  applyNextRetryAt?: string;
-  applyError?: string;
-  applyUpdatedAt?: string;
-  autoReplyEnabled?: boolean;
-  autoReplyObserverActive?: boolean;
-  autoReplyObserverSource?: string;
-  autoReplyObserverStartedAt?: string;
-  autoReplyObserverDeadlineAt?: string;
-  autoReplyObserverTimeoutSeconds?: number;
-  autoReplyObserverShowTimer?: boolean;
-  autoReplyObserverRemainingSeconds?: number;
-  updatedAt?: string;
-  engine?: string;
-  model?: string;
-  pendingOwner?: string;
-  pendingInteractionId?: number;
-  pendingInteraction?: AssistantPendingInteraction | null;
-  pendingKind?: string;
-  pendingPrompt?: string;
-  pendingOptions: RunDialogChoiceOption[];
-  pendingRequiredFields: string[];
-  pendingUiHints?: Record<string, unknown>;
-  pendingAskUser?: Record<string, unknown>;
-  pendingPermission?: AcpPendingPermissionRequest | null;
-  authPhase?: string;
-  authSessionId?: string;
-  authProviderId?: string;
-  authEngine?: string;
-  authPrompt?: string;
-  authChallengeKind?: string;
-  authAvailableMethods: string[];
-  authAskUser?: Record<string, unknown>;
-  authAcceptsChatInput?: boolean;
-  authInputKind?: string;
-  authUrl?: string;
-  authUserCode?: string;
-  authLastError?: string;
-  authUiHints?: Record<string, unknown>;
-  authControlPending?: boolean;
-  authControlAction?: "method" | "submission" | "import";
-  authControlError?: string;
-  loading: boolean;
-  historyLoading?: boolean;
-  error?: string;
-  messages: Array<{
-    seq: number;
-    ts?: string;
-    role: RunDialogMessageRole;
-    kind: RunDialogMessageKind;
-    text: string;
-    displayText?: string;
-    displayFormat?: string | null;
-    attempt?: number;
-    correlation?: Record<string, unknown>;
-  }>;
-  labels: {
-    assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
-    title: string;
-    backend: string;
-    requestId: string;
-    status: string;
-    engine: string;
-    model: string;
-    updatedAt: string;
-    pendingKind: string;
-    pendingPrompt: string;
-    loading: string;
-    error: string;
-    replyPlaceholder: string;
-    replyPlaceholderAlternative: string;
-    reply: string;
-    cancel: string;
-    close: string;
-    chatEmpty: string;
-    roleAgent: string;
-    roleUser: string;
-    roleSystem: string;
-    roleRevision: string;
-    runningHintTitle: string;
-    runningHintDesc: string;
-    waitingUserTitle: string;
-    waitingAuthTitle: string;
-    pendingInputTitle: string;
-    interactionIdLabel: string;
-    kindLabel: string;
-    requiredFieldsPrefix: string;
-    authRequiredPrompt: string;
-    authSessionIdLabel: string;
-    authEngineLabel: string;
-    authProviderLabel: string;
-    authUrlPrefix: string;
-    userCodePrefix: string;
-    lastErrorPrefix: string;
-    pendingMethodSelection: string;
-    replySend: string;
-    replyShortcut: string;
-    confirmYes: string;
-    confirmNo: string;
-    authPasteApiKey: string;
-    authPasteCode: string;
-    authSubmitApiKey: string;
-    authSubmitCode: string;
-    authAwaiting: string;
-    authInProgress: string;
-    authImportSubmit: string;
-    authImportSubmitting: string;
-    authImportHintDefault: string;
-    authImportRiskNotice: string;
-    authImportRequired: string;
-    authImportOptional: string;
-    authImportUnsupported: string;
-    authImportNoFile: string;
-    thinkingTitle: string;
-    thinkingDesc: string;
-    roleThinking: string;
-    processReasoning: string;
-    processToolCall: string;
-    processCommandExecution: string;
-    revisionCollapsedPrefix: string;
-    revisionExpand: string;
-    revisionCollapse: string;
-    finalSummaryTitle: string;
-    authImportFailed: string;
-  };
+  /** Set when the backend answers 404 for the chat history (history missing
+   * is not a run failure); rendered as a transcript system message. */
+  historyNotFound?: boolean;
 };
 
 export type RunDialogChoiceOption = {
   label: string;
   value: unknown;
 };
-
-export type RightShellMode = "item" | "notes" | "skillrunner";
 
 type RunDialogEntry = {
   key: string;
@@ -463,92 +317,29 @@ export type RunWorkspaceGroup = {
   latestUpdatedAt: string;
 };
 
-export type RunWorkspaceSnapshot = {
-  schema: typeof SKILLRUNNER_SNAPSHOT_SCHEMA;
-  title: string;
-  hostMode?: "dialog" | "sidebar";
-  transcriptRevision?: number;
-  transcriptPaginationVirtualizationEnabled?: boolean;
-  executionDisplayMode?: ReturnType<typeof getAssistantExecutionDisplayMode>;
-  messageCounts?: AssistantMessageCountsSnapshot;
-  labels: {
-    assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
-    title: string;
-    completedTasksTitle: string;
-    conversationTitle: string;
-    closeSidebar: string;
-    tasksToggle: string;
-    selectionTasksTitle: string;
-    waitingRequestId: string;
-    emptyTasks: string;
-    backendUnavailable: string;
-  };
-  workspace: {
-    selectedTaskKey: string;
-    groups: RunWorkspaceGroup[];
-  };
-  session: RunDialogSnapshot | null;
-  drawer?: {
-    open: boolean;
-    notice?: string;
-    truncated?: boolean;
-    sections: Array<{
-      id: "running" | "queued" | "completed";
-      title: string;
-      collapsible?: boolean;
-      collapsed: boolean;
-      groups: RunWorkspaceGroup[];
-    }>;
-  };
-  badges?: {
-    waitingCount: number;
-  };
-  selectionTasks?: {
-    itemLabel?: string;
-    tasks: Array<{
-      key: string;
-      label: string;
-      selected: boolean;
-    }>;
-  };
-  contextHint?: {
-    itemLabel?: string;
-    hasRelated: boolean;
-    tooltip?: string;
-  };
-  navigation?: {
-    activeMode: RightShellMode;
-    canSwitchToItem: boolean;
-    canSwitchToNotes: boolean;
-  };
+/**
+ * UI -> host action envelope for the SkillRunner workspace. The legacy
+ * bridge carried a typed message discriminator; with the shared child page
+ * (Stage 3+) actions arrive through the typed registry, so only the
+ * action/payload pair remains meaningful to the host.
+ */
+export type RunWorkspaceActionEnvelope = {
+  action: string;
+  payload?: Record<string, unknown>;
 };
 
 type RunWorkspaceState = {
-  hostMode: "dialog" | "sidebar";
-  bridgeType: RunDialogBridgeType;
   hostWindow: Window | null;
-  frameWindow: Window | null;
-  publishSnapshot?: (
-    phase: "init" | "snapshot",
-    snapshot: RunWorkspaceSnapshot,
-  ) => void;
   alertWindow: Window | null;
   focusHost?: () => void;
-  closeHost?: () => void;
   isHostAlive?: () => boolean;
-  removeMessageListener?: () => void;
   unsubscribeTasks?: () => void;
   unsubscribeRunStore?: () => void;
   unsubscribeAutoReplyObserver?: () => void;
   unsubscribeBackendHealth?: () => void;
   unsubscribeHostBridgePermissions?: () => void;
-  decorateSnapshot?: (snapshot: RunWorkspaceSnapshot) => RunWorkspaceSnapshot;
   resolveSidebarSelectionContext?: () => SkillRunnerSidebarContext | null;
-  handleHostAction?: (
-    envelope: RunDialogActionEnvelope,
-  ) => Promise<boolean> | boolean;
-  snapshotFlushTimer?: ReturnType<typeof setTimeout> | null;
-  pendingSnapshotType?: "init" | "snapshot";
+  publicationFlushTimer?: ReturnType<typeof setTimeout> | null;
   refreshFlushTimer?: ReturnType<typeof setTimeout> | null;
   pendingRefreshArgs?: RunWorkspaceRefreshArgs;
   pendingRefreshReason?: AssistantWorkspacePublishReason;
@@ -581,7 +372,6 @@ type RunWorkspaceRefreshArgs = {
   runKey?: string;
   selection?: RunWorkspaceSelectionIntent | null;
   selectionChanged?: boolean;
-  profile?: RunWorkspaceReadProfile;
   clearSelection?: boolean;
   publishReason?: AssistantWorkspacePublishReason;
 };
@@ -589,18 +379,13 @@ type RunWorkspaceRefreshArgs = {
 const SKILLRUNNER_BACKEND_TYPE = "skillrunner";
 const RUN_WORKSPACE_PANEL_HISTORY_LIMIT = 100;
 
-type RunWorkspaceReadProfile = "dialog-full" | "sidebar-active";
-
 type RunWorkspaceSelectionIntent = {
   runKey: string;
   source?: "user" | "programmatic";
 };
 
 const runWorkspaceState: RunWorkspaceState = {
-  hostMode: "dialog",
-  bridgeType: "run-dialog",
   hostWindow: null,
-  frameWindow: null,
   alertWindow: null,
   refreshChain: Promise.resolve(),
   selectedTaskKey: "",
@@ -612,8 +397,7 @@ const runWorkspaceState: RunWorkspaceState = {
   historyTruncated: false,
   historyNotice: "",
   loadingBackends: false,
-  snapshotFlushTimer: null,
-  pendingSnapshotType: undefined,
+  publicationFlushTimer: null,
   refreshFlushTimer: null,
   pendingRefreshArgs: undefined,
   pendingRefreshReason: undefined,
@@ -642,22 +426,21 @@ function isRunDialogEntrySelected(entry: RunDialogEntry) {
   return runWorkspaceState.currentEntry?.key === entry.key;
 }
 
-function pushSnapshotForRunDialogEntry(
+function publishRunWorkspaceStateForEntry(
   entry: RunDialogEntry,
-  type: "init" | "snapshot" = "snapshot",
   reason: AssistantWorkspacePublishReason = "critical",
 ) {
   if (isRunDialogEntrySelected(entry)) {
-    pushSnapshot(type, reason);
+    publishRunWorkspaceState(reason);
   }
 }
 
-function scheduleSnapshotFlushForRunDialogEntry(
+function scheduleRunWorkspacePublicationFlushForEntry(
   entry: RunDialogEntry,
   args?: { immediate?: boolean; reason?: AssistantWorkspacePublishReason },
 ) {
   if (isRunDialogEntrySelected(entry)) {
-    scheduleSnapshotFlush(args || {});
+    scheduleRunWorkspacePublicationFlush(args || {});
   }
 }
 
@@ -719,7 +502,7 @@ function settleRunDialogEntryAsFailed(args: {
     backendId: args.entry.backend.id,
     requestId: args.entry.requestId,
   });
-  pushSnapshotForRunDialogEntry(args.entry);
+  publishRunWorkspaceStateForEntry(args.entry);
   return true;
 }
 
@@ -1574,69 +1357,6 @@ function mergeHistoryEventsIntoSession(args: {
   return { changed, boundary };
 }
 
-function resolveRunDialogPageUrl() {
-  const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
-  if (!addonRef) {
-    return "about:blank";
-  }
-  return `chrome://${addonRef}/content/sidebar/run-dialog.html`;
-}
-
-function createRunDialogFrame(doc: Document, pageUrl: string) {
-  const isChromeLocalPage = /^chrome:\/\//i.test(String(pageUrl || ""));
-  if (isChromeLocalPage) {
-    const frame = doc.createElement("iframe");
-    frame.setAttribute("data-zs-role", "skillrunner-run-dialog-frame");
-    frame.src = pageUrl;
-    frame.style.width = "100%";
-    frame.style.height = "100%";
-    frame.style.minHeight = "780px";
-    frame.style.border = "none";
-    return frame;
-  }
-  const createXul = (doc as { createXULElement?: (tag: string) => Element })
-    .createXULElement;
-  if (typeof createXul === "function") {
-    const browser = createXul.call(doc, "browser");
-    browser.setAttribute("data-zs-role", "skillrunner-run-dialog-frame");
-    browser.setAttribute("disableglobalhistory", "true");
-    browser.setAttribute("remote", "true");
-    browser.setAttribute("maychangeremoteness", "true");
-    browser.setAttribute("type", "content");
-    browser.setAttribute("flex", "1");
-    browser.setAttribute("src", pageUrl);
-    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
-      "width",
-      "100%",
-    );
-    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
-      "height",
-      "100%",
-    );
-    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
-      "min-height",
-      "780px",
-    );
-    return browser;
-  }
-  const frame = doc.createElement("iframe");
-  frame.setAttribute("data-zs-role", "skillrunner-run-dialog-frame");
-  frame.src = pageUrl;
-  frame.style.width = "100%";
-  frame.style.height = "100%";
-  frame.style.minHeight = "780px";
-  frame.style.border = "none";
-  return frame;
-}
-
-function resolveFrameWindow(frame: Element | null) {
-  if (!frame) {
-    return null;
-  }
-  const candidate = frame as Element & { contentWindow?: Window | null };
-  return candidate.contentWindow || null;
-}
-
 function toTime(input: string | undefined) {
   const parsed = Date.parse(String(input || ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -1829,7 +1549,7 @@ function startRunDialogEntryForegroundContinuation(
   entry.session.pendingAuth = undefined;
   entry.session.error = undefined;
   entry.session.updatedAt = new Date().toISOString();
-  pushSnapshotForRunDialogEntry(entry);
+  publishRunWorkspaceStateForEntry(entry);
   const task = continueSkillRunnerForegroundRun({
     backend: entry.backend,
     requestId: entry.requestId,
@@ -1857,7 +1577,7 @@ function startRunDialogEntryForegroundContinuation(
       if (entry.refreshDisplay) {
         await entry.refreshDisplay();
       } else {
-        pushSnapshotForRunDialogEntry(entry);
+        publishRunWorkspaceStateForEntry(entry);
       }
     })
     .catch((error) => {
@@ -1865,7 +1585,7 @@ function startRunDialogEntryForegroundContinuation(
         syncSessionStateFromRunStore(entry);
       }
       entry.session.error = compactError(error);
-      pushSnapshotForRunDialogEntry(entry);
+      publishRunWorkspaceStateForEntry(entry);
     });
   trackRunDialogObserverTask(task);
   return task;
@@ -2043,51 +1763,23 @@ function listSkillRunnerPanelRows(args: {
 }
 
 async function buildRunWorkspaceModel(args: {
-  profile: RunWorkspaceReadProfile;
   backendId?: string;
   selection?: RunWorkspaceSelectionIntent | null;
   currentTaskKey?: string;
 }) {
-  if (args.profile === "dialog-full") {
-    cleanupTaskDashboardHistory();
-  }
   const backendIdScope = String(args.backendId || "").trim();
   const selection = args.selection || null;
   const selectedTaskKey = String(args.currentTaskKey || "").trim();
   const selectedRunKey = String(selection?.runKey || "").trim();
-  let history: TaskDashboardHistoryRecord[] = [];
+  const history: TaskDashboardHistoryRecord[] = [];
   let active: WorkflowTaskRecord[] = [];
   let historyTruncated = false;
-  const historyByKey = new Map<string, TaskDashboardHistoryRecord>();
-  const mergeHistoryRows = (rows: TaskDashboardHistoryRecord[]) => {
-    for (const entry of rows) {
-      const runKey = String(entry.runKey || "").trim();
-      if (runKey) {
-        historyByKey.set(runKey, entry);
-      }
-    }
-  };
-  if (args.profile === "dialog-full") {
-    mergeHistoryRows(
-      listTaskDashboardHistory({
-        backendId: backendIdScope || undefined,
-      }).filter((entry) =>
-        isSkillRunnerRecord(entry),
-      ) as TaskDashboardHistoryRecord[],
-    );
-    history = Array.from(historyByKey.values());
-    active = listActiveWorkflowTaskSummaries({
-      backendId: backendIdScope || undefined,
-    }).filter((entry) => isSkillRunnerRecord(entry)) as WorkflowTaskRecord[];
-  } else {
-    const panelRows = listSkillRunnerPanelRows({
-      backendId: backendIdScope || undefined,
-      selection: selectedRunKey ? selection : null,
-    });
-    history = [];
-    active = panelRows.rows;
-    historyTruncated = panelRows.truncated;
-  }
+  const panelRows = listSkillRunnerPanelRows({
+    backendId: backendIdScope || undefined,
+    selection: selectedRunKey ? selection : null,
+  });
+  active = panelRows.rows;
+  historyTruncated = panelRows.truncated;
   let configured: BackendInstance[] = [];
   try {
     const loaded = await loadBackendsRegistry();
@@ -2178,8 +1870,7 @@ async function buildRunWorkspaceModel(args: {
           : undefined;
       const key = runKey;
       const isSelectedRow = key === selectedTaskKey || key === selectedRunKey;
-      const shouldReadFullRunRecord =
-        args.profile === "dialog-full" || isSelectedRow;
+      const shouldReadFullRunRecord = isSelectedRow;
       const normalizedStatus = normalizeStatus(row.state, "running");
       const pendingPermission = requestId
         ? getSkillRunnerHostBridgePermissionRequest(requestId)
@@ -2508,372 +2199,6 @@ function canonicalizeRunWorkspaceSelectionIntent(args: {
   );
 }
 
-function buildRunDialogSnapshot(
-  entry: RunDialogEntry,
-  displayTitle?: string,
-  selectedTask?: RunWorkspaceTaskItem,
-  options?: { transcriptMessages?: SkillRunnerConversationEntry[] },
-): RunDialogSnapshot {
-  const pending = entry.session.pendingInteraction;
-  const pendingAuth = entry.session.pendingAuth;
-  const requestId = String(entry.requestId || "").trim();
-  const pendingPermission = requestId
-    ? getSkillRunnerHostBridgePermissionRequest(requestId)
-    : null;
-  entry.session.pendingPermission = pendingPermission;
-  const displayMessages = buildRunDialogDisplayMessages(
-    options?.transcriptMessages || entry.session.messages,
-  );
-  const rawStatus = String(entry.session.status || "").trim();
-  const normalizedStatus =
-    rawStatus || normalizeStatus(entry.session.status, "running");
-  const runRecord = getSkillRunnerRunRecord(entry.key);
-  const requestAssigned =
-    typeof selectedTask?.requestAssigned === "boolean"
-      ? selectedTask.requestAssigned
-      : !!requestId;
-  const backendInteractive =
-    typeof selectedTask?.backendInteractive === "boolean"
-      ? selectedTask.backendInteractive
-      : !!requestId;
-  const canOpenStream =
-    typeof selectedTask?.canOpenStream === "boolean"
-      ? selectedTask.canOpenStream
-      : backendInteractive;
-  const canCancelBackendRun =
-    typeof selectedTask?.canCancelBackendRun === "boolean"
-      ? selectedTask.canCancelBackendRun
-      : backendInteractive &&
-        !isTerminal(normalizeStatus(rawStatus, "running"));
-  const canReply =
-    typeof selectedTask?.canReply === "boolean"
-      ? selectedTask.canReply
-      : backendInteractive && isWaiting(normalizeStatus(rawStatus, "running"));
-  const canArchiveLocalRun =
-    typeof selectedTask?.canArchiveLocalRun === "boolean"
-      ? selectedTask.canArchiveLocalRun
-      : true;
-  const backendDisplayName = resolveBackendDisplayName(
-    entry.backend.id,
-    entry.backend.displayName,
-  );
-  const autoReplyObserverState = requestId
-    ? getSkillRunnerAutoReplyObserverState({
-        backendId: entry.backend.id,
-        requestId,
-      })
-    : null;
-  const canonicalPendingInteraction = pending?.interactionId
-    ? projectAssistantPendingInteractionFromHints({
-        pendingKind: pending.kind,
-        uiHints: pending.uiHints,
-        options: pending.options,
-        files: pending.requiredFields,
-        fileReply: entry.session.interactionFileCapability,
-      })
-    : null;
-  return {
-    title: String(displayTitle || "").trim() || resolveRunWorkspaceTitle(),
-    backendTitle: backendDisplayName,
-    requestId,
-    requestAssigned,
-    backendInteractive,
-    canOpenStream,
-    canCancelBackendRun,
-    canReply,
-    canArchiveLocalRun,
-    submitPhase: selectedTask?.submitPhase,
-    submitStartedAt: selectedTask?.submitStartedAt,
-    submitTimeoutAt: selectedTask?.submitTimeoutAt,
-    submitError: selectedTask?.submitError,
-    status: normalizedStatus,
-    statusSemantics: {
-      normalized: normalizedStatus,
-      terminal: isTerminal(normalizeStatus(normalizedStatus, "running")),
-      waiting: isWaiting(normalizeStatus(normalizedStatus, "running")),
-    },
-    applyState: runRecord?.apply.state || selectedTask?.applyState,
-    applyAttempt: runRecord?.apply.attempt || selectedTask?.applyAttempt,
-    applyMaxAttempt:
-      runRecord?.apply.maxAttempt || selectedTask?.applyMaxAttempt,
-    applyNextRetryAt:
-      runRecord?.apply.nextRetryAt || selectedTask?.applyNextRetryAt,
-    applyError: runRecord?.apply.error || selectedTask?.applyError,
-    applyUpdatedAt: runRecord?.apply.updatedAt || selectedTask?.applyUpdatedAt,
-    autoReplyEnabled:
-      autoReplyObserverState?.enabled || selectedTask?.autoReplyEnabled,
-    autoReplyObserverActive:
-      autoReplyObserverState?.active || selectedTask?.autoReplyObserverActive,
-    autoReplyObserverSource:
-      autoReplyObserverState?.source || selectedTask?.autoReplyObserverSource,
-    autoReplyObserverStartedAt:
-      autoReplyObserverState?.startedAt ||
-      selectedTask?.autoReplyObserverStartedAt,
-    autoReplyObserverDeadlineAt:
-      autoReplyObserverState?.deadlineAt ||
-      selectedTask?.autoReplyObserverDeadlineAt,
-    autoReplyObserverTimeoutSeconds:
-      autoReplyObserverState?.timeoutSeconds ??
-      selectedTask?.autoReplyObserverTimeoutSeconds,
-    autoReplyObserverShowTimer:
-      autoReplyObserverState?.showTimer ||
-      selectedTask?.autoReplyObserverShowTimer,
-    autoReplyObserverRemainingSeconds:
-      autoReplyObserverState?.remainingSeconds ??
-      selectedTask?.autoReplyObserverRemainingSeconds,
-    updatedAt: entry.session.updatedAt,
-    engine: entry.session.engine,
-    model: entry.session.model,
-    pendingOwner: entry.session.pendingOwner,
-    pendingInteractionId: pending?.interactionId,
-    pendingInteraction: canonicalPendingInteraction,
-    pendingKind: pending?.kind,
-    pendingPrompt: pending?.prompt,
-    pendingOptions: pending?.options || [],
-    pendingRequiredFields: pending?.requiredFields || [],
-    pendingUiHints: pending?.uiHints,
-    pendingAskUser: pending?.askUser,
-    pendingPermission,
-    authPhase: pendingAuth?.phase,
-    authSessionId: pendingAuth?.authSessionId,
-    authProviderId: pendingAuth?.providerId,
-    authEngine: pendingAuth?.engine,
-    authPrompt: pendingAuth?.prompt,
-    authChallengeKind: pendingAuth?.challengeKind,
-    authAvailableMethods: pendingAuth?.availableMethods || [],
-    authAskUser: pendingAuth?.askUser,
-    authAcceptsChatInput: pendingAuth?.acceptsChatInput,
-    authInputKind: pendingAuth?.inputKind,
-    authUrl: pendingAuth?.authUrl,
-    authUserCode: pendingAuth?.userCode,
-    authLastError: pendingAuth?.lastError,
-    authUiHints: pendingAuth?.uiHints,
-    authControlPending: entry.session.authControlPending,
-    authControlAction: entry.session.authControlAction,
-    authControlError: entry.session.authControlError,
-    loading: entry.session.loading,
-    historyLoading:
-      entry.session.historyLoading === true || entry.historyHydrating === true,
-    error: entry.session.error,
-    messages: displayMessages.map((entryItem) => ({
-      seq: entryItem.seq,
-      ts: entryItem.ts,
-      role: entryItem.role,
-      kind: entryItem.kind,
-      text: entryItem.text,
-      displayText: entryItem.displayText,
-      displayFormat: entryItem.displayFormat,
-      attempt: entryAttempt(entryItem),
-      correlation: isObject(entryItem.raw)
-        ? isObject(entryItem.raw.correlation)
-          ? (entryItem.raw.correlation as Record<string, unknown>)
-          : {}
-        : {},
-    })),
-    labels: {
-      assistantPanel: buildAssistantPanelLabels(),
-      title: localize(
-        "task-dashboard-run-workspace-title",
-        "SkillRunner Workspace",
-      ),
-      backend: localize("task-dashboard-run-backend", "Backend"),
-      requestId: localize("task-dashboard-run-request-id", "Request ID"),
-      status: localize("task-manager-column-status", "Status"),
-      engine: localize("task-dashboard-run-engine", "Engine"),
-      model: localize("task-dashboard-run-model", "Model"),
-      updatedAt: localize("task-dashboard-run-updated-at", "Updated At"),
-      pendingKind: localize("task-dashboard-run-pending-kind", "Pending Kind"),
-      pendingPrompt: localize("task-dashboard-run-pending-prompt", "Prompt"),
-      loading: localize("task-dashboard-run-loading", "Loading"),
-      error: localize("task-dashboard-run-error", "Error"),
-      replyPlaceholder: localize(
-        "task-dashboard-skillrunner-reply-placeholder",
-        "Reply text...",
-      ),
-      replyPlaceholderAlternative: localize(
-        "task-dashboard-run-reply-placeholder-alternative",
-        "Or enter a different request...",
-      ),
-      reply: localize("task-dashboard-skillrunner-reply", "Reply"),
-      cancel: localize("task-dashboard-skillrunner-cancel", "Cancel Run"),
-      close: localize("task-manager-close", "Close"),
-      chatEmpty: localize(
-        "task-dashboard-skillrunner-chat-empty",
-        "No chat events yet.",
-      ),
-      roleAgent: localize("task-dashboard-run-role-agent", "Agent"),
-      roleUser: localize("task-dashboard-run-role-user", "User"),
-      roleSystem: localize("task-dashboard-run-role-system", "System"),
-      roleRevision: localize(
-        "task-dashboard-run-role-revision",
-        "Rejected Final Reply",
-      ),
-      runningHintTitle: localize(
-        "task-dashboard-run-running-hint-title",
-        "Agent is running",
-      ),
-      runningHintDesc: localize(
-        "task-dashboard-run-running-hint-desc",
-        "The backend is generating events and preparing the next response.",
-      ),
-      waitingUserTitle: localize(
-        "task-dashboard-run-waiting-user-title",
-        "User Input Required",
-      ),
-      waitingAuthTitle: localize(
-        "task-dashboard-run-waiting-auth-title",
-        "Authentication Required",
-      ),
-      pendingInputTitle: localize(
-        "task-dashboard-run-pending-input-title",
-        "Pending Input Request",
-      ),
-      interactionIdLabel: localize(
-        "task-dashboard-run-interaction-id-label",
-        "interaction_id:",
-      ),
-      kindLabel: localize("task-dashboard-run-kind-label", "kind:"),
-      requiredFieldsPrefix: localize(
-        "task-dashboard-run-required-fields-prefix",
-        "Required:",
-      ),
-      authRequiredPrompt: localize(
-        "task-dashboard-run-auth-required-prompt",
-        "Authentication required.",
-      ),
-      authSessionIdLabel: localize(
-        "task-dashboard-run-auth-session-id-label",
-        "auth_session_id:",
-      ),
-      authEngineLabel: localize(
-        "task-dashboard-run-auth-engine-label",
-        "engine:",
-      ),
-      authProviderLabel: localize(
-        "task-dashboard-run-auth-provider-label",
-        "provider:",
-      ),
-      authUrlPrefix: localize(
-        "task-dashboard-run-auth-url-prefix",
-        "auth_url:",
-      ),
-      userCodePrefix: localize(
-        "task-dashboard-run-user-code-prefix",
-        "user_code:",
-      ),
-      lastErrorPrefix: localize(
-        "task-dashboard-run-last-error-prefix",
-        "last_error:",
-      ),
-      pendingMethodSelection: localize(
-        "task-dashboard-run-pending-method-selection",
-        "method-selection",
-      ),
-      replySend: localize("task-dashboard-run-reply-send", "Send Reply"),
-      replyShortcut: localize(
-        "task-dashboard-run-reply-shortcut",
-        "Ctrl+Enter / Cmd+Enter to send",
-      ),
-      confirmYes: localize("task-dashboard-run-confirm-yes", "Yes"),
-      confirmNo: localize("task-dashboard-run-confirm-no", "No"),
-      authPasteApiKey: localize(
-        "task-dashboard-run-auth-paste-api-key",
-        "Paste API key",
-      ),
-      authPasteCode: localize(
-        "task-dashboard-run-auth-paste-code",
-        "Paste authorization code",
-      ),
-      authSubmitApiKey: localize(
-        "task-dashboard-run-auth-submit-api-key",
-        "Submit API Key",
-      ),
-      authSubmitCode: localize(
-        "task-dashboard-run-auth-submit-code",
-        "Submit Code",
-      ),
-      authAwaiting: localize("task-dashboard-run-auth-awaiting", "Awaiting"),
-      authInProgress: localize(
-        "task-dashboard-run-auth-in-progress",
-        "Awaiting auth state update...",
-      ),
-      authImportSubmit: localize(
-        "task-dashboard-run-auth-import-submit",
-        "Import and Continue",
-      ),
-      authImportSubmitting: localize(
-        "task-dashboard-run-auth-import-submitting",
-        "Importing...",
-      ),
-      authImportHintDefault: localize(
-        "task-dashboard-run-auth-import-hint-default",
-        "Upload required auth files and continue.",
-      ),
-      authImportRiskNotice: localize(
-        "task-dashboard-run-auth-import-risk-notice",
-        "Review files before importing.",
-      ),
-      authImportRequired: localize(
-        "task-dashboard-run-auth-import-required",
-        "Required",
-      ),
-      authImportOptional: localize(
-        "task-dashboard-run-auth-import-optional",
-        "Optional",
-      ),
-      authImportUnsupported: localize(
-        "task-dashboard-run-auth-import-unsupported",
-        "unsupported import target",
-      ),
-      authImportNoFile: localize(
-        "task-dashboard-run-auth-import-no-file",
-        "Please select required files before submitting.",
-      ),
-      thinkingTitle: localize(
-        "task-dashboard-run-thinking-title",
-        "Agent is thinking",
-      ),
-      thinkingDesc: localize(
-        "task-dashboard-run-thinking-desc",
-        "Running inference and preparing the next response...",
-      ),
-      roleThinking: localize("task-dashboard-run-role-thinking", "Thought"),
-      processReasoning: localize(
-        "task-dashboard-run-process-reasoning",
-        "Reasoning",
-      ),
-      processToolCall: localize(
-        "task-dashboard-run-process-tool-call",
-        "Tool Call",
-      ),
-      processCommandExecution: localize(
-        "task-dashboard-run-process-command-execution",
-        "Command Execution",
-      ),
-      revisionCollapsedPrefix: localize(
-        "task-dashboard-run-revision-collapsed-prefix",
-        "(collapsed)",
-      ),
-      revisionExpand: localize(
-        "task-dashboard-run-revision-expand",
-        "Show rejected final reply",
-      ),
-      revisionCollapse: localize(
-        "task-dashboard-run-revision-collapse",
-        "Hide rejected final reply",
-      ),
-      finalSummaryTitle: localize(
-        "task-dashboard-run-final-summary-title",
-        "Final Summary",
-      ),
-      authImportFailed: localize(
-        "task-dashboard-run-auth-import-failed",
-        "Failed to import auth files: {error}",
-      ),
-    },
-  };
-}
-
 function cloneRunDialogTranscriptMessages(
   messages: SkillRunnerConversationEntry[],
 ) {
@@ -2955,7 +2280,16 @@ function resolveRunWorkspaceTranscriptMessages(args: {
     args.entry.messageCounts = nextCounts;
   }
   const visibleMessages = projectedMessages;
-  const signature = skillRunnerTranscriptSignature(visibleMessages);
+  // The history loading/not-found markers are appended by the transcript
+  // region read rather than stored in the message mirror, so they join the
+  // transcript region's own publication signature here — advancing the
+  // transcript revision (and only the transcript revision) when they toggle.
+  const signature = [
+    skillRunnerTranscriptSignature(visibleMessages),
+    args.entry.session.historyLoading === true ||
+      args.entry.historyHydrating === true,
+    args.entry.session.historyNotFound === true,
+  ].join("\u001f");
   if (entryKey !== runWorkspaceState.publishedTranscriptEntryKey) {
     runWorkspaceState.publishedTranscriptEntryKey = entryKey;
     runWorkspaceState.publishedTranscriptMessages =
@@ -2998,107 +2332,6 @@ function resolveRunWorkspaceTranscriptMessages(args: {
   );
 }
 
-function buildRunWorkspaceSnapshot(
-  session: RunDialogSnapshot | null,
-  selectedTask?: RunWorkspaceTaskItem,
-): RunWorkspaceSnapshot {
-  const runningGroups = runWorkspaceState.groups
-    .map((group) => ({
-      ...group,
-      activeTasks: group.activeTasks,
-      finishedTasks: [],
-    }))
-    .filter((group) => group.activeTasks.length > 0);
-  const completedGroups = runWorkspaceState.groups
-    .map((group) => ({
-      ...group,
-      activeTasks: [],
-      finishedTasks: group.finishedTasks,
-    }))
-    .filter((group) => group.finishedTasks.length > 0);
-  const executionDisplayMode = getAssistantExecutionDisplayMode();
-  const currentEntry = runWorkspaceState.currentEntry;
-  return {
-    schema: SKILLRUNNER_SNAPSHOT_SCHEMA,
-    title:
-      String(selectedTask?.title || "").trim() ||
-      session?.title ||
-      resolveRunWorkspaceTitle(),
-    transcriptRevision: runWorkspaceState.transcriptRevision,
-    transcriptPaginationVirtualizationEnabled:
-      isAssistantTranscriptPaginationVirtualizationEnabled(),
-    executionDisplayMode,
-    messageCounts: currentEntry?.messageCounts,
-    labels: {
-      assistantPanel: buildAssistantPanelLabels(),
-      title: localize(
-        "task-dashboard-run-workspace-title",
-        "SkillRunner Workspace",
-      ),
-      completedTasksTitle: localize(
-        "task-dashboard-run-completed-tasks-title",
-        "Completed Tasks",
-      ),
-      conversationTitle: localize(
-        "task-dashboard-run-conversation-title",
-        "Conversation",
-      ),
-      closeSidebar: localize("task-manager-close", "Close"),
-      tasksToggle: localize("task-dashboard-run-tasks-toggle", "Tasks"),
-      selectionTasksTitle: localize(
-        "task-dashboard-run-selection-tasks-title",
-        "Related Tasks",
-      ),
-      waitingRequestId: localize(
-        "task-dashboard-run-waiting-request-id",
-        "Waiting for requestId",
-      ),
-      emptyTasks: localize(
-        "task-dashboard-run-workspace-empty",
-        "No SkillRunner tasks.",
-      ),
-      backendUnavailable: localize(
-        "task-dashboard-skillrunner-backend-unavailable",
-        "Backend {backend} is temporarily unreachable. Please try again later.",
-      ),
-    },
-    workspace: {
-      selectedTaskKey: runWorkspaceState.selectedTaskKey,
-      groups: runWorkspaceState.groups,
-    },
-    session,
-    drawer: {
-      open: false,
-      notice: runWorkspaceState.historyNotice || undefined,
-      truncated: runWorkspaceState.historyTruncated || undefined,
-      sections: [
-        {
-          id: "running",
-          title: localize("task-dashboard-run-running-tasks-title", "Running"),
-          collapsed: false,
-          groups: runningGroups,
-        },
-        {
-          id: "completed",
-          title: localize(
-            "task-dashboard-run-completed-tasks-title",
-            "Completed Tasks",
-          ),
-          collapsible: true,
-          collapsed: false,
-          groups: completedGroups,
-        },
-      ],
-    },
-  };
-}
-
-function resolveRunWorkspaceBridgeMessageType(
-  phase: "init" | "snapshot" | "action",
-): RunDialogMessageType {
-  return resolveRunDialogMessageType(runWorkspaceState.bridgeType, phase);
-}
-
 function isRunWorkspaceHostAlive() {
   if (typeof runWorkspaceState.isHostAlive === "function") {
     return runWorkspaceState.isHostAlive();
@@ -3106,14 +2339,27 @@ function isRunWorkspaceHostAlive() {
   return isWindowAlive(runWorkspaceState.hostWindow);
 }
 
-function pushSnapshot(
-  messageType: "init" | "snapshot",
+/**
+ * The single flush funnel for SkillRunner workspace state (Stage 4 of
+ * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence).
+ *
+ * The legacy CHILD_SNAPSHOT push plane is gone: this funnel no longer builds
+ * or delivers a wire snapshot. It still owns the two stateful side effects
+ * the publication plane depends on:
+ * - the mode-aware transcript publication clock
+ *   (resolveRunWorkspaceTranscriptMessages advances
+ *   runWorkspaceState.transcriptRevision and the published message mirror the
+ *   adapter's paged reads serve from);
+ * - the diff-based change notification
+ *   (notifySkillRunnerWorkspacePublicationChange) that drives
+ *   subscribeSkillRunnerWorkspaceChanges listeners.
+ */
+function publishRunWorkspaceState(
   reason: AssistantWorkspacePublishReason = "critical",
 ) {
-  if (runWorkspaceState.snapshotFlushTimer) {
-    clearTimeout(runWorkspaceState.snapshotFlushTimer);
-    runWorkspaceState.snapshotFlushTimer = null;
-    runWorkspaceState.pendingSnapshotType = undefined;
+  if (runWorkspaceState.publicationFlushTimer) {
+    clearTimeout(runWorkspaceState.publicationFlushTimer);
+    runWorkspaceState.publicationFlushTimer = null;
   }
   if (runWorkspaceState.refreshFlushTimer) {
     clearTimeout(runWorkspaceState.refreshFlushTimer);
@@ -3121,7 +2367,7 @@ function pushSnapshot(
     runWorkspaceState.pendingRefreshArgs = undefined;
     runWorkspaceState.pendingRefreshReason = undefined;
   }
-  if (!runWorkspaceState.frameWindow && !runWorkspaceState.publishSnapshot) {
+  if (!runWorkspaceState.hostWindow) {
     return;
   }
   if (runWorkspaceState.currentEntry) {
@@ -3129,56 +2375,20 @@ function pushSnapshot(
       syncSessionStateFromRunStore(runWorkspaceState.currentEntry);
     }
   }
-  const selectedTask = runWorkspaceState.taskIndex.get(
-    runWorkspaceState.selectedTaskKey,
-  )?.item;
   const currentEntry = runWorkspaceState.currentEntry;
-  const transcriptMessages = currentEntry
-    ? resolveRunWorkspaceTranscriptMessages({
-        entry: currentEntry,
-        reason,
-      })
-    : undefined;
-  const session = currentEntry
-    ? buildRunDialogSnapshot(currentEntry, selectedTask?.title, selectedTask, {
-        transcriptMessages,
-      })
-    : null;
-  const snapshot = runWorkspaceState.decorateSnapshot
-    ? runWorkspaceState.decorateSnapshot(
-        buildRunWorkspaceSnapshot(session, selectedTask),
-      )
-    : buildRunWorkspaceSnapshot(session, selectedTask);
-  if (isSkillRunnerSnapshotWireAssertAvailable()) {
-    // `as unknown` keeps the assert signature from narrowing the typed local.
-    assertSkillRunnerWorkspaceSnapshot(snapshot as unknown);
+  if (currentEntry) {
+    resolveRunWorkspaceTranscriptMessages({
+      entry: currentEntry,
+      reason,
+    });
   }
-  if (runWorkspaceState.publishSnapshot) {
-    runWorkspaceState.publishSnapshot(messageType, snapshot);
-    return;
-  }
-  if (runWorkspaceState.hostMode === "sidebar") {
-    return;
-  }
-  const frameWindow = runWorkspaceState.frameWindow;
-  if (!frameWindow) {
-    return;
-  }
-  frameWindow.postMessage(
-    {
-      type: resolveRunWorkspaceBridgeMessageType(messageType),
-      payload: snapshot,
-    },
-    "*",
-  );
+  notifySkillRunnerWorkspacePublicationChange();
 }
 
-function scheduleSnapshotFlush(args: {
-  messageType?: "init" | "snapshot";
+function scheduleRunWorkspacePublicationFlush(args: {
   immediate?: boolean;
   reason?: AssistantWorkspacePublishReason;
 }) {
-  const messageType = args.messageType || "snapshot";
   const reason =
     args.reason || (args.immediate ? "critical" : ("live" as const));
   if (reason === "background") {
@@ -3188,19 +2398,15 @@ function scheduleSnapshotFlush(args: {
     return;
   }
   if (args.immediate || reason === "critical" || reason === "boundary") {
-    pushSnapshot(messageType, reason);
+    publishRunWorkspaceState(reason);
     return;
   }
-  runWorkspaceState.pendingSnapshotType =
-    runWorkspaceState.pendingSnapshotType === "init" ? "init" : messageType;
-  if (runWorkspaceState.snapshotFlushTimer) {
+  if (runWorkspaceState.publicationFlushTimer) {
     return;
   }
-  runWorkspaceState.snapshotFlushTimer = setTimeout(() => {
-    const pending = runWorkspaceState.pendingSnapshotType || "snapshot";
-    runWorkspaceState.snapshotFlushTimer = null;
-    runWorkspaceState.pendingSnapshotType = undefined;
-    pushSnapshot(pending, "live");
+  runWorkspaceState.publicationFlushTimer = setTimeout(() => {
+    runWorkspaceState.publicationFlushTimer = null;
+    publishRunWorkspaceState("live");
   }, ASSISTANT_SIDEBAR_STREAM_FLUSH_MS);
 }
 
@@ -3331,10 +2537,9 @@ function resolveRunStoreRefreshReason(): AssistantWorkspacePublishReason {
 }
 
 function clearRunWorkspaceHostState() {
-  if (runWorkspaceState.snapshotFlushTimer) {
-    clearTimeout(runWorkspaceState.snapshotFlushTimer);
-    runWorkspaceState.snapshotFlushTimer = null;
-    runWorkspaceState.pendingSnapshotType = undefined;
+  if (runWorkspaceState.publicationFlushTimer) {
+    clearTimeout(runWorkspaceState.publicationFlushTimer);
+    runWorkspaceState.publicationFlushTimer = null;
   }
   if (runWorkspaceState.refreshFlushTimer) {
     clearTimeout(runWorkspaceState.refreshFlushTimer);
@@ -3342,22 +2547,11 @@ function clearRunWorkspaceHostState() {
   }
   runWorkspaceState.pendingRefreshArgs = undefined;
   runWorkspaceState.pendingRefreshReason = undefined;
-  if (runWorkspaceState.removeMessageListener) {
-    runWorkspaceState.removeMessageListener();
-    runWorkspaceState.removeMessageListener = undefined;
-  }
   runWorkspaceState.hostWindow = null;
-  runWorkspaceState.frameWindow = null;
-  runWorkspaceState.publishSnapshot = undefined;
   runWorkspaceState.alertWindow = null;
   runWorkspaceState.focusHost = undefined;
-  runWorkspaceState.closeHost = undefined;
   runWorkspaceState.isHostAlive = undefined;
-  runWorkspaceState.decorateSnapshot = undefined;
   runWorkspaceState.resolveSidebarSelectionContext = undefined;
-  runWorkspaceState.handleHostAction = undefined;
-  runWorkspaceState.hostMode = "dialog";
-  runWorkspaceState.bridgeType = "run-dialog";
   runWorkspaceState.taskIndex = new Map();
   runWorkspaceState.selectionIntent = null;
   runWorkspaceState.groups = [];
@@ -3376,6 +2570,7 @@ function resetRunWorkspaceTranscriptPublicationState() {
 function clearRunWorkspaceRuntimeState() {
   clearRunWorkspaceHostState();
   resetRunWorkspaceTranscriptPublicationState();
+  skillRunnerPublicationNotice = null;
 }
 
 function ensureRunWorkspaceSubscriptions() {
@@ -3427,54 +2622,18 @@ function ensureRunWorkspaceSubscriptions() {
 }
 
 function attachRunWorkspaceHost(args: {
-  hostMode: "dialog" | "sidebar";
-  bridgeType: RunDialogBridgeType;
   hostWindow: Window;
-  frameWindow: Window | null;
-  publishSnapshot?: (
-    phase: "init" | "snapshot",
-    snapshot: RunWorkspaceSnapshot,
-  ) => void;
   alertWindow?: Window | null;
   focusHost?: () => void;
-  closeHost?: () => void;
   isHostAlive?: () => boolean;
-  decorateSnapshot?: (snapshot: RunWorkspaceSnapshot) => RunWorkspaceSnapshot;
   resolveSelectionContext?: () => SkillRunnerSidebarContext | null;
-  handleHostAction?: (
-    envelope: RunDialogActionEnvelope,
-  ) => Promise<boolean> | boolean;
 }) {
-  if (runWorkspaceState.removeMessageListener) {
-    runWorkspaceState.removeMessageListener();
-    runWorkspaceState.removeMessageListener = undefined;
-  }
-  runWorkspaceState.hostMode = args.hostMode;
-  runWorkspaceState.bridgeType = args.bridgeType;
   runWorkspaceState.hostWindow = args.hostWindow;
-  runWorkspaceState.frameWindow = args.frameWindow;
-  runWorkspaceState.publishSnapshot = args.publishSnapshot;
   runWorkspaceState.alertWindow = args.alertWindow || args.hostWindow;
   runWorkspaceState.focusHost = args.focusHost;
-  runWorkspaceState.closeHost = args.closeHost;
   runWorkspaceState.isHostAlive = args.isHostAlive;
-  runWorkspaceState.decorateSnapshot = args.decorateSnapshot;
   runWorkspaceState.resolveSidebarSelectionContext =
     args.resolveSelectionContext;
-  runWorkspaceState.handleHostAction = args.handleHostAction;
-
-  const expectedType = resolveRunWorkspaceBridgeMessageType("action");
-  const onMessage = (event: MessageEvent) => {
-    const data = event.data as { type?: unknown };
-    if (!data || data.type !== expectedType) {
-      return;
-    }
-    void handleRunWorkspaceAction(data as RunDialogActionEnvelope);
-  };
-  args.hostWindow.addEventListener("message", onMessage);
-  runWorkspaceState.removeMessageListener = () => {
-    args.hostWindow.removeEventListener("message", onMessage);
-  };
   ensureRunWorkspaceSubscriptions();
 }
 
@@ -3508,7 +2667,7 @@ async function startRunObserver(entry: RunDialogEntry) {
   entry.observerOwnsSessionState = true;
   entry.session.loading = true;
   entry.session.error = undefined;
-  pushSnapshotForRunDialogEntry(entry);
+  publishRunWorkspaceStateForEntry(entry);
   try {
     const capabilities = await resolveSkillRunnerBackendCapabilities({
       backend: entry.backend,
@@ -3555,13 +2714,26 @@ async function startRunObserver(entry: RunDialogEntry) {
 
   const syncHistory = async () => {
     const generation = observerGeneration;
-    const historyPayload = await client.listRunChatHistory({
-      requestId: entry.requestId,
-      fromSeq: entry.session.lastSeq + 1,
-    });
+    let historyPayload;
+    try {
+      historyPayload = await client.listRunChatHistory({
+        requestId: entry.requestId,
+        fromSeq: entry.session.lastSeq + 1,
+      });
+    } catch (error) {
+      if (getSkillRunnerHttpStatus(error) === 404) {
+        // A missing history is not a run failure: degrade to the
+        // history-not-found transcript marker instead of settling the
+        // observer into a terminal error.
+        entry.session.historyNotFound = true;
+        return;
+      }
+      throw error;
+    }
     if (!isObserverActive(generation)) {
       return;
     }
+    entry.session.historyNotFound = false;
     const historyMerge = mergeHistoryEventsIntoSession({
       session: entry.session,
       historyPayload,
@@ -3902,7 +3074,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       stopWaitingAuthObserver();
       return;
     }
-    pushSnapshotForRunDialogEntry(entry);
+    publishRunWorkspaceStateForEntry(entry);
   };
 
   const syncWaitingAuthObserver = () => {
@@ -3936,7 +3108,7 @@ async function startRunObserver(entry: RunDialogEntry) {
             return;
           }
           entry.session.error = compactError(error);
-          pushSnapshotForRunDialogEntry(entry);
+          publishRunWorkspaceStateForEntry(entry);
         } finally {
           if (!stopped) {
             syncWaitingAuthObserver();
@@ -3975,7 +3147,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       if (!stopped) {
         entry.session.loading = false;
         syncWaitingAuthObserver();
-        pushSnapshotForRunDialogEntry(entry);
+        publishRunWorkspaceStateForEntry(entry);
       }
     }
   };
@@ -3999,7 +3171,7 @@ async function startRunObserver(entry: RunDialogEntry) {
         await syncPendingState();
         await syncHistory();
       }
-      pushSnapshotForRunDialogEntry(entry);
+      publishRunWorkspaceStateForEntry(entry);
     });
     return refreshChain;
   };
@@ -4036,7 +3208,7 @@ async function startRunObserver(entry: RunDialogEntry) {
           await syncRunMeta();
           await syncPendingState();
           await syncHistory();
-          pushSnapshotForRunDialogEntry(entry);
+          publishRunWorkspaceStateForEntry(entry);
         });
       }
     }
@@ -4059,7 +3231,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       if (conversationEntry.kind === "assistant_process") {
         return;
       }
-      scheduleSnapshotFlushForRunDialogEntry(entry, {
+      scheduleRunWorkspacePublicationFlushForEntry(entry, {
         immediate: true,
         reason: "critical",
       });
@@ -4068,7 +3240,7 @@ async function startRunObserver(entry: RunDialogEntry) {
     const disabledLiveBoundary =
       !canPublishAssistantWorkspaceLiveUpdates() &&
       isSkillRunnerDisabledLivePublishBoundary(conversationEntry);
-    scheduleSnapshotFlushForRunDialogEntry(entry, {
+    scheduleRunWorkspacePublicationFlushForEntry(entry, {
       immediate:
         disabledLiveBoundary ||
         (conversationEntry.kind !== "assistant_message" &&
@@ -4099,7 +3271,13 @@ async function startRunObserver(entry: RunDialogEntry) {
         } finally {
           initialized = true;
           entry.session.loading = false;
-          pushSnapshotForRunDialogEntry(entry);
+          publishRunWorkspaceStateForEntry(entry);
+        }
+        // A stop that landed while the initial refresh was in flight has
+        // already missed its abort window (no stream controller exists yet);
+        // exit before opening a stream that nothing would ever abort.
+        if (stopped) {
+          break;
         }
       }
       try {
@@ -4126,9 +3304,8 @@ async function startRunObserver(entry: RunDialogEntry) {
         if (!stopped && !isTerminalStatus(entry.session.status)) {
           await syncHistory();
           await syncRunMeta();
-          pushSnapshotForRunDialogEntry(
+          publishRunWorkspaceStateForEntry(
             entry,
-            "snapshot",
             entry.pendingTranscriptBoundary ? "boundary" : "live",
           );
           await sleep(chatRetryDelayMs);
@@ -4142,9 +3319,8 @@ async function startRunObserver(entry: RunDialogEntry) {
           }
           try {
             await syncHistory();
-            pushSnapshotForRunDialogEntry(
+            publishRunWorkspaceStateForEntry(
               entry,
-              "snapshot",
               entry.pendingTranscriptBoundary ? "boundary" : "live",
             );
           } catch {
@@ -4163,7 +3339,7 @@ async function startRunObserver(entry: RunDialogEntry) {
         } catch {
           // keep the stream error as the visible error; catch-up is best effort
         }
-        pushSnapshotForRunDialogEntry(entry);
+        publishRunWorkspaceStateForEntry(entry);
         if (stopped) {
           break;
         }
@@ -4180,10 +3356,9 @@ async function startRunObserver(entry: RunDialogEntry) {
     stopPromise = (async () => {
       stopped = true;
       observerGeneration += 1;
-      if (runWorkspaceState.snapshotFlushTimer) {
-        clearTimeout(runWorkspaceState.snapshotFlushTimer);
-        runWorkspaceState.snapshotFlushTimer = null;
-        runWorkspaceState.pendingSnapshotType = undefined;
+      if (runWorkspaceState.publicationFlushTimer) {
+        clearTimeout(runWorkspaceState.publicationFlushTimer);
+        runWorkspaceState.publicationFlushTimer = null;
       }
       abortCurrentChatStream();
       stopWaitingAuthObserver();
@@ -4205,24 +3380,16 @@ async function startRunObserver(entry: RunDialogEntry) {
 
 async function handleRunDialogActionForEntry(
   entry: RunDialogEntry,
-  envelope: RunDialogActionEnvelope,
+  envelope: RunWorkspaceActionEnvelope,
 ) {
   const action = String(envelope.action || "").trim();
   const payload = envelope.payload || {};
   if (!action) {
     return;
   }
-  if (action === "ready") {
-    pushSnapshot("init");
-    return;
-  }
-  if (action === "close-dialog") {
-    runWorkspaceState.closeHost?.();
-    return;
-  }
   if (action === "resolve-permission") {
     if (!canCurrentRunUseBackend(entry)) {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
       return;
     }
     resolveSkillRunnerHostBridgePermissionRequest({
@@ -4233,7 +3400,7 @@ async function handleRunDialogActionForEntry(
       outcome: payload.outcome === "selected" ? "selected" : "cancelled",
       optionId: String(payload.optionId || "").trim(),
     });
-    pushSnapshot("snapshot");
+    publishRunWorkspaceState();
     return;
   }
   if (action === "open-auth-url") {
@@ -4252,11 +3419,11 @@ async function handleRunDialogActionForEntry(
   }
   if (action === "cancel-run") {
     if (!canCurrentRunUseBackend(entry)) {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
       return;
     }
     if (isTerminalStatus(entry.session.status)) {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
       return;
     }
     const cancelRecord = getSkillRunnerRunRecordByRequest({
@@ -4300,7 +3467,7 @@ async function handleRunDialogActionForEntry(
         }
         if (isTerminal(status)) {
           await stopRunDialogEntryObserver(entry);
-          pushSnapshot("snapshot");
+          publishRunWorkspaceState();
           return;
         }
       }
@@ -4327,7 +3494,7 @@ async function handleRunDialogActionForEntry(
         ),
       );
     }
-    pushSnapshot("snapshot");
+    publishRunWorkspaceState();
     return;
   }
   if (action === "submit-interaction-files") {
@@ -4349,7 +3516,7 @@ async function handleRunDialogActionForEntry(
       canonical.inputKind !== "upload_files" ||
       capability?.supported !== true
     ) {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
       return;
     }
     const flowKey = entry.requestId;
@@ -4418,7 +3585,7 @@ async function handleRunDialogActionForEntry(
           }),
       });
       if (entry.refreshDisplay) await entry.refreshDisplay();
-      else pushSnapshot("snapshot");
+      else publishRunWorkspaceState();
     })()
       .catch((error) => {
         entry.alertWindow?.alert?.(
@@ -4438,7 +3605,7 @@ async function handleRunDialogActionForEntry(
   }
   if (action === "reply-run") {
     if (!canCurrentRunUseBackend(entry)) {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
       return;
     }
     const mode = String(payload.mode || "interaction")
@@ -4472,7 +3639,7 @@ async function handleRunDialogActionForEntry(
       entry.session.authControlPending = true;
       entry.session.authControlAction = selection ? "method" : "submission";
       entry.session.authControlError = undefined;
-      pushSnapshotForRunDialogEntry(entry);
+      publishRunWorkspaceStateForEntry(entry);
       try {
         const client = buildSkillRunnerManagementClient({
           backend: entry.backend,
@@ -4532,7 +3699,7 @@ async function handleRunDialogActionForEntry(
           }
           if (isTerminal(status)) {
             await stopRunDialogEntryObserver(entry);
-            pushSnapshot("snapshot");
+            publishRunWorkspaceState();
             return;
           }
         }
@@ -4573,7 +3740,7 @@ async function handleRunDialogActionForEntry(
       } else if (submitted && entry.refreshDisplay) {
         await entry.refreshDisplay();
       } else {
-        pushSnapshot("snapshot");
+        publishRunWorkspaceState();
       }
       return;
     }
@@ -4624,7 +3791,7 @@ async function handleRunDialogActionForEntry(
       if (entry.refreshDisplay) {
         await entry.refreshDisplay();
       } else {
-        pushSnapshot("snapshot");
+        publishRunWorkspaceState();
       }
       return;
     }
@@ -4682,7 +3849,7 @@ async function handleRunDialogActionForEntry(
         }
         if (isTerminal(status)) {
           await stopRunDialogEntryObserver(entry);
-          pushSnapshot("snapshot");
+          publishRunWorkspaceState();
           return;
         }
       }
@@ -4701,7 +3868,7 @@ async function handleRunDialogActionForEntry(
           if (entry.refreshDisplay) {
             await entry.refreshDisplay();
           } else {
-            pushSnapshot("snapshot");
+            publishRunWorkspaceState();
           }
           return;
         }
@@ -4742,13 +3909,13 @@ async function handleRunDialogActionForEntry(
       );
       await entry.refreshDisplay();
     } else {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
     }
     return;
   }
   if (action === "auth-import-run") {
     if (!canCurrentRunUseBackend(entry)) {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
       return;
     }
     const filesRaw = Array.isArray(payload.files) ? payload.files : [];
@@ -4791,7 +3958,7 @@ async function handleRunDialogActionForEntry(
               "task-dashboard-run-auth-import-no-file",
               "Please select required files before submitting.",
             ) + missingSuffix;
-      pushSnapshotForRunDialogEntry(entry);
+      publishRunWorkspaceStateForEntry(entry);
       return;
     }
     const files = validation.files;
@@ -4799,7 +3966,7 @@ async function handleRunDialogActionForEntry(
     entry.session.authControlPending = true;
     entry.session.authControlAction = "import";
     entry.session.authControlError = undefined;
-    pushSnapshotForRunDialogEntry(entry);
+    publishRunWorkspaceStateForEntry(entry);
     try {
       const client = buildSkillRunnerManagementClient({
         backend: entry.backend,
@@ -4849,7 +4016,7 @@ async function handleRunDialogActionForEntry(
       );
       await entry.refreshDisplay();
     } else {
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
     }
   }
 }
@@ -4919,9 +4086,6 @@ async function enforceRunDialogStreamPoolForBackend(args: {
 }
 
 async function shutdownRunDialogRuntime() {
-  if (isRunWorkspaceHostAlive()) {
-    runWorkspaceState.closeHost?.();
-  }
   if (runWorkspaceState.unsubscribeTasks) {
     runWorkspaceState.unsubscribeTasks();
     runWorkspaceState.unsubscribeTasks = undefined;
@@ -4944,7 +4108,6 @@ async function shutdownRunDialogRuntime() {
   }
   await stopAllRunDialogEntryObservers();
   runWorkspaceState.currentEntry = undefined;
-  runWorkspaceState.frameWindow = null;
   runWorkspaceState.selectedTaskKey = "";
   runWorkspaceState.selectionIntent = null;
   runWorkspaceState.groups = [];
@@ -5031,7 +4194,10 @@ function buildLocalRunDialogMessages(
       seq: -5,
       ts: createdAt,
       phase: "local-submitted",
-      text: "Task submitted locally.",
+      text: localize(
+        "assistant-panel-transcript-notice-local-submitted",
+        "Task submitted locally.",
+      ),
     }),
   );
   if (task.requestAssigned || task.requestId) {
@@ -5040,7 +4206,10 @@ function buildLocalRunDialogMessages(
         seq: -4,
         ts: task.updatedAt,
         phase: "request-created",
-        text: "Backend request created.",
+        text: localize(
+          "assistant-panel-transcript-notice-request-created",
+          "Backend request created.",
+        ),
       }),
     );
   }
@@ -5050,7 +4219,10 @@ function buildLocalRunDialogMessages(
         seq: -3,
         ts: task.updatedAt,
         phase,
-        text: "Uploading skill payload.",
+        text: localize(
+          "assistant-panel-transcript-notice-uploading",
+          "Uploading skill payload.",
+        ),
       }),
     );
   }
@@ -5060,7 +4232,10 @@ function buildLocalRunDialogMessages(
         seq: -2,
         ts: task.updatedAt,
         phase: "request-ready",
-        text: "Request ready; observing backend run.",
+        text: localize(
+          "assistant-panel-transcript-notice-observing",
+          "Request ready; observing backend run.",
+        ),
       }),
     );
   }
@@ -5070,7 +4245,12 @@ function buildLocalRunDialogMessages(
         seq: -1,
         ts: task.updatedAt,
         phase: "submit-failed",
-        text: task.submitError || "Submit or upload failed.",
+        text:
+          task.submitError ||
+          localize(
+            "assistant-panel-transcript-notice-submit-failed",
+            "Submit or upload failed.",
+          ),
       }),
     );
   }
@@ -5211,7 +4391,7 @@ function hydrateSelectedRunHistoryInBackground(args: {
     args.task,
   );
   if (args.entry.session.historyLoading) {
-    pushSnapshotForRunDialogEntry(args.entry);
+    publishRunWorkspaceStateForEntry(args.entry);
   }
   void (async () => {
     try {
@@ -5237,17 +4417,23 @@ function hydrateSelectedRunHistoryInBackground(args: {
       args.entry.pendingTranscriptBoundary ||= historyMerge.boundary;
       args.entry.session.loading = false;
       args.entry.session.historyLoading = false;
+      args.entry.session.historyNotFound = false;
     } catch (error) {
       warnSkillRunnerWorkspaceAsyncFailure({
         stage: "selected-run-history-hydrate-failed",
         error,
       });
+      if (getSkillRunnerHttpStatus(error) === 404) {
+        // History missing is not a run failure: surface a transcript
+        // system message instead of leaving the transcript silent.
+        args.entry.session.historyNotFound = true;
+      }
       args.entry.session.loading = false;
       args.entry.session.historyLoading = false;
     } finally {
       args.entry.historyHydrating = false;
       args.entry.session.historyLoading = false;
-      pushSnapshotForRunDialogEntry(args.entry);
+      publishRunWorkspaceStateForEntry(args.entry);
     }
   })();
 }
@@ -5291,7 +4477,15 @@ function startRunWorkspaceObserverInBackground(args: {
       if (args.entry.stopObserver) {
         await args.entry.refreshDisplay?.();
       } else {
-        args.entry.stopObserver = await startRunObserver(args.entry);
+        const stopObserver = await startRunObserver(args.entry);
+        if (runDialogMap.get(args.key) !== args.entry) {
+          // A runtime shutdown raced the observer start: the entry is
+          // already gone, so nothing would ever stop the freshly started
+          // observer (its stream would leak past the shutdown). Stop it now.
+          await stopObserver();
+          return;
+        }
+        args.entry.stopObserver = stopObserver;
       }
     } catch (error) {
       warnSkillRunnerWorkspaceAsyncFailure({
@@ -5309,7 +4503,7 @@ async function selectWorkspaceTask(taskKey: string) {
   if (!key) {
     runWorkspaceState.currentEntry = undefined;
     runWorkspaceState.selectedTaskKey = "";
-    pushSnapshot("snapshot");
+    publishRunWorkspaceState();
     return;
   }
   const target = runWorkspaceState.taskIndex.get(key);
@@ -5328,7 +4522,7 @@ async function selectWorkspaceTask(taskKey: string) {
       runWorkspaceState.currentEntry.historyHydrating === true ||
       shouldShowRunHistoryLoading(runWorkspaceState.currentEntry, target.item);
     markRunDialogEntryFocused(runWorkspaceState.currentEntry);
-    pushSnapshot("snapshot");
+    publishRunWorkspaceState();
     startRunWorkspaceObserverInBackground({
       entry: runWorkspaceState.currentEntry,
       task: target.item,
@@ -5360,7 +4554,7 @@ async function selectWorkspaceTask(taskKey: string) {
   runDialogMap.set(key, entry);
   runWorkspaceState.currentEntry = entry;
   runWorkspaceState.selectedTaskKey = key;
-  pushSnapshot("snapshot");
+  publishRunWorkspaceState();
   startRunWorkspaceObserverInBackground({
     entry,
     task: target.item,
@@ -5391,13 +4585,7 @@ async function refreshWorkspaceSnapshot(args?: RunWorkspaceRefreshArgs) {
         (allowCurrentSelectionFallback && runWorkspaceState.selectedTaskKey
           ? selectionIntentFromRunKey(runWorkspaceState.selectedTaskKey)
           : null);
-      const profile: RunWorkspaceReadProfile =
-        args?.profile ||
-        (runWorkspaceState.hostMode === "dialog"
-          ? "dialog-full"
-          : "sidebar-active");
       const rawModel = await buildRunWorkspaceModel({
-        profile,
         backendId: undefined,
         selection: buildSelectionIntent,
         currentTaskKey: runWorkspaceState.selectedTaskKey,
@@ -5414,47 +4602,29 @@ async function refreshWorkspaceSnapshot(args?: RunWorkspaceRefreshArgs) {
         index: model.index,
       });
       const selectionContext =
-        runWorkspaceState.hostMode === "sidebar"
-          ? runWorkspaceState.resolveSidebarSelectionContext?.() || null
-          : null;
-      let nextSelected =
-        runWorkspaceState.hostMode === "sidebar"
-          ? pickRunWorkspaceSelectedTaskKeyForSidebar({
-              groups: model.groups,
-              index: model.index,
-              selectionIntent: latestSelectionIntent,
-              currentTaskKey: runWorkspaceState.selectedTaskKey,
-              selectionChanged: args?.selectionChanged === true,
-              context: selectionContext,
-            })
-          : pickRunWorkspaceSelectedTaskKey({
-              groups: model.groups,
-              index: model.index,
-              selectionIntent: latestSelectionIntent,
-              currentTaskKey: runWorkspaceState.selectedTaskKey,
-            });
+        runWorkspaceState.resolveSidebarSelectionContext?.() || null;
+      let nextSelected = pickRunWorkspaceSelectedTaskKeyForSidebar({
+        groups: model.groups,
+        index: model.index,
+        selectionIntent: latestSelectionIntent,
+        currentTaskKey: runWorkspaceState.selectedTaskKey,
+        selectionChanged: args?.selectionChanged === true,
+        context: selectionContext,
+      });
       if (
         !nextSelected &&
         latestSelectionIntent &&
         !resolvedIntentKey &&
         allowCurrentSelectionFallback
       ) {
-        nextSelected =
-          runWorkspaceState.hostMode === "sidebar"
-            ? pickRunWorkspaceSelectedTaskKeyForSidebar({
-                groups: model.groups,
-                index: model.index,
-                selectionIntent: null,
-                currentTaskKey: runWorkspaceState.selectedTaskKey,
-                selectionChanged: false,
-                context: selectionContext,
-              })
-            : pickRunWorkspaceSelectedTaskKey({
-                groups: model.groups,
-                index: model.index,
-                selectionIntent: null,
-                currentTaskKey: runWorkspaceState.selectedTaskKey,
-              });
+        nextSelected = pickRunWorkspaceSelectedTaskKeyForSidebar({
+          groups: model.groups,
+          index: model.index,
+          selectionIntent: null,
+          currentTaskKey: runWorkspaceState.selectedTaskKey,
+          selectionChanged: false,
+          context: selectionContext,
+        });
       }
       if (nextSelected) {
         const selectedTask = model.index.get(nextSelected)?.item;
@@ -5477,13 +4647,13 @@ async function refreshWorkspaceSnapshot(args?: RunWorkspaceRefreshArgs) {
       const effectiveReason = isSkillRunnerTranscriptBoundary(selectedEntry)
         ? "boundary"
         : publishReason;
-      pushSnapshot(args?.forceInit ? "init" : "snapshot", effectiveReason);
+      publishRunWorkspaceState(effectiveReason);
     },
   );
   await runWorkspaceState.refreshChain;
 }
 
-async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
+async function handleRunWorkspaceAction(envelope: RunWorkspaceActionEnvelope) {
   const action = String(envelope.action || "").trim();
   const payload = envelope.payload || {};
   if (!action) {
@@ -5492,10 +4662,6 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
   if (action === "ready") {
     await refreshWorkspaceSnapshot({
       forceInit: true,
-      profile:
-        runWorkspaceState.hostMode === "sidebar"
-          ? "sidebar-active"
-          : "dialog-full",
     });
     return;
   }
@@ -5510,10 +4676,6 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
     } else {
       await refreshWorkspaceSnapshot({
         runKey,
-        profile:
-          runWorkspaceState.hostMode === "sidebar"
-            ? "sidebar-active"
-            : "dialog-full",
       });
     }
     return;
@@ -5553,10 +4715,16 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
     return;
   }
   if (action === "copy-diagnostics") {
-    const session = runWorkspaceState.currentEntry
-      ? buildRunDialogSnapshot(runWorkspaceState.currentEntry)
-      : null;
-    copyText(JSON.stringify(buildRunWorkspaceSnapshot(session), null, 2));
+    copyText(
+      JSON.stringify(
+        {
+          readModel: getSkillRunnerWorkspaceReadModel(),
+          navigation: listSkillRunnerWorkspaceTaskGroups(),
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
   if (action === "toggle-group-collapse") {
@@ -5570,7 +4738,7 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
       }
       const next = runWorkspaceState.groupCollapsed.get(backendId) !== true;
       runWorkspaceState.groupCollapsed.set(backendId, next);
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
     }
     return;
   }
@@ -5581,24 +4749,9 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
         ? runWorkspaceState.finishedCollapsed.get(backendId) === true
         : true;
       runWorkspaceState.finishedCollapsed.set(backendId, !current);
-      pushSnapshot("snapshot");
+      publishRunWorkspaceState();
     }
     return;
-  }
-  if (action === "toggle-drawer-section") {
-    if (runWorkspaceState.handleHostAction) {
-      const handled = await runWorkspaceState.handleHostAction(envelope);
-      if (handled) {
-        return;
-      }
-    }
-    return;
-  }
-  if (runWorkspaceState.handleHostAction) {
-    const handled = await runWorkspaceState.handleHostAction(envelope);
-    if (handled) {
-      return;
-    }
   }
   const entry = runWorkspaceState.currentEntry;
   if (!entry) {
@@ -5611,43 +4764,108 @@ export function refreshSkillRunnerWorkspacePresentation() {
   if (!isRunWorkspaceHostAlive()) {
     return;
   }
-  pushSnapshot("snapshot");
+  publishRunWorkspaceState();
 }
 
 export async function dispatchRunWorkspaceAction(
-  envelope: RunDialogActionEnvelope,
+  envelope: RunWorkspaceActionEnvelope,
 ) {
   await handleRunWorkspaceAction(envelope);
 }
 
+/**
+ * Registry-routed action entry point for the shared assistant child page
+ * (Stage 3 of
+ * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence).
+ *
+ * The typed registry actions use the canonical payload shapes from
+ * assistantActionContract.ts, which differ from the legacy run-dialog
+ * vocabulary for the two composer/hint actions: the canonical `reply-run`
+ * carries `{message}` and `select-interaction-option` carries
+ * `{responseValue, responseLabel}`. Both are normalized here into the exact
+ * envelope the legacy child used to send (auth submission vs interaction
+ * response is decided by the same session state the legacy child read from
+ * its snapshot), then delegated to `handleRunWorkspaceAction` so all reply,
+ * auth-control, and interaction semantics stay in one place. Every other
+ * registry action already matches the legacy payload shape and passes
+ * through unchanged.
+ */
+export async function dispatchSkillRunnerWorkspaceAction(args: {
+  action: string;
+  payload: Record<string, unknown>;
+}) {
+  const action = String(args.action || "").trim();
+  const payload = args.payload || {};
+  const entry = runWorkspaceState.currentEntry;
+  const waitingAuth = normalizeStatus(entry?.session.status) === "waiting_auth";
+  if (action === "reply-run" && "message" in payload) {
+    const message = String(payload.message || "").trim();
+    const authSessionId = String(
+      entry?.session.pendingAuth?.authSessionId || "",
+    ).trim();
+    const normalizedPayload = waitingAuth
+      ? {
+          mode: "auth",
+          authSessionId,
+          submission: {
+            kind:
+              normalizeAuthInputKind(entry?.session.pendingAuth?.inputKind) ||
+              "auth_code_or_url",
+            value: message,
+          },
+        }
+      : {
+          mode: "interaction",
+          responseObject: { text: message },
+        };
+    await handleRunWorkspaceAction({
+      action: "reply-run",
+      payload: normalizedPayload,
+    });
+    return;
+  }
+  if (action === "select-interaction-option") {
+    const authSessionId = String(
+      entry?.session.pendingAuth?.authSessionId || "",
+    ).trim();
+    const normalizedPayload = waitingAuth
+      ? {
+          mode: "auth",
+          authSessionId,
+          selection: payload.responseValue,
+        }
+      : {
+          mode: "interaction",
+          responseValue: payload.responseValue,
+          responseObject: {
+            text: String(payload.responseLabel || "").trim(),
+          },
+        };
+    await handleRunWorkspaceAction({
+      action: "reply-run",
+      payload: normalizedPayload,
+    });
+    return;
+  }
+  await handleRunWorkspaceAction({
+    action,
+    payload,
+  });
+}
+
 export function attachSkillRunnerSidebarHost(args: {
   hostWindow: Window;
-  frameWindow: Window | null;
-  publishSnapshot: (
-    phase: "init" | "snapshot",
-    snapshot: RunWorkspaceSnapshot,
-  ) => void;
   alertWindow?: Window | null;
   focusHost?: () => void;
   isHostAlive?: () => boolean;
-  decorateSnapshot?: (snapshot: RunWorkspaceSnapshot) => RunWorkspaceSnapshot;
   resolveSelectionContext?: () => SkillRunnerSidebarContext | null;
-  handleHostAction?: (
-    envelope: RunDialogActionEnvelope,
-  ) => Promise<boolean> | boolean;
 }) {
   attachRunWorkspaceHost({
-    hostMode: "sidebar",
-    bridgeType: "skillrunner-sidebar",
     hostWindow: args.hostWindow,
-    frameWindow: args.frameWindow,
-    publishSnapshot: args.publishSnapshot,
     alertWindow: args.alertWindow,
     focusHost: args.focusHost,
     isHostAlive: args.isHostAlive,
-    decorateSnapshot: args.decorateSnapshot,
     resolveSelectionContext: args.resolveSelectionContext,
-    handleHostAction: args.handleHostAction,
   });
 }
 
@@ -5658,14 +4876,13 @@ export async function refreshSkillRunnerSidebarHostSnapshot(
     selectionChanged?: boolean;
   } = {},
 ) {
-  if (runWorkspaceState.hostMode !== "sidebar") {
+  if (!runWorkspaceState.hostWindow) {
     return;
   }
   await refreshWorkspaceSnapshot({
     forceInit: args.forceInit === true,
     runKey: args.runKey,
     selectionChanged: args.selectionChanged === true,
-    profile: "sidebar-active",
     publishReason: args.forceInit === true ? "critical" : "live",
   });
 }
@@ -5673,7 +4890,7 @@ export async function refreshSkillRunnerSidebarHostSnapshot(
 export function detachSkillRunnerSidebarHost(args?: {
   hostWindow?: Window | null;
 }) {
-  if (runWorkspaceState.hostMode !== "sidebar") {
+  if (!runWorkspaceState.hostWindow) {
     return;
   }
   const hostWindow = args?.hostWindow || null;
@@ -5703,138 +4920,8 @@ export async function focusSkillRunnerWorkspace(args?: {
     await refreshWorkspaceSnapshot({
       selection: runWorkspaceState.selectionIntent,
       selectionChanged: args?.selectionChanged === true,
-      profile:
-        runWorkspaceState.hostMode === "sidebar"
-          ? "sidebar-active"
-          : "dialog-full",
     });
   }
-}
-
-export async function openSkillRunnerRunDialog(args?: { runKey?: string }) {
-  const runKey = String(args?.runKey || "").trim();
-  const record = runKey ? getSkillRunnerRunRecord(runKey) : null;
-  const backendId = String(record?.backendId || "").trim();
-  const requestId = String(record?.requestId || runKey).trim();
-  const dialogSelection = runKey
-    ? normalizeRunWorkspaceSelectionIntent({
-        runKey,
-        source: "programmatic",
-      })
-    : null;
-  if (backendId) {
-    if (!isSkillRunnerBackendAvailable(backendId)) {
-      showSkillRunnerBackendToast({
-        kind: "unavailable",
-        backendId,
-      });
-      return;
-    }
-    runWorkspaceState.selectionIntent = dialogSelection;
-  } else if (runKey) {
-    runWorkspaceState.selectionIntent = dialogSelection;
-  }
-
-  if (isRunWorkspaceHostAlive() && runWorkspaceState.hostMode === "dialog") {
-    runWorkspaceState.focusHost?.();
-    await refreshWorkspaceSnapshot({
-      selection: dialogSelection,
-    });
-    return;
-  }
-
-  const pageUrl = resolveRunDialogPageUrl();
-  const title = localize(
-    "task-dashboard-run-dialog-title",
-    "Run Details: {requestId}",
-    {
-      args: { requestId },
-    },
-  );
-  const dialogHelperRef: { current?: DialogHelper } = {};
-
-  const dialogData: Record<string, unknown> = {
-    loadCallback: () => {
-      const doc = dialogHelperRef.current?.window?.document;
-      const dialogWindow = dialogHelperRef.current?.window;
-      if (!doc || !dialogWindow) {
-        return;
-      }
-      const root = doc.getElementById(
-        "zs-skillrunner-run-dialog-root",
-      ) as HTMLElement | null;
-      if (!root) {
-        return;
-      }
-      root.innerHTML = "";
-      const frame = createRunDialogFrame(doc, pageUrl);
-      root.appendChild(frame);
-      frame.addEventListener("load", () => {
-        const frameWindow = resolveFrameWindow(frame);
-        if (!frameWindow) {
-          dialogWindow.alert?.(
-            localize(
-              "task-dashboard-open-management-failed",
-              "Run dialog host failed to resolve frame window.",
-              {
-                args: { error: "frame_window_unavailable" },
-              },
-            ),
-          );
-          return;
-        }
-        attachRunWorkspaceHost({
-          hostMode: "dialog",
-          bridgeType: "run-dialog",
-          hostWindow: dialogWindow,
-          frameWindow,
-          alertWindow: dialogWindow,
-          focusHost: () => {
-            dialogWindow.focus();
-          },
-          closeHost: () => {
-            dialogWindow.close();
-          },
-          isHostAlive: () => isWindowAlive(dialogWindow),
-        });
-        void refreshWorkspaceSnapshot({
-          forceInit: true,
-          selection: dialogSelection,
-        });
-      });
-      pushSnapshot("snapshot");
-    },
-    unloadCallback: () => {
-      void stopAllRunDialogEntryObservers();
-      runWorkspaceState.currentEntry = undefined;
-      runWorkspaceState.selectedTaskKey = "";
-      runWorkspaceState.selectionIntent = null;
-      runWorkspaceState.groups = [];
-      runWorkspaceState.taskIndex.clear();
-      runDialogMap.clear();
-      clearRunWorkspaceRuntimeState();
-    },
-  };
-
-  const dialogBuilder = new ztoolkit.Dialog(1, 1)
-    .addCell(0, 0, {
-      tag: "div",
-      namespace: "html",
-      id: "zs-skillrunner-run-dialog-root",
-      styles: {
-        width: "1380px",
-        height: "860px",
-        padding: "0",
-        margin: "0",
-        display: "flex",
-      },
-    })
-    .addButton(localize("task-manager-close", "Close"), "close")
-    .setDialogData(dialogData);
-  dialogHelperRef.current = dialogBuilder.open(title);
-
-  await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
-    ?.promise;
 }
 
 export async function resetSkillRunnerRunDialogForTests() {
@@ -5859,4 +4946,1115 @@ export function getSkillRunnerRunDialogRuntimeForTests() {
     waitingAuthTimerCount: runDialogProbeState.waitingAuthTimerCount,
     sessionStateSubscriptionCount: 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// SkillRunner workspace read model (Assistant Workspace publication plane)
+//
+// Read-only API consumed by the SkillRunner surface adapter
+// (skillRunnerWorkspaceSurface.ts). It never changes run tracking, observers,
+// or persistence: every projection below reads the same module state the
+// workspace runtime maintains, and the change subscription reuses the
+// existing flush funnel (publishRunWorkspaceState) instead of introducing
+// new scheduling.
+//
+// Change granularity (SkillRunnerWorkspaceChangeKind):
+// - "run": the selected run's non-transcript session state changed (status,
+//   pending interaction/auth/permission, apply state, badges, message counts).
+// - "transcript": the mode-aware transcript publication clock
+//   (runWorkspaceState.transcriptRevision, driven by
+//   resolveRunWorkspaceTranscriptMessages and skillRunnerTranscriptSignature)
+//   advanced. SkillRunner has no incremental channel, so transcript changes
+//   are always re-read as full snapshots by the adapter (design Decision 2 of
+//   openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence).
+// - "selection": the selected task (and therefore the workspace owner)
+//   changed.
+// - "navigation": workspace groups/tasks changed (backend availability,
+//   running/completed membership, task card axes).
+// - "global": workspace-wide changes that only affect navigation (e.g. the
+//   native workflow queue); emitted by the sidebar, never by this module.
+//
+// The publication clock deliberately survives host detach/reattach (design
+// Decision 8): the notice baseline below is reset only by
+// clearRunWorkspaceRuntimeState (full runtime shutdown), never by
+// clearRunWorkspaceHostState, so a reattached host republishes only genuine
+// changes and transcriptRevision never regresses.
+// ---------------------------------------------------------------------------
+
+export type SkillRunnerWorkspaceChangeKind =
+  | "run"
+  | "transcript"
+  | "selection"
+  | "navigation"
+  | "global";
+
+export type SkillRunnerWorkspaceChange = Readonly<{
+  kinds: readonly SkillRunnerWorkspaceChangeKind[];
+  runKey?: string;
+  requestId?: string;
+  global?: boolean;
+}>;
+
+export type SkillRunnerWorkspaceChangeListener = (
+  change: SkillRunnerWorkspaceChange,
+) => void;
+
+export type SkillRunnerWorkspaceOwnerRef = Readonly<{
+  runKey: string;
+  requestId: string | null;
+}>;
+
+export type SkillRunnerWorkspaceReadModel = Readonly<{
+  runKey: string;
+  /** Assigned request id, or "" while the run is still local-only. */
+  requestId: string;
+  title: string;
+  /** Skill identity projected from the selected workspace task row. */
+  skillName: string | null;
+  skillLabel: string | null;
+  skillId: string | null;
+  workflowLabel: string | null;
+  sequenceStepId: string | null;
+  sequenceStepIndex: number | null;
+  backendId: string;
+  backendDisplayName: string;
+  status: string;
+  terminal: boolean;
+  waiting: boolean;
+  error: string | null;
+  loading: boolean;
+  historyLoading: boolean;
+  updatedAt: string | null;
+  engine: string | null;
+  model: string | null;
+  pendingOwner: string | null;
+  /** Pending interaction (or auth chat input) via the shared DTO. */
+  pendingInteraction: AssistantPendingInteraction | null;
+  pendingPermission: AcpPendingPermissionRequest | null;
+  authRequired: boolean;
+  /**
+   * Waiting-auth challenge suite for the workspace auth hint, resolved with
+   * the same precedence as the legacy panel model's waiting-auth branch.
+   * Null outside `waiting_auth`.
+   */
+  pendingAuth: AssistantPendingInteractionAuth | null;
+  canReply: boolean;
+  canCancel: boolean;
+  /** True once the backend assigned a request id (legacy requestAssigned). */
+  requestAssigned: boolean;
+  /** True when the backend run accepts live interaction (legacy name). */
+  backendInteractive: boolean;
+  submitPhase: string | null;
+  submitError: string | null;
+  applyState: string | null;
+  applyAttempt: number | null;
+  applyMaxAttempt: number | null;
+  applyNextRetryAt: string | null;
+  applyError: string | null;
+  applyUpdatedAt: string | null;
+  autoReplyEnabled: boolean;
+  autoReplyObserverActive: boolean;
+  autoReplyObserverShowTimer: boolean;
+  autoReplyObserverRemainingSeconds: number | null;
+  autoReplyObserverStartedAt: string | null;
+  autoReplyObserverDeadlineAt: string | null;
+  messageCounts: AssistantMessageCountsSnapshot | null;
+  transcriptRevision: number;
+}>;
+
+const skillRunnerWorkspaceChangeListeners =
+  new Set<SkillRunnerWorkspaceChangeListener>();
+
+let skillRunnerPublicationNotice: {
+  selectedKey: string;
+  navigationSignature: string;
+  runSignature: string;
+  transcriptRevision: number;
+} | null = null;
+
+export function subscribeSkillRunnerWorkspaceChanges(
+  listener: SkillRunnerWorkspaceChangeListener,
+) {
+  skillRunnerWorkspaceChangeListeners.add(listener);
+  return () => {
+    skillRunnerWorkspaceChangeListeners.delete(listener);
+  };
+}
+
+function emitSkillRunnerWorkspaceChange(change: SkillRunnerWorkspaceChange) {
+  if (!change.kinds.length) {
+    return;
+  }
+  for (const listener of [...skillRunnerWorkspaceChangeListeners]) {
+    try {
+      listener(change);
+    } catch (error) {
+      appendRuntimeLog({
+        level: "warn",
+        scope: "system",
+        component: "skillrunner-workspace",
+        stage: "workspace-change-listener-failed",
+        message: "SkillRunner workspace change listener failed.",
+        error,
+      });
+    }
+  }
+}
+
+function skillRunnerWorkspaceTaskSignature(task: RunWorkspaceTaskItem) {
+  return [
+    task.key,
+    task.requestId || "",
+    task.status,
+    task.backendStatus || "",
+    task.applyState || "",
+    task.applyError || "",
+    task.updatedAt,
+    task.attention || "",
+    task.submitPhase || "",
+    task.submitError || "",
+    task.autoReplyObserverActive === true,
+  ];
+}
+
+function skillRunnerWorkspaceNavigationSignature() {
+  return JSON.stringify(
+    runWorkspaceState.groups.map((group) => [
+      group.backendId,
+      group.disabled,
+      group.activeTasks.map(skillRunnerWorkspaceTaskSignature),
+      group.finishedTasks.map(skillRunnerWorkspaceTaskSignature),
+    ]),
+  );
+}
+
+function skillRunnerWorkspaceRunSignature(
+  entry: RunDialogEntry,
+  task: RunWorkspaceTaskItem | undefined,
+) {
+  const session = entry.session;
+  return JSON.stringify([
+    entry.requestId,
+    session.status,
+    session.error || "",
+    session.loading,
+    session.historyLoading === true,
+    session.pendingOwner || "",
+    session.pendingInteraction?.interactionId || 0,
+    session.pendingAuth
+      ? [
+          session.pendingAuth.phase || "",
+          session.pendingAuth.authSessionId || "",
+          session.pendingAuth.lastError || "",
+          session.pendingAuth.userCode || "",
+          // The remaining auth-suite facts feed the owner-control auth DTO;
+          // without them a challenge update (e.g. a rotated auth URL) would
+          // not advance the publication clock.
+          session.pendingAuth.authUrl || "",
+          session.pendingAuth.challengeKind || "",
+          session.pendingAuth.inputKind || "",
+          session.pendingAuth.acceptsChatInput === true,
+          (session.pendingAuth.availableMethods || []).join("\n"),
+          JSON.stringify(session.pendingAuth.askUser || null),
+          JSON.stringify(session.pendingAuth.uiHints || null),
+        ]
+      : "",
+    session.authControlPending === true,
+    session.authControlAction || "",
+    session.authControlError || "",
+    session.pendingPermission?.requestId || "",
+    entry.messageCounts.revision,
+    session.engine || "",
+    session.model || "",
+    task?.applyState || "",
+    task?.submitPhase || "",
+    task?.submitError || "",
+    // The auto-reply banner badge flips with the observer; without this the
+    // owner-control publication clock would not advance on observer
+    // start/stop (countdown values ride the next republish, as in legacy).
+    task?.autoReplyObserverActive === true,
+  ]);
+}
+
+/**
+ * Diff-based change notification driven from publishRunWorkspaceState, the
+ * single funnel where the workspace runtime flushes coherent state. No
+ * additional flush triggers are introduced: kinds are derived by
+ * comparing cheap scalar signatures against the last emitted baseline.
+ */
+function notifySkillRunnerWorkspacePublicationChange() {
+  if (skillRunnerWorkspaceChangeListeners.size === 0) {
+    return;
+  }
+  const entry = runWorkspaceState.currentEntry;
+  const selectedKey = String(runWorkspaceState.selectedTaskKey || "").trim();
+  const navigationSignature = skillRunnerWorkspaceNavigationSignature();
+  const runSignature = entry
+    ? skillRunnerWorkspaceRunSignature(entry, getCurrentRunWorkspaceTask())
+    : "";
+  const transcriptRevision = runWorkspaceState.transcriptRevision;
+  const previous = skillRunnerPublicationNotice;
+  skillRunnerPublicationNotice = {
+    selectedKey,
+    navigationSignature,
+    runSignature,
+    transcriptRevision,
+  };
+  const kinds = new Set<SkillRunnerWorkspaceChangeKind>();
+  if (!previous) {
+    kinds.add("navigation");
+    if (selectedKey) {
+      kinds.add("selection");
+    }
+    if (entry) {
+      kinds.add("run");
+      if (transcriptRevision > 0) {
+        kinds.add("transcript");
+      }
+    }
+  } else {
+    if (previous.navigationSignature !== navigationSignature) {
+      kinds.add("navigation");
+    }
+    if (previous.selectedKey !== selectedKey) {
+      kinds.add("selection");
+    }
+    if (entry && previous.runSignature !== runSignature) {
+      kinds.add("run");
+    }
+    if (previous.transcriptRevision !== transcriptRevision) {
+      kinds.add("transcript");
+    }
+  }
+  if (!kinds.size) {
+    return;
+  }
+  emitSkillRunnerWorkspaceChange({
+    kinds: [...kinds],
+    runKey: entry?.key || undefined,
+    requestId: String(entry?.requestId || "").trim() || undefined,
+  });
+}
+
+export function getSkillRunnerWorkspaceSelectedOwner(): SkillRunnerWorkspaceOwnerRef | null {
+  const entry = runWorkspaceState.currentEntry;
+  const runKey = String(
+    entry?.key || runWorkspaceState.selectedTaskKey || "",
+  ).trim();
+  if (!runKey) {
+    return null;
+  }
+  const requestId = String(
+    entry?.requestId ||
+      runWorkspaceState.taskIndex.get(runKey)?.item.requestId ||
+      "",
+  ).trim();
+  return { runKey, requestId: requestId || null };
+}
+
+export function listSkillRunnerWorkspaceTaskGroups(): Readonly<{
+  selectedTaskKey: string;
+  groups: readonly RunWorkspaceGroup[];
+  /** Drawer-level truncation hint; "" when the panel history is complete. */
+  historyNotice: string;
+}> {
+  return {
+    selectedTaskKey: String(runWorkspaceState.selectedTaskKey || "").trim(),
+    groups: runWorkspaceState.groups,
+    historyNotice: String(runWorkspaceState.historyNotice || "").trim(),
+  };
+}
+
+function normalizeWorkspaceAuthMethodOptions(
+  raw: unknown,
+): AssistantInteractionOption[] {
+  const scalar = (value: unknown) =>
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean";
+  return (Array.isArray(raw) ? raw : [])
+    .map((option): AssistantInteractionOption | null => {
+      if (scalar(option)) {
+        const label = String(option).trim();
+        return label
+          ? {
+              label,
+              value: option as string | number | boolean,
+              description: null,
+            }
+          : null;
+      }
+      if (!isObject(option)) return null;
+      const label =
+        String(option.label ?? "").trim() ||
+        String(option.name ?? "").trim() ||
+        String(option.title ?? "").trim() ||
+        (scalar(option.value) ? String(option.value).trim() : "");
+      const value = Object.prototype.hasOwnProperty.call(option, "value")
+        ? option.value
+        : Object.prototype.hasOwnProperty.call(option, "reply")
+          ? option.reply
+          : Object.prototype.hasOwnProperty.call(option, "message")
+            ? option.message
+            : label;
+      return label
+        ? {
+            label,
+            value: value as AssistantInteractionOption["value"],
+            description: String(option.description ?? "").trim() || null,
+          }
+        : null;
+    })
+    .filter((entry): entry is AssistantInteractionOption => !!entry);
+}
+
+function normalizeWorkspaceAuthImportFile(entry: unknown, index: number) {
+  const text = (value: unknown) => String(value == null ? "" : value).trim();
+  if (typeof entry === "string") {
+    const name = entry.trim();
+    return name ? { name, required: true, hint: null, accept: null } : null;
+  }
+  if (!isObject(entry)) return null;
+  return {
+    name:
+      text(entry.name) ||
+      text(entry.label) ||
+      text(entry.filename) ||
+      `auth-file-${index + 1}`,
+    required: entry.required === true,
+    hint: text(entry.hint) || null,
+    accept: text(entry.accept) || null,
+  };
+}
+
+/**
+ * Resolve the waiting-auth challenge suite for the workspace read model,
+ * mirroring the legacy `buildSkillRunnerPendingInteraction` waiting-auth
+ * branch field for field: the ask_user payload wins over ui_hints, which
+ * wins over the top-level pending-auth scalars. Read-only projection; the
+ * result is funneled through the shared DTO validator so the adapter can
+ * attach it verbatim.
+ */
+function resolveWorkspacePendingAuth(
+  session: RunSessionState,
+): AssistantPendingInteractionAuth | null {
+  const pendingAuth = session.pendingAuth;
+  if (!pendingAuth) return null;
+  const text = (value: unknown) => String(value == null ? "" : value).trim();
+  const askUser = isObject(pendingAuth.askUser) ? pendingAuth.askUser : null;
+  const askHints =
+    askUser && isObject(askUser.ui_hints) ? askUser.ui_hints : {};
+  const uiHints = isObject(pendingAuth.uiHints)
+    ? pendingAuth.uiHints
+    : askHints;
+  const askOptions = normalizeWorkspaceAuthMethodOptions(
+    askUser && Array.isArray(askUser.options) ? askUser.options : [],
+  );
+  const importFileSource =
+    askUser && Array.isArray(askUser.files)
+      ? askUser.files
+      : Array.isArray(uiHints.files)
+        ? uiHints.files
+        : [];
+  return projectAssistantPendingInteractionAuth({
+    phase: text(pendingAuth.phase) || null,
+    challengeKind: text(pendingAuth.challengeKind) || null,
+    prompt:
+      text(askUser?.prompt) ||
+      text(uiHints.prompt) ||
+      text(pendingAuth.prompt) ||
+      null,
+    hint:
+      text(askUser?.hint) || text(askHints.hint) || text(uiHints.hint) || null,
+    inputKind: text(pendingAuth.inputKind) || null,
+    acceptsChatInput: pendingAuth.acceptsChatInput === true,
+    authUrl: text(pendingAuth.authUrl) || null,
+    userCode: text(pendingAuth.userCode) || null,
+    lastError:
+      text(session.authControlError) || text(pendingAuth.lastError) || null,
+    actionPending: session.authControlPending === true,
+    actionKind: text(session.authControlAction) || null,
+    methods:
+      askOptions.length > 0
+        ? askOptions
+        : normalizeWorkspaceAuthMethodOptions(pendingAuth.availableMethods),
+    importFiles: importFileSource
+      .map((entry, index) => normalizeWorkspaceAuthImportFile(entry, index))
+      .filter((entry): entry is NonNullable<typeof entry> => !!entry),
+    importRiskNoticeRequired:
+      askHints.risk_notice_required === true ||
+      uiHints.risk_notice_required === true,
+  });
+}
+
+export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadModel | null {
+  const entry = runWorkspaceState.currentEntry;
+  if (!entry) {
+    return null;
+  }
+  const task = getCurrentRunWorkspaceTask();
+  const requestId = String(entry.requestId || "").trim();
+  const pending = entry.session.pendingInteraction;
+  const pendingAuth = entry.session.pendingAuth;
+  const pendingPermission = requestId
+    ? getSkillRunnerHostBridgePermissionRequest(requestId)
+    : null;
+  const rawStatus = String(entry.session.status || "").trim();
+  const normalized = normalizeStatus(rawStatus || "running", "running");
+  const waiting = isWaiting(normalized);
+  const terminal = isTerminal(normalized);
+  const backendInteractive =
+    typeof task?.backendInteractive === "boolean"
+      ? task.backendInteractive
+      : !!requestId;
+  const pendingInteraction = pending?.interactionId
+    ? projectAssistantPendingInteractionFromHints({
+        pendingKind: pending.kind,
+        uiHints: pending.uiHints,
+        options: pending.options,
+        files: pending.requiredFields,
+        fileReply: entry.session.interactionFileCapability,
+      })
+    : normalized === "waiting_auth" &&
+        pendingAuth &&
+        pendingAuth.acceptsChatInput !== false
+      ? projectAssistantPendingInteractionFromHints({
+          pendingKind: pendingAuth.inputKind,
+          uiHints: pendingAuth.uiHints,
+          fileReply: entry.session.interactionFileCapability,
+        })
+      : null;
+  const autoReplyObserverState = requestId
+    ? getSkillRunnerAutoReplyObserverState({
+        backendId: entry.backend.id,
+        requestId,
+      })
+    : null;
+  const record = getSkillRunnerRunRecord(entry.key);
+  return {
+    runKey: entry.key,
+    requestId,
+    title:
+      String(task?.title || "").trim() ||
+      String(record?.taskName || "").trim() ||
+      resolveRunWorkspaceTitle(),
+    skillName: String(task?.skillName || "").trim() || null,
+    skillLabel: String(task?.skillLabel || "").trim() || null,
+    skillId: String(task?.skillId || "").trim() || null,
+    workflowLabel: String(task?.workflowLabel || "").trim() || null,
+    sequenceStepId: String(task?.sequenceStepId || "").trim() || null,
+    sequenceStepIndex:
+      typeof task?.sequenceStepIndex === "number" &&
+      Number.isFinite(task.sequenceStepIndex)
+        ? Math.floor(task.sequenceStepIndex)
+        : null,
+    backendId: entry.backend.id,
+    backendDisplayName: resolveBackendDisplayName(
+      entry.backend.id,
+      entry.backend.displayName,
+    ),
+    status: rawStatus || normalized,
+    terminal,
+    waiting,
+    error: String(entry.session.error || "").trim() || null,
+    loading: entry.session.loading,
+    historyLoading:
+      entry.session.historyLoading === true || entry.historyHydrating === true,
+    updatedAt: String(entry.session.updatedAt || "").trim() || null,
+    engine: String(entry.session.engine || "").trim() || null,
+    model: String(entry.session.model || "").trim() || null,
+    pendingOwner: String(entry.session.pendingOwner || "").trim() || null,
+    pendingInteraction,
+    pendingPermission,
+    authRequired: normalized === "waiting_auth",
+    pendingAuth:
+      normalized === "waiting_auth"
+        ? resolveWorkspacePendingAuth(entry.session)
+        : null,
+    canReply:
+      typeof task?.canReply === "boolean"
+        ? task.canReply
+        : backendInteractive && waiting,
+    canCancel:
+      typeof task?.canCancelBackendRun === "boolean"
+        ? task.canCancelBackendRun
+        : backendInteractive && !terminal,
+    requestAssigned:
+      typeof task?.requestAssigned === "boolean"
+        ? task.requestAssigned
+        : !!requestId,
+    backendInteractive,
+    submitPhase: String(task?.submitPhase || "").trim() || null,
+    submitError:
+      String(task?.submitError || "").trim() ||
+      (rawStatus === "failed" ? String(entry.session.error || "") : "") ||
+      null,
+    applyState:
+      String(record?.apply.state || task?.applyState || "").trim() || null,
+    applyAttempt: record?.apply.attempt ?? task?.applyAttempt ?? null,
+    applyMaxAttempt: record?.apply.maxAttempt ?? task?.applyMaxAttempt ?? null,
+    applyNextRetryAt:
+      String(
+        record?.apply.nextRetryAt || task?.applyNextRetryAt || "",
+      ).trim() || null,
+    applyError:
+      String(record?.apply.error || task?.applyError || "").trim() || null,
+    applyUpdatedAt:
+      String(record?.apply.updatedAt || task?.applyUpdatedAt || "").trim() ||
+      null,
+    autoReplyEnabled:
+      autoReplyObserverState?.enabled || task?.autoReplyEnabled === true,
+    autoReplyObserverActive:
+      autoReplyObserverState?.active || task?.autoReplyObserverActive === true,
+    autoReplyObserverShowTimer:
+      autoReplyObserverState?.showTimer === true ||
+      task?.autoReplyObserverShowTimer === true,
+    autoReplyObserverRemainingSeconds:
+      autoReplyObserverState?.remainingSeconds ??
+      task?.autoReplyObserverRemainingSeconds ??
+      null,
+    autoReplyObserverStartedAt:
+      String(
+        autoReplyObserverState?.startedAt ||
+          task?.autoReplyObserverStartedAt ||
+          "",
+      ).trim() || null,
+    autoReplyObserverDeadlineAt:
+      String(
+        autoReplyObserverState?.deadlineAt ||
+          task?.autoReplyObserverDeadlineAt ||
+          "",
+      ).trim() || null,
+    messageCounts: entry.messageCounts || null,
+    transcriptRevision: runWorkspaceState.transcriptRevision,
+  };
+}
+
+function skillRunnerOwnerDetailsItem(
+  fieldId: AssistantWorkspaceDetailsFieldId,
+  value: unknown,
+  format: "text" | "path" | "code" | "json" = "text",
+) {
+  return {
+    fieldId,
+    value: String(value == null ? "" : value).trim(),
+    format,
+  };
+}
+
+/** Localized deferred-apply state label (legacy applyStateLabel parity). */
+function skillRunnerOwnerDetailsApplyLabel(
+  state: string,
+  nextRetryAt: string,
+): string {
+  const token = state
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+  if (!token || token === "idle") return "";
+  if (token === "pending") {
+    return localize("assistant-panel-status-apply-pending", "Pending apply");
+  }
+  if (token === "running") {
+    return localize("assistant-panel-status-apply-running", "Applying");
+  }
+  if (token === "succeeded") {
+    return localize("assistant-panel-status-apply-succeeded", "Applied");
+  }
+  if (token === "failed") {
+    return nextRetryAt
+      ? localize(
+          "assistant-panel-status-apply-retry-scheduled",
+          "Retry scheduled",
+        )
+      : localize("assistant-panel-status-apply-failed", "Apply failed");
+  }
+  if (token === "skipped") {
+    return localize("assistant-panel-status-apply-skipped", "Skipped");
+  }
+  if (token === "not-required") {
+    return localize(
+      "assistant-panel-status-apply-not-required",
+      "Not required",
+    );
+  }
+  return token;
+}
+
+/**
+ * Full owner-details projection for the selected run, restoring the legacy
+ * buildSkillRunnerDetails field set (Run / Deferred apply / Pending /
+ * Conversation Summary / Revision Summary). Items with empty values are
+ * dropped by the sidebar projection, so every legacy field is listed here
+ * unconditionally.
+ */
+export function readSkillRunnerWorkspaceOwnerDetails(): AssistantWorkspaceOwnerDetails | null {
+  const entry = runWorkspaceState.currentEntry;
+  if (!entry) {
+    return null;
+  }
+  const session = entry.session;
+  const record = getSkillRunnerRunRecord(entry.key);
+  const task = getCurrentRunWorkspaceTask();
+  const requestId = String(entry.requestId || session.requestId || "").trim();
+  const title =
+    String(task?.title || "").trim() ||
+    String(record?.taskName || "").trim() ||
+    resolveRunWorkspaceTitle();
+  const normalizedStatus = normalizeStatus(
+    String(session.status || "").trim() || "running",
+    "running",
+  );
+  const applyState = String(
+    record?.apply.state || task?.applyState || "",
+  ).trim();
+  const applyNextRetryAt = String(
+    record?.apply.nextRetryAt || task?.applyNextRetryAt || "",
+  ).trim();
+  const pending = session.pendingInteraction;
+  const pendingAuth = session.pendingAuth;
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const lastMessage =
+    messages.length > 0 ? messages[messages.length - 1] : null;
+  const revisions = messages.filter(
+    (message) => message && message.kind === "assistant_revision",
+  );
+  const latestRevision =
+    revisions.length > 0 ? revisions[revisions.length - 1] : null;
+  const latestRevisionText = latestRevision
+    ? (
+        entryVisibleText(latestRevision) ||
+        JSON.stringify(latestRevision.raw ?? latestRevision)
+      ).slice(0, 500)
+    : "";
+  const sections: AssistantWorkspaceOwnerDetails["sections"] = [
+    {
+      sectionId: "run" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem("title", title),
+        skillRunnerOwnerDetailsItem("request-id", requestId),
+        skillRunnerOwnerDetailsItem(
+          "task-key",
+          String(runWorkspaceState.selectedTaskKey || "").trim(),
+        ),
+        skillRunnerOwnerDetailsItem("status", session.status),
+        skillRunnerOwnerDetailsItem(
+          "terminal",
+          String(isTerminal(normalizedStatus)),
+        ),
+        skillRunnerOwnerDetailsItem(
+          "waiting",
+          String(isWaiting(normalizedStatus)),
+        ),
+        skillRunnerOwnerDetailsItem(
+          "backend",
+          resolveBackendDisplayName(
+            entry.backend.id,
+            entry.backend.displayName,
+          ),
+        ),
+        skillRunnerOwnerDetailsItem("engine", session.engine),
+        skillRunnerOwnerDetailsItem("model", session.model),
+        skillRunnerOwnerDetailsItem("updated", session.updatedAt),
+        skillRunnerOwnerDetailsItem(
+          "loading",
+          String(session.loading === true),
+        ),
+        skillRunnerOwnerDetailsItem("error", session.error),
+      ],
+    },
+    {
+      sectionId: "deferred-apply" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem(
+          "status",
+          skillRunnerOwnerDetailsApplyLabel(applyState, applyNextRetryAt) ||
+            applyState,
+        ),
+        skillRunnerOwnerDetailsItem(
+          "apply-attempt",
+          record?.apply.attempt ?? task?.applyAttempt ?? "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "apply-max-attempt",
+          record?.apply.maxAttempt ?? task?.applyMaxAttempt ?? "",
+        ),
+        skillRunnerOwnerDetailsItem("apply-next-retry", applyNextRetryAt),
+        skillRunnerOwnerDetailsItem(
+          "updated",
+          record?.apply.updatedAt || task?.applyUpdatedAt || "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "error",
+          record?.apply.error || task?.applyError || "",
+        ),
+      ],
+    },
+    {
+      sectionId: "pending" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem(
+          "pending-interaction",
+          pending?.interactionId ?? "",
+        ),
+        skillRunnerOwnerDetailsItem("pending-kind", pending?.kind),
+        skillRunnerOwnerDetailsItem("pending-prompt", pending?.prompt),
+        skillRunnerOwnerDetailsItem(
+          "pending-options",
+          Array.isArray(pending?.options) ? String(pending.options.length) : "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "pending-required-fields",
+          Array.isArray(pending?.requiredFields)
+            ? pending.requiredFields.join(", ")
+            : "",
+        ),
+        skillRunnerOwnerDetailsItem("auth-session", pendingAuth?.authSessionId),
+        skillRunnerOwnerDetailsItem("auth-provider", pendingAuth?.providerId),
+        skillRunnerOwnerDetailsItem("auth-phase", pendingAuth?.phase),
+        skillRunnerOwnerDetailsItem("auth-engine", pendingAuth?.engine),
+        skillRunnerOwnerDetailsItem(
+          "auth-methods",
+          Array.isArray(pendingAuth?.availableMethods)
+            ? pendingAuth.availableMethods.join(", ")
+            : "",
+        ),
+        skillRunnerOwnerDetailsItem(
+          "auth-challenge",
+          pendingAuth?.challengeKind,
+        ),
+        skillRunnerOwnerDetailsItem(
+          "auth-error",
+          session.authControlError || pendingAuth?.lastError || "",
+        ),
+      ],
+    },
+    {
+      sectionId: "conversation-summary" as AssistantWorkspaceDetailsSectionId,
+      collapsed: false,
+      items: [
+        skillRunnerOwnerDetailsItem("messages", String(messages.length)),
+        skillRunnerOwnerDetailsItem("latest-timestamp", lastMessage?.ts),
+        skillRunnerOwnerDetailsItem("latest-kind", lastMessage?.kind),
+      ],
+    },
+    {
+      sectionId: "revision-summary" as AssistantWorkspaceDetailsSectionId,
+      collapsed: true,
+      items: [
+        skillRunnerOwnerDetailsItem("count", String(revisions.length)),
+        skillRunnerOwnerDetailsItem(
+          "latest",
+          latestRevisionText,
+          latestRevisionText ? "code" : "text",
+        ),
+      ],
+    },
+  ];
+  return {
+    status: "ready",
+    title,
+    subtitle: requestId || null,
+    sections,
+    actions: ["copy-id", "copy-diagnostics"],
+    error: null,
+  };
+}
+
+/**
+ * Canonical transcript item projection for SkillRunner conversation entries
+ * (design Decision 2): the single producer-side SSOT that replaces the
+ * child-side normalization in runDialog.js/chatThinkingCore.js (deleted in
+ * Stage 4). Items are display-mode neutral; plain/bubble folding stays a
+ * child concern.
+ *
+ * Mapping:
+ * - assistant_process with process type tool_call/command_execution (entry
+ *   field or correlation.process_type) -> tool-call;
+ * - other assistant_process entries -> thought;
+ * - assistant_message / assistant_final / user / system entries -> message;
+ * - an assistant_final replaces same-chain intermediate messages (via
+ *   buildRunDialogDisplayMessages) and duplicate finals of the same chain and
+ *   attempt are dropped;
+ * - assistant_revision entries pair by message id: the paired final carries
+ *   the revision badge metadata {count, status, repairRound}, and the
+ *   rejected draft itself renders as its own assistant message row (legacy
+ *   runDialog.js revision branch); unpaired revisions are dropped (legacy
+ *   behavior);
+ * - a pending permission request appends a synthetic permission item.
+ */
+export function projectSkillRunnerConversationEntriesToTranscriptItems(
+  entries: readonly SkillRunnerConversationEntry[],
+  options?: { pendingPermission?: unknown },
+): AssistantWorkspaceTranscriptItem[] {
+  const displayEntries = buildRunDialogDisplayMessages([...entries]);
+  const revisionsByMessageId = new Map<string, SkillRunnerConversationEntry>();
+  const finalMessageIds = new Set<string>();
+  for (const entry of displayEntries) {
+    if (entry.role !== "assistant") {
+      continue;
+    }
+    if (entry.kind === "assistant_revision") {
+      const messageId = entryMessageId(entry);
+      if (messageId && !revisionsByMessageId.has(messageId)) {
+        revisionsByMessageId.set(messageId, entry);
+      }
+      continue;
+    }
+    if (isAssistantFinalEntry(entry)) {
+      const messageId = entryMessageId(entry);
+      if (messageId) {
+        finalMessageIds.add(messageId);
+      }
+    }
+  }
+  const items: AssistantWorkspaceTranscriptItem[] = [];
+  const seenFinalChains = new Set<string>();
+  displayEntries.forEach((entry, index) => {
+    const itemId = `skillrunner-${
+      entry.seq > 0 ? `seq-${entry.seq}` : `local-${index}`
+    }`;
+    const createdAt = String(entry.ts || "");
+    if (entry.kind === "assistant_revision") {
+      // Rejected drafts render as their own row (legacy revision branch);
+      // revisions without a matching final stay dropped.
+      const messageId = entryMessageId(entry);
+      if (!messageId || !finalMessageIds.has(messageId)) {
+        return;
+      }
+      items.push({
+        itemId,
+        itemKind: "message",
+        createdAt,
+        updatedAt: null,
+        role: "assistant",
+        text: entryVisibleText(entry) || "Rejected final reply",
+        status: "complete",
+        revision: {
+          count: 1,
+          status: "replaced",
+          repairRound: entryAttempt(entry),
+        },
+      });
+      return;
+    }
+    if (isAssistantProcessEntry(entry)) {
+      const correlation = entryCorrelation(entry);
+      const processType = normalizeDisplayText(
+        entry.processType || correlation.process_type,
+      ).toLowerCase();
+      if (isSkillRunnerToolProcessType(processType)) {
+        items.push({
+          itemId,
+          itemKind: "tool-call",
+          createdAt,
+          updatedAt: null,
+          toolCallId:
+            normalizeDisplayText(correlation.tool_call_id) ||
+            normalizeDisplayText(correlation.tool_id) ||
+            entryMessageId(entry) ||
+            itemId,
+          title:
+            processType === "command_execution"
+              ? localize(
+                  "task-dashboard-run-process-command-execution",
+                  "Command Execution",
+                )
+              : localize("task-dashboard-run-process-tool-call", "Tool Call"),
+          toolKind: processType || null,
+          toolName:
+            normalizeDisplayText(
+              correlation.tool_name || correlation.toolName,
+            ) || null,
+          inputSummary:
+            normalizeDisplayText(
+              correlation.input_summary || correlation.inputSummary,
+            ) || null,
+          resultSummary: null,
+          summary: entryVisibleText(entry) || null,
+          status: "completed",
+        });
+        return;
+      }
+      items.push({
+        itemId,
+        itemKind: "thought",
+        createdAt,
+        updatedAt: null,
+        text:
+          entryVisibleText(entry) || normalizeDisplayText(correlation.summary),
+        status: "complete",
+      });
+      return;
+    }
+    if (isAssistantFinalEntry(entry)) {
+      const chainKey = [
+        entryAttempt(entry),
+        entryMessageFamilyId(entry) ||
+          entryMessageId(entry) ||
+          entryVisibleText(entry),
+      ].join("\n");
+      if (seenFinalChains.has(chainKey)) {
+        return;
+      }
+      seenFinalChains.add(chainKey);
+    }
+    const role =
+      entry.role === "user"
+        ? ("user" as const)
+        : entry.role === "system"
+          ? ("system" as const)
+          : ("assistant" as const);
+    let revision: {
+      count: number;
+      status: string;
+      repairRound: number;
+    } | null = null;
+    if (isAssistantFinalEntry(entry)) {
+      const messageId = entryMessageId(entry);
+      const revisionEntry = messageId
+        ? revisionsByMessageId.get(messageId)
+        : undefined;
+      if (revisionEntry) {
+        revision = {
+          count: 1,
+          status: "replaced",
+          repairRound: entryAttempt(revisionEntry),
+        };
+      }
+    }
+    items.push({
+      itemId,
+      itemKind: "message",
+      createdAt,
+      updatedAt: null,
+      role,
+      text: entryVisibleText(entry),
+      status: "complete",
+      revision,
+    });
+  });
+  const permission = projectAssistantWorkspacePermissionRequest(
+    options?.pendingPermission,
+  );
+  if (permission) {
+    items.push({
+      itemId: `skillrunner-pending-permission-${permission.requestId}`,
+      itemKind: "permission",
+      createdAt: permission.review.requestedAt || "",
+      updatedAt: null,
+      permissionRequestId: permission.requestId,
+      title: permission.title,
+      summary: permission.summary,
+      source: permission.approvalKind,
+      status: "pending",
+    });
+  }
+  return items;
+}
+
+/**
+ * Page-first transcript read over the bounded in-memory session mirror
+ * (design Decision 2): the first paint comes from messages already in memory;
+ * background history hydration produces a later snapshot through the
+ * publication clock. Reads are selected-owner scoped — the publication clock
+ * and the mode-aware published message set are maintained for the selected
+ * run only.
+ */
+export function readSkillRunnerTranscriptRegion(args: {
+  owner: Extract<AssistantWorkspaceOwner, { source: "skillrunner" }>;
+  request?: { cursor?: number | null; limit?: number };
+}): AssistantWorkspaceTranscriptRegion {
+  const owner = args.owner;
+  const entry = runWorkspaceState.currentEntry;
+  const ownerKey = entry
+    ? String(entry.requestId || "").trim() || entry.key
+    : "";
+  if (!entry || owner.ownerKey !== ownerKey) {
+    return createFailedTranscriptRegion(owner, {
+      code: "skillrunner-run-not-selected",
+      message: "The requested SkillRunner run is not the selected run.",
+    });
+  }
+  const messages =
+    runWorkspaceState.publishedTranscriptEntryKey === entry.key
+      ? runWorkspaceState.publishedTranscriptMessages
+      : entry.session.messages;
+  const pendingPermission =
+    entry.session.pendingPermission ||
+    (String(entry.requestId || "").trim()
+      ? getSkillRunnerHostBridgePermissionRequest(
+          String(entry.requestId || "").trim(),
+        )
+      : null);
+  const items = projectSkillRunnerConversationEntriesToTranscriptItems(
+    messages,
+    { pendingPermission },
+  );
+  const total = items.length;
+  const limit = Math.max(1, Math.floor(Number(args.request?.limit) || 80));
+  const cursor = args.request?.cursor;
+  const tail = cursor === undefined || cursor === null;
+  const startCursor = tail
+    ? Math.max(0, total - limit)
+    : Math.max(0, Math.floor(Number(cursor)));
+  const pageItems = items.slice(startCursor, startCursor + limit);
+  // Same-owner background history hydration (reattach catch-up) appends a
+  // trailing system message on the tail page, matching the legacy panel
+  // model; owner switches are covered by the owner-first loading snapshot
+  // instead. A 404 from the history endpoint means the backend kept no
+  // history for the run — that is not a run failure, so it surfaces as its
+  // own system message rather than a silent transcript.
+  if (
+    tail &&
+    (entry.session.historyLoading === true || entry.historyHydrating === true)
+  ) {
+    pageItems.push({
+      itemId: "skillrunner-history-loading",
+      itemKind: "message",
+      createdAt: "",
+      updatedAt: null,
+      role: "system" as const,
+      text: localize(
+        "assistant-panel-transcript-history-loading-detail",
+        "Loading conversation history...",
+      ),
+      status: "complete",
+      revision: null,
+    });
+  } else if (tail && entry.session.historyNotFound === true) {
+    pageItems.push({
+      itemId: "skillrunner-history-not-found",
+      itemKind: "message",
+      createdAt: "",
+      updatedAt: null,
+      role: "system" as const,
+      text: localize(
+        "assistant-panel-transcript-history-not-found",
+        "Conversation history not found.",
+      ),
+      status: "complete",
+      revision: null,
+    });
+  }
+  const page = createAssistantWorkspaceTranscriptPage({
+    owner,
+    anchor: tail ? "tail" : "cursor",
+    cursor: startCursor,
+    limit,
+    totalVisibleItemCount: total,
+    previousCursor: startCursor > 0 ? Math.max(0, startCursor - limit) : null,
+    nextCursor:
+      !tail && startCursor + limit < total ? startCursor + limit : null,
+    sourceEventSeq: Math.max(0, entry.session.lastSeq),
+    items: pageItems as unknown as Array<Record<string, unknown>>,
+  });
+  return createReadyTranscriptRegion(
+    owner,
+    page,
+    runWorkspaceState.transcriptRevision,
+  );
 }

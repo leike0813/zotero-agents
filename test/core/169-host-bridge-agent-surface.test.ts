@@ -90,7 +90,7 @@ describe("Host Bridge agent surface contract", function () {
       Object.keys(registry.commands).sort(),
       catalog.commandInventory.map((entry) => entry.command).sort(),
     );
-    assert.lengthOf(Object.keys(registry.commands), 125);
+    assert.lengthOf(Object.keys(registry.commands), 127);
     assert.notInclude(
       Object.values<any>(registry.commands).map(
         (entry) => entry.outputBoundary.strategy,
@@ -311,7 +311,7 @@ describe("Host Bridge agent surface contract", function () {
     const inventory = new Map(
       catalog.commandInventory.map((entry) => [entry.command, entry]),
     );
-    assert.lengthOf(Object.keys(registry.commands), 125);
+    assert.lengthOf(Object.keys(registry.commands), 127);
 
     for (const [command, contract] of Object.entries(registry.commands)) {
       const boundary = contract.outputBoundary;
@@ -435,7 +435,7 @@ describe("Host Bridge agent surface contract", function () {
 
     assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v6");
     assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v5");
-    assert.lengthOf(catalog.commandInventory, 125);
+    assert.lengthOf(catalog.commandInventory, 127);
     assert.isNotEmpty(descriptor.globalOptions);
     assert.isTrue(
       descriptor.globalOptions.every((entry) => Boolean(entry.help)),
@@ -464,7 +464,7 @@ describe("Host Bridge agent surface contract", function () {
     const commands = new Map(
       descriptor.commands.map((entry) => [entry.command, entry]),
     );
-    assert.strictEqual(commands.size, 125);
+    assert.strictEqual(commands.size, 127);
     assert.deepInclude(commands.get("run list")!.outputBoundary, {
       strategy: "cursor",
       section: "items",
@@ -546,7 +546,7 @@ describe("Host Bridge agent surface contract", function () {
         .get("workflow submit")!
         .handleTransitions.filter((entry) => entry.direction === "produce")
         .map((entry) => entry.handle),
-      ["workflowRunId", "submissionId"],
+      ["workflowRunId", "submissionId", "fileId"],
     );
     assert.deepEqual(
       commands

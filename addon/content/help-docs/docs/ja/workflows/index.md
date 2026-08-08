@@ -21,8 +21,12 @@ workflow.json (マニフェストファイル)
 |------|------|
 | `attachment` | アイテムの添付ファイル |
 | `parent` | 選択されたアイテムの親アイテム |
+| `child` | 子アイテム |
+| `selection` | 直接選択されたアイテム |
 | `note` | ノートアイテム |
-| `workflow` | バッチスコープ |
+| `generated-note` | Workflowによって生成されたノート |
+| `digest-image-target` | ダイジェスト代表画像のターゲット |
+| `workflow` | バッチスコープ（選択不要） |
 
 ### フックシステム
 
@@ -34,15 +38,16 @@ Workflowは実行のさまざまな段階でカスタムJavaScriptスクリプ�
 - **normalizeSettings**: ユーザー設定を正規化
 - **applyResult**: バックエンドから返された結果をZoteroに適用
 
-## 3つの実行バックエンド
+## 4つの実行バックエンド
 
-Workflowは3つのバックエンドタイプを通じて実行できます。
+Workflowは4つのバックエンドタイプを通じて実行できます。
 
 | バックエンド | リクエストタイプ | 用途 |
 |---------|-------------|---------|
-| **Skill-Runner** | `skill.run.v1` | 一般的なスキル実行、インタラクティブモードに対応 |
-| **ACP** | `acp.skill.run.v1` | ACPバックエンド経由のスキル実行 |
-| **Generic HTTP** | `generic-http.request.v1` | HTTP API呼び出し |
+| **Skill-Runner** | `skillrunner.job.v1` / `skillrunner.sequence.v1` | 一般的なスキル実行、インタラクティブモードに対応 |
+| **ACP** | `acp.prompt.v1` / `acp.skill.run.v1` / `skillrunner.sequence.v1` | ACPバックエンド経由の会話またはスキル実行 |
+| **Generic HTTP** | `generic-http.request.v1` / `generic-http.steps.v1` | HTTP API呼び出し |
+| **Pass-through** | `pass-through.run.v1` | 純粋なローカル操作、リモートバックエンド不要 |
 
 ## 公式Workflowパッケージ
 
@@ -68,12 +73,13 @@ Workflowは3つのバックエンドタイプを通じて実行できます。
 | **Deep Reading** | 翻訳サポート付きの構造化された深読HTMLビューを生成 | 添付ファイル | ACP | [詳細](#doc/workflows%2Fliterature-deep-reading) |
 | **Literature Search & Ingest** | エージェントに学術文献を検索させ、Zoteroに直接取り込む | workflow | ACP | [詳細](#doc/workflows%2Fliterature-search-ingest) |
 | **Collection Collector** | 宣言されたスコープに基づき既存コレクション用にライブラリから既存文献を選択 | workflow | ACP | [詳細](#doc/workflows%2Fcollection-collector) |
-| **Export/Import Literature Bundle** | メタデータ、添付ファイル、ノート付き Zotero アイテムのポータブル ZIP バンドルをエクスポート/インポート | 親アイテム / workflow | バックエンド不要 | [詳細](#doc/workflows%2Fexport-import-literature-bundle) |
+| **Export/Import Literature Bundle** | メタデータ、添付ファイル、ノート付き Zotero アイテムのポータブル ZIP バンドルをエクスポート/インポート | 親アイテム / workflow | Pass-through | [詳細](#doc/workflows%2Fexport-import-literature-bundle) |
 | **Export Research Bundle** | ライブラリと Synthesis コンテキストから論文プロジェクトの読み取り専用リサーチバンドルを自動構成 | workflow | Skill-Runner | [詳細](#doc/workflows%2Fexport-research-bundle) |
-| **Tag Auditor** | ライブラリの全アイテムを統制タグ語彙に対してスキャンし適合性を報告 | workflow | バックエンド不要 | [詳細](#doc/workflows%2Ftag-auditor) |
+| **Tag Auditor** | ライブラリの全アイテムを統制タグ語彙に対してスキャンし適合性を報告 | workflow | Pass-through | [詳細](#doc/workflows%2Ftag-auditor) |
 | **Tag Bootstrapper** | 研究ドメインの統制されたタグ語彙を対話的に作成 | workflow | Skill-Runner | [詳細](#doc/workflows%2Ftag-bootstrapper) |
 | **Tag Regulator** | 統制語彙に基づいてタグを正規化し、新しいタグを推論 | 親アイテム | Skill-Runner | [詳細](#doc/workflows%2Ftag-regulator) |
-| **Export/Import Notes** | 分析ノートのエクスポート・インポート、編集と再インポートに対応 | 親アイテム | バックエンド不要 | [詳細](#doc/workflows%2Fexport-import-notes) |
+| **Export/Import Notes** | 分析ノートのエクスポート・インポート、編集と再インポートに対応 | 親アイテム | Pass-through | [詳細](#doc/workflows%2Fexport-import-notes) |
+| **Add Digest Representative Image** | 文献ダイジェストに代表画像を追加 | 親アイテム | ACP | — |
 
 ### 🛠️ ユーティリティ
 

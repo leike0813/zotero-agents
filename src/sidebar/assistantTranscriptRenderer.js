@@ -1660,41 +1660,6 @@ function toolToneClass(status) {
   }
 }
 
-function adaptLegacyTranscriptItem(item) {
-  const source = item && typeof item === "object" ? item : {};
-  if (source.itemId && source.itemKind) return source;
-  const itemId = String(source.id || "").trim();
-  const legacyKind = String(source.kind || "").trim();
-  const itemKind =
-    legacyKind === "tool" || legacyKind === "tool_call"
-      ? "tool-call"
-      : legacyKind === "process"
-        ? "thought"
-        : legacyKind;
-  if (!itemId || !itemKind) return null;
-  const adapted = {};
-  Object.keys(source).forEach(function (key) {
-    if (key !== "id" && key !== "kind" && key !== "state") {
-      adapted[key] = source[key];
-    }
-  });
-  adapted.itemId = itemId;
-  adapted.itemKind = itemKind;
-  adapted.status =
-    source.state === "in_progress" ? "in-progress" : source.state;
-  if (source.revision && typeof source.revision === "object") {
-    adapted.revision = {
-      count: Number(source.revision.count) || 0,
-      status: source.revision.status || source.revision.latestStatus || "",
-      repairRound:
-        Number(
-          source.revision.repairRound || source.revision.latestRepairRound,
-        ) || 0,
-    };
-  }
-  return adapted;
-}
-
 function createItemPresentationRow(item) {
   if (!item || !item.itemId || !item.itemKind) return null;
   return Object.assign({}, item, {
@@ -2754,7 +2719,6 @@ function renderAssistantTranscript(options) {
 }
 
 export {
-  adaptLegacyTranscriptItem,
   applyAssistantTranscriptEffects,
   applyAssistantTranscriptEffectsExact,
   buildTranscriptRenderItems,

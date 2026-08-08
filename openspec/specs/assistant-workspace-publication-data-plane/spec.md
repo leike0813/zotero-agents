@@ -3,16 +3,16 @@
 ## Purpose
 Defines the shared v1 publication vocabulary, canonical browser state, semantic
 presentation and action registries, transcript region model, mutation buffer,
-and page request protocol used by both ACP Chat and ACP Skills surfaces in
-Assistant Workspace.
+and page request protocol used by ACP Chat, ACP Skills, and SkillRunner
+surfaces in Assistant Workspace.
 ## Requirements
 ### Requirement: Workspace publication uses one strict v1 registry
 
-ACP Chat and ACP Skills SHALL use the v1 region and presentation registries as
-the sole source of publication kind, payload, semantic presentation fields,
-browser key, managed region, and source support. Non-v1 publications, generic
-banner arrays, producer labels, presentation tasks, aliases, and dual writes
-SHALL be rejected.
+ACP Chat, ACP Skills, and SkillRunner SHALL use the v1 region and
+presentation registries as the sole source of publication kind, payload,
+semantic presentation fields, browser key, managed region, and source
+support. Non-v1 publications, generic banner arrays, producer labels,
+presentation tasks, aliases, and dual writes SHALL be rejected.
 
 #### Scenario: A non-v1 presentation reaches the child
 
@@ -111,9 +111,12 @@ The shared mutation buffer SHALL merge consecutive same-item appends and SHALL b
 - **THEN** it sends one terminal rejection acknowledgement
 - **AND** the host reads and publishes the current page once.
 
-### Requirement: Domain mappings are exhaustive for both surfaces
+### Requirement: Domain mappings are exhaustive for every registered source
 
-Every publication kind SHALL have a compile-time Chat and Skills mapping or explicit `not-applicable` declaration. Unknown runtime changes SHALL NOT fall back to baseline or full snapshot.
+Every publication kind SHALL have a compile-time mapping or an explicit
+`not-applicable` declaration for each registered source (ACP Chat, ACP
+Skills, SkillRunner). Unknown runtime changes SHALL NOT fall back to a
+baseline or a full snapshot.
 
 #### Scenario: A new domain kind is introduced
 
@@ -465,3 +468,93 @@ Permission producers SHALL classify ACP tool requests as `acp-tool` and Zotero M
 - **WHEN** a scoped Host Bridge mutation requires approval in ACP Chat or ACP Skills
 - **THEN** the canonical permission DTO SHALL use `approvalKind: "zotero-write"`
 - **AND** the request source SHALL remain available internally as origin metadata.
+
+### Requirement: SkillRunner owner identity is request scoped
+
+The SkillRunner workspace owner SHALL carry `source: "skillrunner"`, an
+`ownerKey`, the `requestId`, and the `runKey`. The `ownerKey` SHALL be the
+request id when one is assigned and SHALL fall back to the run key for
+unassigned local runs. A late request-id assignment SHALL surface as an
+owner switch and SHALL follow the owner-first loading sequence.
+
+#### Scenario: A local run receives its request id
+
+- **GIVEN** a SkillRunner run was selected before its request id was assigned
+- **WHEN** the backend assigns the request id
+- **THEN** the owner key changes to the request id
+- **AND** the workspace republishes the new owner with a loading-first transcript snapshot.
+
+### Requirement: SkillRunner transcript publishes as snapshots
+
+The SkillRunner surface SHALL publish transcript updates only as
+transcript snapshots, never as incremental mutations, because the
+SkillRunner channel has no incremental event stream at this boundary.
+Transcript revisions SHALL come from the producer-side boundary signature,
+unchanged region payloads SHALL be absorbed by coordinator signature
+dedup, and conversation entries SHALL be projected to canonical transcript
+items producer-side.
+
+#### Scenario: A streaming SkillRunner run appends chat entries
+
+- **WHEN** new SkillRunner chat entries cross a producer boundary signature
+- **THEN** a transcript snapshot with an incremented revision is published
+- **AND** non-transcript regions with unchanged payloads are not republished.
+
+### Requirement: ACP transcript mirror storage has one shared implementation
+
+The ACP Chat and ACP Skills transcript mirror layers — cold full-mirror LRU,
+live/pinned exemption, scheduled hydrate, page-first indexed reads, mirror
+event application, event queueing, and streaming text coalescing — SHALL be
+served by one shared parameterized store. Per-source variation (owner key
+scheme, pin predicate, item-id allocation, streaming segment tracking, plan
+handling mode, continuity bookkeeping, not-hydrated queue branch, emission
+and persistence callbacks) SHALL be injected as an owner descriptor
+keyed by owner source. The shared store SHALL NOT branch on backend id,
+provider id, agent family, command name, or backend product strings, and
+both sources SHALL keep consuming the shared session-update boundary
+classifier. The SkillRunner bounded in-memory mirror stays out of this
+store by design.
+
+#### Scenario: A new mirror concern is added
+
+- **WHEN** mirror eviction, hydrate scheduling, or page-read behavior changes
+- **THEN** the change is made once in the shared store
+- **AND** both ACP sources inherit it through their owner descriptors
+  without per-source copies.
+
+#### Scenario: Coalescing semantics stay protocol-level
+
+- **WHEN** an assistant text chunk arrives around a soft side-channel
+  update (`tool_call_update`, usage, status, workspace activity)
+- **THEN** the shared store coalesces the text segment identically for
+  both ACP sources
+- **AND** no backend-specific special case exists in the store.
+
+### Requirement: Host action dispatch uses one table keyed by owner source
+
+Host-side Assistant Workspace action routing SHALL have a single entry
+that performs envelope validation, owner parsing, registry route
+validation, and the selected-owner guard, followed by one dispatch table
+keyed by action and owner source. Handler bodies that are shared across
+sources SHALL exist exactly once in the table. The action registry and
+the typed action contract SHALL remain the vocabulary and payload SSOT;
+the dispatch table SHALL NOT introduce action vocabulary outside the
+registry. Routes without known senders that are annotated
+`TODO(contract)` SHALL be preserved verbatim.
+
+#### Scenario: A cross-source action is handled
+
+- **WHEN** `resolve-permission`, `copy-diagnostics`, `open-workspace`,
+  `set-mode`, `set-model`, `set-reasoning-effort`,
+  `cancel-queued-workflow-unit`, `open-backend-manager`, or
+  `set-execution-display-mode` arrives from any registered source
+- **THEN** one shared handler body executes with the source-resolved
+  owner context
+- **AND** registry validation and owner guards run exactly once at the
+  single entry.
+
+#### Scenario: A parked route is touched
+
+- **WHEN** a `TODO(contract)` route is reached
+- **THEN** its existing behavior and marker annotation are unchanged.
+

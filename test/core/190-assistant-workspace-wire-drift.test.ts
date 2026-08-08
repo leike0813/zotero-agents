@@ -14,11 +14,6 @@ import {
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
-  RUN_DIALOG_BRIDGE_TYPES,
-  RUN_DIALOG_PHASES,
-  SKILLRUNNER_LEGACY_ACTIONS,
-  SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
-  resolveRunDialogMessageType,
 } from "../../src/shared/assistantWireContract";
 import * as assistantWireContract from "../../src/shared/assistantWireContract";
 import {
@@ -185,19 +180,6 @@ describe("assistant wire contract shared registry", function () {
       ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
       "__zsAssistantWorkspaceAcpBridge",
     );
-    assert.equal(
-      SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
-      "__zsSkillRunnerSidebarBridge",
-    );
-    assert.deepEqual(
-      [...RUN_DIALOG_BRIDGE_TYPES],
-      ["run-dialog", "skillrunner-sidebar"],
-    );
-    assert.deepEqual([...RUN_DIALOG_PHASES], ["init", "snapshot", "action"]);
-    assert.equal(
-      resolveRunDialogMessageType("skillrunner-sidebar", "snapshot"),
-      "skillrunner-sidebar:snapshot",
-    );
     assert.equal(ASSISTANT_WORKSPACE_SHELL_ACTIONS.READY, "ready");
     assert.equal(ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB, "set-tab");
     assert.equal(
@@ -221,8 +203,7 @@ describe("assistant wire contract shared registry", function () {
       ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.REQUEST_OWNER_DETAILS,
       "request-owner-details",
     );
-    assert.equal(SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN, "reply-run");
-    assert.equal(SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN, "cancel-run");
+    assert.notProperty(assistantWireContract, "SKILLRUNNER_LEGACY_ACTIONS");
     assert.notProperty(
       assistantWireContract,
       "SKILLRUNNER_LEGACY_ACTION_ALIASES",
@@ -258,6 +239,66 @@ describe("assistant wire contract shared registry", function () {
     assert.deepEqual(
       parseAssistantPendingInteraction(interaction),
       interaction,
+    );
+    // Non-auth projections carry a null auth block; the exact wire parse
+    // accepts both the auth-less legacy shape and the auth-carrying one.
+    assert.isNull(interaction?.auth);
+    const legacyShape: Record<string, unknown> = { ...interaction! };
+    delete legacyShape.auth;
+    assert.isOk(parseAssistantPendingInteraction(legacyShape));
+
+    const authed = projectAssistantPendingInteraction({
+      inputKind: "open_text",
+      prompt: null,
+      hint: null,
+      options: [],
+      files: [],
+      fileReply: {
+        supported: false,
+        maxFiles: 8,
+        maxFileBytes: 32 * 1024 * 1024,
+        maxTotalBytes: 64 * 1024 * 1024,
+      },
+      auth: {
+        phase: "challenge_active",
+        challengeKind: "auth_code_or_url",
+        prompt: "Authorize the backend",
+        hint: null,
+        inputKind: "auth_code",
+        acceptsChatInput: true,
+        authUrl: "https://example.com/auth",
+        userCode: "UC-1",
+        lastError: null,
+        actionPending: false,
+        actionKind: null,
+        methods: [
+          { label: "Device code", value: "auth_code", description: null },
+        ],
+        importFiles: [
+          { name: "token.json", required: true, hint: null, accept: ".json" },
+        ],
+        importRiskNoticeRequired: false,
+      },
+    });
+    assert.isOk(authed);
+    assert.deepEqual(
+      parseAssistantPendingInteraction(authed),
+      authed,
+      "auth-carrying DTO round-trips through the exact wire parse",
+    );
+    assert.isNull(
+      parseAssistantPendingInteraction({
+        ...authed,
+        auth: { ...authed!.auth, unknownField: true },
+      }),
+      "auth block is exact-key validated on the wire",
+    );
+    assert.isNull(
+      projectAssistantPendingInteraction({
+        ...authed,
+        auth: { ...authed!.auth, acceptsChatInput: "yes" },
+      }),
+      "auth booleans stay typed",
     );
     assert.isNull(
       parseAssistantPendingInteraction({
@@ -297,9 +338,6 @@ describe("assistant wire contract shared registry", function () {
       "src/sidebar/assistantWorkspaceAcpChild.js",
       "src/sidebar/assistantWorkspaceApp.js",
       "src/sidebar/assistantWorkspaceShell.js",
-      "src/sidebar/chatThinkingCore.js",
-      "src/sidebar/runDialog.js",
-      "src/sidebar/runDialogApp.js",
     ];
     const moduleSources = [
       "src/modules/assistantWorkspaceSidebar.ts",

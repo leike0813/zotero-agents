@@ -19,6 +19,11 @@ import type {
 } from "./assistantWorkspaceTranscriptPublication";
 import type { AssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
 import { getHostBridgeServerStatus } from "./hostBridgeServer";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
+} from "./acpRuntimePerformanceProfiler";
 
 export type AssistantWorkspacePublicationRuntimeConfiguration = {
   executionDisplayMode: AssistantExecutionDisplayMode;
@@ -151,6 +156,64 @@ const INITIAL_OWNER_PUBLICATION_KINDS = [
   "owner-navigation" | "transcript"
 >[];
 
+/**
+ * Single funnel for adapter transcript page reads (R3 metrics). The wrap is
+ * timing-neutral: it observes the existing await and must not add microtask
+ * yields to the read path (Phase 4 lesson — publication read-path async
+ * restructuring is timing-observable to the UI).
+ */
+async function readProfiledTranscriptPage<
+  TSource extends AssistantWorkspaceOwner["source"],
+  TChange,
+  TContext,
+  TPageRequest,
+>(args: {
+  adapter: AssistantWorkspacePublicationAdapter<
+    TSource,
+    TChange,
+    TContext,
+    TPageRequest
+  >;
+  owner: Extract<AssistantWorkspaceOwner, { source: TSource }>;
+  context: TContext;
+  request?: TPageRequest;
+  cause: AssistantWorkspacePublicationCause;
+}): Promise<AssistantWorkspaceTranscriptRegion> {
+  const startedAtMs = readAcpRuntimePerformanceClockMs();
+  const region = await args.adapter.readTranscriptPage({
+    owner: args.owner,
+    context: args.context,
+    request: args.request,
+  });
+  const labels = {
+    publicationSurface: args.owner.source,
+    publicationPhase:
+      args.cause === "initialization" ||
+      args.cause === "activation" ||
+      args.cause === "owner-switch"
+        ? ("initialization" as const)
+        : ("steady-state" as const),
+  };
+  incrementAcpRuntimeMetric(
+    args.owner.ownerKey,
+    "transcript_page_read",
+    labels,
+  );
+  incrementAcpRuntimeMetric(
+    args.owner.ownerKey,
+    "transcript_page_scan_items",
+    labels,
+    region.page?.items.length ?? 0,
+  );
+  observeAcpRuntimeDuration(
+    args.owner.ownerKey,
+    "transcript_page_read_duration",
+    labels,
+    readAcpRuntimePerformanceClockMs() - startedAtMs,
+  );
+  return region;
+}
+
 async function publishAssistantWorkspaceInitialization<
   TSource extends AssistantWorkspaceOwner["source"],
   TChange,
@@ -224,10 +287,12 @@ async function publishAssistantWorkspaceInitialization<
   if (loadingPublication) {
     publicationIds.push(loadingPublication.publicationId);
   }
-  const transcript = await args.adapter.readTranscriptPage({
+  const transcript = await readProfiledTranscriptPage({
+    adapter: args.adapter,
     owner,
     context: args.context,
     request: args.transcriptPage,
+    cause: args.cause,
   });
   args.hooks?.onMaterialized?.({
     owner,
@@ -293,6 +358,14 @@ type PendingRuntimeLane = {
       "owner-navigation" | "service-status" | "transcript"
     >
   >;
+  /**
+   * Snapshot-only transcript sources (e.g. SkillRunner, design Decision 2 of
+   * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence)
+   * have no incremental channel: their adapters queue the transcript kind
+   * without mutations and the runtime re-reads a full page snapshot instead.
+   */
+  transcriptSnapshot?: boolean;
+  readTranscript?: () => Promise<AssistantWorkspaceTranscriptRegion>;
   read: (
     kinds: readonly Exclude<
       AssistantWorkspacePublicationKind,
@@ -444,6 +517,8 @@ export class AssistantWorkspacePublicationRuntime {
     }
 
     const activeOwner = owner!;
+    const transcriptSnapshotRequested =
+      mapped.publicationKinds.includes("transcript") && !mapped.transcript;
     if (mapped.publicationKinds.includes("transcript") && mapped.transcript) {
       this.options.coordinator.publishDomainChange({
         owner: activeOwner,
@@ -458,12 +533,22 @@ export class AssistantWorkspacePublicationRuntime {
       });
     }
 
-    if (ownerKinds.length > 0) {
+    if (ownerKinds.length > 0 || transcriptSnapshotRequested) {
       this.queue({
         source: args.adapter.source,
         owner: activeOwner,
         navigation: includesNavigation,
         kinds: new Set(ownerKinds),
+        transcriptSnapshot: transcriptSnapshotRequested,
+        readTranscript: transcriptSnapshotRequested
+          ? () =>
+              readProfiledTranscriptPage({
+                adapter: args.adapter,
+                owner: activeOwner,
+                context: args.context,
+                cause: "steady-state",
+              })
+          : undefined,
         read: (requestedKinds) =>
           args.adapter.readOwnerRegions({
             owner: activeOwner,
@@ -552,10 +637,12 @@ export class AssistantWorkspacePublicationRuntime {
       return undefined;
     }
     this.synchronizeOwner(args.owner);
-    const region = await args.adapter.readTranscriptPage({
+    const region = await readProfiledTranscriptPage({
+      adapter: args.adapter,
       owner: args.owner,
       context: args.context,
       request: args.request,
+      cause: args.cause,
     });
     this.options.hooks?.onMaterialized?.({
       owner: args.owner,
@@ -835,6 +922,8 @@ export class AssistantWorkspacePublicationRuntime {
     if (pending) {
       for (const kind of lane.kinds) pending.kinds.add(kind);
       pending.navigation ||= lane.navigation;
+      pending.transcriptSnapshot ||= lane.transcriptSnapshot === true;
+      if (lane.readTranscript) pending.readTranscript = lane.readTranscript;
       pending.read = lane.read;
       pending.readNavigation = lane.readNavigation;
     } else {
@@ -864,6 +953,9 @@ export class AssistantWorkspacePublicationRuntime {
               ? (["owner-navigation"] as const)
               : ([] as const)),
             ...lane.kinds,
+            ...(lane.transcriptSnapshot
+              ? (["transcript"] as const)
+              : ([] as const)),
           ],
           reason: activity === "matching-target" ? "owner-mismatch" : activity,
         });
@@ -874,6 +966,10 @@ export class AssistantWorkspacePublicationRuntime {
         ? await lane.readNavigation()
         : undefined;
       const regions = await lane.read(kinds);
+      const transcriptRegion =
+        lane.transcriptSnapshot && lane.owner && lane.readTranscript
+          ? await lane.readTranscript()
+          : undefined;
       if (lane.owner) {
         for (const kind of kinds) {
           if (!regions[kind]) continue;
@@ -883,6 +979,15 @@ export class AssistantWorkspacePublicationRuntime {
             cause: "steady-state",
             publicationForm: "region",
             materializationSource: "region",
+          });
+        }
+        if (transcriptRegion) {
+          this.options.hooks?.onMaterialized?.({
+            owner: lane.owner,
+            kind: "transcript",
+            cause: "steady-state",
+            publicationForm: "snapshot",
+            materializationSource: "transcript-page",
           });
         }
       }
@@ -899,6 +1004,14 @@ export class AssistantWorkspacePublicationRuntime {
           kind: "owner-navigation",
           cause: "steady-state",
           payload: navigation,
+        });
+      }
+      if (lane.owner && transcriptRegion) {
+        this.options.coordinator.publishDomainChange({
+          owner: lane.owner,
+          kind: "transcript",
+          cause: "steady-state",
+          transcript: { form: "snapshot", region: transcriptRegion },
         });
       }
       if (!lane.owner) continue;

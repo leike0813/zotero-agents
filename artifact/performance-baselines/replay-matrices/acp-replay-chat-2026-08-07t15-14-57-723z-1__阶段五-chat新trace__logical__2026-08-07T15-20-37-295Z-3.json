@@ -1,0 +1,6819 @@
+{
+  "schema": "zotero-agents.acp-runtime-replay-matrix.v2",
+  "createdAt": "2026-08-07T15:20:37.294Z",
+  "trace": {
+    "schema": "zotero-agents.acp-runtime-semantic-trace.v1",
+    "digest": "0234baf9308b91a85e89ee1e568a00a2654c99a8a38f033baa6e006b8edcf298",
+    "sourceKind": "acp-chat-conversation",
+    "sampleName": "chat-2026-08-07T15-14-57-723Z-1"
+  },
+  "cadence": "logical",
+  "r2WorkloadVersion": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+  "replayConfig": {
+    "phase": "阶段五·chat新trace",
+    "phaseArtifactSlug": "阶段五-chat新trace",
+    "syntheticTiming": true,
+    "logicalSchedulerVersion": 1
+  },
+  "environment": {
+    "pluginVersion": "0.8.0",
+    "zoteroVersion": "9.0.4",
+    "platform": "linux"
+  },
+  "completion": "complete",
+  "executionCompletion": "complete",
+  "measurementCompletion": "complete",
+  "acceptance": {
+    "state": "accepted",
+    "reasons": []
+  },
+  "records": [
+    {
+      "surface": "closed",
+      "role": "warm-up",
+      "runIndex": 0,
+      "syntheticRootId": "acp-replay-3-1",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 665,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "not-applicable",
+            "detail": "Workspace closed"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-1",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116026439,
+        "finishedAtMs": 1786116027104,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 670,
+              "maxMs": 660,
+              "buckets": [
+                8,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 670,
+              "maxMs": 660,
+              "buckets": [
+                8,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 2,
+              "maxMs": 1,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 7,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 21,
+              "maxMs": 2,
+              "buckets": [
+                96,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 4,
+              "totalMs": 262,
+              "maxMs": 213,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "closed",
+      "role": "formal",
+      "runIndex": 1,
+      "syntheticRootId": "acp-replay-3-2",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 1126,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "not-applicable",
+            "detail": "Workspace closed"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-2",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116027169,
+        "finishedAtMs": 1786116028295,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 1132,
+              "maxMs": 1124,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 1132,
+              "maxMs": 1124,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 4,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 20,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 3,
+              "totalMs": 794,
+              "maxMs": 748,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "closed",
+      "role": "formal",
+      "runIndex": 2,
+      "syntheticRootId": "acp-replay-3-3",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 317,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "not-applicable",
+            "detail": "Workspace closed"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-3",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116028364,
+        "finishedAtMs": 1786116028681,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 323,
+              "maxMs": 315,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 323,
+              "maxMs": 315,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 16,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 2,
+              "totalMs": 104,
+              "maxMs": 101,
+              "buckets": [
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "open-inactive",
+      "role": "warm-up",
+      "runIndex": 0,
+      "syntheticRootId": "acp-replay-3-4",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 309,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "expected-zero",
+            "detail": "target surface inactive"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-4",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116029782,
+        "finishedAtMs": 1786116030091,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 315,
+              "maxMs": 306,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 315,
+              "maxMs": 306,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 2,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 15,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 2,
+              "totalMs": 72,
+              "maxMs": 65,
+              "buckets": [
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "open-inactive",
+      "role": "formal",
+      "runIndex": 1,
+      "syntheticRootId": "acp-replay-3-5",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 284,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "expected-zero",
+            "detail": "target surface inactive"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-5",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116030906,
+        "finishedAtMs": 1786116031190,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 289,
+              "maxMs": 282,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 289,
+              "maxMs": 282,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 4,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 15,
+              "maxMs": 3,
+              "buckets": [
+                96,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 2,
+              "totalMs": 64,
+              "maxMs": 64,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "open-inactive",
+      "role": "formal",
+      "runIndex": 2,
+      "syntheticRootId": "acp-replay-3-6",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 293,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "expected-zero",
+            "detail": "target surface inactive"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-6",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116031926,
+        "finishedAtMs": 1786116032219,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 300,
+              "maxMs": 291,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 300,
+              "maxMs": 291,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 4,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 20,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 2,
+              "totalMs": 74,
+              "maxMs": 74,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "target-active",
+      "role": "warm-up",
+      "runIndex": 0,
+      "syntheticRootId": "acp-replay-3-7",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 387,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "captured",
+            "detail": "3 publications completed host/shell/child/render acknowledgement"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-7",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116033188,
+        "finishedAtMs": 1786116033575,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 358,
+              "maxMs": 350,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 358,
+              "maxMs": 350,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 6,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 12,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 2,
+              "totalMs": 85,
+              "maxMs": 52,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "composer",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1667
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_render_inserted_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_updated_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_removed_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 0
+            }
+          },
+          {
+            "name": "panel_render_measured_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 50,
+              "maxMs": 50,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state",
+              "materializationSource": "region"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "composer",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state",
+              "materializationSource": "region"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 421
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 940
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 247
+            }
+          },
+          {
+            "name": "panel_signature_skip",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 20,
+              "maxMs": 20,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "transcript_page_read",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "transcript_page_scan_items",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "transcript_page_read_duration",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic",
+              "materializationSource": "transcript-page"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "counter": {
+              "total": 1446
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 26,
+              "maxMs": 26,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4401",
+            "source": "acp-chat",
+            "kind": "transcript",
+            "publicationForm": "delta",
+            "publicationCause": "steady-state",
+            "deliverySequence": 4401,
+            "postedAtMs": 1786116033404,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033412
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033419
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033433
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033454
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116033454
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          },
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4402",
+            "source": "acp-chat",
+            "kind": "owner-control",
+            "publicationForm": "region",
+            "publicationCause": "steady-state",
+            "deliverySequence": 4402,
+            "postedAtMs": 1786116033472,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033476
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033480
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033485
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033492
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116033492
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          },
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4403",
+            "source": "acp-chat",
+            "kind": "transcript",
+            "publicationForm": "snapshot",
+            "publicationCause": "diagnostic",
+            "deliverySequence": 4403,
+            "postedAtMs": 1786116033542,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033548
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033552
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033559
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116033569
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116033569
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          }
+        ],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "target-active",
+      "role": "formal",
+      "runIndex": 1,
+      "syntheticRootId": "acp-replay-3-8",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 329,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "captured",
+            "detail": "3 publications completed host/shell/child/render acknowledgement"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-8",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116034521,
+        "finishedAtMs": 1786116034850,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 313,
+              "maxMs": 305,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 313,
+              "maxMs": 305,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 2,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 14,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 3,
+              "totalMs": 29,
+              "maxMs": 16,
+              "buckets": [
+                0,
+                1,
+                0,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "composer",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1667
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_render_inserted_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_updated_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_removed_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 0
+            }
+          },
+          {
+            "name": "panel_render_measured_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 22,
+              "maxMs": 22,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state",
+              "materializationSource": "region"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "composer",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state",
+              "materializationSource": "region"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 421
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 940
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 247
+            }
+          },
+          {
+            "name": "panel_signature_skip",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 16,
+              "maxMs": 16,
+              "buckets": [
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "transcript_page_read",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "transcript_page_scan_items",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "transcript_page_read_duration",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic",
+              "materializationSource": "transcript-page"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "counter": {
+              "total": 1446
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 15,
+              "maxMs": 15,
+              "buckets": [
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4437",
+            "source": "acp-chat",
+            "kind": "transcript",
+            "publicationForm": "delta",
+            "publicationCause": "steady-state",
+            "deliverySequence": 4437,
+            "postedAtMs": 1786116034732,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034736
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034739
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034744
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034754
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116034754
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          },
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4438",
+            "source": "acp-chat",
+            "kind": "owner-control",
+            "publicationForm": "region",
+            "publicationCause": "steady-state",
+            "deliverySequence": 4438,
+            "postedAtMs": 1786116034765,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034769
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034772
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034776
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034781
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116034781
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          },
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4439",
+            "source": "acp-chat",
+            "kind": "transcript",
+            "publicationForm": "snapshot",
+            "publicationCause": "diagnostic",
+            "deliverySequence": 4439,
+            "postedAtMs": 1786116034830,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034833
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034836
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034840
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116034845
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116034845
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          }
+        ],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    },
+    {
+      "surface": "target-active",
+      "role": "formal",
+      "runIndex": 2,
+      "syntheticRootId": "acp-replay-3-9",
+      "completion": "complete",
+      "executionCompletion": "complete",
+      "measurementCompletion": "complete",
+      "acceptance": {
+        "state": "accepted",
+        "reasons": []
+      },
+      "measurement": {
+        "elapsedMs": 361,
+        "timing": "synthetic-logical",
+        "families": {
+          "transport": {
+            "state": "not-applicable",
+            "detail": "semantic replay starts no adapter, JSON-RPC transport, or backend"
+          },
+          "r1": {
+            "state": "captured",
+            "detail": "208 semantic events measured"
+          },
+          "r2": {
+            "state": "captured",
+            "detail": "10 requests, 33 fragments, 536 input bytes, max concurrency 8"
+          },
+          "r3": {
+            "state": "captured",
+            "detail": "3 publications completed host/shell/child/render acknowledgement"
+          }
+        },
+        "warnings": []
+      },
+      "replay": {
+        "completion": "complete",
+        "projectedEvents": 99,
+        "consumedNoopEvents": 109,
+        "appliedEvents": 208,
+        "skippedEvents": 0,
+        "unknownEvents": 0,
+        "appliedBytes": 50107,
+        "projectedBytes": 18069,
+        "consumedNoopBytes": 32038,
+        "eventKinds": {
+          "root-start": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 147
+          },
+          "turn-start": {
+            "projected": 2,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 582
+          },
+          "diagnostic": {
+            "projected": 0,
+            "consumedNoop": 105,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 31777
+          },
+          "session-notification": {
+            "projected": 97,
+            "consumedNoop": 0,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 17487
+          },
+          "turn-end": {
+            "projected": 0,
+            "consumedNoop": 2,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 92
+          },
+          "root-end": {
+            "projected": 0,
+            "consumedNoop": 1,
+            "skipped": 0,
+            "unknown": 0,
+            "bytes": 22
+          }
+        },
+        "schedulerLagMs": 0,
+        "drain": {
+          "ok": true,
+          "state": "ok"
+        },
+        "warnings": []
+      },
+      "r2": {
+        "version": "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+        "requests": 10,
+        "fragments": 33,
+        "bytes": 536,
+        "inputBytes": 536,
+        "responseBytes": 566,
+        "maxConcurrency": 8
+      },
+      "profile": {
+        "requestId": "acp-replay-3-9",
+        "displayMode": "boundary",
+        "transport": "unknown",
+        "zoteroMajor": 9,
+        "startedAtMs": 1786116035709,
+        "finishedAtMs": 1786116036070,
+        "metrics": [
+          {
+            "name": "host_input_fragment",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 33
+            }
+          },
+          {
+            "name": "host_input_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 536
+            }
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "other"
+            },
+            "gauge": {
+              "current": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 147
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-start",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "other"
+            },
+            "counter": {
+              "total": 566
+            }
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 330,
+              "maxMs": 324,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "other"
+            },
+            "duration": {
+              "count": 10,
+              "totalMs": 330,
+              "maxMs": 324,
+              "buckets": [
+                9,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 582
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-start",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 1,
+              "maxMs": 1,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 105
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 31777
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "diagnostic",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 105,
+              "totalMs": 2,
+              "maxMs": 1,
+              "buckets": [
+                105,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 97
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "counter": {
+              "total": 17487
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "session-notification",
+              "disposition": "projected"
+            },
+            "duration": {
+              "count": 97,
+              "totalMs": 15,
+              "maxMs": 1,
+              "buckets": [
+                97,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "assistant-message"
+            },
+            "counter": {
+              "total": 95
+            }
+          },
+          {
+            "name": "session_update",
+            "labels": {
+              "updateClass": "tool-update"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 92
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "turn-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 2,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "event_loop_drift",
+            "labels": {},
+            "duration": {
+              "count": 3,
+              "totalMs": 12,
+              "maxMs": 7,
+              "buckets": [
+                1,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "semantic_event",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "semantic_event_bytes",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "counter": {
+              "total": 22
+            }
+          },
+          {
+            "name": "semantic_event_duration",
+            "labels": {
+              "semanticKind": "root-end",
+              "disposition": "consumed-noop"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_requested",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "composer",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1667
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_render_inserted_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_updated_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_removed_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 0
+            }
+          },
+          {
+            "name": "panel_render_measured_rows",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state",
+              "renderPath": "incremental"
+            },
+            "counter": {
+              "total": 3
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "delta",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 29,
+              "maxMs": 29,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state",
+              "materializationSource": "region"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "composer",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state",
+              "materializationSource": "region"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {
+              "publicationKind": "owner-control",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 421
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "counter": {
+              "total": 940
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_signature",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 247
+            }
+          },
+          {
+            "name": "panel_signature_skip",
+            "labels": {
+              "publicationKind": "composer",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "owner-control",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "region",
+              "publicationCause": "steady-state"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 21,
+              "maxMs": 21,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "transcript_page_read",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "transcript_page_scan_items",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "counter": {
+              "total": 2
+            }
+          },
+          {
+            "name": "transcript_page_read_duration",
+            "labels": {
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_materialization",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic",
+              "materializationSource": "transcript-page"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "counter": {
+              "total": 1
+            }
+          },
+          {
+            "name": "panel_post_bytes",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "counter": {
+              "total": 1446
+            }
+          },
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 0,
+              "maxMs": 0,
+              "buckets": [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "panel_render_duration",
+            "labels": {
+              "operationClass": "panel",
+              "publicationKind": "transcript",
+              "publicationCausality": "matching-target",
+              "publicationPhase": "steady-state",
+              "publicationSurface": "acp-chat",
+              "publicationForm": "snapshot",
+              "publicationCause": "diagnostic"
+            },
+            "duration": {
+              "count": 1,
+              "totalMs": 24,
+              "maxMs": 24,
+              "buckets": [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        ],
+        "publicationLifecycles": [
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4473",
+            "source": "acp-chat",
+            "kind": "transcript",
+            "publicationForm": "delta",
+            "publicationCause": "steady-state",
+            "deliverySequence": 4473,
+            "postedAtMs": 1786116035920,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035923
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035926
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035930
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035949
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116035949
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          },
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4474",
+            "source": "acp-chat",
+            "kind": "owner-control",
+            "publicationForm": "region",
+            "publicationCause": "steady-state",
+            "deliverySequence": 4474,
+            "postedAtMs": 1786116035963,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035967
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035970
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035978
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116035984
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116035984
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          },
+          {
+            "publicationId": "assistant-sidebar-workspace-msj174vv-go28ip-publication-4475",
+            "source": "acp-chat",
+            "kind": "transcript",
+            "publicationForm": "snapshot",
+            "publicationCause": "diagnostic",
+            "deliverySequence": 4475,
+            "postedAtMs": 1786116036039,
+            "acknowledgements": [
+              {
+                "stage": "shell-receive",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116036045
+              },
+              {
+                "stage": "shell-forward",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116036050
+              },
+              {
+                "stage": "child-apply",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116036056
+              },
+              {
+                "stage": "render-complete",
+                "outcome": "accepted",
+                "reason": null,
+                "failure": null,
+                "atMs": 1786116036063
+              }
+            ],
+            "terminal": {
+              "outcome": "accepted",
+              "reason": null,
+              "failure": null,
+              "atMs": 1786116036063
+            },
+            "post": 1,
+            "shellForward": 1,
+            "childApply": 1,
+            "renderAck": 1
+          }
+        ],
+        "metricSeriesDrops": 0,
+        "publicationLifecycleDrops": 0,
+        "measurement": "complete",
+        "publicationDiagnostics": []
+      }
+    }
+  ],
+  "warnings": []
+}

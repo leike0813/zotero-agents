@@ -10255,25 +10255,34 @@
       "effect": "read",
       "category": "read",
       "danger": "none",
-      "effects": [{
-        "kind": "none",
-        "stateChanged": false,
-        "description": "Reads a saved workflow provider profile candidate without authorizing submission."
-      }],
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads a saved workflow provider profile candidate without authorizing submission."
+        }
+      ],
       "approvalContract": {
         "kind": "none",
         "timing": "none",
         "scope": "No Zotero UI approval."
       },
       "handleTransitions": [],
-      "recovery": [{
-        "when": "The read fails or returns incomplete evidence.",
-        "stateCheck": "none",
-        "requiresHandles": [],
-        "action": "Inspect the structured error and retry only when retryable is true.",
-        "nextCommand": "surface describe"
-      }],
-      "operationalAliases": ["workflow defaults", "workflow", "defaults", "WORKFLOW"],
+      "recovery": [
+        {
+          "when": "The read fails or returns incomplete evidence.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the structured error and retry only when retryable is true.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "operationalAliases": [
+        "workflow defaults",
+        "workflow",
+        "defaults",
+        "WORKFLOW"
+      ],
       "hiddenFromIntentSearch": false,
       "pagination": "none",
       "payloadSchemaSource": "inline"
@@ -10316,25 +10325,36 @@
       "effect": "state-change",
       "category": "write",
       "danger": "review",
-      "effects": [{
-        "kind": "workflow-control",
-        "stateChanged": true,
-        "description": "Refreshes the persisted ACP runtime option catalog for one backend."
-      }],
+      "effects": [
+        {
+          "kind": "workflow-control",
+          "stateChanged": true,
+          "description": "Refreshes the persisted ACP runtime option catalog for one backend."
+        }
+      ],
       "approvalContract": {
         "kind": "none",
         "timing": "none",
         "scope": "No Zotero library write approval; the ACP backend probe may start a provider session."
       },
       "handleTransitions": [],
-      "recovery": [{
-        "when": "The probe fails or its result is uncertain.",
-        "stateCheck": "none",
-        "requiresHandles": [],
-        "action": "Inspect the structured refresh error and retry only when retryable is true.",
-        "nextCommand": "workflow profile describe"
-      }],
-      "operationalAliases": ["workflow profile refresh", "workflow", "profile", "refresh", "backend", "BACKEND"],
+      "recovery": [
+        {
+          "when": "The probe fails or its result is uncertain.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the structured refresh error and retry only when retryable is true.",
+          "nextCommand": "workflow profile describe"
+        }
+      ],
+      "operationalAliases": [
+        "workflow profile refresh",
+        "workflow",
+        "profile",
+        "refresh",
+        "backend",
+        "BACKEND"
+      ],
       "hiddenFromIntentSearch": false,
       "pagination": "none",
       "payloadSchemaSource": "inline"
@@ -11299,12 +11319,18 @@
               "type": "object",
               "properties": {
                 "slotId": { "type": "string", "minLength": 1 },
-                "fileId": { "type": "string", "pattern": "^file-[A-Za-z0-9-]+$" },
+                "fileId": {
+                  "type": "string",
+                  "pattern": "^file-[A-Za-z0-9-]+$"
+                },
                 "sourceKind": { "const": "workflow-artifact" },
                 "displayName": { "type": "string" },
                 "contentType": { "type": "string" },
                 "size": { "type": "integer", "minimum": 0 },
-                "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
                 "createdAt": { "type": "string" },
                 "expiresAt": { "type": "string" },
                 "downloadCommand": { "type": "string" }

@@ -197,7 +197,10 @@ function tableCell(value: unknown) {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ") || "—";
 }
 
-function renderExampleArgument(value: unknown, schema: Record<string, unknown>) {
+function renderExampleArgument(
+  value: unknown,
+  schema: Record<string, unknown>,
+) {
   const serialized =
     schema.type === "string" && typeof value === "string"
       ? value

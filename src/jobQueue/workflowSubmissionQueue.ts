@@ -843,9 +843,13 @@ export class WorkflowSubmissionQueue {
     try {
       controller.onTerminal?.(summary);
     } catch (error) {
-      this.log("terminal-callback-error", {
-        submissionId: controller.submissionId,
-      }, error);
+      this.log(
+        "terminal-callback-error",
+        {
+          submissionId: controller.submissionId,
+        },
+        error,
+      );
     }
   }
 

@@ -1002,7 +1002,9 @@ export async function describeHostBridgeWorkflow(
     declaredExecutionModes: manifestContract.executionModes,
     supportedInvocationModes: manifestContract.supportedInvocationModes,
     resourceRequirements: manifestContract.resourceRequirements,
-    nonInteractiveSupported: supportsHostBridgeNonInteractive(workflow.manifest),
+    nonInteractiveSupported: supportsHostBridgeNonInteractive(
+      workflow.manifest,
+    ),
     resultEvidence: manifestContract.resultEvidence,
     selection: {
       acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
@@ -2095,9 +2097,9 @@ export async function submitHostBridgeWorkflow(args: {
     scope: args.scope,
     timeoutMs: args.timeoutMs,
   });
-  const inputFileIds = Object.values(plan.resourceBindings?.inputs || {}).flatMap(
-    (binding) => binding.fileIds,
-  );
+  const inputFileIds = Object.values(
+    plan.resourceBindings?.inputs || {},
+  ).flatMap((binding) => binding.fileIds);
   const lease = inputFileIds.length
     ? await acquireHostBridgeUploadedFileLease(inputFileIds)
     : null;
