@@ -191,6 +191,89 @@ describe("literature portable bundle workflows", function () {
     });
   });
 
+  it("exports a remote literature bundle through the bound output resource", async function () {
+    const root = await mkTempDir("remote-literature-bundle-export");
+    const targetPath = joinPath(root, "literature-bundle.zip");
+    const item: any = {
+      id: 12,
+      libraryID: 1,
+      key: "REMOTE1",
+      isRegularItem: () => true,
+      getField: (field: string) =>
+        field === "title" ? "Remote Bundle Paper" : "",
+      getAttachments: () => [],
+      getNotes: () => [],
+    };
+    const archive = createWorkflowArchiveApi();
+    let pickerCalls = 0;
+    let publishedPath = "";
+    const host: any = {
+      items: {
+        get: () => item,
+        getByLibraryAndKey: () => item,
+        exportPortableJson: () => ({
+          itemType: "journalArticle",
+          title: "Remote Bundle Paper",
+        }),
+        exportText: async () => ({
+          ok: true,
+          content: "@article{remote, title={Remote Bundle Paper}}\n",
+          translator: {
+            translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+            label: "Better BibTeX",
+          },
+          fallbackUsed: false,
+        }),
+      },
+      file: {
+        async pickSaveFile() {
+          pickerCalls += 1;
+          throw new Error("picker must not open");
+        },
+        exists: async () => false,
+      },
+      library: { getItemAttachments: async () => [] },
+      archive,
+      resources: {
+        mode: "non-interactive",
+        getInput: () => null,
+        getInputs: () => [],
+        async allocateOutput() {
+          return { path: targetPath };
+        },
+        async publishOutput(args: { path: string }) {
+          publishedPath = args.path;
+          return {
+            slotId: "bundle",
+            fileId: "file-remote-literature-bundle",
+            sourceKind: "workflow-artifact",
+            displayName: "literature-bundle.zip",
+            contentType: "application/zip",
+            createdAt: "2026-08-07T00:00:00.000Z",
+            expiresAt: "2026-08-07T02:00:00.000Z",
+            downloadCommand:
+              "zotero-bridge file download file-remote-literature-bundle --output literature-bundle.zip",
+          };
+        },
+        listOutputs: () => [],
+      },
+    };
+
+    const result = await exportLiteratureBundle({
+      host,
+      runtime: { hostApi: host },
+      selectionContext: { items: { parents: [{ item: { id: 12 } }] } },
+    });
+
+    assert.equal(pickerCalls, 0);
+    assert.equal(publishedPath, targetPath);
+    assert.equal(result.resourceOutputs[0].fileId, "file-remote-literature-bundle");
+    await archive.withExtractedZip(targetPath, async (extracted: any) => {
+      assert.include(extracted.entries, "manifest.json");
+      assert.include(extracted.entries, "index.md");
+    });
+  });
+
   it("converts note attachment keys to portable refs and restores new keys", function () {
     const portable = makePortableNoteHtml(
       '<div><img data-attachment-key="OLDKEY" data-zs-payload-anchor="digest-markdown"></div>',
@@ -552,6 +635,94 @@ describe("literature portable bundle workflows", function () {
           entry.workflowId === "import-literature-bundle",
       ),
     );
+  });
+
+  it("imports a remote literature bundle through the bound input resource", async function () {
+    const manifest = {
+      kind: "zotero-agents-literature-bundle",
+      schemaVersion: 1,
+      items: [
+        {
+          id: "i1",
+          itemJson: {
+            itemType: "journalArticle",
+            title: "Remote Imported Bundle",
+          },
+          attachments: [],
+          notes: [],
+          relatedItemIds: [],
+        },
+      ],
+      warnings: [],
+      files: {},
+    };
+    const imported: any[] = [];
+    let pickerCalls = 0;
+    let openedPath = "";
+    const result = await applyLiteratureBundleImport({
+      runtime: {
+        hostApiVersion: 10,
+        hostApi: {
+          resources: {
+            mode: "non-interactive",
+            getInput: (slotId: string) =>
+              slotId === "bundle"
+                ? {
+                    fileId: "file-remote-literature-import",
+                    path: "/managed/uploads/remote-literature-bundle.zip",
+                    displayName: "remote-literature-bundle.zip",
+                    contentType: "application/zip",
+                  }
+                : null,
+            getInputs(slotId: string) {
+              const input = this.getInput(slotId);
+              return input ? [input] : [];
+            },
+            listOutputs: () => [],
+          },
+          file: {
+            async pickFile() {
+              pickerCalls += 1;
+              throw new Error("picker must not open");
+            },
+          },
+          archive: {
+            async withExtractedZip(path: string, callback: any) {
+              openedPath = path;
+              return callback({
+                entries: ["manifest.json"],
+                readText: async () => JSON.stringify(manifest),
+                readBytes: async () => new Uint8Array(),
+                resolvePath: (entryPath: string) => entryPath,
+                measureEntries: async () => ({ files: {} }),
+              });
+            },
+          },
+          context: {
+            getCurrentView: () => ({
+              libraryId: Zotero.Libraries.userLibraryID,
+            }),
+          },
+          items: {
+            async createFromJson(args: any) {
+              const item = {
+                id: 501,
+                key: "REMOTEIMPORT",
+                ...args.itemJson,
+              };
+              imported.push(item);
+              return item;
+            },
+            remove: async () => undefined,
+          },
+        },
+      },
+    });
+
+    assert.equal(pickerCalls, 0);
+    assert.equal(openedPath, "/managed/uploads/remote-literature-bundle.zip");
+    assert.equal(result.status, "completed");
+    assert.equal(imported[0].title, "Remote Imported Bundle");
   });
 
   it("imports Research Product metadata and source through the v2 adapter", async function () {

@@ -197,6 +197,14 @@ function tableCell(value: unknown) {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ") || "—";
 }
 
+function renderExampleArgument(value: unknown, schema: Record<string, unknown>) {
+  const serialized =
+    schema.type === "string" && typeof value === "string"
+      ? value
+      : JSON.stringify(value);
+  return `'${serialized.replaceAll("'", `'"'"'`)}'`;
+}
+
 function markdownTable(headers: string[], rows: string[][]) {
   return [
     `| ${headers.join(" | ")} |`,
@@ -600,7 +608,7 @@ function renderCommandCard(args: {
           `Governed ${example.kind} example for ${input.token}.`,
         "",
         "```console",
-        `zotero-bridge ${args.command.command} ${input.token} '${JSON.stringify(example.value)}'`,
+        `zotero-bridge ${args.command.command} ${input.token} ${renderExampleArgument(example.value, input.schema)}`,
         "```",
         "",
         ...(example.prerequisites.length

@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "edd608e70734949ed1ea67019943826a8c4c696b67b576a410735255e8dca6d4",
+  "commandCatalogChecksum": "55270c646221bc24eda5d5a35a0ac5ff9db0e34550504934eeb24ea57be37713",
   "commands": [
     {
       "approvalContract": {
@@ -31101,6 +31101,40 @@
           "conflictsWith": [],
           "defaultValues": [],
           "global": false,
+          "help": "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files",
+          "id": "input_resource",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": true,
+          "required": false,
+          "takesValue": true,
+          "token": "--input-resource",
+          "valueNames": [
+            "SLOT=FILE_ID"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Request bridge-download delivery for a workflow output resource slot",
+          "id": "output_resource",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": true,
+          "required": false,
+          "takesValue": true,
+          "token": "--output-resource",
+          "valueNames": [
+            "SLOT=bridge-download"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
           "help": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
           "id": "max_concurrency",
           "kind": "option",
@@ -31171,6 +31205,26 @@
         },
         {
           "kind": "option",
+          "property": "input-resource",
+          "required": false,
+          "takesValue": true,
+          "token": "--input-resource",
+          "valueNames": [
+            "SLOT=FILE_ID"
+          ]
+        },
+        {
+          "kind": "option",
+          "property": "output-resource",
+          "required": false,
+          "takesValue": true,
+          "token": "--output-resource",
+          "valueNames": [
+            "SLOT=bridge-download"
+          ]
+        },
+        {
+          "kind": "option",
           "property": "max-concurrency",
           "required": false,
           "takesValue": true,
@@ -31201,6 +31255,13 @@
           "required": false
         },
         {
+          "condition": "Consumed only when supplied through --input-resource after file upload.",
+          "direction": "consume",
+          "handle": "fileId",
+          "lifetime": "one-shot",
+          "required": false
+        },
+        {
           "condition": "Returned when direct admission starts workflow jobs.",
           "direction": "produce",
           "handle": "workflowRunId",
@@ -31213,10 +31274,57 @@
           "handle": "submissionId",
           "lifetime": "response",
           "required": false
+        },
+        {
+          "condition": "Returned in resourceOutputs when a bound output slot is published.",
+          "direction": "produce",
+          "handle": "fileId",
+          "lifetime": "short-lived",
+          "required": false
         }
       ],
       "hiddenFromIntentSearch": false,
       "inputSchemas": {
+        "input_resource": {
+          "examples": [
+            {
+              "description": "Bind one uploaded file to the source slot.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Run file upload first and replace file-example with the returned opaque fileId."
+              ],
+              "value": "source=file-example"
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "description": "One workflow resource slot and opaque handle returned by file upload. Repeat the flag to bind multiple files in order.",
+            "pattern": "^[A-Za-z0-9._-]+=file-[A-Za-z0-9-]+$",
+            "type": "string"
+          },
+          "schemaSource": "inline",
+          "token": "--input-resource"
+        },
+        "output_resource": {
+          "examples": [
+            {
+              "description": "Request bridge-download delivery for the result slot.",
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": "result=bridge-download"
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "description": "One workflow output slot whose completed artifact is returned as an opaque download descriptor.",
+            "pattern": "^[A-Za-z0-9._-]+=bridge-download$",
+            "type": "string"
+          },
+          "schemaSource": "inline",
+          "token": "--output-resource"
+        },
         "provider_profile": {
           "examples": [
             {
@@ -31372,6 +31480,13 @@
           }
         ],
         "properties": {
+          "input-resource": {
+            "description": "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "max-concurrency": {
             "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
             "type": "string"
@@ -31379,6 +31494,13 @@
           "none": {
             "description": "Submit a no-selection workflow",
             "type": "boolean"
+          },
+          "output-resource": {
+            "description": "Request bridge-download delivery for a workflow output resource slot",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "provider-profile": {
             "description": "Provider profile JSON object with backendId and providerOptions",
@@ -31415,6 +31537,12 @@
         "workflow-options",
         "provider_profile",
         "provider-profile",
+        "input_resource",
+        "input-resource",
+        "SLOT=FILE_ID",
+        "output_resource",
+        "output-resource",
+        "SLOT=bridge-download",
         "max_concurrency",
         "max-concurrency",
         "MAX_CONCURRENCY"
@@ -31426,8 +31554,16 @@
       "payloadSchema": {
         "additionalProperties": false,
         "properties": {
+          "input_resource": {
+            "description": "Repeatable workflow input resource binding in SLOT=FILE_ID form",
+            "type": "string"
+          },
           "max_concurrency": {
             "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+            "type": "string"
+          },
+          "output_resource": {
+            "description": "Workflow output resource delivery binding in SLOT=bridge-download form",
             "type": "string"
           },
           "provider_profile": {
@@ -31451,6 +31587,13 @@
         "type": "object"
       },
       "recovery": [
+        {
+          "action": "Treat the process-local transfer handle as invalid, upload the input again, and validate fresh bindings before any replacement submission.",
+          "nextCommand": "file upload",
+          "requiresHandles": [],
+          "stateCheck": "none",
+          "when": "An input resource fileId is unavailable after expiry or service restart."
+        },
         {
           "action": "Inspect the active native submission without inventing a workflow run id.",
           "nextCommand": "workflow submission get",
@@ -31518,6 +31661,59 @@
           "queuedUnits": {
             "type": "integer"
           },
+          "resourceOutputs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "downloadCommand": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "fileId": {
+                  "pattern": "^file-[A-Za-z0-9-]+$",
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^sha256:[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "size": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "slotId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sourceKind": {
+                  "const": "workflow-artifact"
+                }
+              },
+              "required": [
+                "slotId",
+                "fileId",
+                "sourceKind",
+                "displayName",
+                "contentType",
+                "createdAt",
+                "expiresAt",
+                "downloadCommand"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "runUrl": {
             "type": "string"
           },
@@ -31553,7 +31749,8 @@
           "workflowId",
           "workflowLabel",
           "admission",
-          "permission"
+          "permission",
+          "resourceOutputs"
         ],
         "type": "object"
       },
@@ -31648,6 +31845,40 @@
           "valueNames": [
             "JSON_OR_FILE"
           ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Validate an uploaded opaque file handle binding; repeat for multiple files",
+          "id": "input_resource",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": true,
+          "required": false,
+          "takesValue": true,
+          "token": "--input-resource",
+          "valueNames": [
+            "SLOT=FILE_ID"
+          ]
+        },
+        {
+          "aliases": [],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Validate bridge-download delivery for a workflow output resource slot",
+          "id": "output_resource",
+          "kind": "option",
+          "possibleValues": [],
+          "repeatable": true,
+          "required": false,
+          "takesValue": true,
+          "token": "--output-resource",
+          "valueNames": [
+            "SLOT=bridge-download"
+          ]
         }
       ],
       "argv": [
@@ -31694,6 +31925,26 @@
           "valueNames": [
             "JSON_OR_FILE"
           ]
+        },
+        {
+          "kind": "option",
+          "property": "input-resource",
+          "required": false,
+          "takesValue": true,
+          "token": "--input-resource",
+          "valueNames": [
+            "SLOT=FILE_ID"
+          ]
+        },
+        {
+          "kind": "option",
+          "property": "output-resource",
+          "required": false,
+          "takesValue": true,
+          "token": "--output-resource",
+          "valueNames": [
+            "SLOT=bridge-download"
+          ]
         }
       ],
       "binding": "overlay",
@@ -31711,6 +31962,46 @@
       "handleTransitions": [],
       "hiddenFromIntentSearch": false,
       "inputSchemas": {
+        "input_resource": {
+          "examples": [
+            {
+              "description": "Validate one uploaded file binding.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Run file upload first and replace file-example with the returned opaque fileId."
+              ],
+              "value": "source=file-example"
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "description": "One workflow resource slot and opaque handle returned by file upload. Repeat the flag to validate multiple files in order.",
+            "pattern": "^[A-Za-z0-9._-]+=file-[A-Za-z0-9-]+$",
+            "type": "string"
+          },
+          "schemaSource": "inline",
+          "token": "--input-resource"
+        },
+        "output_resource": {
+          "examples": [
+            {
+              "description": "Validate bridge-download delivery for the result slot.",
+              "kind": "shape-only",
+              "prerequisites": [],
+              "value": "result=bridge-download"
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "description": "One workflow output slot requesting bridge-download delivery.",
+            "pattern": "^[A-Za-z0-9._-]+=bridge-download$",
+            "type": "string"
+          },
+          "schemaSource": "inline",
+          "token": "--output-resource"
+        },
         "selection": {
           "examples": [
             {
@@ -31830,9 +32121,23 @@
           }
         ],
         "properties": {
+          "input-resource": {
+            "description": "Validate an uploaded opaque file handle binding; repeat for multiple files",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "none": {
             "description": "Validate a no-selection workflow",
             "type": "boolean"
+          },
+          "output-resource": {
+            "description": "Validate bridge-download delivery for a workflow output resource slot",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "selection": {
             "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
@@ -31862,7 +32167,13 @@
         "none",
         "NONE",
         "workflow_options",
-        "workflow-options"
+        "workflow-options",
+        "input_resource",
+        "input-resource",
+        "SLOT=FILE_ID",
+        "output_resource",
+        "output-resource",
+        "SLOT=bridge-download"
       ],
       "outputBoundary": {
         "strategy": "fixed"
@@ -31871,6 +32182,14 @@
       "payloadSchema": {
         "additionalProperties": false,
         "properties": {
+          "input_resource": {
+            "description": "Repeatable workflow input resource binding in SLOT=FILE_ID form",
+            "type": "string"
+          },
+          "output_resource": {
+            "description": "Workflow output resource delivery binding in SLOT=bridge-download form",
+            "type": "string"
+          },
           "selection": {
             "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
             "type": "string"

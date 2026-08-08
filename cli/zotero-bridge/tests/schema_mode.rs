@@ -41,6 +41,8 @@ fn schema_mode_accepts_leading_and_trailing_global_flag_without_required_values(
     assert!(trailing["data"]["inputs"]["selection"]["schema"].is_object());
     assert!(trailing["data"]["inputs"]["workflow_options"]["schema"].is_object());
     assert!(trailing["data"]["inputs"]["provider_profile"]["schema"].is_object());
+    assert!(trailing["data"]["inputs"]["input_resource"]["schema"].is_object());
+    assert!(trailing["data"]["inputs"]["output_resource"]["schema"].is_object());
 }
 
 #[test]

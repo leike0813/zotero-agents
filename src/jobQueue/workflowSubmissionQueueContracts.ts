@@ -189,6 +189,7 @@ export type WorkflowSubmissionQueueConfig<TUnit> = Readonly<{
   maxConcurrency?: number;
   presentation?: WorkflowSubmissionPresentationInput;
   initialOutcomes?: ReadonlyArray<WorkflowExecutionUnitOutcome>;
+  onTerminal?: (summary: WorkflowSubmissionSummary) => void;
   executeUnit: (
     unit: TUnit,
     context: WorkflowSubmissionQueueExecutionContext,

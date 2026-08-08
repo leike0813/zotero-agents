@@ -1,5 +1,8 @@
 import type { JobQueueManager } from "../../jobQueue/manager";
-import type { LoadedWorkflow } from "../../workflows/types";
+import type {
+  LoadedWorkflow,
+  WorkflowRuntimeContext,
+} from "../../workflows/types";
 import type {
   PreparedWorkflowInputUnit,
   WorkflowScopedSelectionContext,
@@ -40,6 +43,7 @@ export type PreparedWorkflowExecution = {
   }>;
   candidateSkipped: number;
   executionContext: WorkflowExecutionContext;
+  runtime?: Partial<WorkflowRuntimeContext>;
 };
 
 export type BuiltPreparedWorkflowUnit = {
@@ -55,6 +59,8 @@ export type BuiltPreparedWorkflowUnit = {
     }
   >;
   executionContext: WorkflowExecutionContext;
+  executionOptions: PreparedWorkflowExecution["executionOptions"];
+  runtime?: Partial<WorkflowRuntimeContext>;
 };
 
 export type BuildPreparedWorkflowUnitResult =
@@ -129,6 +135,8 @@ export type WorkflowRunState = {
   totalJobs: number;
   idlePromise: Promise<void>;
   terminalPromise: Promise<void>;
+  runtime?: Partial<WorkflowRuntimeContext>;
+  executionOptions?: PreparedWorkflowExecution["executionOptions"];
 };
 
 export type WorkflowJobOutcome = {

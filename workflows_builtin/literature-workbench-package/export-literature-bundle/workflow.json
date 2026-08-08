@@ -4,6 +4,18 @@
   "label": "Export Literature Bundle",
   "description": "Export literature from the current selection, a Zotero collection, or the current library into a portable Research Product.",
   "executionModes": ["auto"],
+  "supportedInvocationModes": ["interactive", "non-interactive"],
+  "resourceRequirements": [
+    {
+      "id": "bundle",
+      "direction": "output",
+      "kind": "archive",
+      "cardinality": "one",
+      "required": true,
+      "suggestedName": "literature-bundle.zip",
+      "accept": { "contentTypes": ["application/zip"] }
+    }
+  ],
   "version": "1.0.0",
   "provider": "pass-through",
   "trigger": {

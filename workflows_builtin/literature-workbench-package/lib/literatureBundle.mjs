@@ -736,17 +736,29 @@ export async function exportLiteratureBundle(args) {
     targetCollection: args.targetCollection,
     selectionContext: args.selectionContext,
   });
-  const selectedTargetPath = await args.host.file.pickSaveFile({
-    title: "Export Literature Bundle",
-    filters: [["Literature bundle", "*.zip"]],
-    suggestedName: "literature-bundle.zip",
-  });
+  const remoteOutput = args.host.resources?.mode === "non-interactive";
+  const allocatedOutput = remoteOutput
+    ? await args.host.resources.allocateOutput({
+        slotId: "bundle",
+        suggestedName: "literature-bundle.zip",
+        contentType: "application/zip",
+      })
+    : null;
+  const selectedTargetPath = remoteOutput
+    ? allocatedOutput?.path || null
+    : await args.host.file.pickSaveFile({
+        title: "Export Literature Bundle",
+        filters: [["Literature bundle", "*.zip"]],
+        suggestedName: "literature-bundle.zip",
+      });
   if (!selectedTargetPath) {
     return { kind: "literature_bundle_export", status: "canceled", itemCount: 0, attachmentCount: 0, noteCount: 0, warnings: [] };
   }
-  const targetPath = /\.zip$/i.test(selectedTargetPath)
+  const targetPath = remoteOutput
     ? selectedTargetPath
-    : `${selectedTargetPath}.zip`;
+    : /\.zip$/i.test(selectedTargetPath)
+      ? selectedTargetPath
+      : `${selectedTargetPath}.zip`;
   if (args.sourceOnly) {
     const built = await buildLiteratureBundleSourceOnlyExport({ host: args.host, parents });
     await args.host.archive.writeZipAtomic({
@@ -756,11 +768,20 @@ export async function exportLiteratureBundle(args) {
         ...built.entries,
       ],
     });
+    const output = remoteOutput
+      ? await args.host.resources.publishOutput({
+          slotId: "bundle",
+          path: targetPath,
+          displayName: "literature-bundle.zip",
+          contentType: "application/zip",
+        })
+      : null;
     return {
       kind: "literature_bundle_source_only_export",
       status: "completed",
       itemCount: built.manifest.items.length,
       warnings: built.warnings,
+      ...(output ? { resourceOutputs: [output] } : {}),
     };
   }
   const built = await buildResearchProduct({
@@ -775,12 +796,21 @@ export async function exportLiteratureBundle(args) {
       ...built.entries,
     ],
   });
+  const output = remoteOutput
+    ? await args.host.resources.publishOutput({
+        slotId: "bundle",
+        path: targetPath,
+        displayName: "literature-bundle.zip",
+        contentType: "application/zip",
+      })
+    : null;
   return {
     kind: "literature_research_product_export",
     status: "completed",
     schemaId: RESEARCH_PRODUCT_SCHEMA,
     itemCount: built.manifest.papers.length,
     warnings: built.manifest.warnings,
+    ...(output ? { resourceOutputs: [output] } : {}),
   };
 }
 
@@ -1057,10 +1087,12 @@ function throwLiteratureBundleImportFailure(host, stage, error) {
 }
 
 export async function importLiteratureBundle(args) {
-  const sourcePath = await args.host.file.pickFile({
-    title: "Import Literature Bundle",
-    filters: [["Literature bundle", "*.zip"]],
-  });
+  const sourcePath =
+    args.host.resources?.getInput("bundle")?.path ||
+    (await args.host.file.pickFile({
+      title: "Import Literature Bundle",
+      filters: [["Literature bundle", "*.zip"]],
+    }));
   if (!sourcePath) {
     return { kind: "literature_bundle_import", status: "canceled", importedItems: [], failedItems: [], warnings: [] };
   }

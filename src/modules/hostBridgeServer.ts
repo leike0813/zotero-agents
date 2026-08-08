@@ -808,6 +808,13 @@ function workflowValidationErrorCode(
     code === "provider_profile_option_invalid" ||
     code === "provider_profile_option_unavailable" ||
     code === "workflow_provider_incompatible" ||
+    code === "workflow_resource_missing" ||
+    code === "workflow_resource_ineligible" ||
+    code === "workflow_resource_mismatch" ||
+    code === "workflow_resource_output_invalid" ||
+    code === "invalid_workflow_resource_bindings" ||
+    code === "workflow_interaction_required" ||
+    code === "workflow_conflict_requires_policy" ||
     code === "missing_required_workflow_parameter"
     ? code
     : fallback;
@@ -816,13 +823,20 @@ function workflowValidationErrorCode(
 function workflowValidationErrorDetails(error: unknown) {
   const requiredFields = (error as { requiredFields?: unknown })
     ?.requiredFields;
-  return Array.isArray(requiredFields)
-    ? {
-        requiredFields: requiredFields
-          .map((entry) => String(entry || "").trim())
-          .filter(Boolean),
-      }
-    : undefined;
+  const details =
+    (error as { details?: Record<string, unknown> | undefined })?.details ||
+    {};
+  const normalized = {
+    ...details,
+    ...(Array.isArray(requiredFields)
+      ? {
+          requiredFields: requiredFields
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean),
+        }
+      : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function parsePermissionScopeHeader(request: HttpRequest) {
@@ -2600,6 +2614,7 @@ async function submitWorkflow(request: HttpRequest) {
             workflowRunId: result.workflowRunId,
             totalJobs: result.totalJobs,
             permission: result.permission,
+            resourceOutputs: result.resourceOutputs,
             runUrl: `/bridge/v2/workflows/runs/${encodeURIComponent(result.workflowRunId)}`,
             tasksUrl: `/bridge/v2/tasks?runId=${encodeURIComponent(result.workflowRunId)}`,
           }

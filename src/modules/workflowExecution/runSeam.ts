@@ -612,6 +612,7 @@ export function runWorkflowExecutionSeam(
                     finalStep: stepApply.finalStep,
                     phase: "sequence-step",
                   },
+                  runtime: args.prepared.runtime,
                 });
               }
             : undefined;
@@ -1061,5 +1062,7 @@ export function runWorkflowExecutionSeam(
       (args.prepared.preflight?.shortCircuitApplies.length || 0),
     idlePromise,
     terminalPromise,
+    runtime: args.prepared.runtime,
+    executionOptions: args.prepared.executionOptions,
   };
 }

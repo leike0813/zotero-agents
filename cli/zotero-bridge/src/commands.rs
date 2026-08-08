@@ -1537,9 +1537,85 @@ fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
     workflow_selection_from(args.selection.as_deref(), args.none, "submit")
 }
 
+fn workflow_resource_binding(raw: &str) -> Result<(&str, &str), CliError> {
+    let Some((slot, value)) = raw.split_once('=') else {
+        return Err(CliError::validation(
+            "invalid_workflow_resource_binding",
+            "Workflow resource bindings must use SLOT=VALUE",
+        ));
+    };
+    let slot = slot.trim();
+    let value = value.trim();
+    if slot.is_empty()
+        || slot.contains('/')
+        || slot.contains('\\')
+        || value.is_empty()
+        || value.contains('=')
+    {
+        return Err(CliError::validation(
+            "invalid_workflow_resource_binding",
+            "Workflow resource bindings require a stable slot id and one opaque value",
+        ));
+    }
+    Ok((slot, value))
+}
+
+fn is_opaque_file_id(value: &str) -> bool {
+    value
+        .strip_prefix("file-")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        })
+}
+
+fn workflow_resource_bindings(
+    input_resources: &[String],
+    output_resources: &[String],
+) -> Result<Option<Value>, CliError> {
+    if input_resources.is_empty() && output_resources.is_empty() {
+        return Ok(None);
+    }
+    let mut inputs = Map::new();
+    for raw in input_resources {
+        let (slot, file_id) = workflow_resource_binding(raw)?;
+        if !is_opaque_file_id(file_id) {
+            return Err(CliError::validation(
+                "invalid_workflow_resource_binding",
+                "Workflow input resources require opaque file-* handles from file upload",
+            ));
+        }
+        let entry = inputs
+            .entry(slot.to_string())
+            .or_insert_with(|| json!({ "fileIds": [] }));
+        entry["fileIds"]
+            .as_array_mut()
+            .expect("workflow resource fileIds is initialized as an array")
+            .push(Value::String(file_id.to_string()));
+    }
+    let mut outputs = Map::new();
+    for raw in output_resources {
+        let (slot, delivery) = workflow_resource_binding(raw)?;
+        if delivery != "bridge-download" || outputs.contains_key(slot) {
+            return Err(CliError::validation(
+                "invalid_workflow_resource_binding",
+                "Workflow output resources require one SLOT=bridge-download binding per slot",
+            ));
+        }
+        outputs.insert(slot.to_string(), json!({ "delivery": "bridge-download" }));
+    }
+    Ok(Some(json!({
+        "schema": "zotero-bridge.workflow-resources.v1",
+        "inputs": inputs,
+        "outputs": outputs,
+    })))
+}
+
 fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "validate")?;
-    Ok(json!({
+    let mut input = json!({
         "workflowId": workflow,
         "selection": workflow_selection_from(
             args.selection.as_deref(),
@@ -1547,7 +1623,14 @@ fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError
             "validate",
         )?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
-    }))
+    });
+    if let Some(resource_bindings) = workflow_resource_bindings(
+        &args.input_resource,
+        &args.output_resource,
+    )? {
+        input["resourceBindings"] = resource_bindings;
+    }
+    Ok(input)
 }
 
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
@@ -1570,6 +1653,12 @@ fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
                 "maxConcurrency": max_concurrency
             }
         });
+    }
+    if let Some(resource_bindings) = workflow_resource_bindings(
+        &args.input_resource,
+        &args.output_resource,
+    )? {
+        input["resourceBindings"] = resource_bindings;
     }
     Ok(input)
 }
@@ -3070,6 +3159,11 @@ mod tests {
             provider_profile: Some(
                 "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\",\"autoApproveAcpPermissions\":true}}".to_string(),
             ),
+            input_resource: vec![
+                "source=file-upload-1".to_string(),
+                "source=file-upload-2".to_string(),
+            ],
+            output_resource: vec!["result=bridge-download".to_string()],
             max_concurrency: Some(3),
         })
         .unwrap();
@@ -3088,6 +3182,17 @@ mod tests {
                 },
                 "workflowOptions": {
                     "language": "zh-CN"
+                },
+                "resourceBindings": {
+                    "schema": "zotero-bridge.workflow-resources.v1",
+                    "inputs": {
+                        "source": {
+                            "fileIds": ["file-upload-1", "file-upload-2"]
+                        }
+                    },
+                    "outputs": {
+                        "result": {"delivery": "bridge-download"}
+                    }
                 },
                 "providerProfile": {
                     "schema": "zotero-bridge.provider-profile.v1",
@@ -3115,6 +3220,8 @@ mod tests {
             none: true,
             workflow_options: None,
             provider_profile: None,
+            input_resource: vec![],
+            output_resource: vec![],
             max_concurrency: None,
         })
         .unwrap();
@@ -3126,6 +3233,30 @@ mod tests {
                     "kind": "none"
                 },
                 "workflowOptions": {}
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_validate_resource_bindings() {
+        contract::set_current_command("workflow validate");
+        let input = workflow_validate_input(WorkflowValidateArgs {
+            workflow: "import-notes".to_string(),
+            selection: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            none: false,
+            workflow_options: Some("{\"conflictPolicy\":\"error\"}".to_string()),
+            input_resource: vec!["digest=file-upload-1".to_string()],
+            output_resource: vec![],
+        })
+        .unwrap();
+        assert_eq!(
+            input["resourceBindings"],
+            json!({
+                "schema": "zotero-bridge.workflow-resources.v1",
+                "inputs": {
+                    "digest": {"fileIds": ["file-upload-1"]}
+                },
+                "outputs": {}
             })
         );
     }

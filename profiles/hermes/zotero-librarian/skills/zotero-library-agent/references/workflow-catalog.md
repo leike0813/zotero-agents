@@ -14,6 +14,8 @@ Before execution, use live commands in this order:
 6. Read the returned admission branch. For direct admission, preserve each returned `workflowRunId`; for host-queue admission, preserve `submissionId`, inspect `workflow submission get`, and correlate admitted tasks with `run list --submission`.
 7. Use real run handles to inspect admitted execution, then verify every requested Product, artifact, or changed Zotero object independently. Use `workflow queue cancel` only for a still-pending `queueId`; it is not run cancellation.
 
+When the live description declares external resources, add a resource preparation pass between description and validation. Confirm non-interactive invocation support and every slot's direction, cardinality, requiredness, and acceptance limits; upload agent-accessible inputs and retain their opaque `fileId` values; request only declared bridge-download outputs. Pass the same bindings to validation and submission without substituting paths, then download and verify every returned resource output before treating that deliverable as complete.
+
 Consult the bundled `zotero-bridge-cli` Skill's `workflow` and `run` command references for exact argv and structured recovery.
 
 The native Zotero queue is the only owner of pending workflow units and bounded admission. Do not persist a second plan-entry queue, reserve units locally, replay uncertain entries, or infer that the initial absence of a run handle means submission failed. A queued submission is one accepted operation identified by `submissionId`; its units may be pending, admitted, terminal, failed, or canceled independently.
@@ -37,6 +39,7 @@ Then compare:
 5. **Provider:** Is a backend profile required, compatible, configured, and separately validated?
 6. **Evidence:** Does the result contract name the Product, artifact, live change, or request bundle needed for completion?
 7. **Authority:** Does submission, mutation, maintenance, or apply-back introduce a current approval boundary?
+8. **External resources:** Does the workflow support non-interactive invocation, and can every required input/output slot be satisfied with uploaded opaque handles or bridge-download delivery?
 
 If two workflows remain plausible, explain the difference in their declared outcomes or result evidence and ask only when that choice matters. Do not choose by label similarity, emoji, package position, or a cached success from another source.
 
@@ -65,6 +68,8 @@ Find library literature matching a collection meaning and add reviewed matches t
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/collection-collector/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `["collection","collectionScope"]`.
 - Workflow options:
@@ -72,22 +77,28 @@ Find library literature matching a collection meaning and add reviewed matches t
   - `collectionScope`: `{"type":"string","required":true,"title":"Collection Scope","description":"Meaning, research topic, or literature boundary represented by the collection."}`.
 - Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `collection-collector`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `export-literature-bundle`
 
 **Export Literature Bundle**
 
-Export selected literature and its generated analysis artifacts into a portable bundle.
+Export literature from the current selection, a Zotero collection, or the current library into a portable Research Product.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-literature-bundle/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"min":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
+  - `mode`: `{"type":"string","title":"Export mode","description":"Choose the current selection, a collection, or the current library.","enum":["selection","collection","library"],"default":"selection"}`.
+  - `targetCollection`: `{"type":"string","title":"Target collection","description":"Required in collection mode; use libraryId:collectionKey.","required":false,"allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
   - `sourceOnly`: `{"type":"boolean","title":"仅导出原文","description":"导出扁平结构的原文包，不包含笔记和分析工件，无法被「导入文献包」工作流导入。","default":false}`.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `export-literature-bundle`, validated `selection` members grouped by `all`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `export-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `export-research-bundle`
 
@@ -98,6 +109,8 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-research-bundle/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -109,6 +122,7 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
   - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/export-research-bundle-artifacts.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `export-research-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `export-notes`
 
@@ -119,11 +133,14 @@ Export supported generated Zotero notes as editable external files.
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-notes/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"notes","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"notes-export.zip","accept":{"contentTypes":["application/zip"]}}]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"generated-note"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"generated-note-candidates"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `export-notes`, validated `generated-note` members grouped by `all`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `import-literature-bundle`
 
@@ -134,11 +151,14 @@ Import a literature bundle and reconcile its supported Zotero literature artifac
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/import-literature-bundle/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}}]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `import-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `import-notes`
 
@@ -149,11 +169,15 @@ Import supported external analysis files and upsert their generated Zotero notes
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/import-notes/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"digest","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".md"]}},{"id":"references","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"citation-analysis","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"custom-notes","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"extensions":[".md"]}}]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"exact":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - Required workflow options: `[]`.
-- Workflow options: none declared.
+- Workflow options:
+  - `conflictPolicy`: `{"type":"string","enum":["error","overwrite","skip"],"default":"error"}`.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `import-notes`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-explainer`
 
@@ -164,12 +188,15 @@ Run a stateful question-answering and study-note session for one literature sour
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-explainer/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-explainer`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-deep-reading`
 
@@ -180,6 +207,8 @@ Produce and apply a detailed, evidence-grounded deep-reading analysis for one li
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-deep-reading/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"availability","target":"deep-reading-html"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -187,6 +216,7 @@ Produce and apply a detailed, evidence-grounded deep-reading analysis for one li
   - `mode`: `{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"literature-deep-reading.result.json","artifacts":["result/deep-reading.html","result/deep-reading-manifest.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-deep-reading`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-analysis`
 
@@ -197,6 +227,8 @@ Analyze one literature source and apply its digest, structured references, citat
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-kinds-absent","phase":"availability","noteKinds":["digest","references","citation-analysis"]}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -205,6 +237,7 @@ Analyze one literature source and apply its digest, structured references, citat
   - `auto_tag_infer_tag`: `{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-analysis`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-translator`
 
@@ -215,6 +248,8 @@ Translate one literature source and apply the translated artifact while preservi
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-translator/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"execute","target":"translator-markdown","parameter":"target_language"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -222,6 +257,7 @@ Translate one literature source and apply the translated artifact while preservi
   - `mode`: `{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-translator`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-metadata-curator`
 
@@ -232,12 +268,15 @@ Audit and repair bibliographic metadata for selected literature using identifier
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-metadata-curator/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `skip_identifier_fast_path`: `{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`.
 - Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-metadata-curator`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-search-ingest`
 
@@ -248,6 +287,8 @@ Search scholarly sources, review candidates, research approved papers in agent-c
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -258,6 +299,7 @@ Search scholarly sources, review candidates, research approved papers in agent-c
   - `targetCollection`: `{"type":"string","title":"Target Collection","description":"Optional Zotero collection for created or existing items.","default":"","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
 - Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-search-ingest`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `tag-bootstrapper`
 
@@ -268,12 +310,15 @@ Bootstrap the controlled tag vocabulary from current library evidence and review
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-bootstrapper/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `tag-bootstrapper`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `tag-auditor`
 
@@ -284,11 +329,14 @@ Audit selected literature tags against the controlled vocabulary without silentl
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-auditor/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `tag-auditor`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `tag-regulator`
 
@@ -299,6 +347,8 @@ Normalize and infer selected literature tags against the controlled vocabulary.
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-regulator/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -306,6 +356,7 @@ Normalize and infer selected literature tags against the controlled vocabulary.
   - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `tag-regulator`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `mineru`
 
@@ -316,11 +367,14 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 - Package: `mineru`; manifest: `workflows_builtin/mineru/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"generic-http.steps.v1","acceptedProviderTypes":["generic-http"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `mineru`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `create-topic-synthesis`
 
@@ -331,6 +385,8 @@ Create a new topic synthesis from a natural-language seed using the current libr
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -338,6 +394,7 @@ Create a new topic synthesis from a natural-language seed using the current libr
   - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `create-topic-synthesis`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `update-topic-synthesis`
 
@@ -348,12 +405,15 @@ Update an existing topic synthesis from its current resolver scope, evidence, an
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/update-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `topicId`: `{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `update-topic-synthesis`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `manuscript-literature-framing`
 
@@ -364,6 +424,8 @@ Generate manuscript introduction and related-work framing from selected synthesi
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -374,3 +436,4 @@ Generate manuscript introduction and related-work framing from selected synthesi
   - `stylePreference`: `{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/manuscript-literature-framing-artifacts.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `manuscript-literature-framing`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.

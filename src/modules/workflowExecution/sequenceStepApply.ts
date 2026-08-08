@@ -1,4 +1,7 @@
-import type { LoadedWorkflow } from "../../workflows/types";
+import type {
+  LoadedWorkflow,
+  WorkflowRuntimeContext,
+} from "../../workflows/types";
 import { executeApplyResult } from "../../workflows/runtime";
 import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import type { ProviderExecutionResult } from "../../providers/contracts";
@@ -51,6 +54,7 @@ export async function executeSequenceStepApply(args: {
     finalStep: boolean;
     phase: "sequence-step";
   };
+  runtime?: Partial<WorkflowRuntimeContext>;
 }) {
   const requestId = normalizeString(args.runResult.requestId);
   const backendType = normalizeString(args.runResult.backendType);
@@ -74,6 +78,7 @@ export async function executeSequenceStepApply(args: {
       request: args.request,
       runResult: args.runResult,
       sequenceStep: args.sequenceStep,
+      runtime: args.runtime,
     });
     await collectSkillRunFeedbackSidecar({
       workflow: args.workflow,

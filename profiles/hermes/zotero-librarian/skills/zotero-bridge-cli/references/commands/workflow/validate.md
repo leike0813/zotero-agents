@@ -5,7 +5,7 @@ Validate workflow input without starting execution
 ## Usage
 
 ```console
-zotero-bridge workflow validate [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--selection <JSON_OR_FILE>] [--none] [--workflow-options <JSON_OR_FILE>]
+zotero-bridge workflow validate [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--selection <JSON_OR_FILE>] [--none] [--workflow-options <JSON_OR_FILE>] [--input-resource <SLOT=FILE_ID>] [--output-resource <SLOT=bridge-download>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -27,6 +27,8 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | --selection | selection | option | no | Required unless --none is supplied. | JSON_OR_FILE | no | — | none | Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin |
 | --none | none | option | no | — | NONE; values: true, false | no | — | selection | Validate a no-selection workflow |
 | --workflow-options | workflow_options | option | no | — | JSON_OR_FILE | no | — | — | Workflow options JSON object, file path, @file, or '-' for stdin |
+| --input-resource | input_resource | option | no | — | SLOT=FILE_ID | yes | — | — | Validate an uploaded opaque file handle binding; repeat for multiple files |
+| --output-resource | output_resource | option | no | — | SLOT=bridge-download | yes | — | — | Validate bridge-download delivery for a workflow output resource slot |
 
 ## Invocation schema
 
@@ -58,9 +60,23 @@ The global options may appear before or after the leaf command. Use `--schema` t
     }
   ],
   "properties": {
+    "input-resource": {
+      "description": "Validate an uploaded opaque file handle binding; repeat for multiple files",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "none": {
       "description": "Validate a no-selection workflow",
       "type": "boolean"
+    },
+    "output-resource": {
+      "description": "Validate bridge-download delivery for a workflow output resource slot",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "selection": {
       "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
@@ -83,6 +99,30 @@ The global options may appear before or after the leaf command. Use `--schema` t
 ```
 
 ## Structured input schemas
+
+### `--input-resource` (input_resource)
+
+Required: `false`.
+
+```json
+{
+  "description": "One workflow resource slot and opaque handle returned by file upload. Repeat the flag to validate multiple files in order.",
+  "pattern": "^[A-Za-z0-9._-]+=file-[A-Za-z0-9-]+$",
+  "type": "string"
+}
+```
+
+### `--output-resource` (output_resource)
+
+Required: `false`.
+
+```json
+{
+  "description": "One workflow output slot requesting bridge-download delivery.",
+  "pattern": "^[A-Za-z0-9._-]+=bridge-download$",
+  "type": "string"
+}
+```
 
 ### `--selection` (selection)
 
@@ -159,6 +199,14 @@ Required: `false`.
 {
   "additionalProperties": false,
   "properties": {
+    "input_resource": {
+      "description": "Repeatable workflow input resource binding in SLOT=FILE_ID form",
+      "type": "string"
+    },
+    "output_resource": {
+      "description": "Workflow output resource delivery binding in SLOT=bridge-download form",
+      "type": "string"
+    },
     "selection": {
       "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
       "type": "string"
@@ -202,6 +250,26 @@ This command has no separate field-mapping program. Its binding mode is executab
 ```
 
 ## Examples
+
+### input_resource: shape-only
+
+Validate one uploaded file binding.
+
+```console
+zotero-bridge workflow validate --input-resource 'source=file-example'
+```
+
+Prerequisites:
+
+- Run file upload first and replace file-example with the returned opaque fileId.
+
+### output_resource: shape-only
+
+Validate bridge-download delivery for the result slot.
+
+```console
+zotero-bridge workflow validate --output-resource 'result=bridge-download'
+```
 
 ### selection: shape-only
 
@@ -315,6 +383,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "JSON_OR_FILE"
       ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Validate an uploaded opaque file handle binding; repeat for multiple files",
+      "id": "input_resource",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": false,
+      "takesValue": true,
+      "token": "--input-resource",
+      "valueNames": [
+        "SLOT=FILE_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Validate bridge-download delivery for a workflow output resource slot",
+      "id": "output_resource",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": false,
+      "takesValue": true,
+      "token": "--output-resource",
+      "valueNames": [
+        "SLOT=bridge-download"
+      ]
     }
   ],
   "argv": [
@@ -361,6 +463,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "JSON_OR_FILE"
       ]
+    },
+    {
+      "kind": "option",
+      "property": "input-resource",
+      "required": false,
+      "takesValue": true,
+      "token": "--input-resource",
+      "valueNames": [
+        "SLOT=FILE_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "output-resource",
+      "required": false,
+      "takesValue": true,
+      "token": "--output-resource",
+      "valueNames": [
+        "SLOT=bridge-download"
+      ]
     }
   ],
   "binding": "overlay",
@@ -378,6 +500,46 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "handleTransitions": [],
   "hiddenFromIntentSearch": false,
   "inputSchemas": {
+    "input_resource": {
+      "examples": [
+        {
+          "description": "Validate one uploaded file binding.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Run file upload first and replace file-example with the returned opaque fileId."
+          ],
+          "value": "source=file-example"
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "description": "One workflow resource slot and opaque handle returned by file upload. Repeat the flag to validate multiple files in order.",
+        "pattern": "^[A-Za-z0-9._-]+=file-[A-Za-z0-9-]+$",
+        "type": "string"
+      },
+      "schemaSource": "inline",
+      "token": "--input-resource"
+    },
+    "output_resource": {
+      "examples": [
+        {
+          "description": "Validate bridge-download delivery for the result slot.",
+          "kind": "shape-only",
+          "prerequisites": [],
+          "value": "result=bridge-download"
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "description": "One workflow output slot requesting bridge-download delivery.",
+        "pattern": "^[A-Za-z0-9._-]+=bridge-download$",
+        "type": "string"
+      },
+      "schemaSource": "inline",
+      "token": "--output-resource"
+    },
     "selection": {
       "examples": [
         {
@@ -497,9 +659,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
       }
     ],
     "properties": {
+      "input-resource": {
+        "description": "Validate an uploaded opaque file handle binding; repeat for multiple files",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
       "none": {
         "description": "Validate a no-selection workflow",
         "type": "boolean"
+      },
+      "output-resource": {
+        "description": "Validate bridge-download delivery for a workflow output resource slot",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "selection": {
         "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
@@ -529,7 +705,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "none",
     "NONE",
     "workflow_options",
-    "workflow-options"
+    "workflow-options",
+    "input_resource",
+    "input-resource",
+    "SLOT=FILE_ID",
+    "output_resource",
+    "output-resource",
+    "SLOT=bridge-download"
   ],
   "outputBoundary": {
     "strategy": "fixed"
@@ -538,6 +720,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "payloadSchema": {
     "additionalProperties": false,
     "properties": {
+      "input_resource": {
+        "description": "Repeatable workflow input resource binding in SLOT=FILE_ID form",
+        "type": "string"
+      },
+      "output_resource": {
+        "description": "Workflow output resource delivery binding in SLOT=bridge-download form",
+        "type": "string"
+      },
       "selection": {
         "description": "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin",
         "type": "string"
@@ -606,7 +796,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - Category: `read`; danger: `none`.
 - Structured binding mode: `overlay`.
 - Intent visibility: `visible`.
-- Operational aliases: `workflow validate`, `workflow`, `validate`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`.
+- Operational aliases: `workflow validate`, `workflow`, `validate`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`, `input_resource`, `input-resource`, `SLOT=FILE_ID`, `output_resource`, `output-resource`, `SLOT=bridge-download`.
 
 ### Effects
 

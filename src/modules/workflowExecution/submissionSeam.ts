@@ -138,6 +138,7 @@ export async function submitPreparedWorkflowUnits(
     workflowLabel: string;
     skippedByGuard: number;
     messageFormatter: WorkflowMessageFormatter;
+    onTerminal?: (summary: WorkflowSubmissionSummary) => void;
   },
   deps: Partial<SubmissionSeamDeps> = {},
 ): Promise<PreparedWorkflowSubmission> {
@@ -232,6 +233,7 @@ export async function submitPreparedWorkflowUnits(
               model: String(providerOptions.model || "").trim(),
             },
       initialOutcomes,
+      onTerminal: args.onTerminal,
       executeUnit,
     });
     return Object.freeze({

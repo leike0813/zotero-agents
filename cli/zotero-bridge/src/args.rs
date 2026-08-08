@@ -1350,6 +1350,20 @@ pub struct WorkflowSubmitArgs {
     pub provider_profile: Option<String>,
 
     #[arg(
+        long = "input-resource",
+        value_name = "SLOT=FILE_ID",
+        help = "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files"
+    )]
+    pub input_resource: Vec<String>,
+
+    #[arg(
+        long = "output-resource",
+        value_name = "SLOT=bridge-download",
+        help = "Request bridge-download delivery for a workflow output resource slot"
+    )]
+    pub output_resource: Vec<String>,
+
+    #[arg(
         long,
         help = "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited"
     )]
@@ -1472,6 +1486,20 @@ pub struct WorkflowValidateArgs {
         help = "Workflow options JSON object, file path, @file, or '-' for stdin"
     )]
     pub workflow_options: Option<String>,
+
+    #[arg(
+        long = "input-resource",
+        value_name = "SLOT=FILE_ID",
+        help = "Validate an uploaded opaque file handle binding; repeat for multiple files"
+    )]
+    pub input_resource: Vec<String>,
+
+    #[arg(
+        long = "output-resource",
+        value_name = "SLOT=bridge-download",
+        help = "Validate bridge-download delivery for a workflow output resource slot"
+    )]
+    pub output_resource: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -3164,6 +3192,12 @@ mod tests {
             "literature-analysis",
             "--selection",
             "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--input-resource",
+            "source=file-upload-1",
+            "--input-resource",
+            "source=file-upload-2",
+            "--output-resource",
+            "result=bridge-download",
             "--max-concurrency",
             "2",
         ]);
@@ -3177,6 +3211,13 @@ mod tests {
                         Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
                     );
                     assert!(!input.none);
+                    assert_eq!(input.input_resource, vec![
+                        "source=file-upload-1".to_string(),
+                        "source=file-upload-2".to_string(),
+                    ]);
+                    assert_eq!(input.output_resource, vec![
+                        "result=bridge-download".to_string(),
+                    ]);
                     assert_eq!(input.max_concurrency, Some(2));
                 }
                 _ => panic!("expected workflow submit"),
@@ -3286,6 +3327,8 @@ mod tests {
             "--none",
             "--workflow-options",
             "{\"language\":\"zh-CN\"}",
+            "--input-resource",
+            "notes=file-notes-1",
         ]);
         match cli.command {
             Command::Workflow(args) => match args.command {
@@ -3296,6 +3339,7 @@ mod tests {
                         input.workflow_options.as_deref(),
                         Some("{\"language\":\"zh-CN\"}")
                     );
+                    assert_eq!(input.input_resource, vec!["notes=file-notes-1"]);
                 }
                 _ => panic!("expected workflow validate"),
             },

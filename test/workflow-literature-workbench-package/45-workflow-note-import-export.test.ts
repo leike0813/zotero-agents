@@ -1030,6 +1030,73 @@ describe("workflow: literature-workbench import/export notes", function () {
     );
   });
 
+  itNodeOnly("publishes remote note exports as one downloadable archive", async function () {
+    const workflow = await getWorkflow("export-notes");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Remote Export Parent" },
+    });
+    await handlers.parent.addNote(parent, {
+      content: buildDigestNoteContent("# Remote Digest"),
+    });
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([parent]),
+    })) as Array<Record<string, unknown>>;
+    const hostModule = await import("../../src/workflows/hostApi");
+    const baseHostApi = hostModule.createWorkflowHostApi();
+    const exportRoot = await mkTempDir("remote-notes-export");
+    const outputPath = joinPath(exportRoot, "notes-export.zip");
+    let publishedPath = "";
+
+    const result = (await executeApplyResult({
+      workflow,
+      parent,
+      request: requests[0],
+      bundleReader: { readText: async () => "" },
+      runtime: {
+        invocationMode: "non-interactive",
+        hostApi: {
+          ...baseHostApi,
+          resources: {
+            mode: "non-interactive",
+            getInput: () => null,
+            getInputs: () => [],
+            async allocateOutput() {
+              return { path: outputPath };
+            },
+            async publishOutput(args: { path: string }) {
+              publishedPath = args.path;
+              return {
+                slotId: "notes",
+                fileId: "file-notes-export",
+                sourceKind: "workflow-artifact",
+                displayName: "notes-export.zip",
+                contentType: "application/zip",
+                createdAt: "2026-08-07T00:00:00.000Z",
+                expiresAt: "2026-08-07T02:00:00.000Z",
+                downloadCommand:
+                  "zotero-bridge file download file-notes-export --output notes-export.zip",
+              };
+            },
+            listOutputs: () => [],
+          },
+        } as any,
+        hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+      },
+    })) as {
+      exportedParents: number;
+      exportedFiles: number;
+      resourceOutputs: Array<{ fileId: string }>;
+    };
+
+    assert.equal(result.exportedParents, 1);
+    assert.equal(result.exportedFiles, 1);
+    assert.equal(result.resourceOutputs[0].fileId, "file-notes-export");
+    assert.equal(publishedPath, outputPath);
+    assert.isAbove((await readBytes(outputPath)).byteLength, 0);
+  });
+
   it("exports digest representative image as markdown marker and sidecar image", async function () {
     const workflow = await getWorkflow("export-notes");
     const parent = await handlers.item.create({
@@ -1340,6 +1407,113 @@ describe("workflow: literature-workbench import/export notes", function () {
     }
     assert.isOk(thrown, "note selection should be rejected");
   });
+
+  itNodeOnly(
+    "applies structured conflict policies for non-interactive note imports without opening an editor",
+    async function () {
+      const workflow = await getWorkflow("import-notes");
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const importRoot = await mkTempDir("literature-workbench-resource-import");
+      const digestPath = joinPath(importRoot, "digest.md");
+      await writeUtf8(digestPath, "# Incoming Digest\n\nRemote body");
+
+      for (const testCase of [
+        { policy: undefined, outcome: "error" },
+        { policy: "skip", outcome: "skip" },
+        { policy: "overwrite", outcome: "overwrite" },
+      ]) {
+        const parent = await handlers.item.create({
+          itemType: "journalArticle",
+          fields: { title: `Non-interactive ${testCase.outcome}` },
+        });
+        const existingDigest = await handlers.parent.addNote(parent, {
+          content: buildDigestNoteContent("# Existing Digest"),
+        });
+        const existingDigestContent = existingDigest.getNote();
+        let editorCalls = 0;
+        let thrown: unknown;
+        let result: unknown;
+        try {
+          result = await executeApplyResult({
+            workflow,
+            parent,
+            bundleReader: { readText: async () => "" },
+            executionOptions: testCase.policy
+              ? { workflowParams: { conflictPolicy: testCase.policy } }
+              : undefined,
+            runtime: {
+              invocationMode: "non-interactive",
+              hostApi: {
+                ...baseHostApi,
+                editor: {
+                  ...baseHostApi.editor,
+                  async openSession() {
+                    editorCalls += 1;
+                    throw new Error("editor must not open");
+                  },
+                },
+                resources: {
+                  mode: "non-interactive",
+                  getInput(slotId: string) {
+                    return slotId === "digest"
+                      ? {
+                          fileId: "file-digest",
+                          path: digestPath,
+                          displayName: "digest.md",
+                          contentType: "text/markdown",
+                        }
+                      : null;
+                  },
+                  getInputs(slotId: string) {
+                    const input = this.getInput(slotId);
+                    return input ? [input] : [];
+                  },
+                  async allocateOutput() {
+                    throw new Error("no output expected");
+                  },
+                  async publishOutput() {
+                    throw new Error("no output expected");
+                  },
+                  listOutputs() {
+                    return [];
+                  },
+                },
+              } as any,
+              hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+            },
+          });
+        } catch (error) {
+          thrown = error;
+        }
+
+        assert.equal(editorCalls, 0);
+        if (testCase.outcome === "error") {
+          assert.equal(
+            (thrown as { code?: string })?.code,
+            "workflow_conflict_requires_policy",
+          );
+          assert.equal(existingDigest.getNote(), existingDigestContent);
+          continue;
+        }
+        assert.isUndefined(thrown);
+        if (testCase.outcome === "skip") {
+          assert.deepEqual(result, { imported: 0, skipped: 1 });
+          assert.equal(existingDigest.getNote(), existingDigestContent);
+          continue;
+        }
+        assert.equal((result as { imported?: number })?.imported, 1);
+        const digest = parent
+          .getNotes()
+          .map((id) => Zotero.Items.get(id)!)
+          .find((entry) => hasGeneratedHeading(entry, "Digest"));
+        assert.equal(
+          (await parseStoredPayload(digest!, "digest-markdown")).content,
+          "# Incoming Digest\n\nRemote body",
+        );
+      }
+    },
+  );
 
   describeImportEditorSuite("import-notes editor-driven flows", function () {
     it("imports selected digest/references/citation files and upserts generated notes", async function () {

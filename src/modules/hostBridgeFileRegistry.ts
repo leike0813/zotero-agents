@@ -46,6 +46,11 @@ type HostBridgeFileHandle = HostBridgeFileDescriptor & {
   localPath: string;
 };
 
+type HostBridgeUploadedFileLease = {
+  leaseId: string;
+  fileIds: string[];
+};
+
 export type HostBridgeFileDownloadManifest = {
   supported: true;
   endpoint: "GET /bridge/v2/files/{fileId}";
@@ -85,6 +90,7 @@ export class HostBridgeFileRegistryError extends Error {
     | "invalid_file_id"
     | "file_not_found"
     | "file_handle_expired"
+    | "file_handle_leased"
     | "file_unavailable";
 
   readonly details?: Record<string, unknown>;
@@ -102,6 +108,8 @@ export class HostBridgeFileRegistryError extends Error {
 }
 
 const handles = new Map<string, HostBridgeFileHandle>();
+const uploadedLeases = new Map<string, HostBridgeUploadedFileLease>();
+const leaseByFileId = new Map<string, string>();
 let sequence = 0;
 
 function nowIso() {
@@ -164,7 +172,7 @@ function isExpired(handle: HostBridgeFileHandle, now = Date.now()) {
 function cleanupExpiredHandles() {
   const now = Date.now();
   for (const [fileId, handle] of handles.entries()) {
-    if (isExpired(handle, now)) {
+    if (isExpired(handle, now) && !leaseByFileId.has(fileId)) {
       handles.delete(fileId);
     }
   }
@@ -338,7 +346,7 @@ export function getHostBridgeFileDescriptor(
       { fileId },
     );
   }
-  if (isExpired(handle)) {
+  if (isExpired(handle) && !leaseByFileId.has(fileId)) {
     handles.delete(fileId);
     throw new HostBridgeFileRegistryError(
       "file_handle_expired",
@@ -361,7 +369,7 @@ export async function resolveHostBridgeFileDownload(
       { fileId },
     );
   }
-  if (isExpired(handle)) {
+  if (isExpired(handle) && !leaseByFileId.has(fileId)) {
     handles.delete(fileId);
     throw new HostBridgeFileRegistryError(
       "file_handle_expired",
@@ -423,13 +431,96 @@ export async function resolveHostBridgeUploadedFile(
 export function markHostBridgeUploadedFileConsumed(fileIdRaw: unknown) {
   const fileId = validateFileId(fileIdRaw);
   const handle = handles.get(fileId);
-  if (handle?.sourceKind === "bridge-upload") {
+  if (handle?.sourceKind === "bridge-upload" && !leaseByFileId.has(fileId)) {
     handles.delete(fileId);
   }
 }
 
+export async function acquireHostBridgeUploadedFileLease(
+  fileIdsRaw: readonly string[],
+) {
+  const fileIds = [...new Set(fileIdsRaw.map(validateFileId))];
+  if (fileIds.length === 0) {
+    throw new HostBridgeFileRegistryError(
+      "invalid_file_id",
+      "At least one uploaded file handle is required for a lease",
+    );
+  }
+  for (const fileId of fileIds) {
+    const existingLease = leaseByFileId.get(fileId);
+    if (existingLease) {
+      throw new HostBridgeFileRegistryError(
+        "file_handle_leased",
+        "Uploaded file handle is already leased by another workflow submission",
+        { fileId },
+      );
+    }
+    const handle = handles.get(fileId);
+    if (!handle) {
+      throw new HostBridgeFileRegistryError(
+        "file_not_found",
+        "File handle was not found",
+        { fileId },
+      );
+    }
+    if (handle.sourceKind !== "bridge-upload") {
+      throw new HostBridgeFileRegistryError(
+        "invalid_file_id",
+        "File handle is not an uploaded Host Bridge file",
+        { fileId },
+      );
+    }
+    if (isExpired(handle)) {
+      handles.delete(fileId);
+      throw new HostBridgeFileRegistryError(
+        "file_handle_expired",
+        "File handle has expired",
+        { fileId },
+      );
+    }
+  }
+  const leaseId = `workflow-resource-lease-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
+  for (const fileId of fileIds) leaseByFileId.set(fileId, leaseId);
+  try {
+    const resolved = [];
+    for (const fileId of fileIds) {
+      resolved.push(await resolveHostBridgeUploadedFile(fileId));
+    }
+    const lease = { leaseId, fileIds };
+    uploadedLeases.set(leaseId, lease);
+    return { leaseId, fileIds, resolved };
+  } catch (error) {
+    for (const fileId of fileIds) {
+      if (leaseByFileId.get(fileId) === leaseId) {
+        leaseByFileId.delete(fileId);
+      }
+    }
+    throw error;
+  }
+}
+
+export function releaseHostBridgeUploadedFileLease(
+  leaseId: string,
+  consume = true,
+) {
+  const lease = uploadedLeases.get(String(leaseId || ""));
+  if (!lease) return;
+  uploadedLeases.delete(lease.leaseId);
+  for (const fileId of lease.fileIds) {
+    leaseByFileId.delete(fileId);
+    if (consume) handles.delete(fileId);
+  }
+}
+
+export function hasHostBridgeUploadedFileLease(fileIdRaw: unknown) {
+  const fileId = validateFileId(fileIdRaw);
+  return leaseByFileId.has(fileId);
+}
+
 export function resetHostBridgeFileRegistryForTests() {
   handles.clear();
+  uploadedLeases.clear();
+  leaseByFileId.clear();
   sequence = 0;
 }
 
