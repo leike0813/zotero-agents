@@ -227,6 +227,7 @@ export function buildAssistantPanelLabels() {
       running: l("assistant-panel-drawer-running", "Running"),
       queued: l("workflow-queue-section-title", "Queued"),
       completed: l("assistant-panel-drawer-completed", "Completed"),
+      unavailable: l("assistant-panel-drawer-unavailable", "Unavailable"),
       emptyTasks: l("assistant-panel-drawer-empty-tasks", "No runs."),
       emptyContexts: l("assistant-panel-drawer-empty-contexts", "No entries."),
     },
@@ -447,6 +448,9 @@ export function buildAssistantPanelLabels() {
     },
     transcript: {
       assistant: l("assistant-panel-transcript-assistant", "Assistant"),
+      // Reuses the dashboard role labels: same role semantics.
+      user: l("task-dashboard-run-role-user", "User"),
+      system: l("task-dashboard-run-role-system", "System"),
       empty: l("assistant-panel-transcript-empty", "No messages yet."),
       historyLoading: l(
         "assistant-panel-transcript-history-loading",

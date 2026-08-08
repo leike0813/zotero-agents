@@ -29,6 +29,7 @@ import {
 import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { markSkillRunnerBackendHealthFailure } from "../../src/modules/skillRunnerBackendHealthRegistry";
 import { buildAssistantWorkspacePublicationLabels } from "../../src/modules/assistantWorkspacePublicationLabels";
+import { initializeSequenceRunState } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { clearPref } from "../../src/utils/prefs";
 import {
   startSkillRunnerWorkspaceSnapshotHarness,
@@ -398,6 +399,112 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
     } finally {
       capture.stop();
       releaseFirst();
+    }
+  });
+
+  it("projects the skill-aware banner subtitle with a request-id fallback", async function () {
+    const skillRun = harness.seedTask({
+      requestId: "req-subtitle-skill",
+      status: "succeeded",
+      skillId: "test-subtitle-skill",
+    });
+    const capture = await attachReadModelHost(skillRun.runKey);
+    try {
+      const readPresentation = async () =>
+        (
+          await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+            owner: selectedOwner()!,
+            kinds: ["owner-presentation"],
+            context: undefined,
+          })
+        )["owner-presentation"];
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return model?.runKey === skillRun.runKey && model.terminal;
+      }, "skill run read model");
+      const skillPresentation = await readPresentation();
+      assert.equal(
+        skillPresentation?.subtitle,
+        "test-subtitle-skill",
+        "single skill runs surface the resolved skill name",
+      );
+
+      // Sequence step: the shared secondary label carries the step number
+      // and the skill/workflow pair, matching the ACP Skills banner.
+      initializeSequenceRunState({
+        request: {
+          kind: "skillrunner.sequence.v1",
+          steps: [
+            {
+              id: "step-digest",
+              skill_id: "test-sequence-skill",
+              workspace: "new",
+            },
+          ],
+          final_step_id: "step-digest",
+        } as any,
+        backend: {
+          id: harness.backendId,
+          type: "skillrunner",
+          baseUrl: harness.baseUrl,
+          auth: { kind: "none" },
+        } as any,
+        providerOptions: {},
+        workflowId: "test-sequence-workflow",
+        workflowLabel: "Test Sequence Workflow",
+        workflowRunId: "seq-subtitle-flow",
+        jobId: "job-1",
+      });
+      const sequenceRun = harness.seedTask({
+        requestId: "req-subtitle-sequence",
+        status: "succeeded",
+        skillId: "test-sequence-skill",
+        workflowId: "test-sequence-workflow",
+        sequenceRunId: "seq-subtitle-flow",
+        sequenceJobId: "job-1",
+        sequenceStepId: "step-digest",
+      });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: sequenceRun.runKey },
+      });
+      await waitForCondition(async () => {
+        if (getSkillRunnerWorkspaceReadModel()?.runKey !== sequenceRun.runKey) {
+          return false;
+        }
+        return String((await readPresentation())?.subtitle || "").startsWith(
+          "1️⃣",
+        );
+      }, "sequence step subtitle");
+      const sequenceSubtitle = String(
+        (await readPresentation())?.subtitle || "",
+      );
+      assert.ok(
+        sequenceSubtitle.startsWith("1️⃣ "),
+        "sequence steps carry the step number badge",
+      );
+      assert.include(
+        sequenceSubtitle,
+        "test-sequence-skill/",
+        "sequence steps pair the skill name with the workflow label",
+      );
+
+      // Runs without skill metadata keep the request-id fallback.
+      const plainRun = harness.seedTask({
+        requestId: "req-subtitle-plain",
+        status: "succeeded",
+      });
+      await dispatchRunWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: plainRun.runKey },
+      });
+      await waitForCondition(
+        () => getSkillRunnerWorkspaceReadModel()?.runKey === plainRun.runKey,
+        "plain run read model",
+      );
+      assert.equal((await readPresentation())?.subtitle, "req-subtitle-plain");
+    } finally {
+      capture.stop();
     }
   });
 
@@ -1634,7 +1741,8 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       );
 
       // The drawer projection re-attaches the group as disabled, with the
-      // reason text, inside the running section.
+      // reason text, inside a dedicated unavailable section placed after
+      // completed — never inside the running section.
       const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
         {
           source: "skillrunner",
@@ -1647,14 +1755,30 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       const running = panel.drawers.sections.find(
         (section: Record<string, unknown>) => section.id === "running",
       );
-      const drawerGroup = running.groups.find(
+      assert.isFalse(
+        (running?.groups || []).some(
+          (entry: Record<string, unknown>) =>
+            entry.groupKey === harness.backendId,
+        ),
+        "unreachable group no longer lives in the running section",
+      );
+      const unavailable = panel.drawers.sections.find(
+        (section: Record<string, unknown>) => section.id === "unavailable",
+      );
+      assert.ok(unavailable, "drawer has a dedicated unavailable section");
+      const drawerGroup = unavailable.groups.find(
         (entry: Record<string, unknown>) =>
           entry.groupKey === harness.backendId,
       );
-      assert.ok(drawerGroup, "drawer keeps the unreachable group");
+      assert.ok(drawerGroup, "unavailable section keeps the unreachable group");
       assert.isTrue(drawerGroup.disabled);
       assert.match(drawerGroup.disabledReason, /temporarily unreachable/);
       assert.isTrue(drawerGroup.collapsed);
+      assert.equal(
+        panel.drawers.sections[panel.drawers.sections.length - 1]?.id,
+        "unavailable",
+        "unavailable section trails the completed section",
+      );
     } finally {
       capture.stop();
     }
@@ -1742,7 +1866,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
     }
   });
 
-  it("appends the loading-conversation status row during same-owner history hydration", async function () {
+  it("appends the loading-conversation system message during same-owner history hydration", async function () {
     let releaseHistory!: () => void;
     const historyGate = new Promise<void>((resolve) => {
       releaseHistory = resolve;
@@ -1768,25 +1892,32 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
           context: undefined,
         });
         return (region.page?.items || []).some(
-          (item) => item.itemKind === "status",
+          (item) => item.itemId === "skillrunner-history-loading",
         );
-      }, "loading-conversation status row on the tail page");
+      }, "loading-conversation system message on the tail page");
       const loadingRegion =
         await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
           owner: selectedOwner()!,
           context: undefined,
         });
-      const statusRow = (loadingRegion.page?.items || []).find(
-        (item) => item.itemKind === "status",
-      );
-      assert.ok(statusRow);
-      if (statusRow?.itemKind === "status") {
-        assert.equal(statusRow.label, "Loading conversation");
-        assert.equal(statusRow.text, "Loading conversation history...");
-      }
-      // The loading row is the trailing row of the tail page.
       const items = loadingRegion.page?.items || [];
-      assert.equal(items[items.length - 1]?.itemKind, "status");
+      const loadingRow = items.find(
+        (item) => item.itemId === "skillrunner-history-loading",
+      );
+      assert.ok(loadingRow);
+      assert.equal(loadingRow.itemKind, "message");
+      if (loadingRow.itemKind === "message") {
+        assert.equal(loadingRow.role, "system");
+        assert.ok(
+          String(loadingRow.text || "").trim(),
+          "loading system message carries text",
+        );
+      }
+      // The loading message is the trailing row of the tail page.
+      assert.equal(
+        items[items.length - 1]?.itemId,
+        "skillrunner-history-loading",
+      );
 
       releaseHistory();
       harness.setHistoryGate("req-hydrate", null);
@@ -1799,14 +1930,16 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
           (item) =>
             item.itemKind === "message" && item.text === "hydrated digest",
         );
-      }, "hydrated history replacing the loading row");
+      }, "hydrated history replacing the loading message");
       const settled = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
         owner: selectedOwner()!,
         context: undefined,
       });
       assert.isFalse(
-        (settled.page?.items || []).some((item) => item.itemKind === "status"),
-        "status row disappears once hydration completes",
+        (settled.page?.items || []).some(
+          (item) => item.itemId === "skillrunner-history-loading",
+        ),
+        "loading message disappears once hydration completes",
       );
     } finally {
       releaseHistory();
@@ -1814,8 +1947,112 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
     }
   });
 
+  it("degrades a missing chat history (404) into a transcript system message", async function () {
+    const finished = harness.seedTask({
+      requestId: "req-history-missing",
+      status: "succeeded",
+      historyNotFound: true,
+    });
+    const capture = await attachReadModelHost(finished.runKey);
+    try {
+      await waitForCondition(async () => {
+        const region = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+          owner: selectedOwner()!,
+          context: undefined,
+        });
+        return (region.page?.items || []).some(
+          (item) => item.itemId === "skillrunner-history-not-found",
+        );
+      }, "history-not-found system message on the tail page");
+      const region = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+        owner: selectedOwner()!,
+        context: undefined,
+      });
+      const items = region.page?.items || [];
+      const notFoundRow = items.find(
+        (item) => item.itemId === "skillrunner-history-not-found",
+      );
+      assert.ok(notFoundRow);
+      assert.equal(notFoundRow.itemKind, "message");
+      if (notFoundRow.itemKind === "message") {
+        assert.equal(notFoundRow.role, "system");
+        assert.ok(
+          String(notFoundRow.text || "").trim(),
+          "not-found system message carries text",
+        );
+      }
+      assert.equal(
+        items[items.length - 1]?.itemId,
+        "skillrunner-history-not-found",
+      );
+      // The missing history must not flip the finished run into a failure.
+      const model = getSkillRunnerWorkspaceReadModel();
+      assert.equal(model?.status, "succeeded");
+      assert.isTrue(model?.terminal);
+      assert.isNull(model?.error);
+      // The system message rides the transcript publication channel.
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemId === "skillrunner-history-not-found",
+          ),
+        "transcript snapshot carrying the not-found system message",
+      );
+    } finally {
+      capture.stop();
+    }
+  });
+
+  it("keeps a waiting run alive when its chat history answers 404", async function () {
+    const waiting = harness.seedTask({
+      requestId: "req-history-observer-404",
+      status: "waiting_user",
+      historyNotFound: true,
+    });
+    const capture = await attachReadModelHost(waiting.runKey);
+    try {
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return model?.runKey === waiting.runKey && !model.loading;
+      }, "waiting run read model settled");
+      // The observer's history sync hits the 404 endpoint; a terminal
+      // misclassification would surface as a failed run, the degradation as
+      // a history-not-found system message.
+      await waitForCondition(async () => {
+        const region = await SKILLRUNNER_WORKSPACE_ADAPTER.readTranscriptPage({
+          owner: selectedOwner()!,
+          context: undefined,
+        });
+        return (region.page?.items || []).some(
+          (item) => item.itemId === "skillrunner-history-not-found",
+        );
+      }, "observer-path 404 recorded as history-not-found");
+      const model = getSkillRunnerWorkspaceReadModel();
+      assert.equal(model?.status, "waiting_user");
+      assert.isFalse(model?.terminal);
+    } finally {
+      capture.stop();
+    }
+  });
+
   it("uses the legacy empty-selection transcript copy for skillrunner", function () {
     const labels = buildAssistantWorkspacePublicationLabels("skillrunner");
     assert.equal(labels.emptySelection, "No SkillRunner tasks.");
+  });
+
+  it("ships localized transcript role labels for user and system rows", function () {
+    const labels = buildAssistantWorkspacePublicationLabels("skillrunner");
+    const transcript = labels.assistantPanel.transcript as Record<
+      string,
+      unknown
+    >;
+    // Regression: missing entries used to fall back to the raw role literal.
+    for (const role of ["user", "system"]) {
+      const value = String(transcript[role] || "").trim();
+      assert.ok(value, `transcript labels carry a ${role} entry`);
+      assert.notEqual(value, role);
+    }
   });
 });

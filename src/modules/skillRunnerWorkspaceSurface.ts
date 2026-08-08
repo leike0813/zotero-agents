@@ -29,6 +29,7 @@ import {
   listQueuedWorkspaceNavigationEntries,
   mapWorkspaceChangeKindsToPublicationKinds,
   readWorkspaceOwnerRegions,
+  skillRunSecondaryLabel,
   type AssistantWorkspaceNavigationGroupAccumulator,
   type AssistantWorkspaceOwnerRegionKind,
 } from "./assistantWorkspaceSurfaceSkeleton";
@@ -319,10 +320,24 @@ export async function readSkillRunnerWorkspaceRegions(args: {
       }),
       "owner-presentation": () => ({
         title: model.title,
+        // Skill-backed runs surface the shared skill/sequence label (parity
+        // with the ACP Skills banner); skillName resolves to the task name
+        // for skill-less runs, so it is only passed when a skill id exists.
+        // The bare request id remains the fallback.
         subtitle:
-          model.requestId && model.requestId !== model.title
+          skillRunSecondaryLabel({
+            requestId: model.requestId,
+            skillName: model.skillId
+              ? model.skillName || model.skillLabel || undefined
+              : undefined,
+            skillId: model.skillId || undefined,
+            workflowLabel: model.workflowLabel || undefined,
+            sequenceStepId: model.sequenceStepId || undefined,
+            sequenceStepIndex: model.sequenceStepIndex ?? undefined,
+          }) ||
+          (model.requestId && model.requestId !== model.title
             ? model.requestId
-            : null,
+            : null),
         description: null,
         notice: model.submitError
           ? { tone: "danger" as const, text: model.submitError }

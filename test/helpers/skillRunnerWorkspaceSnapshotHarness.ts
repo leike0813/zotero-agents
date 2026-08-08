@@ -50,6 +50,10 @@ export type SkillRunnerHarnessTaskSeed = {
   taskName?: string;
   skillId?: string;
   workflowId?: string;
+  /** Sequence membership projected into the workspace task row. */
+  sequenceRunId?: string;
+  sequenceJobId?: string;
+  sequenceStepId?: string;
   /** When omitted the task stays a local pre-request run (no requestId). */
   requestId?: string;
   /** Final lifecycle status; defaults to "queued" (local) or "waiting_user". */
@@ -74,6 +78,8 @@ export type SkillRunnerHarnessTaskSeed = {
   authSession?: Record<string, unknown>;
   /** Events served by the mock `/chat/history` endpoint. */
   chatEvents?: Array<Record<string, unknown>>;
+  /** When true the mock `/chat/history` endpoint answers 404. */
+  historyNotFound?: boolean;
   messageCounts?: AssistantMessageCountsSnapshot;
   updatedAt?: string;
 };
@@ -147,6 +153,8 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
    * observe the same-owner history-loading window deterministically.
    */
   setHistoryGate: (requestId: string, gate: Promise<void> | null) => void;
+  /** Flips the mock `/chat/history` endpoint between 200 and 404. */
+  setHistoryNotFound: (requestId: string, notFound: boolean) => void;
   getChatStreamState: (requestId: string) => {
     openCount: number;
     requestCount: number;
@@ -173,6 +181,8 @@ type MockRunChannel = {
   chatEvents: Array<Record<string, unknown>>;
   /** When set, the /chat/history response waits for this promise. */
   historyGate: Promise<void> | null;
+  /** When true, /chat/history answers 404 even though the run exists. */
+  historyNotFound: boolean;
   chatStreams: Set<{
     response: ServerResponse;
     cursor: number;
@@ -315,6 +325,10 @@ async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
           jsonResponse(res, 404, { error: "job not found" });
           return;
         }
+        if (channel.historyNotFound) {
+          jsonResponse(res, 404, { error: "chat history not found" });
+          return;
+        }
         if (channel.historyGate) {
           await channel.historyGate;
         }
@@ -447,6 +461,9 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         jobId: `harness-job-${ordinal}`,
         taskName: seed.taskName || `Harness Task ${ordinal}`,
         skillId: seed.skillId,
+        sequenceRunId: seed.sequenceRunId,
+        sequenceJobId: seed.sequenceJobId,
+        sequenceStepId: seed.sequenceStepId,
         executionMode: seed.executionMode || "interactive",
         requestPayload: seed.requestPayload,
         createdAt: updatedAt,
@@ -489,6 +506,7 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           authSession: seed.authSession,
           chatEvents: Array.isArray(seed.chatEvents) ? seed.chatEvents : [],
           historyGate: null,
+          historyNotFound: seed.historyNotFound === true,
           chatStreams: new Set(),
           chatStreamRequestCount: 0,
           chatStreamCursors: [],
@@ -539,6 +557,7 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         authSession: channel.authSession,
         chatEvents: Array.isArray(channel.chatEvents) ? channel.chatEvents : [],
         historyGate: null,
+        historyNotFound: false,
         chatStreams: new Set(),
         chatStreamRequestCount: 0,
         chatStreamCursors: [],
@@ -550,6 +569,13 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         throw new Error(`unknown SkillRunner harness request: ${requestId}`);
       }
       channel.historyGate = gate;
+    },
+    setHistoryNotFound(requestId, notFound) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.historyNotFound = notFound;
     },
     setPendingInteraction(requestId, pending) {
       const channel = runs.get(String(requestId || "").trim());

@@ -439,9 +439,12 @@ export const ContextDrawerRegion = memo(
             );
             const sectionCollapsed =
               section.collapsible === true && section.collapsed === true;
-            const sectionTone = ["running", "queued", "completed"].includes(
-              sectionId,
-            )
+            const sectionTone = [
+              "running",
+              "queued",
+              "completed",
+              "unavailable",
+            ].includes(sectionId)
               ? sectionId
               : "neutral";
             const groups = (

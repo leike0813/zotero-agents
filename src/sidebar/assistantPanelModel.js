@@ -991,20 +991,22 @@ function exactWorkspaceDrawerSections(
     groups: Array.from(completedGroups.values()),
   });
   // Backend-unreachable groups carry no task entries (the adapter withholds
-  // them); re-attach them to the running section as disabled groups so the
-  // drawer still shows the group with its localized reason (legacy drawer
-  // parity).
-  const runningSection = sections[0];
+  // them); re-attach them as disabled groups in a dedicated trailing section
+  // so the drawer still shows the group with its localized reason without
+  // masquerading as a running backend (legacy drawer parity).
+  const unavailableGroups = [];
   (Array.isArray(navigation.groups) ? navigation.groups : []).forEach(
     function (group) {
       if (safeText(group && group.status) !== "unavailable") return;
       const groupKey = safeText(group && group.groupId);
       if (!groupKey) return;
-      const exists = runningSection.groups.some(function (bucket) {
-        return bucket.groupKey === groupKey;
+      const claimed = sections.some(function (section) {
+        return section.groups.some(function (bucket) {
+          return bucket.groupKey === groupKey;
+        });
       });
-      if (exists) return;
-      runningSection.groups.push({
+      if (claimed) return;
+      unavailableGroups.push({
         groupKey,
         backendId: groupKey,
         backendDisplayName: safeText(group && group.label) || groupKey,
@@ -1016,6 +1018,15 @@ function exactWorkspaceDrawerSections(
       });
     },
   );
+  if (unavailableGroups.length > 0) {
+    sections.push({
+      id: "unavailable",
+      title: labelFrom(labelSource, "drawer.unavailable", "Unavailable"),
+      collapsible: true,
+      collapsed: uiState && uiState.unavailableCollapsed === true,
+      groups: unavailableGroups,
+    });
+  }
   return sections;
 }
 

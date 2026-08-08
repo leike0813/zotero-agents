@@ -38,6 +38,7 @@ import {
   listQueuedWorkspaceNavigationEntries,
   mapWorkspaceChangeKindsToPublicationKinds,
   readWorkspaceOwnerRegions,
+  skillRunSecondaryLabel,
   type AssistantWorkspaceNavigationGroupAccumulator,
   type AssistantWorkspaceOwnerRegionKind,
 } from "./assistantWorkspaceSurfaceSkeleton";
@@ -173,41 +174,6 @@ function projectAcpSkillRunPendingInteraction(
   });
 }
 
-function acpSkillRunSecondaryLabel(value: {
-  requestId: string;
-  skillName?: string;
-  skillId?: string;
-  workflowLabel?: string;
-  workflowId?: string;
-  sequenceStepId?: string;
-  sequenceStepIndex?: number;
-}) {
-  const skillLabel =
-    String(value.skillName || value.skillId || value.requestId).trim() ||
-    value.requestId;
-  const sequenceStepIndex = Number(value.sequenceStepIndex);
-  const hasSequenceStepIndex =
-    typeof value.sequenceStepIndex === "number" &&
-    Number.isFinite(sequenceStepIndex) &&
-    sequenceStepIndex >= 0;
-  if (!value.sequenceStepId && !hasSequenceStepIndex) return skillLabel;
-  const sequenceNumber = hasSequenceStepIndex
-    ? Math.floor(sequenceStepIndex) + 1
-    : null;
-  const sequenceLabel = sequenceNumber
-    ? ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"][
-        sequenceNumber - 1
-      ] || `#${sequenceNumber}`
-    : "";
-  const workflowLabel = String(
-    value.workflowLabel || value.workflowId || "",
-  ).trim();
-  const taskLabel = workflowLabel
-    ? `${skillLabel}/${workflowLabel}`
-    : skillLabel;
-  return [sequenceLabel, taskLabel].filter(Boolean).join(" ");
-}
-
 export async function readAcpSkillRunWorkspaceRegions(args: {
   requestId: string;
   kinds: readonly AssistantWorkspaceOwnerRegionKind[];
@@ -293,7 +259,7 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
           ).trim() || record.requestId;
         return {
           title,
-          subtitle: acpSkillRunSecondaryLabel(record),
+          subtitle: skillRunSecondaryLabel(record),
           description: null,
           notice: null,
           metadata: [
@@ -511,7 +477,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
             summary.skillId ||
             summary.requestId,
         ).trim() || summary.requestId,
-      subtitle: acpSkillRunSecondaryLabel(summary),
+      subtitle: skillRunSecondaryLabel(summary),
       description: String(summary.error || "").trim() || null,
       groupLabel:
         String(summary.backendLabel || summary.backendId || "").trim() || null,

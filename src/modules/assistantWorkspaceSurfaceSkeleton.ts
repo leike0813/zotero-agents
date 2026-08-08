@@ -110,6 +110,47 @@ export type AssistantWorkspaceNavigationGroupAccumulator = Map<
 >;
 
 /**
+ * Banner subtitle shared by the skill-run surfaces (ACP Skills and
+ * SkillRunner): the resolved skill label, upgraded to the
+ * `<step> <skill>/<workflow>` form when the run belongs to a sequence.
+ * Pure label math — no source-specific state.
+ */
+export function skillRunSecondaryLabel(value: {
+  requestId: string;
+  skillName?: string;
+  skillId?: string;
+  workflowLabel?: string;
+  workflowId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+}) {
+  const skillLabel =
+    String(value.skillName || value.skillId || value.requestId).trim() ||
+    value.requestId;
+  const sequenceStepIndex = Number(value.sequenceStepIndex);
+  const hasSequenceStepIndex =
+    typeof value.sequenceStepIndex === "number" &&
+    Number.isFinite(sequenceStepIndex) &&
+    sequenceStepIndex >= 0;
+  if (!value.sequenceStepId && !hasSequenceStepIndex) return skillLabel;
+  const sequenceNumber = hasSequenceStepIndex
+    ? Math.floor(sequenceStepIndex) + 1
+    : null;
+  const sequenceLabel = sequenceNumber
+    ? ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"][
+        sequenceNumber - 1
+      ] || `#${sequenceNumber}`
+    : "";
+  const workflowLabel = String(
+    value.workflowLabel || value.workflowId || "",
+  ).trim();
+  const taskLabel = workflowLabel
+    ? `${skillLabel}/${workflowLabel}`
+    : skillLabel;
+  return [sequenceLabel, taskLabel].filter(Boolean).join(" ");
+}
+
+/**
  * Queued-workflow navigation entries shared by the skills and skillrunner
  * owner-navigation builders: queued units of one backend type become
  * navigation entries, ensuring a "queued" drawer group per backend. Group id

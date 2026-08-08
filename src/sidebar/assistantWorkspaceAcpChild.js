@@ -1215,6 +1215,7 @@ function createChildRuntime(source) {
     completedCollapsed: true,
     queuedCollapsed: true,
     runningCollapsed: false,
+    unavailableCollapsed: false,
     drawerGroupCollapsed: new Map(),
     expandedTranscriptRows: new Set(),
     replyDraft: "",
@@ -1518,6 +1519,9 @@ function createChildRuntime(source) {
         renderPanel();
       } else if (text(payload.sectionId) === "queued") {
         ui.queuedCollapsed = !ui.queuedCollapsed;
+        renderPanel();
+      } else if (text(payload.sectionId) === "unavailable") {
+        ui.unavailableCollapsed = !ui.unavailableCollapsed;
         renderPanel();
       }
       return;

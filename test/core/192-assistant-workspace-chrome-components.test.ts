@@ -1825,8 +1825,8 @@ describe("Assistant Workspace chrome components", function () {
     it("keeps backend-unreachable groups visible as disabled with their reason", function () {
       const mount = environment.document.createElement("div");
       const unreachableSection = {
-        id: "running",
-        title: "Running",
+        id: "unavailable",
+        title: "Unavailable",
         collapsible: true,
         collapsed: false,
         groups: [

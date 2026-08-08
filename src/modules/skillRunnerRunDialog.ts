@@ -11,7 +11,10 @@ import {
   type SkillRunnerManagementSseFrame,
   isAbortErrorLike,
 } from "../providers/skillrunner/managementClient";
-import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
+import {
+  getSkillRunnerHttpStatus,
+  isSkillRunnerRunTerminalClientError,
+} from "../providers/skillrunner/errors";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import {
   guardSkillRunnerAutoReplyBeforeUserReply,
@@ -187,6 +190,9 @@ type RunSessionState = {
   error?: string;
   loading: boolean;
   historyLoading?: boolean;
+  /** Set when the backend answers 404 for the chat history (history missing
+   * is not a run failure); rendered as a transcript system message. */
+  historyNotFound?: boolean;
 };
 
 export type RunDialogChoiceOption = {
@@ -2213,7 +2219,16 @@ function resolveRunWorkspaceTranscriptMessages(args: {
     args.entry.messageCounts = nextCounts;
   }
   const visibleMessages = projectedMessages;
-  const signature = skillRunnerTranscriptSignature(visibleMessages);
+  // The history loading/not-found markers are appended by the transcript
+  // region read rather than stored in the message mirror, so they join the
+  // transcript region's own publication signature here — advancing the
+  // transcript revision (and only the transcript revision) when they toggle.
+  const signature = [
+    skillRunnerTranscriptSignature(visibleMessages),
+    args.entry.session.historyLoading === true ||
+      args.entry.historyHydrating === true,
+    args.entry.session.historyNotFound === true,
+  ].join("\u001f");
   if (entryKey !== runWorkspaceState.publishedTranscriptEntryKey) {
     runWorkspaceState.publishedTranscriptEntryKey = entryKey;
     runWorkspaceState.publishedTranscriptMessages =
@@ -2638,13 +2653,26 @@ async function startRunObserver(entry: RunDialogEntry) {
 
   const syncHistory = async () => {
     const generation = observerGeneration;
-    const historyPayload = await client.listRunChatHistory({
-      requestId: entry.requestId,
-      fromSeq: entry.session.lastSeq + 1,
-    });
+    let historyPayload;
+    try {
+      historyPayload = await client.listRunChatHistory({
+        requestId: entry.requestId,
+        fromSeq: entry.session.lastSeq + 1,
+      });
+    } catch (error) {
+      if (getSkillRunnerHttpStatus(error) === 404) {
+        // A missing history is not a run failure: degrade to the
+        // history-not-found transcript marker instead of settling the
+        // observer into a terminal error.
+        entry.session.historyNotFound = true;
+        return;
+      }
+      throw error;
+    }
     if (!isObserverActive(generation)) {
       return;
     }
+    entry.session.historyNotFound = false;
     const historyMerge = mergeHistoryEventsIntoSession({
       session: entry.session,
       historyPayload,
@@ -4077,7 +4105,10 @@ function buildLocalRunDialogMessages(
       seq: -5,
       ts: createdAt,
       phase: "local-submitted",
-      text: "Task submitted locally.",
+      text: localize(
+        "assistant-panel-transcript-notice-local-submitted",
+        "Task submitted locally.",
+      ),
     }),
   );
   if (task.requestAssigned || task.requestId) {
@@ -4086,7 +4117,10 @@ function buildLocalRunDialogMessages(
         seq: -4,
         ts: task.updatedAt,
         phase: "request-created",
-        text: "Backend request created.",
+        text: localize(
+          "assistant-panel-transcript-notice-request-created",
+          "Backend request created.",
+        ),
       }),
     );
   }
@@ -4096,7 +4130,10 @@ function buildLocalRunDialogMessages(
         seq: -3,
         ts: task.updatedAt,
         phase,
-        text: "Uploading skill payload.",
+        text: localize(
+          "assistant-panel-transcript-notice-uploading",
+          "Uploading skill payload.",
+        ),
       }),
     );
   }
@@ -4106,7 +4143,10 @@ function buildLocalRunDialogMessages(
         seq: -2,
         ts: task.updatedAt,
         phase: "request-ready",
-        text: "Request ready; observing backend run.",
+        text: localize(
+          "assistant-panel-transcript-notice-observing",
+          "Request ready; observing backend run.",
+        ),
       }),
     );
   }
@@ -4116,7 +4156,12 @@ function buildLocalRunDialogMessages(
         seq: -1,
         ts: task.updatedAt,
         phase: "submit-failed",
-        text: task.submitError || "Submit or upload failed.",
+        text:
+          task.submitError ||
+          localize(
+            "assistant-panel-transcript-notice-submit-failed",
+            "Submit or upload failed.",
+          ),
       }),
     );
   }
@@ -4283,11 +4328,17 @@ function hydrateSelectedRunHistoryInBackground(args: {
       args.entry.pendingTranscriptBoundary ||= historyMerge.boundary;
       args.entry.session.loading = false;
       args.entry.session.historyLoading = false;
+      args.entry.session.historyNotFound = false;
     } catch (error) {
       warnSkillRunnerWorkspaceAsyncFailure({
         stage: "selected-run-history-hydrate-failed",
         error,
       });
+      if (getSkillRunnerHttpStatus(error) === 404) {
+        // History missing is not a run failure: surface a transcript
+        // system message instead of leaving the transcript silent.
+        args.entry.session.historyNotFound = true;
+      }
       args.entry.session.loading = false;
       args.entry.session.historyLoading = false;
     } finally {
@@ -4869,6 +4920,13 @@ export type SkillRunnerWorkspaceReadModel = Readonly<{
   /** Assigned request id, or "" while the run is still local-only. */
   requestId: string;
   title: string;
+  /** Skill identity projected from the selected workspace task row. */
+  skillName: string | null;
+  skillLabel: string | null;
+  skillId: string | null;
+  workflowLabel: string | null;
+  sequenceStepId: string | null;
+  sequenceStepIndex: number | null;
   backendId: string;
   backendDisplayName: string;
   status: string;
@@ -5291,6 +5349,16 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
       String(task?.title || "").trim() ||
       String(record?.taskName || "").trim() ||
       resolveRunWorkspaceTitle(),
+    skillName: String(task?.skillName || "").trim() || null,
+    skillLabel: String(task?.skillLabel || "").trim() || null,
+    skillId: String(task?.skillId || "").trim() || null,
+    workflowLabel: String(task?.workflowLabel || "").trim() || null,
+    sequenceStepId: String(task?.sequenceStepId || "").trim() || null,
+    sequenceStepIndex:
+      typeof task?.sequenceStepIndex === "number" &&
+      Number.isFinite(task.sequenceStepIndex)
+        ? Math.floor(task.sequenceStepIndex)
+        : null,
     backendId: entry.backend.id,
     backendDisplayName: resolveBackendDisplayName(
       entry.backend.id,
@@ -5846,26 +5914,41 @@ export function readSkillRunnerTranscriptRegion(args: {
     : Math.max(0, Math.floor(Number(cursor)));
   const pageItems = items.slice(startCursor, startCursor + limit);
   // Same-owner background history hydration (reattach catch-up) appends a
-  // trailing status row on the tail page, matching the legacy panel model;
-  // owner switches are covered by the owner-first loading snapshot instead.
+  // trailing system message on the tail page, matching the legacy panel
+  // model; owner switches are covered by the owner-first loading snapshot
+  // instead. A 404 from the history endpoint means the backend kept no
+  // history for the run — that is not a run failure, so it surfaces as its
+  // own system message rather than a silent transcript.
   if (
     tail &&
     (entry.session.historyLoading === true || entry.historyHydrating === true)
   ) {
     pageItems.push({
       itemId: "skillrunner-history-loading",
-      itemKind: "status",
+      itemKind: "message",
       createdAt: "",
       updatedAt: null,
-      level: "info",
-      label: localize(
-        "assistant-panel-transcript-history-loading",
-        "Loading conversation",
-      ),
+      role: "system" as const,
       text: localize(
         "assistant-panel-transcript-history-loading-detail",
         "Loading conversation history...",
       ),
+      status: "complete",
+      revision: null,
+    });
+  } else if (tail && entry.session.historyNotFound === true) {
+    pageItems.push({
+      itemId: "skillrunner-history-not-found",
+      itemKind: "message",
+      createdAt: "",
+      updatedAt: null,
+      role: "system" as const,
+      text: localize(
+        "assistant-panel-transcript-history-not-found",
+        "Conversation history not found.",
+      ),
+      status: "complete",
+      revision: null,
     });
   }
   const page = createAssistantWorkspaceTranscriptPage({
