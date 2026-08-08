@@ -128,6 +128,11 @@ import type {
 } from "./acpProtocol";
 import { ensureRuntimeDirectory } from "./runtimePersistence";
 import {
+  assertHostBridgePluginSkillBundleIdentityCurrent,
+  HostBridgePluginSkillBundleIdentityChangedError,
+} from "../shared/hostBridgePluginSkillBundleContract";
+import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
+import {
   getZoteroMcpHealthSnapshot,
   getZoteroMcpServerStatus,
   resetZoteroMcpServerForTests,
@@ -507,6 +512,10 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
   );
   snapshot.sessionId = "";
   snapshot.remoteSessionId = String(snapshot.remoteSessionId || "").trim();
+  if (!snapshot.remoteSessionId) {
+    snapshot.hostBridgePluginSkillBundleIdentity =
+      getCurrentHostBridgePluginSkillBundleIdentity();
+  }
   snapshot.remoteSessionRestoreStatus =
     snapshot.remoteSessionRestoreStatus || "none";
   snapshot.status = normalizeAcpStatus(snapshot.status);
@@ -2152,6 +2161,8 @@ function applyAttachedSessionResult(
   sessionRuntime.snapshot.remoteSessionId =
     sessionRuntime.snapshot.sessionId ||
     String(sessionRuntime.snapshot.remoteSessionId || "").trim();
+  sessionRuntime.snapshot.hostBridgePluginSkillBundleIdentity =
+    getCurrentHostBridgePluginSkillBundleIdentity();
   sessionRuntime.snapshot.sessionTitle = String(
     result.sessionTitle || "",
   ).trim();
@@ -2275,6 +2286,21 @@ async function ensureSession(
     sessionRuntime.snapshot.remoteSessionId || "",
   ).trim();
   if (remoteSessionId) {
+    try {
+      assertHostBridgePluginSkillBundleIdentityCurrent(
+        sessionRuntime.snapshot.hostBridgePluginSkillBundleIdentity,
+        getCurrentHostBridgePluginSkillBundleIdentity(),
+      );
+    } catch (error) {
+      if (error instanceof HostBridgePluginSkillBundleIdentityChangedError) {
+        sessionRuntime.snapshot.remoteSessionRestoreStatus = "failed";
+        sessionRuntime.snapshot.remoteSessionRestoreMessage = error.code;
+        sessionRuntime.snapshot.status = "error";
+        sessionRuntime.snapshot.lastError = error.code;
+        emitSessionRuntimeSnapshot(sessionRuntime);
+      }
+      throw error;
+    }
     if (sessionRuntime.snapshot.canResumeRemoteSession) {
       sessionRuntime.snapshot.sessionId = remoteSessionId;
       sessionRuntime.snapshot.remoteSessionRestoreStatus = "pending";

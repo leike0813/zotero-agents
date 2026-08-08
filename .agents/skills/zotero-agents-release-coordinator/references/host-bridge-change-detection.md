@@ -12,9 +12,9 @@ explicitly limits release scope:
   `scripts/*zotero-bridge-cli*` files.
 - Agent-facing sources and generated surfaces under
   `skills_src/zotero-bridge-cli/**`, `skills_src/zotero-library-agent/**`,
-  `skills_builtin/zotero-bridge-cli/**`, the six manifest-owned Generic Skill
-  roots under `skills_builtin/**`, `profiles_src/hermes/zotero-librarian/**`,
-  and `profiles/hermes/zotero-librarian/**`.
+  `addon/content/host-bridge-skills/**`,
+  `profiles_src/hermes/zotero-librarian/**`, and
+  `profiles/hermes/zotero-librarian/**`.
 - Host Bridge protocol, capability, broker, workflow, and OpenSpec contracts.
 - Release contracts and coordination under `host-bridge/**`,
   `schemas/host-bridge.*`, `scripts/host-bridge-*`,

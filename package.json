@@ -1,7 +1,7 @@
 {
   "name": "zotero-agents",
   "type": "module",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "An all-in-one agentic workbench for your Zotero library",
   "config": {
     "addonName": "Zotero Agents",
@@ -39,10 +39,10 @@
     "check:ssot-invariants": "tsx --import ./test/setup/zotero-mock.ts scripts/check-skillrunner-ssot-invariants.ts",
     "check:runtime-diagnostics-release-elision": "tsx scripts/check-runtime-diagnostics-release-elision.ts",
     "record:acp-runtime-before-baseline": "tsx --import ./test/setup/zotero-mock.ts scripts/record-acp-runtime-governance-baseline.ts",
-    "check:host-bridge-doc-sync": "tsx scripts/check-host-bridge-skill-packages.ts skills_builtin/zotero-bridge-cli skills_builtin/zotero-library-agent skills_builtin/zotero-library-query skills_builtin/zotero-literature-acquisition skills_builtin/zotero-literature-analysis skills_builtin/zotero-research-synthesis skills_builtin/zotero-library-curation profiles/hermes/zotero-librarian/skills/zotero-librarian",
+    "check:host-bridge-doc-sync": "tsx scripts/check-host-bridge-skill-packages.ts addon/content/host-bridge-skills/zotero-bridge-cli addon/content/host-bridge-skills/zotero-library-agent addon/content/host-bridge-skills/zotero-library-query addon/content/host-bridge-skills/zotero-literature-acquisition addon/content/host-bridge-skills/zotero-literature-analysis addon/content/host-bridge-skills/zotero-research-synthesis addon/content/host-bridge-skills/zotero-library-curation profiles/hermes/zotero-librarian/skills/zotero-librarian",
     "check:host-bridge-cli-prebuild-freshness": "node scripts/check-host-bridge-cli-prebuild-freshness.mjs",
     "check:zotero-librarian-profile": "tsx scripts/check-host-bridge-skill-packages.ts profiles/hermes/zotero-librarian/skills/zotero-librarian",
-    "check:zotero-library-agent-bundle": "tsx scripts/check-host-bridge-skill-packages.ts skills_builtin/zotero-library-agent skills_builtin/zotero-library-query skills_builtin/zotero-literature-acquisition skills_builtin/zotero-literature-analysis skills_builtin/zotero-research-synthesis skills_builtin/zotero-library-curation",
+    "check:zotero-library-agent-bundle": "tsx scripts/check-host-bridge-skill-packages.ts addon/content/host-bridge-skills/zotero-library-agent addon/content/host-bridge-skills/zotero-library-query addon/content/host-bridge-skills/zotero-literature-acquisition addon/content/host-bridge-skills/zotero-literature-analysis addon/content/host-bridge-skills/zotero-research-synthesis addon/content/host-bridge-skills/zotero-library-curation",
     "check:content-package-release": "tsx scripts/check-content-package-release.ts",
     "check:content-package-release:all": "tsx scripts/check-content-package-release.ts --include-dev",
     "check:content-package-mirror": "tsx scripts/check-content-package-release.ts --check-mirror",

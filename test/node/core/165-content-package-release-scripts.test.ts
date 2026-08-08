@@ -434,16 +434,6 @@ describe("content package release scripts", function () {
   it("dispatches the content package publish workflow only from a clean tree", async function () {
     const calls: Array<{ command: string; args: string[] }> = [];
     let runListAttempts = 0;
-    const releaseSetFile = path.join(tempRoot, "release-set.json");
-    const receiptFile = path.join(tempRoot, "receipt.json");
-    await fs.writeFile(
-      releaseSetFile,
-      JSON.stringify({ releaseSetId: "hbrs-ready" }),
-    );
-    await fs.writeFile(
-      receiptFile,
-      JSON.stringify({ status: "complete", releaseSetId: "hbrs-ready" }),
-    );
 
     const result = await prepareContentPackageRelease({
       dispatch: true,
@@ -452,8 +442,6 @@ describe("content package release scripts", function () {
       repo: "owner/repo",
       ref: "release-branch",
       requestId: "content-request-1",
-      hostReleaseSetFile: releaseSetFile,
-      hostReceiptFile: receiptFile,
       runCommand: async (command, args) => {
         calls.push({ command, args });
         if (command === "git" && args[0] === "rev-parse") {
@@ -553,41 +541,26 @@ describe("content package release scripts", function () {
     ]);
   });
 
-  it("keeps the Host Bridge receipt gate in the content workflow", async function () {
-    const workflow = await fs.readFile(
+  it("gates Host Bridge receipts only in the plugin release workflow", async function () {
+    const contentWorkflow = await fs.readFile(
       ".github/workflows/publish-content-feed.yml",
       "utf8",
     );
-    assert.include(workflow, "latest-complete-release-receipt.json");
-    assert.include(workflow, 'test "$(jq -r .status');
-    assert.include(workflow, 'test "$(jq -r .releaseSetId');
-    assert.include(workflow, "channels:");
-    assert.include(workflow, "cancel-in-progress: false");
-    assert.include(workflow, "check:content-package-release -- --channels");
-  });
-
-  it("rejects content dispatch while the Host Bridge release is pending", async function () {
-    const releaseSetFile = path.join(tempRoot, "pending-release-set.json");
-    const receiptFile = path.join(tempRoot, "stale-receipt.json");
-    await fs.writeFile(
-      releaseSetFile,
-      JSON.stringify({ releaseSetId: "hbrs-pending" }),
+    const pluginWorkflow = await fs.readFile(
+      ".github/workflows/release.yml",
+      "utf8",
     );
-    await fs.writeFile(
-      receiptFile,
-      JSON.stringify({ status: "complete", releaseSetId: "hbrs-old" }),
+    assert.notInclude(contentWorkflow, "latest-complete-release-receipt.json");
+    assert.include(pluginWorkflow, "latest-complete-release-receipt.json");
+    assert.include(pluginWorkflow, 'test "$(jq -r .status');
+    assert.include(pluginWorkflow, 'test "$(jq -r .releaseSetId');
+    assert.include(contentWorkflow, "channels:");
+    assert.include(contentWorkflow, "cancel-in-progress: false");
+    assert.include(
+      contentWorkflow,
+      "check:content-package-release -- --channels",
     );
-
-    await expectRejects(
-      prepareContentPackageRelease({
-        dispatch: true,
-        channels: ["stable"],
-        hostReleaseSetFile: releaseSetFile,
-        hostReceiptFile: receiptFile,
-        runCommand: async () => ({ stdout: "", stderr: "" }),
-      }),
-      /Host Bridge.*hbrs-pending.*complete receipt/i,
-    );
+    assert.include(pluginWorkflow, "check-plugin-host-bridge-assets.ts");
   });
 
   it("rejects workflow dispatch when local HEAD has not reached the remote ref", async function () {

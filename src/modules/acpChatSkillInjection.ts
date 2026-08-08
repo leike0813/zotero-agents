@@ -20,6 +20,7 @@ import {
 } from "./runtimePersistence";
 import type { AcpDiagnosticsEntry } from "./acpTypes";
 import type { AcpChatSessionRuntime } from "./acpSessionManager";
+import { getReservedHostBridgePluginSkillIds } from "./hostBridgePluginSkillBundle";
 
 // Diagnostics are owned by the acpSessionManager domain core (snapshot
 // diagnostics lane + diagnostic audit routing). Injected once at module load
@@ -63,16 +64,10 @@ function compactError(error: unknown) {
 }
 
 const ACP_CHAT_INJECTED_SKILL_IDS = [
-  "zotero-bridge-cli",
   "literature-search-ingest",
   "literature-metadata-search",
-  "zotero-library-agent",
-  "zotero-library-curation",
-  "zotero-library-query",
-  "zotero-literature-acquisition",
-  "zotero-literature-analysis",
-  "zotero-research-synthesis",
-] as const;
+  ...getReservedHostBridgePluginSkillIds(),
+];
 const ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA =
   "zotero-agents.acp-chat-injected-skills.v1";
 const ACP_CHAT_INJECTED_SKILLS_MANIFEST_FILENAME =

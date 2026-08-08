@@ -35,14 +35,6 @@ jobs:
       - name: Initialize content submodules
         run: git submodule update --init --recursive
 
-      - name: Require the current Host Bridge complete receipt
-        shell: bash
-        run: |
-          set -euo pipefail
-          release_id="$(jq -r .releaseSetId host-bridge/release-set.json)"
-          test "$(jq -r .status host-bridge/latest-complete-release-receipt.json)" = "complete"
-          test "$(jq -r .releaseSetId host-bridge/latest-complete-release-receipt.json)" = "$release_id"
-
       - name: Build content feeds
         run: npm run build:content-feed -- --channels "$CONTENT_PACKAGE_CHANNELS"
 

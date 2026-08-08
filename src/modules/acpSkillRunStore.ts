@@ -33,6 +33,8 @@ import type {
 import { normalizeAcpPromptInterruptState } from "./acpTypes";
 import { AcpPermissionQueue } from "./acpPermissionQueue";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type { HostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
+import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
 import {
   parseAcpEffortFromModelText,
   resolveAcpRawModelIdForSelection,
@@ -362,6 +364,7 @@ export type AcpSkillRunRecord = {
   appliedAt?: string;
   applyResultState?: "pending" | "succeeded" | "failed";
   sessionId?: string;
+  hostBridgePluginSkillBundleIdentity?: HostBridgePluginSkillBundleIdentity;
   activePrompt?: boolean;
   promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
@@ -1297,6 +1300,7 @@ export function upsertAcpSkillRun(update: {
   appliedAt?: string;
   applyResultState?: AcpSkillRunRecord["applyResultState"];
   sessionId?: string;
+  hostBridgePluginSkillBundleIdentity?: HostBridgePluginSkillBundleIdentity;
   activePrompt?: boolean;
   promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
@@ -1335,6 +1339,8 @@ export function upsertAcpSkillRun(update: {
       createdAt: now,
       updatedAt: now,
       events: [],
+      hostBridgePluginSkillBundleIdentity:
+        getCurrentHostBridgePluginSkillBundleIdentity(),
     }),
     updatedAt: now,
   };
@@ -1449,6 +1455,13 @@ export function upsertAcpSkillRun(update: {
   assignString("lastPromptStopReason", update.lastPromptStopReason);
   assignString("appliedAt", update.appliedAt);
   assignString("sessionId", update.sessionId);
+  if (update.hostBridgePluginSkillBundleIdentity) {
+    next.hostBridgePluginSkillBundleIdentity = {
+      cli: { ...update.hostBridgePluginSkillBundleIdentity.cli },
+      aggregateSha256:
+        update.hostBridgePluginSkillBundleIdentity.aggregateSha256,
+    };
+  }
   assignString("error", update.error);
   if (
     Object.prototype.hasOwnProperty.call(update, "conversationError") &&

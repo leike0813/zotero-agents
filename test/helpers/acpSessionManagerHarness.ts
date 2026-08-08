@@ -48,6 +48,7 @@ import {
   toggleAcpConversationStatusDetails,
   type AcpChatWorkspaceChange,
 } from "../../src/modules/acpSessionManager";
+import { clearHostBridgePluginSkillBundleMaterializationForTests } from "../../src/modules/hostBridgePluginSkillBundle";
 import {
   listAcpChatSessions,
   loadAcpConversationState,
@@ -1195,6 +1196,7 @@ export function installAcpSessionManagerTestHooks() {
   let previousDataDirectory: unknown;
 
   beforeEach(function () {
+    clearHostBridgePluginSkillBundleMaterializationForTests();
     harness.lastAdapter = null;
     harness.lastFactoryArgs = null;
     harness.adapters.clear();
@@ -1220,6 +1222,7 @@ export function installAcpSessionManagerTestHooks() {
   });
 
   afterEach(function () {
+    clearHostBridgePluginSkillBundleMaterializationForTests();
     for (const adapter of harness.adapters) {
       adapter.releaseHolds();
     }

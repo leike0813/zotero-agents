@@ -2,6 +2,7 @@ import type { BackendInstance } from "../backends/types";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
+import type { HostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
 
 export type AcpConnectionStatus =
   | "idle"
@@ -299,6 +300,7 @@ export type AcpConversationSnapshot = {
   conversationCreatedAt: string;
   sessionId: string;
   remoteSessionId: string;
+  hostBridgePluginSkillBundleIdentity?: HostBridgePluginSkillBundleIdentity;
   canLoadRemoteSession: boolean;
   canResumeRemoteSession: boolean;
   remoteSessionRestoreStatus: AcpRemoteSessionRestoreStatus;

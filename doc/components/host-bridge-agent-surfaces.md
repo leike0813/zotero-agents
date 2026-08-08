@@ -51,6 +51,11 @@ and Minimum components byte-identically, then adds only its resident facet.
 The generated surface manifest records the exact CLI identity and the digest of
 every direct and inherited component.
 
+Minimum 与 Generic 的七个 Skill 统一生成到
+`addon/content/host-bridge-skills/`，并随 XPI 发布；bundle manifest 记录精确
+Skill 闭包、CLI identity、逐文件摘要和 aggregate digest。Content Package 不再
+携带这些 Skill。Hermes profile 仍由同一批内存渲染结果生成，避免维护第二套语义。
+
 ## Minimum: mechanism contract
 
 Minimum exposes `zotero-bridge` and the offline
@@ -204,6 +209,11 @@ warnings below 200 and 350 lines respectively. The semantic-surface reviewer
 must explicitly accept or expand every warning; line counts never replace the
 semantic checks for completeness, paraphrased duplication, reference
 coherence, and separation between layers.
+
+插件启动时会先验证并事务物化 XPI bundle，再扫描 workflow/skill registry。
+七个保留 ID 只接受 `xpi-bundled` 来源；official、dev-local 或 user 同名候选
+会产生结构化诊断，bundle 无效时也不会回退。ACP Chat 与 ACP Skills 会保存
+bundle aggregate 和 CLI identity，identity 变化后旧远端会话必须重新运行。
 
 ## Semantic preservation
 

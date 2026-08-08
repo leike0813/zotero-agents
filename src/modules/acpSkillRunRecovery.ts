@@ -84,6 +84,11 @@ import {
 } from "./acpSkillRunAuditTrail";
 import { continueSkillRunnerSequence } from "./workflowExecution/sequenceRuntime";
 import {
+  assertHostBridgePluginSkillBundleIdentityCurrent,
+  HostBridgePluginSkillBundleIdentityChangedError,
+} from "../shared/hostBridgePluginSkillBundleContract";
+import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
+import {
   watchPromiseSettlement,
   type PromiseSettlementWatchdog,
 } from "../utils/wait";
@@ -967,6 +972,21 @@ export async function recoverAcpSkillRunConversation(args: {
   const record = getAcpSkillRunRecord(requestId);
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
+  }
+  try {
+    assertHostBridgePluginSkillBundleIdentityCurrent(
+      record.hostBridgePluginSkillBundleIdentity,
+      getCurrentHostBridgePluginSkillBundleIdentity(),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgePluginSkillBundleIdentityChangedError) {
+      upsertAcpSkillRun({
+        requestId,
+        conversationRecoveryState: "unavailable",
+        lastRecoveryError: error.code,
+      });
+    }
+    throw error;
   }
   if (
     __acp_runtime_performance_profiler_enabled__ &&

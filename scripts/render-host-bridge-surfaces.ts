@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -30,6 +31,11 @@ import {
   loadBuiltinWorkflowCatalog,
   renderBuiltinWorkflowCatalog,
 } from "./host-bridge-workflow-catalog";
+import {
+  HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+  hostBridgePluginSkillBundleDigestPayload,
+  type HostBridgePluginSkillBundleManifest,
+} from "../src/shared/hostBridgePluginSkillBundleContract";
 
 type ContentMap = Map<string, string>;
 type RenderMode = "content" | "release";
@@ -62,6 +68,96 @@ function copyTree(
 
 function merge(target: ContentMap, source: ContentMap, prefix = "") {
   for (const [path, content] of source) target.set(join(prefix, path), content);
+}
+
+function sha256(content: string) {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function runnerVersion(content: ContentMap, skillId: string) {
+  const runner = content.get("assets/runner.json");
+  if (!runner) throw new Error(`Missing runner manifest for ${skillId}`);
+  const version = String(
+    (JSON.parse(runner) as { version?: unknown }).version || "",
+  ).trim();
+  if (!version) throw new Error(`Missing runner version for ${skillId}`);
+  return version;
+}
+
+function pluginSkillBundleContent(args: {
+  root: string;
+  cliRelease: string;
+  minimum: HostBridgeSurfaceDefinition;
+  generic: HostBridgeSurfaceDefinition;
+  minimumVersion: string;
+  genericVersion: string;
+  commandCatalogChecksum: string;
+  core: ContentMap;
+  genericSkills: Array<{
+    skill: HostBridgeSurfaceSkillDefinition;
+    content: ContentMap;
+  }>;
+}) {
+  const content: ContentMap = new Map();
+  merge(content, args.core, args.minimum.skills[0].id);
+  for (const entry of args.genericSkills) {
+    merge(content, entry.content, entry.skill.id);
+  }
+  const release = JSON.parse(read(args.root, args.cliRelease)) as {
+    version?: unknown;
+    buildFingerprint?: unknown;
+  };
+  const files = [...content.entries()]
+    .map(([path, value]) => ({
+      path: path.replaceAll("\\", "/"),
+      bytes: Buffer.byteLength(value, "utf8"),
+      sha256: sha256(value),
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  const manifestWithoutDigest: Omit<
+    HostBridgePluginSkillBundleManifest,
+    "aggregateSha256"
+  > = {
+    schema: HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+    cli: {
+      version: String(release.version || ""),
+      buildFingerprint: String(release.buildFingerprint || ""),
+      commandCatalogChecksum: args.commandCatalogChecksum,
+    },
+    surfaces: [
+      {
+        id: args.minimum.id,
+        kind: "minimum-core",
+        version: args.minimumVersion,
+      },
+      {
+        id: args.generic.id,
+        kind: "generic-agent",
+        version: args.genericVersion,
+      },
+    ],
+    skills: [
+      {
+        id: args.minimum.skills[0].id,
+        mount: args.minimum.skills[0].mount,
+        runnerVersion: runnerVersion(args.core, args.minimum.skills[0].id),
+      },
+      ...args.genericSkills.map(({ skill, content: skillContent }) => ({
+        id: skill.id,
+        mount: skill.mount,
+        runnerVersion: runnerVersion(skillContent, skill.id),
+      })),
+    ],
+    files,
+  };
+  const manifest: HostBridgePluginSkillBundleManifest = {
+    ...manifestWithoutDigest,
+    aggregateSha256: sha256(
+      hostBridgePluginSkillBundleDigestPayload(manifestWithoutDigest),
+    ),
+  };
+  content.set("manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  return content;
 }
 
 function replaceVersion(source: string, version: string) {
@@ -1166,6 +1262,17 @@ export function renderHostBridgeSurfaces(
       version: genericVersion,
     }),
   }));
+  const pluginBundle = pluginSkillBundleContent({
+    root,
+    cliRelease: definitions.cliRelease,
+    minimum,
+    generic,
+    minimumVersion,
+    genericVersion,
+    commandCatalogChecksum: descriptor.commandCatalogChecksum,
+    core,
+    genericSkills,
+  });
   const ownLibrarian = hostedSkillContent({
     root,
     surface: hermes,
@@ -1197,21 +1304,11 @@ export function renderHostBridgeSurfaces(
     ...applyContent({
       root,
       outputRoot,
-      targetRoot: minimum.generatedRoot,
-      content: core,
+      targetRoot: generic.generatedRoot,
+      content: pluginBundle,
       check,
       prune: true,
     }),
-    ...genericSkills.flatMap(({ skill, content }) =>
-      applyContent({
-        root,
-        outputRoot,
-        targetRoot: join(generic.generatedRoot, skill.id),
-        content,
-        check,
-        prune: true,
-      }),
-    ),
     ...applyContent({
       root,
       outputRoot,

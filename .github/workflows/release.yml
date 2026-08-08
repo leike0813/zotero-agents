@@ -65,6 +65,14 @@ jobs:
       - name: Check Host Bridge CLI prebuild freshness
         run: npm run check:host-bridge-cli-prebuild-freshness
 
+      - name: Require the current Host Bridge complete receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(jq -r .releaseSetId host-bridge/release-set.json)"
+          test "$(jq -r .status host-bridge/latest-complete-release-receipt.json)" = "complete"
+          test "$(jq -r .releaseSetId host-bridge/latest-complete-release-receipt.json)" = "$release_id"
+
       - name: Run release gate
         run: npm run test:gate:release
 
@@ -73,6 +81,9 @@ jobs:
 
       - name: Build plugin
         run: npm run build
+
+      - name: Verify packaged Host Bridge assets
+        run: npx tsx scripts/check-plugin-host-bridge-assets.ts .scaffold/build/zotero-skills.xpi
 
       - name: Release plugin
         run: npm run release

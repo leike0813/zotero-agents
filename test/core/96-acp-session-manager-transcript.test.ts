@@ -78,6 +78,7 @@ import {
 } from "../../src/modules/acpConversationTranscriptStore";
 import { saveAcpConversationState } from "../../src/modules/acpConversationStore";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+import { materializeHostBridgePluginSkillBundle } from "../../src/modules/hostBridgePluginSkillBundle";
 
 const ACP_CHAT_INJECTED_SKILL_BODIES = new Map([
   [
@@ -902,6 +903,7 @@ describe("acp session manager", function () {
   });
 
   it("creates an ACP session on demand, merges streamed assistant chunks, and persists transcript state", async function () {
+    this.timeout(10_000);
     const dataDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-data-"),
     );
@@ -919,6 +921,8 @@ describe("acp session manager", function () {
     };
     try {
       Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
+      const materialized = await materializeHostBridgePluginSkillBundle();
+      assert.isTrue(materialized.ok);
       for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
         await writeRegistrySkill({
           root: userSkillRoot,
@@ -1067,7 +1071,8 @@ describe("acp session manager", function () {
           joinPath(root, "zotero-bridge-cli", "SKILL.md"),
           "utf8",
         );
-        assert.include(chatWrapperSkill, "USER ZOTERO BRIDGE OVERRIDE");
+        assert.include(chatWrapperSkill, "# Zotero Bridge CLI");
+        assert.notInclude(chatWrapperSkill, "USER ZOTERO BRIDGE OVERRIDE");
         assert.notInclude(chatWrapperSkill, "OLD CLAUDE COPY");
         const literatureSearchIngestSkill = await fs.readFile(
           joinPath(root, "literature-search-ingest", "SKILL.md"),
@@ -1284,8 +1289,8 @@ describe("acp session manager", function () {
         ),
       );
       assert.equal(unavailable?.raw?.expectedTargetCount, 18);
-      assert.equal(unavailable?.raw?.materializedTargetCount, 2);
-      assert.lengthOf(unavailable?.raw?.missingSkillIds || [], 8);
+      assert.equal(unavailable?.raw?.materializedTargetCount, 0);
+      assert.lengthOf(unavailable?.raw?.missingSkillIds || [], 9);
       assert.deepEqual(unavailable?.raw?.failedTargets, []);
       assert.isOk(harness.lastAdapter);
     } finally {
@@ -1304,6 +1309,7 @@ describe("acp session manager", function () {
   });
 
   it("does not report injected skills ready when one target copy fails", async function () {
+    this.timeout(10_000);
     const dataDirectory = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-failed-skill-copy-data-"),
     );
@@ -1326,6 +1332,8 @@ describe("acp session manager", function () {
 
     try {
       Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
+      const materialized = await materializeHostBridgePluginSkillBundle();
+      assert.isTrue(materialized.ok);
       for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
         await writeRegistrySkill({
           root: userSkillRoot,

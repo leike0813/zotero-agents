@@ -276,9 +276,15 @@ function duplicatedProse(root: string, files: string[]) {
   return duplicates;
 }
 
+export type HostBridgeBaselineRootMap = {
+  currentRoot: string;
+  baselineRoot: string;
+};
+
 type SkillPackageInspectionOptions = {
   enforceMaterializedDepth?: boolean;
   baselineRef?: string;
+  baselineRootMaps?: HostBridgeBaselineRootMap[];
 };
 
 export type HostBridgeSkillPackageInspection = {
@@ -345,14 +351,47 @@ function gitOutput(args: string[], cwd: string) {
   return result.status === 0 ? String(result.stdout || "").trimEnd() : null;
 }
 
-function inspectRelativeBaseline(root: string, baselineRef: string): string[] {
+function normalizeRepositoryPath(path: string) {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+}
+
+function resolveBaselinePackagePath(
+  packagePath: string,
+  rootMaps: HostBridgeBaselineRootMap[],
+) {
+  const current = normalizeRepositoryPath(packagePath);
+  const matches = rootMaps
+    .map((mapping) => ({
+      currentRoot: normalizeRepositoryPath(mapping.currentRoot),
+      baselineRoot: normalizeRepositoryPath(mapping.baselineRoot),
+    }))
+    .filter(
+      (mapping) =>
+        current === mapping.currentRoot ||
+        current.startsWith(`${mapping.currentRoot}/`),
+    )
+    .sort((left, right) => right.currentRoot.length - left.currentRoot.length);
+  const mapping = matches[0];
+  if (!mapping) return current;
+  const suffix = current.slice(mapping.currentRoot.length).replace(/^\//, "");
+  return [mapping.baselineRoot, suffix].filter(Boolean).join("/");
+}
+
+function inspectRelativeBaseline(
+  root: string,
+  baselineRef: string,
+  rootMaps: HostBridgeBaselineRootMap[],
+): string[] {
   const errors: string[] = [];
   const repositoryRoot = gitOutput(["rev-parse", "--show-toplevel"], root);
   const label = relative(process.cwd(), root) || root;
   if (!repositoryRoot) {
     return [`${label}: cannot resolve Git repository for baseline comparison`];
   }
-  const packagePath = relative(repositoryRoot, root).replace(/\\/g, "/");
+  const packagePath = resolveBaselinePackagePath(
+    relative(repositoryRoot, root).replace(/\\/g, "/"),
+    rootMaps,
+  );
   const baselineSkill = gitOutput(
     ["show", `${baselineRef}:${packagePath}/SKILL.md`],
     repositoryRoot,
@@ -569,7 +608,13 @@ function inspectSkillRoot(
     }
   }
   if (options.baselineRef) {
-    errors.push(...inspectRelativeBaseline(root, options.baselineRef));
+    errors.push(
+      ...inspectRelativeBaseline(
+        root,
+        options.baselineRef,
+        options.baselineRootMaps || [],
+      ),
+    );
   }
   return { errors, warnings };
 }
@@ -609,15 +654,35 @@ if (isMainModule()) {
   if (baselineIndex >= 0) {
     argv.splice(baselineIndex, 2);
   }
+  const baselineRootMaps: HostBridgeBaselineRootMap[] = [];
+  for (let index = 0; index < argv.length; ) {
+    if (argv[index] !== "--baseline-root-map") {
+      index += 1;
+      continue;
+    }
+    const value = String(argv[index + 1] || "");
+    const separator = value.indexOf("=");
+    if (separator <= 0 || separator === value.length - 1) {
+      throw new Error(
+        "--baseline-root-map must be <current-root>=<baseline-root>",
+      );
+    }
+    baselineRootMaps.push({
+      currentRoot: value.slice(0, separator),
+      baselineRoot: value.slice(separator + 1),
+    });
+    argv.splice(index, 2);
+  }
   const roots = argv;
   if (!roots.length) {
     throw new Error(
-      "Usage: check-host-bridge-skill-packages.ts [--baseline-ref <ref>] <skill-root> [...]",
+      "Usage: check-host-bridge-skill-packages.ts [--baseline-ref <ref>] [--baseline-root-map <current>=<baseline>] <skill-root> [...]",
     );
   }
   const inspection = inspectHostBridgeSkillPackages(roots, {
     enforceMaterializedDepth: true,
     baselineRef: baselineRef || undefined,
+    baselineRootMaps,
   });
   if (inspection.warnings.length) {
     console.warn(

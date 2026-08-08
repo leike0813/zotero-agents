@@ -222,6 +222,10 @@ npm run release:content-package -- --dispatch --watch --channels stable,beta,dev
 不会清空分支、删除未选频道的 feed 或触发 Gitee 同步。要执行全频道发布，显式写出
 `stable,beta,dev`。
 
+Host Bridge 七个保留 Skill 随插件 XPI 发布，不属于 Content Package。内容包构建
+只扫描剩余的 `skills_builtin/` 与 `workflows_builtin/`；Host Bridge complete
+receipt 是插件发布门禁，不阻塞独立的内容包发布。
+
 ## Manifest（当前实现）
 
 Manifest 契约由以下 schema 唯一定义（SSOT）：
@@ -404,7 +408,8 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 ### Agent-facing 内建 Workflow Catalog
 
 Generic Zotero research surface 在
-`zotero-library-agent/references/workflow-catalog.md` 中发布内建 workflow
+`addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md`
+中发布内建 workflow
 目录，帮助 agent 在执行实时发现之前缩小候选范围。目录不是独立维护的
 workflow 清单：`scripts/host-bridge-workflow-catalog.ts` 从
 `workflows_builtin/manifest.json`、各 package manifest 及其 `workflow.json`

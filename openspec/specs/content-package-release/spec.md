@@ -53,7 +53,7 @@
 
 ### Requirement: 既有频道安全语义保持不变
 
-系统 SHALL 保持 dev 频道的 debug 内容规则、GitHub Release asset 的不可变校验和规则以及 Host Bridge 完成 receipt 门禁。
+系统 SHALL 保持 dev 频道的 debug 内容规则以及 GitHub Release asset 的不可变校验和规则。
 
 #### Scenario: 发布 dev 内容
 
@@ -64,3 +64,22 @@
 
 - **WHEN** 发布尝试上传与既有 GitHub Release asset 同名但 SHA-256 不同的文件
 - **THEN** 系统拒绝发布该 asset
+
+### Requirement: Content Package archives SHALL exclude plugin-owned Host Bridge Skills
+
+Stable, beta, and development Content Package archives SHALL contain no Skill whose ID belongs to the Host Bridge surface closure. The generic package collector SHALL continue to include other repository-owned Skills and Workflows without a Host Bridge-specific exclusion list.
+
+#### Scenario: Any channel archive is built
+
+- **WHEN** a Content Package archive is built for stable, beta, or development delivery
+- **THEN** it contains zero reserved Host Bridge Skills
+- **AND** it still contains representative non-reserved Skills and Workflows
+
+### Requirement: Content Package publication SHALL be independent of Host Bridge receipts
+
+Preparing or publishing a Content Package SHALL not require a Host Bridge complete receipt because the package no longer owns Host Bridge CLI-coupled Skills.
+
+#### Scenario: Content publication has no matching Host Bridge receipt
+
+- **WHEN** an otherwise valid Content Package release is prepared without a matching Host Bridge complete receipt
+- **THEN** Host Bridge receipt state does not block Content Package preparation or publication

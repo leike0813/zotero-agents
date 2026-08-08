@@ -32,6 +32,7 @@ import { normalizeAcpPromptInterruptState } from "./acpTypes";
 import { type AcpSelectableOption } from "./acpModelOptionFolding";
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
+import { parseHostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
 import {
   flushAllAcpTranscriptWrites,
   resolveAcpSkillRunTranscriptPaths,
@@ -605,6 +606,10 @@ export function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
           ? "pending"
           : undefined,
     sessionId: normalizeString(raw.sessionId) || undefined,
+    hostBridgePluginSkillBundleIdentity:
+      parseHostBridgePluginSkillBundleIdentity(
+        raw.hostBridgePluginSkillBundleIdentity,
+      ),
     activePrompt: raw.activePrompt === true,
     promptInterruptState: normalizeAcpPromptInterruptState(
       raw.promptInterruptState,

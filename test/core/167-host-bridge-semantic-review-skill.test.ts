@@ -56,10 +56,10 @@ describe("Host Bridge semantic surface review skill", function () {
 
   it("reports generated-target drift without requiring semantic review", function () {
     const context = classifyChangedFiles([
-      "skills_builtin/zotero-bridge-cli/SKILL.md",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
       "profiles/hermes/zotero-librarian/SOUL.md",
       "doc/host-bridge-cli.md",
-      "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/assets/agent-surface.json",
       "host-bridge/release-set.json",
     ]);
 
@@ -68,10 +68,10 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.isEmpty(context.semanticSourceChanges);
     assert.sameMembers(context.generatedTargetChanges, [
       "doc/host-bridge-cli.md",
-      "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/assets/agent-surface.json",
       "host-bridge/release-set.json",
       "profiles/hermes/zotero-librarian/SOUL.md",
-      "skills_builtin/zotero-bridge-cli/SKILL.md",
+      "addon/content/host-bridge-skills/zotero-bridge-cli/SKILL.md",
     ]);
     assert.include(
       context.recommendedFocus.join("\n"),

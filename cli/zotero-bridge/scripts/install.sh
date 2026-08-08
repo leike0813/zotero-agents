@@ -75,8 +75,8 @@ if [ ! -d "$bin_root" ] && [ -d "$script_dir/addon/bin" ]; then
   bin_root="$script_dir/addon/bin"
 fi
 profile_template="$script_dir/assets/profile.template.json"
-if [ ! -f "$profile_template" ] && [ -f "$script_dir/skills_builtin/zotero-bridge-cli/assets/profile.template.json" ]; then
-  profile_template="$script_dir/skills_builtin/zotero-bridge-cli/assets/profile.template.json"
+if [ ! -f "$profile_template" ] && [ -f "$script_dir/addon/content/host-bridge-skills/zotero-bridge-cli/assets/profile.template.json" ]; then
+  profile_template="$script_dir/addon/content/host-bridge-skills/zotero-bridge-cli/assets/profile.template.json"
 fi
 os_name=$(uname -s 2>/dev/null || printf unknown)
 arch_name=$(uname -m 2>/dev/null || printf unknown)

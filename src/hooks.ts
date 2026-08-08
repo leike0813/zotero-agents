@@ -16,7 +16,7 @@ import {
   ensureDefaultWorkflowDirExistsOnStartup,
   rescanWorkflowRegistry,
 } from "./modules/workflowRuntime";
-import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
+import { materializeHostBridgePluginSkillBundle } from "./modules/hostBridgePluginSkillBundle";
 import {
   checkContentPackageUpdate,
   clearContentPackageInstallProgress,
@@ -831,8 +831,6 @@ async function onStartup() {
   installMarkdownAttachmentOpenProbe();
   registerZoteroPaneStylesheet();
 
-  const runtimeRootURI = resolveRuntimeRootURI();
-  setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
   try {
     await initializeWorkflowProductStorage();
@@ -842,6 +840,14 @@ async function onStartup() {
   await initializeSynthesisBuiltinTagsOnStartup();
 
   await ensureDefaultWorkflowDirExistsOnStartup();
+  const hostBridgeSkillBundle = await materializeHostBridgePluginSkillBundle();
+  if (!hostBridgeSkillBundle.ok) {
+    Zotero.logError(
+      new Error(
+        `[host-bridge-plugin-skill-bundle] ${hostBridgeSkillBundle.error}`,
+      ),
+    );
+  }
   await rescanWorkflowRegistry();
   reconcileRecoveredRuntimeTasksOnStartup();
   workflowSubmissionQueue.start();

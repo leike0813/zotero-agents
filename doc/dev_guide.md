@@ -123,8 +123,9 @@ Provider runtime options：
 SkillRunner skill source：
 
 - `skillrunner.job.v1` 默认使用插件侧本地 skill 包路线：`request.create.skill_id`
-  用于解析 `skills/` / `skills_builtin/` 中的同名 skill，插件运行时将该 skill
-  目录打包上传给后端。
+  通过统一 registry 解析有效 skill。Host Bridge 七个保留 ID 只来自 XPI 内的
+  `content/host-bridge-skills/`；其它 skill 继续按 official、dev-local、user
+  来源优先级解析。插件运行时将解析出的目录打包上传给后端。
 - 默认路线按当前 `reference/Skill-Runner` 源码执行：先 `POST /v1/jobs`
   且 create body 带 `skill_source="temp_upload"`、不带 `skill_id`，随后
   `POST /v1/jobs/{request_id}/upload` 上传 multipart 字段 `skill_package`；

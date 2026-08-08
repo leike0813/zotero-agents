@@ -86,8 +86,7 @@ function isGeneratedTarget(path: string) {
     path === "doc/host-bridge-cli.md" ||
     path === "host-bridge/release-set.json" ||
     path.startsWith("artifact/host-bridge-review/") ||
-    path.startsWith("skills_builtin/zotero-bridge-cli/") ||
-    path.startsWith("skills_builtin/zotero-library-agent/") ||
+    path.startsWith("addon/content/host-bridge-skills/") ||
     path.startsWith("profiles/hermes/zotero-librarian/") ||
     path ===
       "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2" ||

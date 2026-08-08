@@ -67,6 +67,11 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import {
+  clearHostBridgePluginSkillBundleMaterializationForTests,
+  materializeHostBridgePluginSkillBundle,
+} from "../../src/modules/hostBridgePluginSkillBundle";
+import { HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED } from "../../src/shared/hostBridgePluginSkillBundleContract";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -648,6 +653,49 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.resumeSessionIds, ["session-1"]);
     assert.deepEqual(harness.lastAdapter?.loadSessionIds, []);
     assert.deepEqual(harness.lastAdapter?.sessionIds, []);
+  });
+
+  it("refuses to restore a persisted remote session after the plugin Skill bundle identity changes", async function () {
+    this.timeout(10_000);
+    await sendAcpConversationPrompt({ message: "Persist old bundle context" });
+    const conversationId = getAcpConversationSnapshot().conversationId;
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-bundle-identity-"),
+    );
+    try {
+      const materialized = await materializeHostBridgePluginSkillBundle({
+        runtimeRoot,
+      });
+      assert.isTrue(materialized.ok);
+      resetAcpSessionManagerForTests();
+      setAcpConnectionAdapterFactoryForTests(async () => {
+        harness.lastAdapter = new FakeAcpConnectionAdapter();
+        harness.lastAdapter.canResumeSession = true;
+        return harness.lastAdapter;
+      });
+
+      await setActiveAcpConversation({ conversationId });
+      let failure: unknown;
+      try {
+        await reconnectAcpConversation();
+      } catch (error) {
+        failure = error;
+      }
+
+      assert.strictEqual(
+        (failure as { code?: string })?.code,
+        HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
+      );
+      assert.deepEqual(harness.lastAdapter?.resumeSessionIds, []);
+      assert.deepEqual(harness.lastAdapter?.sessionIds, []);
+      assert.strictEqual(
+        getAcpConversationSnapshot().lastError,
+        HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
+      );
+    } finally {
+      clearHostBridgePluginSkillBundleMaterializationForTests();
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
   });
 
   it("loads a persisted remote ACP session when resume is unavailable and suppresses replay duplication", async function () {

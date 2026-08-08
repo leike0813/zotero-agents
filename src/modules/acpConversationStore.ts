@@ -28,6 +28,7 @@ import {
 } from "./acpTypes";
 import { resolveAcpChatTranscriptPaths } from "./acpConversationTranscriptStore";
 import { normalizeAssistantMessageCounts } from "./assistantMessageCounts";
+import { parseHostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
 
 const ACP_SCOPE_ACTIVE = "active";
 const ACP_FRONTEND_REQUEST_ID = "frontend";
@@ -281,6 +282,10 @@ function normalizeSnapshotPayload(args: {
     snapshot.sessionId = normalizeString(parsed.sessionId);
     snapshot.remoteSessionId =
       normalizeString(parsed.remoteSessionId) || snapshot.sessionId;
+    snapshot.hostBridgePluginSkillBundleIdentity =
+      parseHostBridgePluginSkillBundleIdentity(
+        parsed.hostBridgePluginSkillBundleIdentity,
+      );
     snapshot.canLoadRemoteSession = parsed.canLoadRemoteSession === true;
     snapshot.canResumeRemoteSession = parsed.canResumeRemoteSession === true;
     snapshot.remoteSessionRestoreStatus = normalizeRemoteSessionRestoreStatus(

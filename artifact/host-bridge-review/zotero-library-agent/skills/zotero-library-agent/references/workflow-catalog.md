@@ -1,376 +1,439 @@
-# 内建 Workflow 目录
+# Built-in Workflow Catalog
 
-## 范围与权威性
+## Scope and authority
 
-使用本目录选择随 Zotero 插件发布的可能 workflow。它记录构建此发布面时采用的 manifest 合同；不证明该 workflow 在运行时已安装、已启用、与所选 backend 兼容或保持不变。
+Use this catalog to select a likely workflow that ships with the Zotero plugin. It records the manifest contract used to build this surface; it does not prove that the workflow is installed, enabled, compatible with the selected backend, or unchanged at runtime.
 
-执行前，按以下顺序使用实时命令：
+Before execution, use live commands in this order:
 
-1. 运行 `zotero-bridge workflow list` 确认当前可用性。
-2. 运行 `zotero-bridge workflow describe --workflow <id>` 获取当前 selection、option、provider、execution-mode 与 output 合同。
-3. 使用已声明 selection 或 no-selection 形式以及预期 workflow option 运行 `zotero-bridge workflow validate`。
-4. 对另行选择的 backend profile 运行 `zotero-bridge workflow profile describe` 与 `zotero-bridge workflow profile validate`。
-5. 只有有边界请求与 Zotero 端权限均为当前有效时，才运行 `zotero-bridge workflow submit`。
-6. 读取返回的 admission branch。direct admission 时保留每个返回的 `workflowRunId`；host-queue admission 时保留 `submissionId`，检查 `workflow submission get`，并用 `run list --submission` 关联 admitted tasks。
-7. 使用真实 run handle 检查 admitted execution，并分别验证每个请求的 Product、artifact 或已变更 Zotero 对象。使用 `workflow queue cancel` 时，只能将其应用于仍处于 pending 的 `queueId`；它不是 run cancellation。
+1. `zotero-bridge workflow list` to confirm current availability.
+2. `zotero-bridge workflow describe --workflow <id>` to obtain the current selection, option, provider, execution-mode, and output contract.
+3. `zotero-bridge workflow validate` with either the declared selection or no-selection form and the intended workflow options.
+4. `zotero-bridge workflow profile describe` and `zotero-bridge workflow profile validate` for the separately selected backend profile.
+5. `zotero-bridge workflow submit` only after the bounded request and Zotero-side authority are current.
+6. Read the returned admission branch. For direct admission, preserve each returned `workflowRunId`; for host-queue admission, preserve `submissionId`, inspect `workflow submission get`, and correlate admitted tasks with `run list --submission`.
+7. Use real run handles to inspect admitted execution, then verify every requested Product, artifact, or changed Zotero object independently. Use `workflow queue cancel` only for a still-pending `queueId`; it is not run cancellation.
 
-精确 argv 与结构化恢复方式请查阅随附 `zotero-bridge-cli` Skill 的 `workflow` 和 `run` 命令参考。
+When the live description declares external resources, add a resource preparation pass between description and validation. Confirm non-interactive invocation support and every slot's direction, cardinality, requiredness, and acceptance limits; upload agent-accessible inputs and retain their opaque `fileId` values; request only declared bridge-download outputs. Pass the same bindings to validation and submission without substituting paths, then download and verify every returned resource output before treating that deliverable as complete.
 
-native Zotero queue 是 pending workflow units 与有界 admission 的唯一所有者。不得持久化第二套 plan-entry queue、在本地预留 units、重播 uncertain entries，或推断初始缺少 run handle 表示提交失败。queued submission 是由 `submissionId` 标识的单一 accepted operation；其中各 units 可分别处于 pending、admitted、terminal、failed 或 canceled。
+Consult the bundled `zotero-bridge-cli` Skill's `workflow` and `run` command references for exact argv and structured recovery.
 
-## 在 workflow 之间进行选择
+The native Zotero queue is the only owner of pending workflow units and bounded admission. Do not persist a second plan-entry queue, reserve units locally, replay uncertain entries, or infer that the initial absence of a run handle means submission failed. A queued submission is one accepted operation identified by `submissionId`; its units may be pending, admitted, terminal, failed, or canceled independently.
 
-从研究成果开始，而不是从 workflow 名字开始：
+## Choosing among workflows
 
-- 获取 workflows 自己的外部 provider 交互、摄取或重复候选者准备。
-- 分析 workflows 拥有每个来源的摘要、翻译、摘录、深度阅读或结构化分析 artifacts。
-- Synthesis workflows 拥有有限的跨源主题、框架、图形感知输出或研究包。
-- Curation workflows拥有可重用的分类或元数据/标签提议逻辑，而最终的 Zotero 更改仍然遵循其声明的权威路径。
-- 导入/导出workflows自己声明的包转换，而不是任意库写入变更。
+Start from the research outcome, not from a workflow name:
 
-然后比较：
+- Acquisition workflows own external provider interaction, ingest, or repeated candidate preparation.
+- Analysis workflows own per-source digest, translation, extraction, deep reading, or structured analytical artifacts.
+- Synthesis workflows own bounded cross-source topics, framing, graph-aware outputs, or research bundles.
+- Curation workflows own reusable classification or metadata/tag proposal logic, while the final Zotero change still follows its declared authority path.
+- Import/export workflows own declared package transformations, not arbitrary library mutation.
 
-1. **结果：** 描述是否承诺用户请求的可交付成果？
-2. **选择：**实时输入单元是否接受已解决的项目、父项、附件或空 selection表格？
-3. **执行模式：**执行 Zotero 是托管还是自有，当前agent是否满足该模式？
-4. **选项：**哪些选项是必需的，哪些有默认值，哪些会实质性地改变范围或输出？
-5. **Provider：** backend profile 是否必需、兼容、配置并单独验证？
-6. **证据：** 结果合约是否命名了完成所需的Product、artifact、实时变更或请求包？
-7. **权威：** 提交、变更、维护或申请返回是否引入了当前的批准边界？
+Then compare:
 
-如果两个workflows仍然可信，请解释其声明的结果或结果证据的差异，并仅在该选择重要时询问。不要根据标签相似性、表情符号、包位置或来自其他来源的缓存成功进行选择。
+1. **Outcome:** Does the description promise the deliverable the user requested?
+2. **Selection:** Do the live execution-input contract and candidate-production contract accept the resolved selection?
+3. **Execution mode:** Is execution Zotero-managed or self-owned, and can the current agent satisfy that mode?
+4. **Options:** Which options are required, which have defaults, and which materially change scope or output?
+5. **Provider:** Is a backend profile required, compatible, configured, and separately validated?
+6. **Evidence:** Does the result contract name the Product, artifact, live change, or request bundle needed for completion?
+7. **Authority:** Does submission, mutation, maintenance, or apply-back introduce a current approval boundary?
+8. **External resources:** Does the workflow support non-interactive invocation, and can every required input/output slot be satisfied with uploaded opaque handles or bridge-download delivery?
 
-典型的对话线索：
+If two workflows remain plausible, explain the difference in their declared outcomes or result evidence and ask only when that choice matters. Do not choose by label similarity, emoji, package position, or a cached success from another source.
 
-- “查找并导入文献”建议获取/摄取候选者；
-- “总结本文”建议进行分析；
-- “深入阅读这些 PDF”建议进行面向附件的分析 workflow；
-- “翻译此源”建议使用声明的输出artifact进行翻译；
-- “这些文献一起说了什么？”建议综合；
-- “创建或更新主题”表明不同的主题生命周期workflows；
-- “准备手稿文献框架”建议采用框架 workflow；
-- “标准化标签或元数据”建议进行策划，并独立审查写入内容；
-- “导出研究包”建议导出 workflow，其Product/资产必须经过验证。
+Typical conversational cues:
 
-静态匹配只是一个候选。如果实时 workflow 描述不同，请使用实时合约并在执行前报告更改的假设。
+- “find and import literature” suggests an acquisition/ingest candidate;
+- “summarize this paper” suggests analysis;
+- “deep read these PDFs” suggests an attachment-oriented analysis workflow;
+- “translate this source” suggests translation with a declared output artifact;
+- “what does this literature say together?” suggests synthesis;
+- “create or update a topic” suggests distinct topic lifecycle workflows;
+- “prepare a manuscript literature frame” suggests a framing workflow;
+- “normalize tags or metadata” suggests curation, with writes independently reviewed;
+- “export the research bundle” suggests an export workflow whose Product/asset must be verified.
 
-## 目录
+A static match is only a candidate. If the live workflow description differs, use the live contract and report the changed assumption before execution.
+
+## Catalog
 
 ### `collection-collector`
 
-**Collection 收集器**
+**Collection Collector**
 
-查找与某个 collection 含义匹配的文献库文献，并把经过审阅的匹配项加入该 Zotero collection。
+Find library literature matching a collection meaning and add reviewed matches to that Zotero collection.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/collection-collector/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`["collection","collectionScope"]`.
-- Workflow option：
-  - `collection`：`{"type":"string","required":true,"title":"Collection","description":"Existing Zotero collection that will receive matching literature.","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":false,"valueFormat":"collectionRef","labelFormat":"path"}}`。
-  - `collectionScope`：`{"type":"string","required":true,"title":"Collection Scope","description":"Meaning, research topic, or literature boundary represented by the collection."}`。
-- 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `collection-collector`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/collection-collector/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `["collection","collectionScope"]`.
+- Workflow options:
+  - `collection`: `{"type":"string","required":true,"title":"Collection","description":"Existing Zotero collection that will receive matching literature.","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":false,"valueFormat":"collectionRef","labelFormat":"path"}}`.
+  - `collectionScope`: `{"type":"string","required":true,"title":"Collection Scope","description":"Meaning, research topic, or literature boundary represented by the collection."}`.
+- Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `collection-collector`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `export-literature-bundle`
 
-**导出文献 bundle**
+**Export Literature Bundle**
 
-把选定文献及其生成的分析 artifact 导出为可移植 bundle。
+Export literature from the current selection, a Zotero collection, or the current library into a portable Research Product.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/export-literature-bundle/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"min":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `sourceOnly`：`{"type":"boolean","title":"仅导出原文","description":"导出扁平结构的原文包，不包含笔记和分析工件，无法被「导入文献包」工作流导入。","default":false}`。
-- 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `export-literature-bundle`、经过校验的 `selection` members，并按 `all` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-literature-bundle/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"bundle","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"literature-bundle.zip","accept":{"contentTypes":["application/zip"]}}]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `mode`: `{"type":"string","title":"Export mode","description":"Choose the current selection, a collection, or the current library.","enum":["selection","collection","library"],"default":"selection"}`.
+  - `targetCollection`: `{"type":"string","title":"Target collection","description":"Required in collection mode; use libraryId:collectionKey.","required":false,"allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
+  - `sourceOnly`: `{"type":"boolean","title":"仅导出原文","description":"导出扁平结构的原文包，不包含笔记和分析工件，无法被「导入文献包」工作流导入。","default":false}`.
+- Result evidence: `{"artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `export-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `export-research-bundle`
 
-**导出研究 bundle**
+**Export Research Bundle**
 
-把面向稿件的研究材料、已分析文献 artifact 与综合证据导出为可移植 bundle。
+Export manuscript-oriented research materials, analyzed literature artifacts, and synthesis evidence into a portable bundle.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/export-research-bundle/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `paperTitle`：`{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`。
-  - `articleType`：`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`。
-  - `researchContent`：`{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`。
-  - `maxTopics`：`{"type":"number","title":"Maximum Topics","default":5}`。
-  - `maxCorePapers`：`{"type":"number","title":"Maximum Core Papers","default":20}`。
-  - `maxRelatedPapers`：`{"type":"number","title":"Maximum Related Papers","default":80}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/export-research-bundle-artifacts.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `export-research-bundle`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-research-bundle/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`.
+  - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
+  - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`.
+  - `maxTopics`: `{"type":"number","title":"Maximum Topics","default":5}`.
+  - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20}`.
+  - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/export-research-bundle-artifacts.json"],"applyBack":true}`.
+- Invocation inputs: use workflow id `export-research-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `export-notes`
 
-**导出笔记**
+**Export Notes**
 
-把受支持的已生成 Zotero note 导出为可编辑外部文件。
+Export supported generated Zotero notes as editable external files.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/export-notes/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"generated-note"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"generated-note-candidates"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：未声明。
-- 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `export-notes`、经过校验的 `generated-note` members，并按 `all` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-notes/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"notes","direction":"output","kind":"archive","cardinality":"one","required":true,"suggestedName":"notes-export.zip","accept":{"contentTypes":["application/zip"]}}]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"generated-note"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"generated-note-candidates"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options: none declared.
+- Result evidence: `{"artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `export-notes`, validated `generated-note` members grouped by `all`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `import-literature-bundle`
 
-**导入文献 bundle**
+**Import Literature Bundle**
 
-导入文献 bundle，并协调其中受支持的 Zotero 文献 artifact。
+Import a literature bundle and reconcile its supported Zotero literature artifacts.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/import-literature-bundle/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：未声明。
-- 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `import-literature-bundle`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/import-literature-bundle/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"bundle","direction":"input","kind":"archive","cardinality":"one","required":true,"accept":{"extensions":[".zip"]}}]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options: none declared.
+- Result evidence: `{"artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `import-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `import-notes`
 
-**导入笔记**
+**Import Notes**
 
-导入受支持的外部分析文件，并 upsert 对应的已生成 Zotero note。
+Import supported external analysis files and upsert their generated Zotero notes.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/import-notes/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"exact":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：未声明。
-- 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `import-notes`、经过校验的 `parent` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/import-notes/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[{"id":"digest","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".md"]}},{"id":"references","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"citation-analysis","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"custom-notes","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"extensions":[".md"]}}]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"exact":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `conflictPolicy`: `{"type":"string","enum":["error","overwrite","skip"],"default":"error"}`.
+- Result evidence: `{"artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `import-notes`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-explainer`
 
-**文献讲解器**
+**Literature Explainer**
 
-针对一个文献来源运行有状态问答与学习笔记 session。
+Run a stateful question-answering and study-note session for one literature source.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-explainer/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `language`：`{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-explainer`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-explainer/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `literature-explainer`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-deep-reading`
 
-**文献深度阅读**
+**Literature Deep Reading**
 
-针对一个文献来源生成并应用详细且以证据为基础的深度阅读分析。
+Produce and apply a detailed, evidence-grounded deep-reading analysis for one literature source.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-deep-reading/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"availability","target":"deep-reading-html"}]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `target_language`：`{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-  - `mode`：`{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"literature-deep-reading.result.json","artifacts":["result/deep-reading.html","result/deep-reading-manifest.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-deep-reading`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-deep-reading/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"availability","target":"deep-reading-html"}]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `target_language`: `{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `mode`: `{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"literature-deep-reading.result.json","artifacts":["result/deep-reading.html","result/deep-reading-manifest.json"],"applyBack":true}`.
+- Invocation inputs: use workflow id `literature-deep-reading`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-analysis`
 
-**文献分析**
+**Literature Analysis**
 
-分析一个文献来源，并把摘要、结构化参考文献、引文分析与可选规范化 tag 应用到 Zotero。
+Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-kinds-absent","phase":"availability","noteKinds":["digest","references","citation-analysis"]}]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `language`：`{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-  - `auto_tag_regulator`：`{"type":"boolean","title":"Auto Tag Regulator","default":true}`。
-  - `auto_tag_infer_tag`：`{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-analysis`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-kinds-absent","phase":"availability","noteKinds":["digest","references","citation-analysis"]}]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `auto_tag_regulator`: `{"type":"boolean","title":"Auto Tag Regulator","default":true}`.
+  - `auto_tag_infer_tag`: `{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
+- Invocation inputs: use workflow id `literature-analysis`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-translator`
 
-**文献翻译**
+**Literature Translator**
 
-翻译一个文献来源，在保留学术结构的同时应用翻译 artifact。
+Translate one literature source and apply the translated artifact while preserving academic structure.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-translator/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"execute","target":"translator-markdown","parameter":"target_language"}]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `target_language`：`{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-  - `mode`：`{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-translator`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-translator/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"execute","target":"translator-markdown","parameter":"target_language"}]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `target_language`: `{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `mode`: `{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `literature-translator`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-metadata-curator`
 
-**文献元数据整理器**
+**Literature Metadata Curator**
 
-依据 identifier 与搜索证据，审计并修复所选文献的书目元数据。
+Audit and repair bibliographic metadata for selected literature using identifier and search evidence.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-metadata-curator/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `skip_identifier_fast_path`：`{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`。
-- 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-metadata-curator`、经过校验的 `parent` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-metadata-curator/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `skip_identifier_fast_path`: `{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`.
+- Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `literature-metadata-curator`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `literature-search-ingest`
 
-**文献搜索与摄取**
+**Literature Search Ingest**
 
-搜索学术来源、审阅候选项，以主 agent 自主决定的 subagent 分组研究已批准论文，在每篇论文的独立 payload 完成时增量收集，随后将其串行摄取到 Zotero。
+Search scholarly sources, review candidates, research approved papers in agent-chosen subagent groups, collect independent per-paper payloads as they complete, then serially ingest them into Zotero.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `query`：`{"type":"string","title":"Search Query","description":"Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.","default":""}`。
-  - `searchMode`：`{"type":"string","title":"Search Mode","description":"Choose auto detection, guided search planning, topic expansion, paper seed expansion, or exact targeted ingest.","default":"auto","enum":["auto","guided","topic_expansion","paper_seed_expansion","targeted_ingest"]}`。
-  - `searchBreadth`：`{"type":"string","title":"Search Breadth","description":"Choose broad multi-lane discovery, balanced coverage, or a quick first pass.","default":"broad","enum":["broad","balanced","quick"]}`。
-  - `languageHints`：`{"type":"array","title":"Language Hints","description":"Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.","items":{"type":"string"},"default":[]}`。
-  - `targetCollection`：`{"type":"string","title":"Target Collection","description":"Optional Zotero collection for created or existing items.","default":"","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`。
-- 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-search-ingest`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `query`: `{"type":"string","title":"Search Query","description":"Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.","default":""}`.
+  - `searchMode`: `{"type":"string","title":"Search Mode","description":"Choose auto detection, guided search planning, topic expansion, paper seed expansion, or exact targeted ingest.","default":"auto","enum":["auto","guided","topic_expansion","paper_seed_expansion","targeted_ingest"]}`.
+  - `searchBreadth`: `{"type":"string","title":"Search Breadth","description":"Choose broad multi-lane discovery, balanced coverage, or a quick first pass.","default":"broad","enum":["broad","balanced","quick"]}`.
+  - `languageHints`: `{"type":"array","title":"Language Hints","description":"Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.","items":{"type":"string"},"default":[]}`.
+  - `targetCollection`: `{"type":"string","title":"Target Collection","description":"Optional Zotero collection for created or existing items.","default":"","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
+- Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `literature-search-ingest`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `tag-bootstrapper`
 
-**Tag 词表引导器**
+**Tag Bootstrapper**
 
-依据当前文献库证据与可审阅建议，初始化受控 tag 词表。
+Bootstrap the controlled tag vocabulary from current library evidence and reviewable suggestions.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/tag-bootstrapper/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `tag_note_language`：`{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-- 结果证据：`{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `tag-bootstrapper`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-bootstrapper/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+- Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `tag-bootstrapper`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `tag-auditor`
 
-**Tag 审计器**
+**Tag Auditor**
 
-依据受控词表审计所选文献 tag，不悄然更改无关元数据。
+Audit selected literature tags against the controlled vocabulary without silently changing unrelated metadata.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/tag-auditor/workflow.json`；core：`false`.
-- Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：未声明。
-- 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `tag-auditor`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-auditor/workflow.json`; core: `false`.
+- Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options: none declared.
+- Result evidence: `{"artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `tag-auditor`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `tag-regulator`
 
-**Tag 规范器**
+**Tag Regulator**
 
-依据受控词表规范化并推断所选文献 tag。
+Normalize and infer selected literature tags against the controlled vocabulary.
 
-- Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/tag-regulator/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `infer_tag`：`{"type":"boolean","title":"Infer Tag","default":true}`。
-  - `tag_note_language`：`{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-- 结果证据：`{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `tag-regulator`、经过校验的 `parent` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-regulator/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `infer_tag`: `{"type":"boolean","title":"Infer Tag","default":true}`.
+  - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+- Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `tag-regulator`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `mineru`
 
 **MinerU**
 
-把所选 PDF attachment 转换为结构化 Markdown 与图片 artifact，并把结果附加到 Zotero。
+Convert selected PDF attachments into structured Markdown and image artifacts and attach the result to Zotero.
 
-- Package：`mineru`；manifest：`workflows_builtin/mineru/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"generic-http.steps.v1","acceptedProviderTypes":["generic-http"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：未声明。
-- 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `mineru`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `mineru`; manifest: `workflows_builtin/mineru/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"generic-http.steps.v1","acceptedProviderTypes":["generic-http"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`.
+- Required workflow options: `[]`.
+- Workflow options: none declared.
+- Result evidence: `{"artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `mineru`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `create-topic-synthesis`
 
-**创建主题综合**
+**Create Topic Synthesis**
 
-使用当前文献库、参考文献与 citation-graph 证据，从自然语言 seed 创建新的 topic synthesis。
+Create a new topic synthesis from a natural-language seed using the current library, reference, and citation-graph evidence.
 
-- Package：`synthesis-layer`；manifest：`workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `topicSeed`：`{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`。
-  - `language`：`{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `create-topic-synthesis`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `topicSeed`: `{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`.
+  - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `create-topic-synthesis`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `update-topic-synthesis`
 
-**更新主题综合**
+**Update Topic Synthesis**
 
-依据现有 topic synthesis 的当前 resolver scope、证据与变更状态进行更新。
+Update an existing topic synthesis from its current resolver scope, evidence, and change state.
 
-- Package：`synthesis-layer`；manifest：`workflows_builtin/synthesis-layer/update-topic-synthesis/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `topicId`：`{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `update-topic-synthesis`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/update-topic-synthesis/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `topicId`: `{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `update-topic-synthesis`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
 ### `manuscript-literature-framing`
 
-**稿件文献框架**
+**Manuscript Literature Framing**
 
-依据所选 synthesis topic 与文献库证据，生成稿件引言和相关工作框架。
+Generate manuscript introduction and related-work framing from selected synthesis topics and library evidence.
 
-- Package：`synthesis-layer`；manifest：`workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json`；core：`true`.
-- Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
-- 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- 必需 workflow option：`[]`.
-- Workflow option：
-  - `paperTitle`：`{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`。
-  - `language`：`{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`。
-  - `targetVenue`：`{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`。
-  - `articleType`：`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`。
-  - `stylePreference`：`{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`。
-- 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/manuscript-literature-framing-artifacts.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `manuscript-literature-framing`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
+- Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`.
+  - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`.
+  - `targetVenue`: `{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`.
+  - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
+  - `stylePreference`: `{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/manuscript-literature-framing-artifacts.json"],"applyBack":true}`.
+- Invocation inputs: use workflow id `manuscript-literature-framing`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.

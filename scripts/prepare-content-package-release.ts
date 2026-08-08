@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -29,8 +28,6 @@ export type ContentPackageReleaseArgs = {
   channels?: ContentPackageChannel[];
   runCommand?: RunCommand;
   requestId?: string;
-  hostReleaseSetFile?: string;
-  hostReceiptFile?: string;
 };
 
 export type ContentPackageReleaseResult = {
@@ -196,27 +193,6 @@ function nextCommands(args: { repo: string; ref: string }) {
   ];
 }
 
-async function assertHostBridgeReleaseComplete(args: {
-  releaseSetFile: string;
-  receiptFile: string;
-}) {
-  const releaseSet = JSON.parse(await readFile(args.releaseSetFile, "utf8"));
-  let receipt: Record<string, unknown> = {};
-  try {
-    receipt = JSON.parse(await readFile(args.receiptFile, "utf8"));
-  } catch {
-    // Missing receipt is handled by the common mismatch error below.
-  }
-  if (
-    receipt.status !== "complete" ||
-    receipt.releaseSetId !== releaseSet.releaseSetId
-  ) {
-    throw new Error(
-      `Host Bridge ${releaseSet.releaseSetId} has no matching complete receipt; finish that publication before dispatching content packages.`,
-    );
-  }
-}
-
 export async function prepareContentPackageRelease(
   args: ContentPackageReleaseArgs,
 ): Promise<ContentPackageReleaseResult> {
@@ -257,12 +233,6 @@ export async function prepareContentPackageRelease(
     }
     await assertCleanWorkingTree(commandRunner);
     await assertRemoteRefContainsHead({ commandRunner, ref });
-    await assertHostBridgeReleaseComplete({
-      releaseSetFile: args.hostReleaseSetFile || "host-bridge/release-set.json",
-      receiptFile:
-        args.hostReceiptFile ||
-        "host-bridge/latest-complete-release-receipt.json",
-    });
     const requestId =
       args.requestId || createGithubWorkflowRequestId("content");
     const selected = await dispatchAndResolveGithubWorkflowRun({

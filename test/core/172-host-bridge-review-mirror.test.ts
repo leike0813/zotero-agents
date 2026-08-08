@@ -37,7 +37,7 @@ function createFixture() {
         kind: "minimum-core",
         patch: 1,
         sourceRoot: "source/minimum",
-        generatedRoot: "generated/minimum",
+        generatedRoot: "generated/generic/zotero-bridge-cli",
         materializedRoot: "minimum",
         skills: [
           {
@@ -96,7 +96,7 @@ function createFixture() {
     '{"schema":"host-bridge.release-receipt.v2","status":"complete","releaseSetId":"complete","sourceCommit":"complete-source"}\n',
   );
   write(
-    join(root, "generated/minimum/SKILL.md"),
+    join(root, "generated/generic/zotero-bridge-cli/SKILL.md"),
     markdown("zotero-bridge-cli"),
   );
   write(
@@ -168,7 +168,7 @@ describe("Host Bridge review mirror", function () {
     );
     assert.include(
       inventory.files.map((entry) => entry.sourcePath),
-      "skills_builtin/zotero-library-agent/references/workflow-catalog.md",
+      "addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md",
     );
     assert.lengthOf(
       new Set(inventory.files.map((entry) => entry.sourcePath)),
@@ -205,7 +205,7 @@ describe("Host Bridge review mirror", function () {
     prepareHostBridgeReviewMirror({ root, stagingRoot });
     translatePrepared(stagingRoot);
     write(
-      join(root, "generated/minimum/SKILL.md"),
+      join(root, "generated/generic/zotero-bridge-cli/SKILL.md"),
       `${markdown("zotero-bridge-cli")}changed\n`,
     );
     assert.throws(
