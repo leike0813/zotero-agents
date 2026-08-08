@@ -1,7 +1,7 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
-  "version": "0.5.1",
-  "buildFingerprint": "12edeb78c12a7f6c1434f91146d006544d9fbe10d26a32f6b9b6b30698308e77",
+  "version": "0.5.2",
+  "buildFingerprint": "1ea4d51010e3b5f6c45c7bf4f25b9ce6e215a8a4acc2486314622350d19120fb",
   "binariesBuildFingerprint": "12edeb78c12a7f6c1434f91146d006544d9fbe10d26a32f6b9b6b30698308e77",
   "fingerprintInputs": [
     "cli/zotero-bridge/Cargo.lock",
@@ -26,7 +26,6 @@
     "scripts/build-zotero-bridge-cli.mjs",
     "scripts/package-zotero-bridge-cli.mjs"
   ],
-  "binaryAggregateSha256": "0688a9ba4ad7ff821151c86dc1bd15e5295a6fa6dea0e901ee62920a1bc96f3c",
   "binaries": [
     {
       "platform": "win32-x64",
