@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-native-worker-transfer-ownership Specification
+
+## Purpose
+
+Define exclusive native module authorities, bounded worker flow control, atomic transfer publication, cancellation, and tracing.
+
+## Requirements
 
 ### Requirement: Native runtime modules SHALL have exclusive authorities
 

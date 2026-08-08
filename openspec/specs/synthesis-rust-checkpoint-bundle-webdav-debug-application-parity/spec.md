@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-rust-checkpoint-bundle-webdav-debug-application-parity Specification
+
+## Purpose
+
+Define typed Rust ownership and reproducible parity evidence for checkpoint, bundle, WebDAV, and debug applications.
+
+## Requirements
 
 ### Requirement: Final R7 applications SHALL have typed Rust owners
 The Rust application crate SHALL expose separate typed Knowledge Checkpoint, Durable Bundle, WebDAV Sync, and Debug/Maintenance modules whose DTO, policy, admission, cancellation, and drain behavior matches the frozen Node oracle without generic or string-selected dispatch.

@@ -14,7 +14,9 @@ describe("bundled help center packaging", function () {
     };
     const script = await readProjectFile("scripts/build-help-docs.ts");
 
-    const releaseWorkflow = await readProjectFile(".github/workflows/release.yml");
+    const releaseWorkflow = await readProjectFile(
+      ".github/workflows/release.yml",
+    );
     assert.include(releaseWorkflow, "npm run build:help-docs");
     assert.equal(
       pkg.scripts["build:help-docs"],

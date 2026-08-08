@@ -124,7 +124,9 @@ export function checkSynthesisRustLicenseInventory() {
       prebuildWorkflow.includes(
         "npx tsx scripts/check-synthesis-rust-license-inventory.ts",
       ) ||
-      prebuildWorkflow.includes("npm run check:synthesis-rust-license-inventory")
+      prebuildWorkflow.includes(
+        "npm run check:synthesis-rust-license-inventory",
+      )
     ) ||
     !prebuildWorkflow.includes("npm run package:synthesis-sidecar-runtime")
   ) {

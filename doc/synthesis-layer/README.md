@@ -160,11 +160,13 @@ delivery paths. Full-library and worker-backed mutations return the existing
 maintenance-operation receipt and continue through bounded phases with explicit
 progress, cancellation, retry, and one terminal.
 
-Local domain parity and production-route candidate evidence are complete for
-the closed operation inventory. Acceptance is still blocked on the governed
-seven-platform build, production/performance gates, and representative Zotero 7
-and Zotero 9 real-machine checks. R9b deletion changes remain blocked until
-those gates pass; no signing, XPI publication, release, or synchronization is
+Local domain parity, production-route performance, and representative Zotero
+7.0.32/Zotero 9.0.4 Linux checks are complete for the current executable source
+identity and closed operation inventory. Repository-wide strict OpenSpec,
+format, lint, TypeScript, Rust, production-route, performance, and production
+build gates are also complete. Acceptance remains blocked on the governed
+seven-platform build, final packaging, signing, and release gates. R9b deletion
+changes remain blocked; no XPI publication, release, or synchronization is
 authorized by the current evidence.
 
 | Area | Status | Notes |
@@ -178,4 +180,4 @@ authorized by the current evidence.
 | Client and transfer boundary | current | TypeScript composes the grouped client, stages large content through authenticated transfer/locator contracts, resolves export delivery, and never exposes paths, credentials, or runtime internals. |
 | Remote export delivery | Host-owned authority | Rust builds bounded canonical entries; the Host adapter alone materializes temporary ZIP bytes, registers opaque exports, and cleans them up. |
 | Differential oracle | retained, non-production | Node/TypeScript packages and frozen corpora remain only for differential evidence. They use isolated roots in tests and have no fallback, live owner, or release role. |
-| Migration acceptance | candidate evidence | Local parity and production-route evidence are present; seven-platform, governed performance, Zotero 7/9, packaging, signing, and release gates remain incomplete. |
+| Migration acceptance | local gates complete | Strict repository gates, local parity, governed 2k/10k/25k performance, and representative Zotero 7.0.32/9.0.4 Linux checks passed on 2026-08-08. Seven-platform, final packaging, signing, release, and R9b acceptance remain incomplete. |

@@ -93,7 +93,7 @@ describe("Synthesis Citation Graph metrics engine", function () {
   });
 
   it("canonically rebuilds requests with metrics-specific graph limits", function () {
-    assert.equal(SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX, 5000);
+    assert.equal(SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX, 10_000);
     assert.equal(SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX, 20000);
     assert.equal(SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX, 20_000);
     assert.equal(SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX, 80_000);

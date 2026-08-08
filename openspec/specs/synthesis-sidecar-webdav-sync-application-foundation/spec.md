@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-webdav-sync-application-foundation Specification
+
+## Purpose
+
+Define typed Rust parity and remote-change safety for WebDAV synchronization.
+
+## Requirements
 
 ### Requirement: WebDAV Sync SHALL expose typed Rust parity
 The Rust application SHALL orchestrate strict HEAD reading, preview-first durable import, deterministic local export, asset-then-manifest-then-HEAD publication, conflict handling, pause/resume, stale-run recovery, and at most four cancellable retries through typed environment-neutral ports.

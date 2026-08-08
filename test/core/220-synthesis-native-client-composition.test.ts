@@ -26,11 +26,20 @@ import {
   type SynthesisProductionBaselineFixture,
 } from "../../scripts/synthesisProductionSurfaceCorpora";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import {
+  setDebugModeOverrideForTests,
+  setSynthesisSidecarDiagnosticsSourceOverrideForTests,
+} from "../../src/modules/debugMode";
 import { SynthesisSidecarRpcError } from "../../src/modules/synthesisSidecarRpcClient";
+import {
+  readSynthesisSidecarTraceSnapshot,
+  resetSynthesisSidecarTraceForTests,
+} from "../../src/modules/synthesisSidecarTrace";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
   synthesisProductionOperationPolicy,
   synthesisProductionOperationDeadlineMs,
+  synthesisProductionOperationWorkDeadlineMs,
   synthesisProductionTransportDeadlineMs,
 } from "../../src/modules/synthesisProductionRpcPolicy";
 
@@ -85,6 +94,170 @@ describe("Synthesis native client composition", function () {
       assert.notInclude(serialized, forbidden);
     }
   });
+
+  it("classifies public maintenance receipts by lifecycle state for every receipt operation", function () {
+    const receiptCapabilities =
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
+        (capability) =>
+          synthesisProductionOperationPolicy(capability).receipt ===
+          "public-maintenance-operation",
+      );
+    assert.lengthOf(receiptCapabilities, 16);
+
+    for (const operation of receiptCapabilities) {
+      for (const status of ["pending", "running", "completed"] as const) {
+        const result = beginSynthesisSidecarBusinessAudit({
+          operation,
+        }).succeeded({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: `maintenance:${operation}:${status}`,
+          status,
+        });
+        assert.deepEqual(
+          result,
+          { succeeded: true, semanticStatus: status },
+          `${operation}:${status}`,
+        );
+      }
+      for (const status of [
+        "failed",
+        "canceled",
+        "timed_out",
+        "not_found",
+        "unexpected",
+      ] as const) {
+        const result = beginSynthesisSidecarBusinessAudit({
+          operation,
+        }).succeeded({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: `maintenance:${operation}:${status}`,
+          status,
+        });
+        assert.deepEqual(
+          result,
+          { succeeded: false, semanticStatus: status },
+          `${operation}:${status}`,
+        );
+      }
+      assert.deepEqual(
+        beginSynthesisSidecarBusinessAudit({ operation }).succeeded({
+          schema: "synthesis.maintenance_operation.v1",
+          operation_id: `maintenance:${operation}:missing-status`,
+        }),
+        { succeeded: false },
+        `${operation}:missing-status`,
+      );
+    }
+  });
+
+  it("records accepted maintenance receipts as successful root traces", async function () {
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+    try {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({
+              schema: "synthesis.maintenance_operation.v1",
+              operation_id: `maintenance:${args.capability}`,
+              operation_type: args.capability,
+              status: "pending",
+            });
+          },
+        },
+      });
+      const invocations: Partial<
+        Record<
+          SynthesisSidecarProductionClientCapability,
+          () => Promise<unknown>
+        >
+      > = {
+        "client.startReferenceSidecarRefresh": () =>
+          composition.client.references.startRefresh(),
+        "client.refreshReferenceSidecarNow": () =>
+          composition.client.references.refreshReferenceSidecarNow(),
+        "client.retryReferenceSidecarRefresh": () =>
+          composition.client.references.retryReferenceSidecarRefresh(),
+        "client.runAdvancedReferenceMatchingNow": () =>
+          composition.client.references.runAdvancedReferenceMatchingNow(),
+        "client.retryAdvancedReferenceMatching": () =>
+          composition.client.references.retryAdvancedReferenceMatching(),
+        "client.startCitationGraphUpdate": () =>
+          composition.client.graph.startUpdate(),
+        "client.rebuildCitationGraphCacheNow": () =>
+          composition.client.graph.rebuildCitationGraphCacheNow(),
+        "client.refreshCitationGraphCacheIncrementalNow": () =>
+          composition.client.graph.refreshCitationGraphCacheIncrementalNow(),
+        "client.retryCitationGraphCacheRebuild": () =>
+          composition.client.graph.retryCitationGraphCacheRebuild(),
+        "client.refreshCitationGraphMetricsNow": () =>
+          composition.client.graph.refreshMetricsNow(),
+        "client.recomputeCitationGraphLayout": () =>
+          composition.client.graph.recomputeCitationGraphLayout({
+            algorithm: "radial",
+          }),
+        "client.rebuildTagVocabularyIndex": () =>
+          composition.client.tags.rebuildTagVocabularyIndex(),
+        "client.rebuildConceptKbIndex": () =>
+          composition.client.concepts.rebuildConceptKbIndex(),
+        "client.rebuildTopicGraphIndex": () =>
+          composition.client.topicGraph.rebuildTopicGraphIndex(),
+        "client.syncWebDavNow": () => composition.client.sync.webDav.runNow(),
+        "client.retryWebDavSync": () => composition.client.sync.webDav.retry(),
+      };
+      const receiptCapabilities =
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
+          (capability) =>
+            synthesisProductionOperationPolicy(capability).receipt ===
+            "public-maintenance-operation",
+        );
+      assert.sameMembers(Object.keys(invocations), receiptCapabilities);
+
+      for (const operation of receiptCapabilities) {
+        resetSynthesisSidecarTraceForTests();
+        await invocations[operation]!();
+        const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
+        const terminal = trace.events.find(
+          (event) =>
+            event.boundary === "operation" && event.phase === "terminal",
+        )!;
+        assert.deepEqual(terminal.identities, { operation });
+        assert.equal(terminal.outcome, "succeeded", operation);
+        assert.isUndefined(terminal.code, operation);
+        assert.deepEqual(
+          terminal.facts,
+          { semanticStatus: "pending" },
+          operation,
+        );
+        assert.isTrue(trace.active, operation);
+        const accepted = trace.events.find(
+          (event) => event.phase === "maintenance-started",
+        )!;
+        assert.deepEqual(
+          accepted.identities,
+          {
+            capability: operation,
+            operation: `maintenance:${operation}`,
+          },
+          operation,
+        );
+      }
+    } finally {
+      resetSynthesisSidecarTraceForTests();
+      setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+      setDebugModeOverrideForTests(undefined);
+    }
+  });
+
   it("keeps the TypeScript port and Rust manifest on one closed fingerprint", function () {
     const report = inspectSynthesisProductionCapabilities();
     assert.equal(report.capabilityCount, 96);
@@ -389,10 +562,10 @@ describe("Synthesis native client composition", function () {
       "client.refreshReferenceSidecarNow",
       "client.retryReferenceSidecarRefresh",
     ] as const) {
-      assert.equal(synthesisProductionOperationDeadlineMs(capability), 60_000);
+      assert.equal(synthesisProductionOperationDeadlineMs(capability), 10_000);
       assert.equal(
         synthesisProductionTransportDeadlineMs(capability),
-        60_000 + SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
+        10_000 + SYNTHESIS_PRODUCTION_RPC_TRANSPORT_GRACE_MS,
       );
     }
   });
@@ -434,9 +607,7 @@ describe("Synthesis native client composition", function () {
       });
     }
     assert.include(
-      synthesisProductionOperationPolicy(
-        "client.exportFilteredPaperArtifacts",
-      ),
+      synthesisProductionOperationPolicy("client.exportFilteredPaperArtifacts"),
       { resultPlane: "delivery" },
     );
     const receiptCapabilities = [
@@ -462,7 +633,30 @@ describe("Synthesis native client composition", function () {
         workModel: "receipt",
         receipt: "public-maintenance-operation",
       });
+      assert.isAbove(
+        synthesisProductionOperationWorkDeadlineMs(capability),
+        synthesisProductionOperationDeadlineMs(capability),
+        capability,
+      );
     }
+    assert.equal(
+      synthesisProductionOperationDeadlineMs(
+        "client.runAdvancedReferenceMatchingNow",
+      ),
+      10_000,
+    );
+    assert.equal(
+      synthesisProductionOperationWorkDeadlineMs(
+        "client.runAdvancedReferenceMatchingNow",
+      ),
+      30 * 60_000,
+    );
+    assert.equal(
+      synthesisProductionOperationWorkDeadlineMs(
+        "client.recomputeCitationGraphLayout",
+      ),
+      120_000,
+    );
     assert.deepEqual(
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter(
         (capability) =>
@@ -475,8 +669,7 @@ describe("Synthesis native client composition", function () {
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES.filter((capability) => {
         const policy = synthesisProductionOperationPolicy(capability);
         return (
-          policy.requestPlane !== "control" ||
-          policy.resultPlane !== "control"
+          policy.requestPlane !== "control" || policy.resultPlane !== "control"
         );
       }).sort(),
       [
@@ -493,7 +686,11 @@ describe("Synthesis native client composition", function () {
     const transferStatus = (state: "receiving_input" | "input_sealed") => ({
       sessionId: "native-transfer:1",
       state,
-      input: { receivedPages: state === "receiving_input" ? 0 : 1, totalPages: 1, stagedBytes: 900_000 },
+      input: {
+        receivedPages: state === "receiving_input" ? 0 : 1,
+        totalPages: 1,
+        stagedBytes: 900_000,
+      },
       execution: { attempts: 0 },
       stagedBytes: 900_000,
       createdAtMs: 1,
@@ -539,9 +736,7 @@ describe("Synthesis native client composition", function () {
     });
 
     const transferActions = calls
-      .filter(
-        (call) => call.capability === "transfer.content",
-      )
+      .filter((call) => call.capability === "transfer.content")
       .map((call) => call.payload.action);
     assert.equal(transferActions[0], "begin");
     assert.isAbove(

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-isolated-repository-foundation Specification
+
+## Purpose
+
+Define the isolated Rust repository aggregates and transactional fault behavior required by the final application cluster.
+
+## Requirements
 
 ### Requirement: Rust repository SHALL expose typed final R7 aggregates
 The Rust repository SHALL provide bounded typed reads, complete Knowledge capture/replacement, Durable capture/import/apply/receipt operations, and coherent Debug projection for the existing 51 tables without schema or index changes.

@@ -1,7 +1,5 @@
 import { assert } from "chai";
-import {
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-} from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
 
 const OWNED = [

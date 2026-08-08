@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-citation-graph-build-large-transfer-contract Specification
+
+## Purpose
+
+Define bounded staging, expiry, restart, and retry behavior for large native Citation Graph transfers.
+
+## Requirements
 
 ### Requirement: Native transfer staging SHALL enforce aggregate storage bounds
 

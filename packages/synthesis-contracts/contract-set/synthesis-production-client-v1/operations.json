@@ -6,10 +6,24 @@
   "responseBytes": 1048576,
   "controlTargetBytes": 786432,
   "deadlineMs": 10000,
-  "deadlineOverridesMs": {
-    "client.startReferenceSidecarRefresh": 60000,
-    "client.refreshReferenceSidecarNow": 60000,
-    "client.retryReferenceSidecarRefresh": 60000
+  "deadlineOverridesMs": {},
+  "workDeadlineMs": {
+    "client.startReferenceSidecarRefresh": 1800000,
+    "client.refreshReferenceSidecarNow": 1800000,
+    "client.retryReferenceSidecarRefresh": 1800000,
+    "client.runAdvancedReferenceMatchingNow": 1800000,
+    "client.retryAdvancedReferenceMatching": 1800000,
+    "client.startCitationGraphUpdate": 600000,
+    "client.rebuildCitationGraphCacheNow": 600000,
+    "client.refreshCitationGraphCacheIncrementalNow": 600000,
+    "client.retryCitationGraphCacheRebuild": 600000,
+    "client.refreshCitationGraphMetricsNow": 120000,
+    "client.recomputeCitationGraphLayout": 120000,
+    "client.rebuildTagVocabularyIndex": 600000,
+    "client.rebuildConceptKbIndex": 600000,
+    "client.rebuildTopicGraphIndex": 600000,
+    "client.syncWebDavNow": 1800000,
+    "client.retryWebDavSync": 1800000
   },
   "receiptQueryCapability": "client.getPublicMaintenanceOperation",
   "policyDefaults": {
@@ -195,11 +209,15 @@
     "client.resolveWebDavSyncConflict": "mutation"
   },
   "semanticSuccess": {
-    "client.recomputeCitationGraphLayout": {
+    "client.startReferenceSidecarRefresh": {
       "field": "status",
       "values": ["promoted", "unchanged"]
     },
-    "client.refreshCitationGraphMetricsNow": {
+    "client.refreshReferenceSidecarNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryReferenceSidecarRefresh": {
       "field": "status",
       "values": ["promoted", "unchanged"]
     },
@@ -211,13 +229,49 @@
       "field": "status",
       "values": ["promoted", "unchanged"]
     },
-    "client.refreshReferenceSidecarNow": {
+    "client.startCitationGraphUpdate": {
       "field": "status",
       "values": ["promoted", "unchanged"]
     },
-    "client.retryReferenceSidecarRefresh": {
+    "client.rebuildCitationGraphCacheNow": {
       "field": "status",
       "values": ["promoted", "unchanged"]
+    },
+    "client.refreshCitationGraphCacheIncrementalNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.retryCitationGraphCacheRebuild": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.refreshCitationGraphMetricsNow": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.recomputeCitationGraphLayout": {
+      "field": "status",
+      "values": ["promoted", "unchanged"]
+    },
+    "client.rebuildTagVocabularyIndex": {
+      "field": "status",
+      "values": ["committed", "unchanged"]
+    },
+    "client.rebuildConceptKbIndex": {
+      "field": "status",
+      "values": ["committed", "unchanged"]
+    },
+    "client.rebuildTopicGraphIndex": {
+      "field": "status",
+      "values": ["committed", "unchanged"]
+    },
+    "client.syncWebDavNow": {
+      "field": "queue_state",
+      "values": ["idle", "disabled"]
+    },
+    "client.retryWebDavSync": {
+      "field": "queue_state",
+      "values": ["idle", "disabled"]
     }
   }
 }

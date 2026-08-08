@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-} from "../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../packages/synthesis-contracts/src/sidecarSystem";
 import { readSynthesisProductionSurfaceCorpora } from "./synthesisProductionSurfaceCorpora";
 
 type Access = "read" | "mutation";
@@ -90,7 +88,10 @@ export function inspectSynthesisReferenceCanonicalSurfaceParity() {
       ? []
       : ["invalid operation count"]),
     ...corpus.operations
-      .filter((operation) => operationManifest.access[operation.id] !== operation.access)
+      .filter(
+        (operation) =>
+          operationManifest.access[operation.id] !== operation.access,
+      )
       .map((operation) => `access mismatch: ${operation.id}`),
     ...corpus.operations
       .filter((operation) =>
@@ -115,9 +116,12 @@ export function inspectSynthesisReferenceCanonicalSurfaceParity() {
       .filter(
         (operation) =>
           hostJobOperations.has(operation.id) &&
-          ["bounded_host_pages", "host_disconnect", "host_revision_drift", "durable_job"].some(
-            (name) => !operation.cases.includes(name),
-          ),
+          [
+            "bounded_host_pages",
+            "host_disconnect",
+            "host_revision_drift",
+            "durable_job",
+          ].some((name) => !operation.cases.includes(name)),
       )
       .map((operation) => `missing Host job case: ${operation.id}`),
     ...corpus.operations
@@ -142,9 +146,15 @@ export function inspectSynthesisReferenceCanonicalSurfaceParity() {
           dedicatedCanonicalOperations.has(operation.id) &&
           !operation.cases.includes("dedicated_port"),
       )
-      .map((operation) => `missing dedicated canonical port case: ${operation.id}`),
-    ...ids.filter((id) => !ready.includes(id as never)).map((id) => `not ready: ${id}`),
-    ...(new Set(ready).size === ready.length ? [] : ["duplicate ready capability"]),
+      .map(
+        (operation) => `missing dedicated canonical port case: ${operation.id}`,
+      ),
+    ...ids
+      .filter((id) => !ready.includes(id as never))
+      .map((id) => `not ready: ${id}`),
+    ...(new Set(ready).size === ready.length
+      ? []
+      : ["duplicate ready capability"]),
   ];
   return { ok: errors.length === 0, operations: ids.length, errors };
 }

@@ -2268,13 +2268,9 @@ describe("Synthesis tab UI model", function () {
           `${command}[\\s\\S]{0,420}client\\.references\\s*\\.${method}\\(\\)`,
         ),
       );
-      assert.match(
-        referenceRegion,
-        new RegExp(
-          `${command}[\\s\\S]{0,500}client\\.references\\s*\\.${method}\\(\\)\\s*\\.then\\(failOnDiagnostic\\)`,
-        ),
-      );
     }
+    assert.include(referenceRegion, "observePublicMaintenanceOperation");
+    assert.include(referenceRegion, ").then(failOnDiagnostic)");
     for (const command of [
       "refreshReferenceSidecarNow",
       "runAdvancedReferenceMatchingNow",
@@ -2385,6 +2381,14 @@ describe("Synthesis tab UI model", function () {
     assert.include(diagnosticBlock, "row.ok === false");
     assert.include(diagnosticBlock, '"diagnostics"');
     assert.include(diagnosticBlock, ".diagnostics");
+    assert.include(diagnosticBlock, ".warnings");
+    assert.include(diagnosticBlock, '"synthesis.maintenance_receipt.v1"');
+    const maintenanceObserver = extractFunctionBlock(
+      tabSource,
+      "observePublicMaintenanceOperation",
+    );
+    assert.include(maintenanceObserver, "operation.operation_id");
+    assert.include(maintenanceObserver, "failOnDiagnostic");
 
     const invalidationBlock = extractFunctionBlock(
       tabSource,

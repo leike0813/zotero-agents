@@ -186,7 +186,7 @@ After whole-bundle validation succeeds, failure to create a parent or any requir
 
 ---
 
-## Source-only export mode
+**Source-only export mode**
 
 ### Requirement: `sourceOnly` parameter selects a flat, title-renamed, import-incompatible export format
 
@@ -243,4 +243,3 @@ When `export-literature-bundle` is invoked with `sourceOnly: true`, the produced
 - **THEN** the ZIP SHALL contain exactly `manifest.json` and one file per item that has a source file, all under `items/`
 - **AND** the manifest SHALL list `kind`, `createdAt`, `source`, `warnings`, `items`, and `files`
 - **AND** the manifest SHALL NOT contain `schemaVersion`.
-

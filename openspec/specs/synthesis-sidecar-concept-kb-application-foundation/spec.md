@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-concept-kb-application-foundation Specification
+
+## Purpose
+
+Define typed Rust application parity and basis safety for Concept KB aggregates, indexes, and queries.
+
+## Requirements
 
 ### Requirement: Concept KB SHALL have typed Rust application parity
 The private Rust candidate SHALL implement strict Concept snapshot replacement, deterministic proposal and review policy, display and deletion cascades, index promotion, bounded query, and lifecycle behavior over typed ports.

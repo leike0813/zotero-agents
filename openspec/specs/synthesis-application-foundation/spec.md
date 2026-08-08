@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-application-foundation Specification
+
+## Purpose
+
+Define environment-neutral application ownership for Citation and Reference orchestration.
+
+## Requirements
 
 ### Requirement: Citation and Reference orchestration SHALL have environment-neutral typed owners
 The application package SHALL own private typed Citation Graph, Reference Refresh, and Reference Matching/Review orchestration, strict bounded reads, lifecycle admission, and result projection without Node, Zotero, Host, UI, service, or production persistence imports.

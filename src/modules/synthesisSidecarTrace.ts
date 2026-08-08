@@ -39,7 +39,11 @@ export type SynthesisSidecarTracePatch = {
 };
 
 type Subscriber = (patch: SynthesisSidecarTracePatch) => void;
-type MutableTrace = SynthesisSidecarTrace & { firstFailureRetained: boolean };
+type MutableTrace = SynthesisSidecarTrace & {
+  firstFailureRetained: boolean;
+  rootActive: boolean;
+  activeMaintenanceOperationIds: Set<string>;
+};
 
 const traces = new Map<string, MutableTrace>();
 const subscribers = new Set<Subscriber>();
@@ -140,6 +144,8 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
       droppedCount: 0,
       active: true,
       firstFailureRetained: false,
+      rootActive: true,
+      activeMaintenanceOperationIds: new Set(),
       startedAtMs: event.occurredAtMs,
       updatedAtMs: event.occurredAtMs,
     };
@@ -149,6 +155,15 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
     pendingUpdated.add(event.traceId);
   }
   const isFailure = ["failed", "canceled", "timed-out"].includes(event.outcome);
+  const maintenanceOperationId = event.identities?.operation;
+  const isMaintenanceStarted =
+    event.phase === "maintenance-started" &&
+    event.outcome === "started" &&
+    Boolean(maintenanceOperationId);
+  const isMaintenanceTerminal =
+    event.phase === "maintenance-terminal" &&
+    event.outcome !== "started" &&
+    Boolean(maintenanceOperationId);
   const isRootTerminal =
     event.parentSpanId === undefined && event.outcome !== "started";
   if (trace.events.length < SYNTHESIS_SIDECAR_TRACE_PER_TRACE_LIMIT) {
@@ -159,12 +174,20 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
     if (isFailure && !trace.firstFailureRetained) {
       trace.events[Math.min(1, trace.events.length - 1)] = event;
       trace.firstFailureRetained = true;
-    } else if (isRootTerminal) {
+    } else if (isRootTerminal || isMaintenanceTerminal) {
       trace.events[trace.events.length - 1] = event;
     }
   }
   trace.updatedAtMs = event.occurredAtMs;
-  if (isRootTerminal) trace.active = false;
+  if (isMaintenanceStarted) {
+    trace.activeMaintenanceOperationIds.add(maintenanceOperationId!);
+  }
+  if (isMaintenanceTerminal) {
+    trace.activeMaintenanceOperationIds.delete(maintenanceOperationId!);
+  }
+  if (isRootTerminal) trace.rootActive = false;
+  trace.active =
+    trace.rootActive || trace.activeMaintenanceOperationIds.size > 0;
   evictCompletedTraces();
   schedulePublish();
   return event;

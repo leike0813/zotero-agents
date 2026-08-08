@@ -142,8 +142,7 @@ function validatePatch<Node extends GraphNode, Edge extends GraphEdge>(
   if (patch.generation !== window.generation) return "stale_generation";
   if (
     (window.graphHash && window.graphHash !== patch.graphHash) ||
-    (window.querySignature &&
-      window.querySignature !== patch.querySignature)
+    (window.querySignature && window.querySignature !== patch.querySignature)
   ) {
     return "basis_mismatch";
   }

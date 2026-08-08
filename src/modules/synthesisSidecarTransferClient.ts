@@ -38,9 +38,7 @@ export class SynthesisSidecarTransferClientError extends Error {
 
 function createTransferActions(args: {
   rpc: TransferRpcClient;
-  capability:
-    | "compute.citation_graph_build_transfer"
-    | "transfer.content";
+  capability: "compute.citation_graph_build_transfer" | "transfer.content";
   strictManifest(value: unknown): SynthesisSidecarTransferManifest;
   strictPage(value: unknown): SynthesisSidecarTransferPage;
 }) {

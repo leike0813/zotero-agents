@@ -3201,8 +3201,14 @@ function normalizeGraphWindow(
   return {
     nextCursor: cleanString(page?.nextCursor) || undefined,
     hasMore,
-    totalNodes: Math.max(0, Math.floor(cleanNumber(page?.totalNodes, loadedNodes))),
-    totalEdges: Math.max(0, Math.floor(cleanNumber(page?.totalEdges, loadedEdges))),
+    totalNodes: Math.max(
+      0,
+      Math.floor(cleanNumber(page?.totalNodes, loadedNodes)),
+    ),
+    totalEdges: Math.max(
+      0,
+      Math.floor(cleanNumber(page?.totalEdges, loadedEdges)),
+    ),
     totalHoverNodes: Math.max(
       0,
       Math.floor(cleanNumber(page?.totalHoverNodes, 0)),

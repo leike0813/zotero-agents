@@ -85,7 +85,7 @@ the MCP route.
 - **WHEN** it calls authenticated `/bridge/v1/*` routes or `/mcp`
 - **THEN** the same token SHALL authorize both protocol surfaces.
 
-### Requirement: Host Bridge settings expose the minimal user controls
+### Requirement: Unified Host Access settings control both protocol surfaces
 
 The plugin SHALL expose Host Access controls for LAN binding, fixed port, token
 rotation, endpoint display, CLI installation, and MCP enablement without adding
@@ -245,5 +245,3 @@ The authenticated HTTP v1 service SHALL route pending queue list/cancel and acti
 #### Scenario: Unauthenticated queue request
 - **WHEN** a caller omits or fails bearer authentication
 - **THEN** the service SHALL reject the request before reading or mutating queue state
-
-

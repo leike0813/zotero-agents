@@ -24,6 +24,10 @@ import {
 } from "../../src/modules/synthesisSidecarComputeClient";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+const TEST_RUNTIME_ROOT = path.join(
+  process.env.ZOTERO_TEST_DATA_DIR || path.join(ROOT, ".scaffold"),
+  "test-sidecar-build-canary",
+);
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const SERVICE_INSTANCE_ID = "graph-build-canary-service";
 
@@ -87,7 +91,7 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     schema: "synthesis-sidecar-launch-config.v3",
     profileId: "1".repeat(64),
     libraryId: 1,
-    profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-build-canary"),
+    profileRuntimeRoot: TEST_RUNTIME_ROOT,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
@@ -104,14 +108,8 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
     supervisorInstanceId: "graph-build-canary-supervisor",
-    repositoryDbPath: path.join(
-      ROOT,
-      ".scaffold/test-sidecar-build-canary/state/synthesis.db",
-    ),
-    canonicalRoot: path.join(
-      ROOT,
-      ".scaffold/test-sidecar-build-canary/data/synthesis",
-    ),
+    repositoryDbPath: path.join(TEST_RUNTIME_ROOT, "state/synthesis.db"),
+    canonicalRoot: path.join(TEST_RUNTIME_ROOT, "data/synthesis"),
     reverseHost: {
       host: "127.0.0.1",
       port: 1,

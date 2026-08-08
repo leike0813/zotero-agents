@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-compute-worker-pool Specification
+
+## Purpose
+
+Define persistent child reuse, shared admission, fuse behavior, and tracing for native compute workers.
+
+## Requirements
 
 ### Requirement: Native compute SHALL reuse one persistent child
 

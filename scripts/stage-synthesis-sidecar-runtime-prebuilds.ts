@@ -185,7 +185,13 @@ export async function stageSynthesisSidecarRuntimePrebuildArchives(args: {
         synthesisSidecarRuntimeArchiveName(target),
       );
       assertSynthesisSidecarRuntimeArchiveLayout({ archivePath, target });
-      run("tar", ["-xzf", archivePath, "-C", extractedRoot]);
+      run("tar", [
+        "--same-permissions",
+        "-xzf",
+        archivePath,
+        "-C",
+        extractedRoot,
+      ]);
     }
     return await stageSynthesisSidecarRuntimePrebuildSet({
       inputRoot: extractedRoot,

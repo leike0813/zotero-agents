@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-durable-bundle-import-foundation Specification
+
+## Purpose
+
+Define typed Rust parity, rollback, and restart recovery for durable bundle import.
+
+## Requirements
 
 ### Requirement: Durable import SHALL expose typed Rust parity
 The Rust application SHALL verify and classify a pinned bundle, reject tombstones and unacknowledged unbased updates, consume one receipt once, and coordinate one expected-basis SQLite transaction with recoverable canonical staging.

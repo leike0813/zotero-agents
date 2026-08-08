@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-native-runtime-manifest-v2 Specification
+
+## Purpose
+
+Define the strict native runtime manifest identity, installation boundary, signature policy, and reproducible build contract.
+
+## Requirements
 
 ### Requirement: Native runtime manifest v3 SHALL have one strict identity
 

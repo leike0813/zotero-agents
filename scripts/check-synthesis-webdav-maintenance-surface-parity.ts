@@ -55,21 +55,34 @@ export function inspectSynthesisWebDavMaintenanceSurfaceParity() {
       .filter((operation) => manifest.access[operation.id] !== operation.access)
       .map((operation) => `access mismatch: ${operation.id}`),
     ...corpus.operations
-      .filter((operation) => boundaries.some((name) => !operation.cases.includes(name)))
+      .filter((operation) =>
+        boundaries.some((name) => !operation.cases.includes(name)),
+      )
       .map((operation) => `missing boundary: ${operation.id}`),
     ...corpus.operations
-      .filter((operation) => operation.access === "mutation" && durable.some((name) => !operation.cases.includes(name)))
+      .filter(
+        (operation) =>
+          operation.access === "mutation" &&
+          durable.some((name) => !operation.cases.includes(name)),
+      )
       .map((operation) => `missing durable case: ${operation.id}`),
     ...(controlCoverageComplete
       ? []
       : ["invalid public maintenance operation control coverage"]),
-    ...ids.filter((id) => !ready.includes(id as never)).map((id) => `not ready: ${id}`),
-    ...(new Set(ready).size === ready.length ? [] : ["duplicate ready capability"]),
+    ...ids
+      .filter((id) => !ready.includes(id as never))
+      .map((id) => `not ready: ${id}`),
+    ...(new Set(ready).size === ready.length
+      ? []
+      : ["duplicate ready capability"]),
   ];
   return { ok: errors.length === 0, operations: ids.length, errors };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   const report = inspectSynthesisWebDavMaintenanceSurfaceParity();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exitCode = 1;

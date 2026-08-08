@@ -3,26 +3,284 @@
   "requestCodec": "synthesis-client-args.v1",
   "resultCodec": "synthesis-client-result.v1",
   "baselineFixture": "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
-  "bounds": { "requestBytes": 1048576, "responseBytes": 1048576, "deadlineMs": 10000, "hostPageLimit": 100 },
+  "bounds": {
+    "requestBytes": 1048576,
+    "responseBytes": 1048576,
+    "deadlineMs": 10000,
+    "hostPageLimit": 100
+  },
   "operations": [
-    { "id": "client.isBuiltinTagPolicyInitialized", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination","durable_policy"] },
-    { "id": "client.loadTagVocabulary", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination","durable_policy"] },
-    { "id": "client.validateTagVocabulary", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination","public_bounds","worker_failed"] },
-    { "id": "client.exportTagVocabularyForRegulator", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination"] },
-    { "id": "client.listStagedTagSuggestions", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination"] },
-    { "id": "client.previewTagVocabularyImport", "access": "read", "cases": ["invalid_args","oversized","expired","empty","deterministic_order","pagination","preview_digest","basis_capture"] },
-    { "id": "client.initializeBuiltinTagPolicy", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","durable_policy"] },
-    { "id": "client.saveTagVocabulary", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","public_bounds"] },
-    { "id": "client.rebuildTagVocabularyIndex", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","worker_failed"] },
-    { "id": "client.stageTagSuggestions", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","staged_merge"] },
-    { "id": "client.updateStagedTagSuggestion", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","staged_merge"] },
-    { "id": "client.updateTagVocabularyEntry", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write"] },
-    { "id": "client.deleteTagVocabularyEntry", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write"] },
-    { "id": "client.promoteStagedTagSuggestions", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","host_effect","partial_host_failure","effect_recovery"] },
-    { "id": "client.discardStagedTagSuggestions", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","staged_merge"] },
-    { "id": "client.clearStagedTagSuggestions", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write"] },
-    { "id": "client.applyTagVocabularyImport", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","preview_digest","stale_preview"] },
-    { "id": "client.replaceTagAuditRecords", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write","batch_atomicity"] },
-    { "id": "client.clearTagAuditRecord", "access": "mutation", "cases": ["invalid_args","oversized","expired","valid","basis_conflict","receipt","reopen","no_partial_write"] }
+    {
+      "id": "client.isBuiltinTagPolicyInitialized",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "durable_policy"
+      ]
+    },
+    {
+      "id": "client.loadTagVocabulary",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "durable_policy"
+      ]
+    },
+    {
+      "id": "client.validateTagVocabulary",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "public_bounds",
+        "worker_failed"
+      ]
+    },
+    {
+      "id": "client.exportTagVocabularyForRegulator",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination"
+      ]
+    },
+    {
+      "id": "client.listStagedTagSuggestions",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination"
+      ]
+    },
+    {
+      "id": "client.previewTagVocabularyImport",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "preview_digest",
+        "basis_capture"
+      ]
+    },
+    {
+      "id": "client.initializeBuiltinTagPolicy",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "durable_policy"
+      ]
+    },
+    {
+      "id": "client.saveTagVocabulary",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "public_bounds"
+      ]
+    },
+    {
+      "id": "client.rebuildTagVocabularyIndex",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "worker_failed"
+      ]
+    },
+    {
+      "id": "client.stageTagSuggestions",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "staged_merge"
+      ]
+    },
+    {
+      "id": "client.updateStagedTagSuggestion",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "staged_merge"
+      ]
+    },
+    {
+      "id": "client.updateTagVocabularyEntry",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
+    },
+    {
+      "id": "client.deleteTagVocabularyEntry",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
+    },
+    {
+      "id": "client.promoteStagedTagSuggestions",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "host_effect",
+        "partial_host_failure",
+        "effect_recovery"
+      ]
+    },
+    {
+      "id": "client.discardStagedTagSuggestions",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "staged_merge"
+      ]
+    },
+    {
+      "id": "client.clearStagedTagSuggestions",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
+    },
+    {
+      "id": "client.applyTagVocabularyImport",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "preview_digest",
+        "stale_preview"
+      ]
+    },
+    {
+      "id": "client.replaceTagAuditRecords",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "batch_atomicity"
+      ]
+    },
+    {
+      "id": "client.clearTagAuditRecord",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write"
+      ]
+    }
   ]
 }

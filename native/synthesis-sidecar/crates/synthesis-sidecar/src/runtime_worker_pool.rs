@@ -1,6 +1,6 @@
 use serde_json::{Map, Value, json};
 use std::collections::VecDeque;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -24,8 +24,10 @@ use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 
 const WORKER_READY_DEADLINE: Duration = Duration::from_secs(5);
 const DIRECT_DEADLINE: Duration = Duration::from_secs(5);
-const LAYOUT_DEADLINE: Duration = Duration::from_secs(10);
 const TRANSFER_DEADLINE: Duration = Duration::from_secs(30);
+const LAYOUT_TRANSFER_DEADLINE: Duration = Duration::from_secs(90);
+const REFERENCE_TRANSFER_DEADLINE: Duration = Duration::from_secs(15 * 60);
+const WORKER_STDERR_TAIL_BYTES: usize = 8 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkerOperation {
@@ -48,9 +50,14 @@ pub(crate) enum WorkerOperation {
 
 impl WorkerOperation {
     fn direct_deadline(self) -> Duration {
+        DIRECT_DEADLINE
+    }
+
+    fn paged_deadline(self) -> Duration {
         match self {
-            Self::CitationGraphLayout => LAYOUT_DEADLINE,
-            _ => DIRECT_DEADLINE,
+            Self::CitationGraphLayout => LAYOUT_TRANSFER_DEADLINE,
+            Self::ReferenceBinding | Self::ReferenceCanonicalDedupe => REFERENCE_TRANSFER_DEADLINE,
+            _ => TRANSFER_DEADLINE,
         }
     }
 
@@ -402,6 +409,7 @@ struct WorkerChild {
     child: Child,
     stdin: ChildStdin,
     frames: mpsc::Receiver<Result<String, String>>,
+    stderr_tail: mpsc::Receiver<Vec<u8>>,
 }
 
 impl WorkerChild {
@@ -410,11 +418,12 @@ impl WorkerChild {
             .arg("worker")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| error.to_string())?;
         let stdin = child.stdin.take().ok_or("worker_unavailable")?;
         let stdout = child.stdout.take().ok_or("worker_unavailable")?;
+        let mut stderr = child.stderr.take().ok_or("worker_unavailable")?;
         let (sender, frames) = mpsc::sync_channel(1);
         thread::spawn(move || {
             use std::io::{BufRead, BufReader};
@@ -427,10 +436,23 @@ impl WorkerChild {
                 }
             }
         });
+        let (stderr_sender, stderr_tail) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let mut tail = Vec::with_capacity(WORKER_STDERR_TAIL_BYTES);
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stderr.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => append_worker_stderr_tail(&mut tail, &chunk[..count]),
+                }
+            }
+            let _ = stderr_sender.send(tail);
+        });
         let mut worker = Self {
             child,
             stdin,
             frames,
+            stderr_tail,
         };
         let ready = worker.recv_frame(Instant::now() + WORKER_READY_DEADLINE, None, None)?;
         if ready["protocol"] != WORKER_PROTOCOL || ready["type"] != "ready" {
@@ -441,11 +463,16 @@ impl WorkerChild {
     }
 
     fn send(&mut self, value: &Value) -> Result<(), String> {
-        serde_json::to_writer(&mut self.stdin, value).map_err(|error| error.to_string())?;
-        self.stdin
-            .write_all(b"\n")
-            .and_then(|_| self.stdin.flush())
-            .map_err(|_| "worker_crashed".to_owned())
+        if serde_json::to_writer(&mut self.stdin, value).is_err()
+            || self
+                .stdin
+                .write_all(b"\n")
+                .and_then(|_| self.stdin.flush())
+                .is_err()
+        {
+            return Err(self.crash_code());
+        }
+        Ok(())
     }
 
     fn recv_frame(
@@ -470,12 +497,26 @@ impl WorkerChild {
             {
                 Ok(Ok(line)) => break line,
                 Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("worker_crashed".to_owned());
+                    return Err(self.crash_code());
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
         };
         serde_json::from_str(&line).map_err(|_| "worker_result_invalid".to_owned())
+    }
+
+    fn crash_code(&mut self) -> String {
+        let stderr_tail = self
+            .stderr_tail
+            .recv_timeout(Duration::from_millis(50))
+            .unwrap_or_default();
+        let exit_code = self
+            .child
+            .try_wait()
+            .ok()
+            .flatten()
+            .and_then(|status| status.code());
+        classify_worker_exit(exit_code, &String::from_utf8_lossy(&stderr_tail)).to_owned()
     }
 
     fn terminate(&mut self) {
@@ -685,7 +726,7 @@ impl NativeComputePool {
             NativeDiagnosticEvent::new("worker", "attempt", "started").capability(operation_name)
         });
         let request_hash = source.request_hash().to_owned();
-        let deadline = Instant::now() + TRANSFER_DEADLINE;
+        let deadline = Instant::now() + bounded_timeout(operation.paged_deadline())?;
         let result = self.with_worker(|worker| {
             worker.send(&json!({
                 "protocol":WORKER_PROTOCOL,
@@ -1013,10 +1054,35 @@ fn runtime_fault(code: &str) -> bool {
         code,
         "worker_unavailable"
             | "worker_crashed"
+            | "worker_panicked"
             | "worker_timeout"
             | "worker_result_invalid"
             | "transfer_sink_failed"
     )
+}
+
+fn append_worker_stderr_tail(tail: &mut Vec<u8>, chunk: &[u8]) {
+    if chunk.len() >= WORKER_STDERR_TAIL_BYTES {
+        tail.clear();
+        tail.extend_from_slice(&chunk[chunk.len() - WORKER_STDERR_TAIL_BYTES..]);
+        return;
+    }
+    let overflow = tail
+        .len()
+        .saturating_add(chunk.len())
+        .saturating_sub(WORKER_STDERR_TAIL_BYTES);
+    if overflow > 0 {
+        tail.drain(..overflow);
+    }
+    tail.extend_from_slice(chunk);
+}
+
+fn classify_worker_exit(exit_code: Option<i32>, stderr_tail: &str) -> &'static str {
+    if exit_code == Some(101) || stderr_tail.contains("panicked at ") {
+        "worker_panicked"
+    } else {
+        "worker_crashed"
+    }
 }
 
 fn frame_error(frame: &Value) -> String {
@@ -1189,19 +1255,44 @@ mod tests {
     }
 
     #[test]
-    fn layout_has_an_operation_specific_direct_deadline() {
+    fn long_paged_operations_have_operation_specific_deadlines() {
         assert_eq!(
-            WorkerOperation::CitationGraphLayout.direct_deadline(),
-            Duration::from_secs(10)
+            WorkerOperation::CitationGraphLayout.paged_deadline(),
+            Duration::from_secs(90)
         );
         assert_eq!(
-            WorkerOperation::CitationGraphMetrics.direct_deadline(),
-            Duration::from_secs(5)
+            WorkerOperation::ReferenceBinding.paged_deadline(),
+            Duration::from_secs(15 * 60)
         );
         assert_eq!(
-            WorkerOperation::CitationGraphBuild.direct_deadline(),
-            Duration::from_secs(5)
+            WorkerOperation::ReferenceCanonicalDedupe.paged_deadline(),
+            Duration::from_secs(15 * 60)
         );
+        assert_eq!(
+            WorkerOperation::CitationGraphMetrics.paged_deadline(),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn classifies_rust_panics_without_exposing_stderr() {
+        assert_eq!(
+            classify_worker_exit(
+                None,
+                "thread 'main' panicked at forceatlas2/src/node.rs:114:9"
+            ),
+            "worker_panicked"
+        );
+        assert_eq!(classify_worker_exit(Some(101), ""), "worker_panicked");
+        assert_eq!(
+            classify_worker_exit(Some(1), "worker-specific private detail"),
+            "worker_crashed"
+        );
+
+        let mut tail = vec![b'a'; WORKER_STDERR_TAIL_BYTES - 2];
+        append_worker_stderr_tail(&mut tail, b"panic");
+        assert_eq!(tail.len(), WORKER_STDERR_TAIL_BYTES);
+        assert!(tail.ends_with(b"panic"));
     }
 
     #[test]

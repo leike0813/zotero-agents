@@ -163,8 +163,15 @@ describe("Synthesis invariant guards", function () {
     assert.include(sources, "computeRequestBodyBytes");
     assert.include(sources, "computeResponseBodyBytes");
     assert.include(sources, '"isolated_shadow"');
+    const defaultClientSource = readRepoText(
+      "src/modules/synthesisClient/defaultClient.ts",
+    );
     assert.include(
-      readRepoText("src/modules/synthesisClient/defaultClient.ts"),
+      defaultClientSource,
+      "createReadyNativeSynthesisClientComposition",
+    );
+    assert.notInclude(
+      defaultClientSource,
       "createDefaultLegacySynthesisClientComposition",
     );
     assert.include(

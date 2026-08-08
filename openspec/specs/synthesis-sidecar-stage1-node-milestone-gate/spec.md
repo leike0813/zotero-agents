@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-stage1-node-milestone-gate Specification
+
+## Purpose
+
+Define the Node runtime as a development-only oracle outside the native production path.
+
+## Requirements
 
 ### Requirement: Node runtime SHALL be a development-only oracle after R8
 

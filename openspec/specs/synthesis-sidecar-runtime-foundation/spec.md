@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# synthesis-sidecar-runtime-foundation Specification
+
+## Purpose
+
+Define the native Rust runtime foundation, explicit loopback protocol, and durable application composition.
+
+## Requirements
 
 ### Requirement: Runtime foundation SHALL be the native Rust application
 

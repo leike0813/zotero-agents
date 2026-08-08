@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-} from "../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../packages/synthesis-contracts/src/sidecarSystem";
 import { readSynthesisProductionSurfaceCorpora } from "./synthesisProductionSurfaceCorpora";
 
 type Corpus = {
@@ -11,7 +9,11 @@ type Corpus = {
   requestCodec: string;
   resultCodec: string;
   bounds: { requestBytes: number; responseBytes: number; deadlineMs: number };
-  operations: Array<{ id: string; access: "read" | "mutation"; cases: string[] }>;
+  operations: Array<{
+    id: string;
+    access: "read" | "mutation";
+    cases: string[];
+  }>;
 };
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -29,7 +31,8 @@ export function inspectSynthesisArtifactLibraryDebugSurfaceParity() {
   };
   const ids = corpus.operations.map((operation) => operation.id);
   const errors = [
-    ...(corpus.schema === "synthesis-artifact-library-debug-surface-parity.v1" &&
+    ...(corpus.schema ===
+      "synthesis-artifact-library-debug-surface-parity.v1" &&
     corpus.requestCodec === "synthesis-client-args.v1" &&
     corpus.resultCodec === "synthesis-client-result.v1"
       ? []
@@ -55,7 +58,8 @@ export function inspectSynthesisArtifactLibraryDebugSurfaceParity() {
     ...corpus.operations
       .filter(
         (operation) =>
-          operation.access === "mutation" && !operation.cases.includes("reopen"),
+          operation.access === "mutation" &&
+          !operation.cases.includes("reopen"),
       )
       .map((operation) => `missing reopen case: ${operation.id}`),
     ...ids
@@ -70,7 +74,10 @@ export function inspectSynthesisArtifactLibraryDebugSurfaceParity() {
   return { ok: errors.length === 0, operations: ids.length, errors };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   const report = inspectSynthesisArtifactLibraryDebugSurfaceParity();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exitCode = 1;

@@ -64,6 +64,8 @@ Alternative: add a second client streaming protocol. Rejected because the reposi
 
 Full-library and worker-backed mutations return the existing `SynthesisPublicMaintenanceOperation` receipt promptly. This applies to Reference refresh/matching; Citation rebuild, incremental refresh, metrics, and layout; Tag/Concept/Topic Graph rebuild; and WebDAV sync. Existing consumers observe progress through `getPublicMaintenanceOperation` and issue explicit cancel, continue, or retry mutations through `controlPublicMaintenanceOperation`.
 
+The Host invocation audit classifies that receipt by maintenance lifecycle state rather than by the business result nested in its eventual terminal receipt. `pending` and `running` mean that the command was accepted, while `completed` is an already-successful terminal. Failure, cancellation, timeout, missing, malformed, or unknown receipt states are non-success. Domain statuses such as `promoted`, `unchanged`, `basis_mismatch`, and worker failures belong to the durable operation terminal and MUST NOT be applied to the initial acceptance envelope.
+
 Execution uses operation-specific controlled loops and durable checkpoints. It does not add claimable work items, a daemon queue, or automatic startup draining. Deadline and cancellation checks occur between bounded phases and before promotion. A timed-out or canceled caller cannot receive an ambiguous failure after an unreported commit.
 
 ### 6. Restore bounded data access before algorithm tuning
@@ -81,6 +83,20 @@ Repository foundation v2 adds `synt_topic_deleted_artifact`, keyed by Topic and 
 ### 8. Repair by vertical slice
 
 The order is Workbench/Topic/Workflow, Reference/Matching, Citation, Tags/Concepts/Topic Graph, then durable/WebDAV/maintenance/debug. Each slice starts with failing fixed-baseline and real-process tests and finishes only when its DTO, facts/effects, error, idempotency, and scale evidence pass.
+
+### 9. Separate receipt admission from accepted-work execution
+
+The production operation manifest owns two different bounds. `deadlineMs` and its overrides bound only the HTTP control plane, including creation of a public maintenance receipt. Every `public-maintenance-operation` capability also has an explicit `workDeadlineMs`; this persisted bound controls accepted work and retry/continue execution. Advanced Reference matching uses a 30-minute work deadline. Citation Graph layout uses a 120-second work deadline and a 90-second worker phase deadline. Reference binding and canonical dedupe worker phases use 15 minutes. Other receipt operations keep explicit operation-specific work bounds in the same manifest rather than inheriting the control deadline.
+
+The same manifest rule that identifies successful domain values classifies the durable terminal. Receipt admission still uses only `pending`, `running`, or `completed`; after admission, a status such as `worker_failed`, `basis_mismatch`, a timeout, or an unsuccessful WebDAV queue state produces a failed, canceled, or timed-out operation row and never a completed row. The raw stable code remains in the durable receipt and terminal observation.
+
+An accepted maintenance operation emits accepted/running/terminal observation events carrying its public operation ID and capability. Its originating trace remains active after the Host RPC root returns and becomes inactive only at the durable terminal. Polling traces cannot evict that active trace. Workbench failure reporting includes the public operation ID and the first stable diagnostic code so a user-visible failure can be correlated with the retained trace.
+
+### 10. Keep layout facts separate from algorithm inputs and classify worker panics at the parent boundary
+
+Citation self-loops remain valid durable graph facts and continue contributing to the canonical graph hash. Before choosing any layout algorithm, the layout crate validates the complete request and removes only self-loops from the in-memory edge set used for coordinates. This gives Force, Radial, and Components one shared rule and avoids changing repository, projection, or hash semantics.
+
+The worker parent owns crash classification because release workers use aborting panics and cannot rely on `catch_unwind`. It captures only a bounded stderr tail, consumes it internally after the child closes, and maps identifiable Rust panic evidence to `worker_panicked`; other unexpected exits remain `worker_crashed`. No raw stderr becomes part of the public failure contract.
 
 ## Risks / Trade-offs
 

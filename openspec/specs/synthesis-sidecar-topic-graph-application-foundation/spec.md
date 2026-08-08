@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-topic-graph-application-foundation Specification
+
+## Purpose
+
+Define typed Rust parity, validation, and purge behavior for Topic Graph relations.
+
+## Requirements
 
 ### Requirement: Topic Graph SHALL have typed Rust application parity
 The private Rust candidate SHALL implement strict snapshot and upsert operations, proposal and relation/review decisions, two-stage deletion, index promotion, and lifecycle behavior over typed repository and compute ports.

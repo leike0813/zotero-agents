@@ -24,7 +24,7 @@ The native production adapter SHALL expose every operation in the closed grouped
 
 ### Requirement: Production operation deadlines SHALL be manifest owned
 
-The shared production operation manifest SHALL define an operation-specific control-plane deadline and work model for every production capability. Bounded reads and short mutations SHALL complete within that deadline. Full-library and worker-backed mutations SHALL return an accepted public operation receipt within the short control-plane deadline and continue only through bounded operation phases with explicit progress, cancellation, retry, and terminal state. TypeScript and Rust routes MUST resolve the same policy from the manifest.
+The shared production operation manifest SHALL define an operation-specific control-plane deadline and work model for every production capability. Bounded reads and short mutations SHALL complete within that deadline. Every full-library or worker-backed mutation SHALL also declare an explicit, independently persisted work deadline. Such mutations SHALL return an accepted public operation receipt within the short control-plane deadline and continue only through bounded operation phases with explicit progress, cancellation, retry, and terminal state. TypeScript and Rust routes MUST resolve the same policy from the manifest.
 
 #### Scenario: Long native work is accepted
 - **WHEN** a caller starts Reference refresh/matching, Citation rebuild/refresh/metrics/layout, a knowledge-index rebuild, or WebDAV sync
@@ -35,6 +35,11 @@ The shared production operation manifest SHALL define an operation-specific cont
 - **WHEN** an accepted Reference Refresh operation runs for more than five seconds and less than its manifest deadline
 - **THEN** the original command has already returned its public operation receipt and the work remains observable by operation ID
 - **AND** no `worker_timeout` is reported
+
+#### Scenario: Accepted work exceeds the control-plane deadline
+- **WHEN** Advanced Reference matching or Citation Graph layout runs for more than the control-plane deadline and remains within its work and worker-phase deadlines
+- **THEN** the accepted operation remains running and observable by operation ID
+- **AND** the control-plane deadline does not cancel its worker or change its durable terminal
 
 #### Scenario: Native operation reaches its deadline
 - **WHEN** a bounded production operation exceeds its manifest deadline
@@ -78,3 +83,12 @@ Ordinary metadata and page DTOs SHALL target no more than 768 KiB and MUST NOT e
 - **WHEN** an artifact body is valid but larger than the general response limit
 - **THEN** the operation returns or resolves it through the approved content path
 - **AND** the control response remains within its metadata bound
+
+### Requirement: Citation layout SHALL tolerate valid self-referential facts
+
+The Citation layout engine SHALL validate every supplied edge against the graph contract and SHALL treat a valid edge whose source equals its target as layout-neutral. The durable Citation edge, input graph identity, and returned `graphHash` MUST remain unchanged; only the algorithm-specific edge set used to derive coordinates MAY omit that self-loop.
+
+#### Scenario: Graph contains a self-loop
+- **WHEN** a valid Citation layout request contains an endpoint-closed self-loop
+- **THEN** every supported layout algorithm returns the same coordinates it would return without that self-loop
+- **AND** the result preserves the request graph hash and complete node set

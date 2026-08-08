@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-cross-language-sidecar-contract Specification
+
+## Purpose
+
+Define canonical cross-language parity for native sidecar lifecycle identity and its shared corpus.
+
+## Requirements
 
 ### Requirement: Native lifecycle identity SHALL have cross-language parity
 

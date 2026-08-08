@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-persistence-performance Specification
+
+## Purpose
+
+Define responsiveness and memory bounds for production reads while large native transfers are active.
+
+## Requirements
 
 ### Requirement: Native large transfer SHALL keep control-plane reads responsive
 

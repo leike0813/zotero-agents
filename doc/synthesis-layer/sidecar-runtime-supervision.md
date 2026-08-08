@@ -62,9 +62,12 @@ receipt, admission, activation, pointer, version, owner, or lease files.
 ## Diagnostics
 
 The plugin has two independent observation planes. Runtime Log is a Host-owned
-business audit: mutations record start and terminal, while reads and periodic
-operations record failures only. A single invocation owns terminalization, so
-a worker, reverse-Host, and RPC failure cannot create three incidents. Stored
+business audit: mutations record start and invocation terminal, while reads and
+periodic operations record failures only. A single invocation owns
+terminalization, so a worker, reverse-Host, and RPC failure cannot create three
+incidents. For public-maintenance-operation commands, `pending` and `running`
+mean that the invocation successfully returned an accepted receipt; the
+operation query and terminal receipt own the later business outcome. Stored
 details are limited to operation, trigger, stage, outcome, duration, Host
 classification, and a declared public semantic status. HTTP status, byte
 counts, native request identity, worker code, and trace fields are excluded.
@@ -84,7 +87,17 @@ unit, and preserves a trace start, first failure, terminal, and dropped count
 when a trace overflows. The Task Manager reads one snapshot when its Sidecar tab
 opens and then consumes 200 ms `added`/`updated`/`evicted` batches. Existing
 trace rows, selection, detail, and scroll remain mounted when their data does
-not change.
+not change. An accepted public maintenance operation keeps its originating
+trace active after the command RPC returns. Accepted, running, and terminal
+events carry both capability and public operation ID; a failure terminal keeps
+the first stable raw code. Polling traces cannot evict the originating trace
+before that terminal.
+
+Worker stdout remains the only protocol channel. The parent captures at most the
+last 8 KiB of worker stderr for exit classification, maps identifiable Rust
+panic evidence to `worker_panicked`, and treats other unexpected exits as
+`worker_crashed`. The captured text is internal diagnostic input: it is not
+copied into a public receipt, trace, Runtime Log incident, or Workbench status.
 
 The launch config carries the resolved debug gate into Rust. With the gate
 closed, Host and Rust create no trace IDs or events, serialize no trace context,

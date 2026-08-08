@@ -186,8 +186,7 @@ export function inspectSynthesisProductionBaselineEvidence(
   }
 
   const fixture =
-    fixtureOverride ??
-    readSynthesisProductionBaselineFixture(root);
+    fixtureOverride ?? readSynthesisProductionBaselineFixture(root);
   const inventory = parseYaml(
     fs.readFileSync(
       path.join(

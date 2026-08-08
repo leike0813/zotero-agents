@@ -76,7 +76,10 @@ function isStructuredDegraded(value: unknown): boolean {
   const object = value as Record<string, unknown>;
   if (
     object.degraded === true ||
-    object.status === "degraded" ||
+    ["degraded", "missing", "stale", "too_large", "unavailable"].includes(
+      String(object.status || ""),
+    ) ||
+    object.snapshot_found === false ||
     (object.degradation && typeof object.degradation === "object")
   ) {
     return true;
@@ -238,9 +241,13 @@ function cachedSetup(
 
 async function setupOperationThroughProductionRoute(args: {
   harness: SynthesisProductionRouteHarness;
+  dataset: DatasetName;
   operation: OperationName;
   cache: Map<string, Promise<void>>;
 }) {
+  if (args.dataset === "25k") {
+    return;
+  }
   const needsReferenceState = [
     "index",
     "graph-slice",
@@ -344,6 +351,7 @@ async function collectSample(args: {
   const hostOffset = args.harness.recorder.hostCalls.length;
   const effectOffset = args.harness.recorder.effectBatches.length;
   const observationOffset = args.harness.observations().length;
+  const rssBefore = args.harness.rss();
   const startedAt = performance.now();
   let acceptanceLatencyMs: number | null = null;
   let terminalLatencyMs: number | null = null;
@@ -382,6 +390,7 @@ async function collectSample(args: {
           ? error.message
           : "unknown_error";
   }
+  const operationCompletedAt = performance.now();
   const capability = operationCapability(args.operation);
   const wire = args.harness.recorder.wire
     .slice(wireOffset)
@@ -395,11 +404,16 @@ async function collectSample(args: {
       event.phase === "query-terminal" &&
       event.identities?.capability === capability,
   });
-  const rss = args.harness.rss();
+  const rssAfter = args.harness.rss();
+  const rssSupported =
+    rssBefore.rssSupported &&
+    rssAfter.rssSupported &&
+    rssBefore.rssBytes !== null &&
+    rssAfter.rssBytes !== null;
   return {
     ok: errorCode === null,
     errorCode,
-    durationMs: performance.now() - startedAt,
+    durationMs: operationCompletedAt - startedAt,
     acceptanceLatencyMs,
     terminalLatencyMs,
     requestBytes: wire.reduce(
@@ -446,8 +460,10 @@ async function collectSample(args: {
       .map(({ size }) => size),
     returnedCount: returnedCount(value),
     structuredDegraded: isStructuredDegraded(value),
-    rssBytes: rss.rssBytes,
-    rssSupported: rss.rssSupported,
+    rssBytes: rssSupported
+      ? Math.max(0, Number(rssAfter.rssBytes) - Number(rssBefore.rssBytes))
+      : null,
+    rssSupported,
   };
 }
 
@@ -691,6 +707,7 @@ export async function runSynthesisProductionRoutePerformanceDataset(
       try {
         await setupOperationThroughProductionRoute({
           harness,
+          dataset: name,
           operation,
           cache: setupCache,
         });

@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# host-bridge-agent-surfaces Specification
+
+## Purpose
+
+Define how Host Bridge agent surfaces preserve complete, reachable, intent-oriented command guidance across governed references.
+
+## Requirements
 
 ### Requirement: Governed references SHALL be comprehensive and directly reachable
 Every non-generated instruction file under a governed Skill's `references/` directory SHALL be directly linked from its `SKILL.md`. Generated per-command references MAY instead be directly linked from the generated command catalog when `SKILL.md` directly links that catalog. References SHALL cover coherent decision domains rather than fragmented reminders, and execution-critical constraints SHALL also appear in `SKILL.md`.
@@ -42,8 +48,6 @@ The minimum-core `SKILL.md` SHALL explain the purpose and timing of every true g
 - **WHEN** an agent moves from command discovery to argv construction
 - **THEN** it can distinguish connection and idempotency controls from leaf payload bindings
 - **AND** it does not add `--json`, `--query`, `--input`, `--schema`, or an output destination unless the current command contract permits that use.
-
-## ADDED Requirements
 
 ### Requirement: Command-card migration SHALL preserve semantic depth
 Replacing aggregate command references with per-command cards SHALL preserve every existing authorized command semantic unit from baseline commit `71da2eb325e946291b901d778b20ceb3c5db368f`. Only the eight declared aggregate container files MAY be removed, and their still-valid command semantics SHALL be mapped into generated cards.

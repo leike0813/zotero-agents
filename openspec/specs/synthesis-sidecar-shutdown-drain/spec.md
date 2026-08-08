@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-shutdown-drain Specification
+
+## Purpose
+
+Define one bounded shutdown deadline across native workers, transfers, lease loss, and service input closure.
+
+## Requirements
 
 ### Requirement: Native worker and transfer shutdown SHALL share the existing deadline
 

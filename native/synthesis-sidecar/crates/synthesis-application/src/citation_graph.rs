@@ -603,7 +603,7 @@ impl CitationGraphApplication {
                 .layout(&request, &projection.nodes, &projection.edges, &cancel)
             {
                 Ok(layout) => layout,
-                Err(error) => return self.result(worker_status(&error), Vec::new()),
+                Err(error) => return self.result(worker_status(&error), vec![error]),
             };
         layout.graph_hash = request.expected_graph_hash.clone();
         if checkpoint().is_err() {

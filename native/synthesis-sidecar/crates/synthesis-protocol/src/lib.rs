@@ -1218,7 +1218,7 @@ pub fn split_paged_result(
     Ok(PagedResultParts { header, sections })
 }
 pub const METRICS_VERSION: u8 = 2;
-pub const NODE_MAX: usize = 5_000;
+pub const NODE_MAX: usize = 10_000;
 pub const EDGE_MAX: usize = 20_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

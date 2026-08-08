@@ -336,17 +336,17 @@ describe("Synthesis Rust production client route", function () {
                     items: [],
                     missingPaperRefs: ["1:MISSING1"],
                   }
-              : capability === "library.artifacts.scan_page"
-                ? {
-                    artifacts: [],
-                    cursor,
-                    nextCursor: "",
-                    hasMore: false,
-                    returned: 0,
-                    limit,
-                    snapshotRevision: "fixture-baseline-observables",
-                  }
-                : { status: "unavailable", diagnostics: [] };
+                : capability === "library.artifacts.scan_page"
+                  ? {
+                      artifacts: [],
+                      cursor,
+                      nextCursor: "",
+                      hasMore: false,
+                      returned: 0,
+                      limit,
+                      snapshotRevision: "fixture-baseline-observables",
+                    }
+                  : { status: "unavailable", diagnostics: [] };
         const body = JSON.stringify({ ok: true, result });
         response.writeHead(200, {
           "content-type": "application/json",
@@ -1100,6 +1100,12 @@ describe("Synthesis Rust production client route", function () {
         spanId: "b".repeat(16),
         attempt: 0,
       } as const;
+      const layoutTrace = {
+        schema: "synthesis-sidecar-observation.v2",
+        traceId: "d".repeat(32),
+        spanId: "e".repeat(16),
+        attempt: 0,
+      } as const;
       const receiptStartedAt = Date.now();
       const canceledRefresh = await call(
         port,
@@ -1139,11 +1145,7 @@ describe("Synthesis Rust production client route", function () {
         canceledRefresh.body.data.operation_id,
       );
       assert.equal(canceled.status, "canceled", JSON.stringify(canceled));
-      assert.equal(
-        canceled.receipt?.retryable,
-        true,
-        JSON.stringify(canceled),
-      );
+      assert.equal(canceled.receipt?.retryable, true, JSON.stringify(canceled));
 
       const canceledIndexSurface = await call(
         port,
@@ -1388,6 +1390,7 @@ describe("Synthesis Rust production client route", function () {
         port,
         "client.recomputeCitationGraphLayout",
         { args: [{ algorithm: "force", force: true }] },
+        layoutTrace,
       );
       assert.equal(
         recomputeLayout.status,
@@ -1598,6 +1601,49 @@ describe("Synthesis Rust production client route", function () {
             event.outcome === "succeeded",
         ),
       );
+      for (const [traceId, operationId, capability] of [
+        [
+          refreshTrace.traceId,
+          matching.body.data.operation_id,
+          "client.runAdvancedReferenceMatchingNow",
+        ],
+        [
+          layoutTrace.traceId,
+          recomputeLayout.body.data.operation_id,
+          "client.recomputeCitationGraphLayout",
+        ],
+      ] as const) {
+        const lifecycle = sidecar
+          .stderr()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => {
+            try {
+              return rebuildSynthesisSidecarObservationEvent(JSON.parse(line));
+            } catch {
+              return undefined;
+            }
+          })
+          .filter(
+            (event) =>
+              event?.traceId === traceId &&
+              event.identities?.operation === operationId,
+          );
+        assert.includeMembers(
+          lifecycle.map((event) => event!.phase),
+          [
+            "maintenance-started",
+            "maintenance-running",
+            "maintenance-terminal",
+          ],
+          capability,
+        );
+        const terminal = lifecycle.find(
+          (event) => event?.phase === "maintenance-terminal",
+        );
+        assert.equal(terminal?.outcome, "succeeded", capability);
+        assert.equal(terminal?.identities?.capability, capability);
+      }
       assert.notInclude(sidecar.stderr(), "共享引用");
       assert.notInclude(sidecar.stderr(), "fixture:references:");
       assert.notInclude(sidecar.stderr(), CLIENT_TOKEN);

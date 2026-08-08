@@ -178,6 +178,7 @@ fn validate_request(request: &mut Request) -> Result<(), &'static str> {
             return Err("invalid_request");
         }
     }
+    request.edges.retain(|edge| edge.source != edge.target);
     request
         .nodes
         .sort_by(|left, right| compare_utf16(&left.node_id, &right.node_id));
@@ -599,6 +600,25 @@ mod tests {
                 assert!(node["x"].as_f64().unwrap().is_finite());
                 assert!(node["y"].as_f64().unwrap().is_finite());
             }
+        }
+    }
+
+    #[test]
+    fn treats_valid_self_loops_as_layout_neutral_for_every_algorithm() {
+        for algorithm in ["force", "radial", "components"] {
+            let expected = compute_value(request(algorithm), &AtomicBool::new(false)).unwrap();
+            let mut with_self_loop = request(algorithm);
+            with_self_loop["edges"].as_array_mut().unwrap().push(json!({
+                "edgeId": "edge:self",
+                "source": "paper:d",
+                "target": "paper:d"
+            }));
+
+            assert_eq!(
+                compute_value(with_self_loop, &AtomicBool::new(false)).unwrap(),
+                expected,
+                "{algorithm} layout changed when only a self-loop was added"
+            );
         }
     }
 

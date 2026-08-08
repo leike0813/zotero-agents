@@ -1,6 +1,7 @@
 import productionOperations from "../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json";
 import type { SynthesisSidecarProductionClientCapability } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { appendRuntimeLog } from "./runtimeLogManager";
+import { synthesisProductionOperationPolicy } from "./synthesisProductionRpcPolicy";
 
 type Manifest = {
   access: Record<
@@ -69,6 +70,22 @@ function semanticTerminal(
   capability: SynthesisSidecarProductionClientCapability,
   result: unknown,
 ) {
+  if (
+    synthesisProductionOperationPolicy(capability).receipt ===
+    "public-maintenance-operation"
+  ) {
+    const candidate =
+      result && typeof result === "object" && !Array.isArray(result)
+        ? (result as Record<string, unknown>).status
+        : undefined;
+    if (typeof candidate !== "string") {
+      return { succeeded: false } as const;
+    }
+    return {
+      succeeded: ["pending", "running", "completed"].includes(candidate),
+      semanticStatus: candidate,
+    };
+  }
   const rule = manifest.semanticSuccess?.[capability];
   if (!rule || !result || typeof result !== "object" || Array.isArray(result)) {
     return { succeeded: true } as const;

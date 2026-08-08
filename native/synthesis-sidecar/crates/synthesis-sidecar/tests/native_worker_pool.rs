@@ -77,6 +77,22 @@ fn reuses_a_successful_child_and_fuses_three_crashes() {
 }
 
 #[test]
+fn reports_a_stable_code_when_the_worker_panics() {
+    let executable = PathBuf::from(env!("CARGO_BIN_EXE_synthesis-metrics-worker-fixture"));
+    let pool = Arc::new(NativeComputePool::new_with_executable(executable));
+    let stopping = AtomicBool::new(false);
+    let admission = pool.admit(&stopping).expect("panic admission");
+
+    assert_eq!(
+        pool.run_direct(WorkerOperation::CitationGraphMetrics, request('d'))
+            .expect_err("worker panic"),
+        "worker_panicked"
+    );
+    drop(admission);
+    assert_eq!(pool.snapshot(false).expect("snapshot")["restartCount"], 1);
+}
+
+#[test]
 fn reference_matcher_uses_the_real_paged_worker_protocol() {
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_synthesis-sidecar"));
     let pool = Arc::new(NativeComputePool::new_with_executable(executable));

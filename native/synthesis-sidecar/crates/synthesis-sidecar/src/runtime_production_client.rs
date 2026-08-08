@@ -15,7 +15,8 @@ use crate::runtime_public_maintenance_operation::{
 };
 use crate::runtime_webdav_maintenance_surface::{
     begin_public_maintenance_operation, finish_public_maintenance_operation,
-    mark_public_maintenance_running, public_maintenance_operation_dto,
+    mark_public_maintenance_running, observe_public_maintenance_accepted,
+    public_maintenance_operation_dto,
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::utc_now_iso8601;
@@ -129,12 +130,15 @@ pub(crate) fn dispatch_production_client(
         envelope.args
     };
     if metadata.receipt == ProductionClientReceipt::PublicMaintenanceOperation {
+        let work_deadline_ms = metadata
+            .work_deadline_ms
+            .ok_or_else(|| "invalid_production_operation_manifest".to_owned())?;
         return start_public_maintenance_operation(
             state,
             request_id,
             capability,
             operation_args,
-            metadata.deadline_ms,
+            work_deadline_ms,
             metadata.semantic_success.clone(),
         );
     }
@@ -232,39 +236,55 @@ fn resume_public_maintenance_operation(
     operation_id: &str,
     basis: PublicMaintenanceBasis,
 ) -> Result<(), String> {
+    let semantic_success = state
+        .production_client_operations
+        .get(&basis.capability)
+        .and_then(|metadata| metadata.semantic_success.clone());
     let applications = Arc::clone(&state.applications);
     let operation_id = operation_id.to_owned();
     let request_id = request_id.to_owned();
+    observe_public_maintenance_accepted(state.applications.as_ref(), &operation_id)?;
+    let worker_trace = child_observation_context();
     thread::Builder::new()
         .name("synthesis-maintenance-resume".into())
         .spawn(move || {
-            let started_at = utc_now_iso8601();
-            if let Err(error) =
-                mark_public_maintenance_running(applications.as_ref(), &operation_id, &started_at)
-            {
+            with_observation_context(worker_trace.as_ref(), || {
+                let started_at = utc_now_iso8601();
+                if let Err(error) = mark_public_maintenance_running(
+                    applications.as_ref(),
+                    &operation_id,
+                    &started_at,
+                ) {
+                    let _ = finish_public_maintenance_operation(
+                        applications.as_ref(),
+                        &operation_id,
+                        Err(&error),
+                        semantic_success.as_ref(),
+                        &utc_now_iso8601(),
+                    );
+                    return;
+                }
+                let outcome = with_request_context(
+                    Duration::from_millis(basis.deadline_ms),
+                    debug_events_enabled().then_some(&request_id),
+                    || {
+                        with_operation_context(&operation_id, || {
+                            dispatch_typed_client(
+                                applications.as_ref(),
+                                &basis.capability,
+                                &basis.args,
+                            )
+                        })
+                    },
+                );
                 let _ = finish_public_maintenance_operation(
                     applications.as_ref(),
                     &operation_id,
-                    Err(&error),
+                    outcome.as_ref().map_err(String::as_str),
+                    semantic_success.as_ref(),
                     &utc_now_iso8601(),
                 );
-                return;
-            }
-            let outcome = with_request_context(
-                Duration::from_millis(basis.deadline_ms),
-                debug_events_enabled().then_some(&request_id),
-                || {
-                    with_operation_context(&operation_id, || {
-                        dispatch_typed_client(applications.as_ref(), &basis.capability, &basis.args)
-                    })
-                },
-            );
-            let _ = finish_public_maintenance_operation(
-                applications.as_ref(),
-                &operation_id,
-                outcome.as_ref().map_err(String::as_str),
-                &utc_now_iso8601(),
-            );
+            })
         })
         .map_err(|error| format!("operation_spawn_failed:{error}"))?;
     Ok(())
@@ -307,6 +327,7 @@ fn start_public_maintenance_operation(
     let operation_id_for_worker = operation_id.clone();
     let capability_for_worker = capability.to_owned();
     let request_id_for_worker = request_id.to_owned();
+    let semantic_success_for_worker = semantic_success.clone();
     let worker_trace = child_observation_context();
     let spawn_result = thread::Builder::new()
         .name(format!(
@@ -325,6 +346,7 @@ fn start_public_maintenance_operation(
                         applications.as_ref(),
                         &operation_id_for_worker,
                         Err(&error),
+                        semantic_success_for_worker.as_ref(),
                         &utc_now_iso8601(),
                     );
                     return;
@@ -349,7 +371,7 @@ fn start_public_maintenance_operation(
                 if let Ok(result) = outcome.as_ref() {
                     record_semantic_mutation_result(
                         &capability_for_worker,
-                        semantic_success.as_ref(),
+                        semantic_success_for_worker.as_ref(),
                         result,
                         observed_at.elapsed(),
                     );
@@ -358,6 +380,7 @@ fn start_public_maintenance_operation(
                     applications.as_ref(),
                     &operation_id_for_worker,
                     outcome.as_ref().map_err(String::as_str),
+                    semantic_success_for_worker.as_ref(),
                     &utc_now_iso8601(),
                 );
             })
@@ -368,6 +391,7 @@ fn start_public_maintenance_operation(
             state.applications.as_ref(),
             &operation_id,
             Err(&code),
+            semantic_success.as_ref(),
             &utc_now_iso8601(),
         )?;
         let row = state.applications.repository.with_reader(|repository| {

@@ -1,8 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-} from "../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../packages/synthesis-contracts/src/sidecarSystem";
 import {
   readSynthesisProductionBaselineFixture,
   readSynthesisProductionSurfaceCorpora,
@@ -13,7 +11,11 @@ type Corpus = {
   requestCodec: string;
   resultCodec: string;
   bounds: { requestBytes: number; responseBytes: number; deadlineMs: number };
-  operations: Array<{ id: string; access: "read" | "mutation"; cases: string[] }>;
+  operations: Array<{
+    id: string;
+    access: "read" | "mutation";
+    cases: string[];
+  }>;
 };
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -24,9 +26,9 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
   )!.corpus as Corpus;
   const ids = corpus.operations.map((operation) => operation.id);
   const baseline = readSynthesisProductionBaselineFixture(root);
-  const observables = baseline.surfaces.find(
-    (surface) => surface.id === "topic-workbench",
-  )?.cases ?? [];
+  const observables =
+    baseline.surfaces.find((surface) => surface.id === "topic-workbench")
+      ?.cases ?? [];
   const observableIds = observables.map((observable) => observable.operation);
   const observableAccess = new Map(
     observables.map((observable) => [observable.operation, observable.access]),
@@ -58,7 +60,9 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
       )
       .map((operation) => `baseline access mismatch: ${operation.id}`),
     ...corpus.operations
-      .filter((operation) => requiredCases.some((name) => !operation.cases.includes(name)))
+      .filter((operation) =>
+        requiredCases.some((name) => !operation.cases.includes(name)),
+      )
       .map((operation) => `missing boundary cases: ${operation.id}`),
     ...corpus.operations
       .filter(
@@ -84,7 +88,10 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
   };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   const report = inspectSynthesisTopicWorkbenchSurfaceParity();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exitCode = 1;

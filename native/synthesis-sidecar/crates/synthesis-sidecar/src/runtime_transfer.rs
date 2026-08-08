@@ -958,6 +958,7 @@ fn fail_attempt(session: &mut Session, code: &str, now_ms: u64) {
         "worker_timeout"
         | "worker_canceled"
         | "worker_crashed"
+        | "worker_panicked"
         | "worker_result_invalid"
         | "worker_unavailable"
         | "transfer_limit_exceeded"

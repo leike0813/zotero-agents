@@ -19,9 +19,12 @@ delivery 权限。Node/TypeScript service、repository、application 与 engine
 
 完整 domain parity 与 96-operation production route（95 个 baseline
 operation 加 `client.controlPublicMaintenanceOperation`）已有 candidate
-evidence，并已对照固定 131-method baseline 与 23 项授权 retirement。该证据
-尚未完成七平台正式构建、Zotero 7/9 实机、完整生产/性能 gate、签名、XPI
-发布和 release 验收，因此两个 R9b 删除 change 继续阻塞。
+evidence，并已对照固定 131-method baseline 与 23 项授权 retirement。2026-08-08
+的本地 2k/10k/25k production/performance gate，以及 Zotero 7.0.32 与 9.0.4
+Linux 代表性 Workbench、workflow、冷重启检查已经通过。仓库范围 strict
+OpenSpec、format、lint、TypeScript、Rust、production route 与 production
+build 门禁也已完成；七平台正式构建、签名、XPI 发布和 release 验收仍未完成，
+因此两个 R9b 删除 change 继续阻塞。
 
 本文后续 R0-R9a 段落保留各日期下的迁移决策与历史证据。凡其中出现
 manifest v2、shadow/private candidate、plugin production owner、
@@ -583,4 +586,4 @@ manifest v2 当时表达：
 - active docs、OpenSpec、build inventory 与真实代码一致；
 - 仅保留兼容 Rust bundle 之间的回滚路径，不存在隐藏 Node fallback。
 
-当前可表述为“Rust 已拥有本地 production route，R9b 验收进行中”。在七平台、Zotero 7/9 实机、完整 gate、签名和发布条件满足前，不得宣称迁移验收、物理 retirement 或 release 已完成。
+当前可表述为“Rust 已拥有本地 production route，本地严格门禁、性能与 Zotero 7/9 代表性检查已通过，R9b 验收仍在进行”。七平台、签名和发布条件满足前，不得宣称迁移验收、物理 retirement 或 release 已完成。

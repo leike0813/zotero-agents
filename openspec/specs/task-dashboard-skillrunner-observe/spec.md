@@ -129,6 +129,8 @@ Plugin MUST treat backend jobs semantics as the single truth for run state proje
 
 ### Requirement: Backend reconcile gating MUST control interaction entry points
 
+Backend reconcile gating MUST disable only the affected backend's interaction entry points while preserving its persisted task state.
+
 #### Scenario: blocked run entry and disabled backend surfaces
 
 - **WHEN** backend reconcile flag is true
@@ -169,6 +171,8 @@ same backend tab.
 - **AND** Dashboard MUST set that backend tab's selected subview to `runs`.
 
 ### Requirement: Backend-unreachable state MUST preserve last-known snapshot
+
+Backend-unreachable state MUST preserve the last-known task snapshot without speculative local status rewrites.
 
 #### Scenario: unreachable backend does not trigger local speculative rewrite
 
@@ -486,7 +490,7 @@ Run dialog MUST tolerate stale cached chat core assets during rollout.
 - **AND** frontend MUST stop targeting that request with further cancel, reply, pending, chat, or event requests
 - **AND** frontend MUST NOT leave the run visible as an active cancellable task
 
-### Requirement: request-created local failure MUST remain recoverable non-terminal state
+### Requirement: Post-create local communication failures MUST remain recoverable pending backend truth
 
 Plugin MUST distinguish backend terminal failure from plugin-side communication
 failure after `requestId` creation.
@@ -561,7 +565,7 @@ The sidebar observation UI MUST expose current-parent-item-related running tasks
 - **THEN** the plugin MUST auto-focus only non-terminal tasks related to the new primary parent item
 - **AND** if the currently focused task remains within the related non-terminal set the plugin MUST keep focus unchanged
 
-### Requirement: request-created local failure MUST remain recoverable non-terminal state
+### Requirement: Request-ready transport failures MUST remain recoverable while pre-ready observation stays closed
 
 Plugin MUST distinguish backend terminal failure from plugin-side communication failure after SkillRunner request creation.
 
@@ -588,7 +592,7 @@ Plugin MUST distinguish backend terminal failure from plugin-side communication 
 - **AND** plugin MUST NOT continue sending reply, cancel, auth import, poll, chat, or event requests for that request
 - **AND** plugin MUST NOT gate or hide the whole backend solely because of that request-level failure
 
-### Requirement: Backend reconcile gating MUST control interaction entry points
+### Requirement: Request-level terminal errors MUST NOT trigger backend reconcile gating
 
 Backend reconcile gating MUST remain backend-scoped and MUST NOT be triggered by terminal client errors for a single known request.
 

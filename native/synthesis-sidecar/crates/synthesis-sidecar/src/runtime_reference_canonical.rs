@@ -1959,6 +1959,10 @@ impl ReferenceCanonicalApplication {
                         "status":prepared.status,
                         "operation_id":MATCHING_JOB_ID,
                         "retryable":true,
+                        "diagnostics":prepared.diagnostics.into_iter().map(|code| json!({
+                            "code":code,
+                            "severity":"error",
+                        })).collect::<Vec<_>>(),
                     }));
                 }
                 let preparation_id = prepared

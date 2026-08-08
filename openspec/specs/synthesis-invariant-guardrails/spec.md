@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-invariant-guardrails Specification
+
+## Purpose
+
+Define static ownership and composition guards for the native Synthesis service, workers, and transfer path.
+
+## Requirements
 
 ### Requirement: Native worker-transfer ownership SHALL be statically guarded
 

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-rust-citation-reference-application-parity Specification
+
+## Purpose
+
+Define independent Rust application and durable-state parity for Citation and Reference behavior.
+
+## Requirements
 
 ### Requirement: Citation and Reference application parity SHALL use independent durable owners
 The checker SHALL execute Citation Graph, Reference Refresh, and Reference Matching/Review through Node oracle and Rust candidate application entry points using distinct mutable roots and one immutable `synthesis-citation-reference-application-parity-v1` fixture.

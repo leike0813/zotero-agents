@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-citation-graph-build-packed-worker-canary Specification
+
+## Purpose
+
+Define the production-representative worker canary for staged Citation Graph execution and direct-versus-paged parity.
+
+## Requirements
 
 ### Requirement: Native staged graph execution SHALL cross the shared child
 

@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# synthesis-sidecar-topic-canonical-store-foundation Specification
+
+## Purpose
+
+Define durable Rust canonical promotion phases and platform-safe synchronization behavior for Topic state.
+
+## Requirements
 
 ### Requirement: Rust canonical promotion SHALL preserve durable phase semantics
 

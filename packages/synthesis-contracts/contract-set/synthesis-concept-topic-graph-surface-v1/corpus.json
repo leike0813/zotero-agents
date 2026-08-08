@@ -3,16 +3,152 @@
   "requestCodec": "synthesis-client-args.v1",
   "resultCodec": "synthesis-client-result.v1",
   "baselineFixture": "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
-  "bounds": { "requestBytes": 1048576, "responseBytes": 1048576, "deadlineMs": 10000 },
+  "bounds": {
+    "requestBytes": 1048576,
+    "responseBytes": 1048576,
+    "deadlineMs": 10000
+  },
   "operations": [
-    { "id": "client.queryConceptKb", "access": "read", "cases": ["invalid_args", "oversized", "expired", "empty", "deterministic_order", "pagination", "legacy_labels", "legacy_aliases", "index_degraded"] },
-    { "id": "client.rebuildConceptKbIndex", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "deterministic_index", "worker_failed", "worker_retry"] },
-    { "id": "client.updateConceptDisplayText", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "public_patch", "preserve_unchanged_fields"] },
-    { "id": "client.applyConceptReviewAction", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "review_outcome"] },
-    { "id": "client.deleteConceptEntries", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "deletion", "deduplicated_ids"] },
-    { "id": "client.rebuildTopicGraphIndex", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "deterministic_index", "worker_failed", "worker_retry"] },
-    { "id": "client.acceptTopicGraphRelation", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "relation_policy"] },
-    { "id": "client.rejectTopicGraphRelation", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "relation_policy"] },
-    { "id": "client.applyTopicGraphReviewAction", "access": "mutation", "cases": ["invalid_args", "oversized", "expired", "valid", "basis_conflict", "receipt", "reopen", "no_partial_write", "review_policy"] }
+    {
+      "id": "client.queryConceptKb",
+      "access": "read",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "legacy_labels",
+        "legacy_aliases",
+        "index_degraded"
+      ]
+    },
+    {
+      "id": "client.rebuildConceptKbIndex",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "deterministic_index",
+        "worker_failed",
+        "worker_retry"
+      ]
+    },
+    {
+      "id": "client.updateConceptDisplayText",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "public_patch",
+        "preserve_unchanged_fields"
+      ]
+    },
+    {
+      "id": "client.applyConceptReviewAction",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "review_outcome"
+      ]
+    },
+    {
+      "id": "client.deleteConceptEntries",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "deletion",
+        "deduplicated_ids"
+      ]
+    },
+    {
+      "id": "client.rebuildTopicGraphIndex",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "deterministic_index",
+        "worker_failed",
+        "worker_retry"
+      ]
+    },
+    {
+      "id": "client.acceptTopicGraphRelation",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "relation_policy"
+      ]
+    },
+    {
+      "id": "client.rejectTopicGraphRelation",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "relation_policy"
+      ]
+    },
+    {
+      "id": "client.applyTopicGraphReviewAction",
+      "access": "mutation",
+      "cases": [
+        "invalid_args",
+        "oversized",
+        "expired",
+        "valid",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "review_policy"
+      ]
+    }
   ]
 }

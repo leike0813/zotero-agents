@@ -1088,7 +1088,7 @@ async function observePublicMaintenanceOperation(
       : {};
   }
   if (operation.receipt && typeof operation.receipt === "object") {
-    failOnDiagnostic(operation.receipt);
+    failOnDiagnostic(operation.receipt, operation.operation_id);
     failOnSyncFailureState(operation.receipt);
   }
   throw new Error(
@@ -1096,7 +1096,7 @@ async function observePublicMaintenanceOperation(
   );
 }
 
-function failOnDiagnostic<T>(result: T): T {
+function failOnDiagnostic<T>(result: T, operationId?: string): T {
   if (!result || typeof result !== "object") {
     return result;
   }
@@ -1108,11 +1108,22 @@ function failOnDiagnostic<T>(result: T): T {
       String(diagnosticRow.message || diagnosticRow.code || "Action failed."),
     );
   }
-  if ("ok" in result && row.ok === false) {
-    const diagnostics =
-      "diagnostics" in result && Array.isArray(row.diagnostics)
+  const maintenanceFailure =
+    row.schema === "synthesis.maintenance_receipt.v1" &&
+    row.outcome === "failed";
+  if (
+    ("ok" in result && row.ok === false) ||
+    maintenanceFailure ||
+    operationId
+  ) {
+    const diagnostics = [
+      ...("diagnostics" in result && Array.isArray(row.diagnostics)
         ? row.diagnostics
-        : [];
+        : []),
+      ...("warnings" in result && Array.isArray(row.warnings)
+        ? row.warnings
+        : []),
+    ];
     const firstDiagnostic = diagnostics.find(
       (entry) =>
         typeof entry === "string" ||
@@ -1123,7 +1134,10 @@ function failOnDiagnostic<T>(result: T): T {
         ? (firstDiagnostic as Record<string, unknown>).message ||
           (firstDiagnostic as Record<string, unknown>).code
         : firstDiagnostic;
-    throw new Error(String(message || row.status || "Action failed."));
+    const code = String(
+      message || row.status || row.queue_state || "Action failed.",
+    );
+    throw new Error(operationId ? `${code} [${operationId}]` : code);
   }
   return result;
 }
@@ -1532,6 +1546,7 @@ async function sendSurface(
       }
       if (
         surface === "graph" &&
+        String(input.graph?.graph_hash || "").trim() &&
         !mergeGraphPageInput(runtime, input, graphGeneration)
       ) {
         return;

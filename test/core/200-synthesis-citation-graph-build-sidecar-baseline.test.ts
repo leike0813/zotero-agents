@@ -74,11 +74,11 @@ describe("Synthesis Citation Graph build sidecar baseline", function () {
       measurement.request.bytes,
       SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes,
     );
-    assert.isAbove(
+    assert.isBelow(
       measurement.request.jsonNodes,
       SYNTHESIS_SIDECAR_LIMITS.computeRequestJsonNodes,
     );
-    assert.deepEqual(measurement.request.violations, ["request_json_nodes"]);
+    assert.deepEqual(measurement.request.violations, []);
     assert.isAbove(
       measurement.response.bytes,
       SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
@@ -123,8 +123,10 @@ describe("Synthesis Citation Graph build sidecar baseline", function () {
         "utf8",
       ),
     ) as {
+      baseline: { public_method_count: number };
+      audit: { source_public_method_count: number };
+      production_native_route: { runtime_owner: string };
       direct_consumers: Array<{ path: string }>;
-      method_groups: Array<{ methods: string[] }>;
       internal_engines: Array<{
         id: string;
         implementation: string;
@@ -132,9 +134,11 @@ describe("Synthesis Citation Graph build sidecar baseline", function () {
         sidecar_worker_canary?: boolean;
       }>;
     };
+    assert.equal(inventory.baseline.public_method_count, 131);
+    assert.equal(inventory.audit.source_public_method_count, 113);
     assert.equal(
-      inventory.method_groups.flatMap((group) => group.methods).length,
-      113,
+      inventory.production_native_route.runtime_owner,
+      "rust_sidecar",
     );
     assert.lengthOf(inventory.direct_consumers, 1);
     assert.deepInclude(

@@ -1,22 +1,8 @@
-# synthesis-sidecar-operation-observability Specification
-
-## Purpose
-TBD - created by syncing change govern-synthesis-sidecar-observability. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Host SHALL own business operation audit
 
-The Host SHALL emit mutation start and invocation-terminal records and
-read/periodic failure records from the production operation manifest. One
-invocation SHALL own at most one failure incident regardless of nested boundary
-failures. For a manifest operation whose receipt is
-`public-maintenance-operation`, the invocation terminal SHALL classify the
-public maintenance lifecycle envelope: `pending`, `running`, and `completed`
-are accepted, while failed, canceled, timed-out, missing, malformed, or unknown
-lifecycle states are non-success. Domain promotion and failure statuses belong
-to the durable operation terminal and MUST NOT be applied to the initial
-receipt envelope.
+The Host SHALL emit mutation start and invocation-terminal records and read/periodic failure records from the production operation manifest. One invocation SHALL own at most one failure incident regardless of nested boundary failures. For a manifest operation whose receipt is `public-maintenance-operation`, the invocation terminal SHALL classify the public maintenance lifecycle envelope: `pending`, `running`, and `completed` are accepted, while failed, canceled, timed-out, missing, malformed, or unknown lifecycle states are non-success. Domain promotion and failure statuses belong to the durable operation terminal and MUST NOT be applied to the initial receipt envelope.
 
 #### Scenario: Mutation fails in a worker
 - **WHEN** a mutation starts and a nested worker failure reaches the Host
@@ -46,3 +32,8 @@ receipt envelope.
 - **WHEN** an accepted maintenance worker times out, crashes, or returns an unsuccessful domain status
 - **THEN** the durable terminal and terminal trace preserve the first stable raw failure code
 - **AND** Workbench reports that code together with the public operation ID
+
+#### Scenario: Worker process panics
+- **WHEN** a Rust worker terminates with identifiable panic evidence before returning a terminal frame
+- **THEN** the parent reports the stable `worker_panicked` code and replaces the failed worker
+- **AND** captured panic text remains bounded and internal rather than entering a public receipt, trace, Runtime Log, or Workbench diagnostic

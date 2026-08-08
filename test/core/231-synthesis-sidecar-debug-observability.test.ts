@@ -173,6 +173,93 @@ describe("Synthesis sidecar debug observability", function () {
     assert.lengthOf(patches, 1);
   });
 
+  it("keeps an accepted maintenance trace active and unevictable until its durable terminal", function () {
+    const root = createSynthesisSidecarTraceContext()!;
+    const maintenance = createSynthesisSidecarTraceContext({ parent: root })!;
+    recordSynthesisSidecarTraceEvent({
+      context: root,
+      source: "host",
+      boundary: "operation",
+      phase: "start",
+      outcome: "started",
+      occurredAtMs: 1,
+    });
+    recordSynthesisSidecarTraceEvent({
+      context: maintenance,
+      source: "rust-sidecar",
+      boundary: "operation",
+      phase: "maintenance-started",
+      outcome: "started",
+      occurredAtMs: 2,
+      identities: {
+        capability: "client.recomputeCitationGraphLayout",
+        operation: "maintenance:layout:1",
+      },
+      facts: { semanticStatus: "pending" },
+    });
+    recordSynthesisSidecarTraceEvent({
+      context: root,
+      source: "host",
+      boundary: "operation",
+      phase: "terminal",
+      outcome: "succeeded",
+      occurredAtMs: 3,
+    });
+
+    for (let index = 0; index < 520; index += 1) {
+      const completed = createSynthesisSidecarTraceContext()!;
+      recordSynthesisSidecarTraceEvent({
+        context: completed,
+        source: "host",
+        boundary: "operation",
+        phase: "start",
+        outcome: "started",
+        occurredAtMs: index * 2 + 4,
+      });
+      recordSynthesisSidecarTraceEvent({
+        context: completed,
+        source: "host",
+        boundary: "operation",
+        phase: "terminal",
+        outcome: "succeeded",
+        occurredAtMs: index * 2 + 5,
+      });
+    }
+
+    let retained = readSynthesisSidecarTraceSnapshot().traces.find(
+      (trace) => trace.traceId === root.traceId,
+    );
+    assert.isDefined(retained);
+    assert.isTrue(retained!.active);
+
+    recordSynthesisSidecarTraceEvent({
+      context: maintenance,
+      source: "rust-sidecar",
+      boundary: "operation",
+      phase: "maintenance-terminal",
+      outcome: "timed-out",
+      code: "worker_timeout",
+      occurredAtMs: 2_000,
+      identities: {
+        capability: "client.recomputeCitationGraphLayout",
+        operation: "maintenance:layout:1",
+      },
+      facts: { semanticStatus: "timed_out" },
+    });
+    retained = readSynthesisSidecarTraceSnapshot().traces.find(
+      (trace) => trace.traceId === root.traceId,
+    );
+    assert.isDefined(retained);
+    assert.isFalse(retained!.active);
+    assert.isTrue(
+      retained!.events.some(
+        (event) =>
+          event.phase === "maintenance-terminal" &&
+          event.code === "worker_timeout",
+      ),
+    );
+  });
+
   it("propagates trace context over RPC only in debug mode", async function () {
     const bodies: Record<string, unknown>[] = [];
     const events: unknown[] = [];

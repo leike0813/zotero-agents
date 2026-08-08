@@ -54,21 +54,36 @@ Default-client, Workbench, workflow, Host Bridge, MCP, and startup production pa
 
 ### Requirement: Production operation deadlines SHALL be manifest owned
 
-The shared production operation manifest SHALL define the effective native deadline for every production capability. Operations without an override SHALL use 10 seconds, while `startReferenceSidecarRefresh`, `refreshReferenceSidecarNow`, and `retryReferenceSidecarRefresh` SHALL use 60 seconds. TypeScript and Rust production routes MUST resolve deadlines from that manifest rather than duplicate capability constants.
+The shared production operation manifest SHALL define an operation-specific control-plane deadline and work model for every production capability. Bounded reads and short mutations SHALL complete within that deadline. Every full-library or worker-backed mutation SHALL also declare an explicit, independently persisted work deadline. Such mutations SHALL return an accepted public operation receipt within the short control-plane deadline and continue only through bounded operation phases with explicit progress, cancellation, retry, and terminal state. TypeScript and Rust routes MUST resolve the same policy from the manifest.
+
+#### Scenario: Long native work is accepted
+- **WHEN** a caller starts Reference refresh/matching, Citation rebuild/refresh/metrics/layout, a knowledge-index rebuild, or WebDAV sync
+- **THEN** the route returns the existing public operation receipt without holding the RPC until terminal completion
+- **AND** subsequent progress and terminal reads use the read-only operation API while cancel, continue, and retry use the bounded control mutation
 
 #### Scenario: Reference Refresh exceeds the former plugin timeout
-- **WHEN** a Reference Refresh production operation runs for more than five seconds and less than sixty seconds
-- **THEN** the plugin transport remains open for the native result
+- **WHEN** an accepted Reference Refresh operation runs for more than five seconds and less than its manifest work deadline
+- **THEN** the original command has already returned its public operation receipt and the work remains observable by operation ID
 - **AND** no `worker_timeout` is reported
+
+#### Scenario: Accepted work exceeds the control-plane deadline
+- **WHEN** Advanced Reference matching or Citation Graph layout runs for more than the control-plane deadline and remains within its work and worker-phase deadlines
+- **THEN** the accepted operation remains running and observable by operation ID
+- **AND** the control-plane deadline does not cancel its worker or change its durable terminal
 
 #### Scenario: Native operation reaches its deadline
 - **WHEN** a production operation exceeds its manifest deadline
 - **THEN** Rust returns `operation_timeout`
 - **AND** the plugin preserves that code before its local transport grace expires
 
+#### Scenario: Native operation reaches a phase deadline
+- **WHEN** bounded work exceeds its phase deadline before promotion
+- **THEN** Rust records `operation_timeout` and preserves the prior usable state
+- **AND** no unreported commit occurs after the caller observes timeout
+
 #### Scenario: Ordinary operation resolves its deadline
-- **WHEN** an operation has no capability-specific override
-- **THEN** its effective native deadline remains ten seconds
+- **WHEN** a bounded read or short mutation has no override
+- **THEN** its effective deadline comes from the shared manifest
 
 ### Requirement: Production RPC transport SHALL use transport failure vocabulary
 

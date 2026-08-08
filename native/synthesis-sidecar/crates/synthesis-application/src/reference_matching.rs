@@ -178,6 +178,8 @@ pub struct ReferenceMatchingPrepareResult {
     pub reference_hash: Option<String>,
     pub repository_basis_hash: Option<String>,
     pub host_basis_hash: Option<String>,
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -414,10 +416,15 @@ impl ReferenceMatchingApplication {
             .match_pass(ReferenceMatchPass::LibraryBinding, &input)
         {
             Ok(outcomes) => outcomes,
-            Err(_) => return prepare_result(ReferenceMatchingStatus::MatcherFailed),
+            Err(error) => {
+                return prepare_failure(ReferenceMatchingStatus::MatcherFailed, error);
+            }
         };
         if validate_outcomes(ReferenceMatchPass::LibraryBinding, &outcomes).is_err() {
-            return prepare_result(ReferenceMatchingStatus::MatcherFailed);
+            return prepare_failure(
+                ReferenceMatchingStatus::MatcherFailed,
+                "matcher_result_invalid".into(),
+            );
         }
         let mut dedupe_input = input.clone();
         dedupe_input.accepted_binding_canonical_ids = outcomes
@@ -437,7 +444,9 @@ impl ReferenceMatchingApplication {
                 }
                 outcomes.extend(second_pass);
             }
-            Err(_) => return prepare_result(ReferenceMatchingStatus::MatcherFailed),
+            Err(error) => {
+                return prepare_failure(ReferenceMatchingStatus::MatcherFailed, error);
+            }
         }
         if !self.is_accepting() {
             return prepare_result(ReferenceMatchingStatus::Stopping);
@@ -474,6 +483,7 @@ impl ReferenceMatchingApplication {
             reference_hash: Some(reference.reference_hash),
             repository_basis_hash: Some(repository_basis_hash),
             host_basis_hash: Some(request.host_basis_hash),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -953,6 +963,17 @@ fn prepare_result(status: ReferenceMatchingStatus) -> ReferenceMatchingPrepareRe
         reference_hash: None,
         repository_basis_hash: None,
         host_basis_hash: None,
+        diagnostics: Vec::new(),
+    }
+}
+
+fn prepare_failure(
+    status: ReferenceMatchingStatus,
+    diagnostic: String,
+) -> ReferenceMatchingPrepareResult {
+    ReferenceMatchingPrepareResult {
+        diagnostics: vec![diagnostic],
+        ..prepare_result(status)
     }
 }
 

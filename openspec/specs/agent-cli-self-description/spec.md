@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# agent-cli-self-description Specification
+
+## Purpose
+
+Define the governed self-description contract for published CLI commands, structured inputs, and context-dependent examples.
+
+## Requirements
 
 ### Requirement: Published CLI surfaces SHALL describe every public command and option
 Each published CLI package SHALL expose a versioned machine-readable descriptor whose command inventory exactly matches its parser, whose inherited global and local arguments preserve complete parser metadata, and whose structured inputs, examples, payloads, and command results are governed by strict schemas from one command-contract source.

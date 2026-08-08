@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# host-bridge-cli-interface Specification
+
+## Purpose
+
+Define the mechanism-only Host Bridge CLI contract, including agent-surface metadata, structured-input discovery, examples, and continuation controls.
+
+## Requirements
 
 ### Requirement: CLI SHALL publish a mechanism-only Agent Surface v4
 The offline `surface` command family SHALL publish `host-bridge.agent-surface.v5` under CLI identity `zotero-bridge.cli.v4`, with global options and exact command argv, complete parser argument metadata, raw structured-input schemas, classified examples, composed payload schemas, strict result schemas, effects, approval requirements, typed handles, recovery rules, targets, operational summaries, and operational aliases. It SHALL NOT contain research-task guidance or a built-in workflow catalog.
@@ -21,8 +27,6 @@ The `zotero-bridge-cli` `SKILL.md` SHALL contain the complete executable CLI loo
 #### Scenario: Generated command card is complete
 - **WHEN** one v5 command descriptor is rendered into its offline reference
 - **THEN** global and local argv metadata, invocation schema, every structured input schema, composed payload schema, result schema, examples, pagination, effects, approval scope, handles, recovery, targets, aliases, and search visibility remain available.
-
-## ADDED Requirements
 
 ### Requirement: CLI SHALL expose offline structured-input schemas
 The CLI SHALL accept global `--schema` for canonical leaf commands and return a versioned `zotero-bridge.command-input-schemas.v1` package inside the existing success envelope. Schema mode SHALL identify the leaf without requiring ordinary command values and SHALL NOT load a profile, read Bridge configuration, or make a network request.

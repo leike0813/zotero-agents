@@ -8,7 +8,7 @@ export * from "./tagVocabulary.ts";
 export * from "./topicGraphIndex.ts";
 export * from "./topicStructuredArtifact.ts";
 
-export const SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX = 5000 as const;
+export const SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX = 10_000 as const;
 export const SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX = 20000 as const;
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX = 20_000 as const;
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX = 80_000 as const;

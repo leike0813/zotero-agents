@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-rust-tag-concept-topic-graph-application-parity Specification
+
+## Purpose
+
+Define typed Rust ownership and differential parity for Tag, Concept, and Topic Graph applications.
+
+## Requirements
 
 ### Requirement: Three knowledge domains SHALL execute through typed Rust applications
 The private candidate SHALL expose distinct typed Tag Vocabulary, Concept KB, and Topic Graph application owners whose policy is implemented above explicit repository and compute ports without generic command dispatch.

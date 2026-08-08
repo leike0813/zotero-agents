@@ -177,6 +177,7 @@ struct ProductionClientOperationManifest {
     control_target_bytes: usize,
     deadline_ms: u64,
     deadline_overrides_ms: BTreeMap<String, u64>,
+    work_deadline_ms: BTreeMap<String, u64>,
     receipt_query_capability: String,
     policy_defaults: ProductionClientPolicy,
     policy_overrides: BTreeMap<String, ProductionClientPolicyOverride>,
@@ -203,6 +204,7 @@ pub struct ProductionClientOperationMetadata {
     pub request_bytes: usize,
     pub response_bytes: usize,
     pub deadline_ms: u64,
+    pub work_deadline_ms: Option<u64>,
     pub semantic_success: Option<ProductionClientSemanticSuccess>,
 }
 
@@ -282,9 +284,28 @@ fn production_client_operation_manifest() -> Result<ProductionClientOperationMan
             .any(|(capability, deadline)| {
                 !manifest.access.contains_key(capability) || !(100..=60_000).contains(deadline)
             })
+        || manifest
+            .work_deadline_ms
+            .iter()
+            .any(|(capability, deadline)| {
+                !manifest.access.contains_key(capability)
+                    || resolved_policy(&manifest, capability).receipt
+                        != ProductionClientReceipt::PublicMaintenanceOperation
+                    || !(100..=1_800_000).contains(deadline)
+            })
+        || manifest.access.keys().any(|capability| {
+            (resolved_policy(&manifest, capability).receipt
+                == ProductionClientReceipt::PublicMaintenanceOperation)
+                != manifest.work_deadline_ms.contains_key(capability)
+        })
+        || manifest.access.keys().any(|capability| {
+            resolved_policy(&manifest, capability).receipt
+                == ProductionClientReceipt::PublicMaintenanceOperation
+                && !manifest.semantic_success.contains_key(capability)
+        })
         || manifest.semantic_success.iter().any(|(capability, rule)| {
             !manifest.access.contains_key(capability)
-                || rule.field != "status"
+                || !matches!(rule.field.as_str(), "status" | "queue_state")
                 || rule.values.is_empty()
                 || rule.values.iter().any(|value| {
                     value.is_empty()
@@ -316,6 +337,7 @@ pub fn production_client_operation_metadata()
                 .copied()
                 .unwrap_or(manifest.deadline_ms);
             let semantic_success = manifest.semantic_success.get(capability).cloned();
+            let work_deadline_ms = manifest.work_deadline_ms.get(capability).copied();
             (
                 capability.clone(),
                 ProductionClientOperationMetadata {
@@ -328,6 +350,7 @@ pub fn production_client_operation_metadata()
                     request_bytes: manifest.request_bytes,
                     response_bytes: manifest.response_bytes,
                     deadline_ms,
+                    work_deadline_ms,
                     semantic_success,
                 },
             )
@@ -401,6 +424,7 @@ mod tests {
         );
         let metadata = production_client_operation_metadata().unwrap();
         assert_eq!(metadata["client.listTopics"].deadline_ms, 10_000);
+        assert_eq!(metadata["client.listTopics"].work_deadline_ms, None);
         assert_eq!(
             metadata["client.listTopics"].request_plane,
             ProductionClientDataPlane::Control
@@ -440,6 +464,28 @@ mod tests {
                 .count(),
             16
         );
+        assert!(metadata.values().all(|entry| {
+            (entry.receipt == ProductionClientReceipt::PublicMaintenanceOperation)
+                == entry.work_deadline_ms.is_some()
+        }));
+        assert_eq!(
+            metadata["client.runAdvancedReferenceMatchingNow"].work_deadline_ms,
+            Some(30 * 60_000)
+        );
+        assert_eq!(
+            metadata["client.recomputeCitationGraphLayout"].work_deadline_ms,
+            Some(120_000)
+        );
+        assert_eq!(
+            metadata
+                .values()
+                .filter(|entry| {
+                    entry.receipt == ProductionClientReceipt::PublicMaintenanceOperation
+                        && entry.semantic_success.is_some()
+                })
+                .count(),
+            16
+        );
         assert_eq!(
             metadata
                 .values()
@@ -450,12 +496,6 @@ mod tests {
                 .count(),
             4
         );
-        for capability in [
-            "client.startReferenceSidecarRefresh",
-            "client.refreshReferenceSidecarNow",
-            "client.retryReferenceSidecarRefresh",
-        ] {
-            assert_eq!(metadata[capability].deadline_ms, 60_000);
-        }
+        assert!(metadata.values().all(|entry| entry.deadline_ms == 10_000));
     }
 }

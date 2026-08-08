@@ -88,9 +88,10 @@ function splitContentText(text: string) {
   return chunks;
 }
 
-function topicAssetTransfer(
-  assets: SynthesisMaterializedAsset[],
-): { manifest: SynthesisSidecarTransferManifest; pages: SynthesisSidecarTransferPage[] } {
+function topicAssetTransfer(assets: SynthesisMaterializedAsset[]): {
+  manifest: SynthesisSidecarTransferManifest;
+  pages: SynthesisSidecarTransferPage[];
+} {
   const pages: SynthesisSidecarTransferPage[] = [];
   const descriptors: SynthesisJsonObject[] = [];
   for (const asset of assets) {
@@ -202,7 +203,8 @@ async function resolveContentTransferResult(args: {
       pages: manifest.pages,
     };
     if (
-      manifest.transferVersion !== SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION ||
+      manifest.transferVersion !==
+        SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION ||
       manifest.encoding !== SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING ||
       manifest.direction !== "output" ||
       header.target !== "production_client_result" ||
@@ -211,7 +213,8 @@ async function resolveContentTransferResult(args: {
       !Number.isSafeInteger(header.byteLength) ||
       header.byteLength < 0 ||
       typeof header.sha256 !== "string" ||
-      manifest.rootSha256 !== hashSynthesisContractCanonicalJson(manifestBody) ||
+      manifest.rootSha256 !==
+        hashSynthesisContractCanonicalJson(manifestBody) ||
       manifest.pages.some(
         (descriptor, index) =>
           descriptor.kind !== "content" || descriptor.pageIndex !== index,
@@ -379,9 +382,7 @@ function createNativePort(args: {
           ) {
             normalizedArgs.pop();
           }
-          let staged:
-            | Awaited<ReturnType<typeof stageTopicAssets>>
-            | undefined;
+          let staged: Awaited<ReturnType<typeof stageTopicAssets>> | undefined;
           if (property === "applyTopicSynthesisResult") {
             const request = normalizedArgs[0] as {
               bundle: Record<string, unknown>;
@@ -450,10 +451,32 @@ function createNativePort(args: {
             }
           }
           const semantic = audit.succeeded(result);
-          const semanticStatus =
+          const resultRow =
             result && typeof result === "object" && !Array.isArray(result)
-              ? (result as Record<string, unknown>).status
+              ? (result as Record<string, unknown>)
               : undefined;
+          const semanticStatus = resultRow?.status;
+          const publicOperationId = resultRow?.operation_id;
+          if (
+            synthesisProductionOperationPolicy(operation).receipt ===
+              "public-maintenance-operation" &&
+            (semanticStatus === "pending" || semanticStatus === "running") &&
+            typeof publicOperationId === "string" &&
+            publicOperationId.length > 0
+          ) {
+            recordSynthesisSidecarTraceEvent({
+              context: createSynthesisSidecarTraceContext({ parent: trace }),
+              source: "host",
+              boundary: "operation",
+              phase: "maintenance-started",
+              outcome: "started",
+              identities: {
+                capability: operation,
+                operation: publicOperationId,
+              },
+              facts: { semanticStatus },
+            });
+          }
           recordSynthesisSidecarTraceEvent({
             context: trace,
             source: "host",

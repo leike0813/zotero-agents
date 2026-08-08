@@ -30,6 +30,9 @@ const manifest = productionOperations as {
   deadlineOverridesMs: Partial<
     Record<SynthesisSidecarProductionClientCapability, number>
   >;
+  workDeadlineMs: Partial<
+    Record<SynthesisSidecarProductionClientCapability, number>
+  >;
   receiptQueryCapability: SynthesisSidecarProductionClientCapability;
   access: Record<
     SynthesisSidecarProductionClientCapability,
@@ -62,7 +65,8 @@ function validPolicy(capability: SynthesisSidecarProductionClientCapability) {
   if (
     override &&
     Object.keys(override).some(
-      (field) => !POLICY_FIELDS.includes(field as (typeof POLICY_FIELDS)[number]),
+      (field) =>
+        !POLICY_FIELDS.includes(field as (typeof POLICY_FIELDS)[number]),
     )
   ) {
     return false;
@@ -80,23 +84,34 @@ function validPolicy(capability: SynthesisSidecarProductionClientCapability) {
   );
 }
 
-const operationCapabilities = Object.keys(manifest.access) as Array<
-  SynthesisSidecarProductionClientCapability
->;
+const operationCapabilities = Object.keys(
+  manifest.access,
+) as Array<SynthesisSidecarProductionClientCapability>;
 if (
   manifest.schema !== "synthesis-production-client-operations.v2" ||
   !Number.isSafeInteger(manifest.controlTargetBytes) ||
   manifest.controlTargetBytes <= 0 ||
   manifest.controlTargetBytes > manifest.requestBytes ||
   manifest.controlTargetBytes > manifest.responseBytes ||
-  manifest.receiptQueryCapability !==
-    "client.getPublicMaintenanceOperation" ||
+  manifest.receiptQueryCapability !== "client.getPublicMaintenanceOperation" ||
   Object.keys(manifest.policyDefaults).sort().join("\n") !==
     [...POLICY_FIELDS].sort().join("\n") ||
   Object.keys(manifest.policyOverrides).some(
     (capability) => !(capability in manifest.access),
   ) ||
-  operationCapabilities.some((capability) => !validPolicy(capability))
+  operationCapabilities.some((capability) => !validPolicy(capability)) ||
+  operationCapabilities.some(
+    (capability) =>
+      (resolvePolicy(capability).receipt === "public-maintenance-operation") !==
+      Number.isSafeInteger(manifest.workDeadlineMs[capability]),
+  ) ||
+  Object.entries(manifest.workDeadlineMs).some(
+    ([capability, deadline]) =>
+      !(capability in manifest.access) ||
+      !Number.isSafeInteger(deadline) ||
+      Number(deadline) < 100 ||
+      Number(deadline) > 30 * 60_000,
+  )
 ) {
   throw new Error("invalid_production_operation_manifest");
 }
@@ -114,6 +129,16 @@ export function synthesisProductionOperationDeadlineMs(
   capability: SynthesisSidecarProductionClientCapability,
 ) {
   return manifest.deadlineOverridesMs[capability] ?? manifest.deadlineMs;
+}
+
+export function synthesisProductionOperationWorkDeadlineMs(
+  capability: SynthesisSidecarProductionClientCapability,
+) {
+  const deadline = manifest.workDeadlineMs[capability];
+  if (!Number.isSafeInteger(deadline)) {
+    throw new Error("production_operation_has_no_work_deadline");
+  }
+  return deadline as number;
 }
 
 export function synthesisProductionOperationPolicy(

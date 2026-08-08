@@ -609,10 +609,7 @@ export function rebuildSynthesisWebDavSyncState(
     json.credential_updated_at,
     "webdav_sync_credential_updated_at_invalid",
   );
-  optionalUtcIso8601(
-    json.next_retry_at,
-    "webdav_sync_next_retry_at_invalid",
-  );
+  optionalUtcIso8601(json.next_retry_at, "webdav_sync_next_retry_at_invalid");
   boundedOptionalString(json.last_phase, "webdav_sync_last_phase_invalid");
   utcIso8601(json.updated_at, "webdav_sync_updated_at_invalid");
   if (json.connection_test !== undefined) {

@@ -24,8 +24,7 @@ describe("Synthesis reverse Host handlers", function () {
         },
       },
       exportDeliveryPort: {
-        publishArchive: () =>
-          result("delivery.publishArchive") as never,
+        publishArchive: () => result("delivery.publishArchive") as never,
       },
       representativeImagePort: {
         read: () => result("image.read") as never,
@@ -43,18 +42,14 @@ describe("Synthesis reverse Host handlers", function () {
         describe: () => result("webdav.describe") as never,
         readText: () => result("webdav.readText") as never,
         writeText: () => result("webdav.writeText") as never,
-        ensureCollection: () =>
-          result("webdav.ensureCollection") as never,
+        ensureCollection: () => result("webdav.ensureCollection") as never,
       },
     });
     assert.deepEqual(
       Object.keys(handlers).sort(),
       [...SYNTHESIS_REVERSE_HOST_CAPABILITIES].sort(),
     );
-    await handlers["library.items.list_page"](
-      { libraryId: 1 },
-      {} as never,
-    );
+    await handlers["library.items.list_page"]({ libraryId: 1 }, {} as never);
     await handlers["library.items.get_by_ref"](
       { libraryId: 1, paperRefs: [] },
       {} as never,

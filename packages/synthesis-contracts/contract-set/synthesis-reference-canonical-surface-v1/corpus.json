@@ -13,82 +13,271 @@
     {
       "id": "client.getReferenceSidecarIndex",
       "access": "read",
-      "cases": ["empty", "deterministic_order", "pagination", "coherent_repository_basis", "coherent_canonical_basis", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "coherent_repository_basis",
+        "coherent_canonical_basis",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.rankExternalReferences",
       "access": "read",
-      "cases": ["empty", "deterministic_order", "pagination", "stable_ranking", "coherent_repository_basis", "coherent_canonical_basis", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "stable_ranking",
+        "coherent_repository_basis",
+        "coherent_canonical_basis",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.getAttentionQueue",
       "access": "read",
-      "cases": ["empty", "deterministic_order", "pagination", "coherent_repository_basis", "coherent_canonical_basis", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "coherent_repository_basis",
+        "coherent_canonical_basis",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.getReviewInput",
       "access": "read",
-      "cases": ["empty", "deterministic_order", "pagination", "coherent_repository_basis", "coherent_canonical_basis", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "empty",
+        "deterministic_order",
+        "pagination",
+        "coherent_repository_basis",
+        "coherent_canonical_basis",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.startReferenceSidecarRefresh",
       "access": "mutation",
-      "cases": ["valid", "bounded_host_pages", "host_disconnect", "host_revision_drift", "durable_job", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "bounded_host_pages",
+        "host_disconnect",
+        "host_revision_drift",
+        "durable_job",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.refreshReferenceSidecarNow",
       "access": "mutation",
-      "cases": ["valid", "bounded_host_pages", "host_disconnect", "host_revision_drift", "durable_job", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "bounded_host_pages",
+        "host_disconnect",
+        "host_revision_drift",
+        "durable_job",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.retryReferenceSidecarRefresh",
       "access": "mutation",
-      "cases": ["valid", "retry", "bounded_host_pages", "host_disconnect", "host_revision_drift", "durable_job", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "retry",
+        "bounded_host_pages",
+        "host_disconnect",
+        "host_revision_drift",
+        "durable_job",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.runAdvancedReferenceMatchingNow",
       "access": "mutation",
-      "cases": ["valid", "bounded_host_pages", "host_disconnect", "host_revision_drift", "worker_failed", "worker_retry", "durable_job", "durable_proposals", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "bounded_host_pages",
+        "host_disconnect",
+        "host_revision_drift",
+        "worker_failed",
+        "worker_retry",
+        "durable_job",
+        "durable_proposals",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.retryAdvancedReferenceMatching",
       "access": "mutation",
-      "cases": ["valid", "retry", "bounded_host_pages", "host_disconnect", "host_revision_drift", "worker_failed", "worker_retry", "durable_job", "durable_proposals", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "retry",
+        "bounded_host_pages",
+        "host_disconnect",
+        "host_revision_drift",
+        "worker_failed",
+        "worker_retry",
+        "durable_job",
+        "durable_proposals",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.applyCanonicalRevisionReviewAction",
       "access": "mutation",
-      "cases": ["valid", "dedicated_port", "mixed_basis", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "dedicated_port",
+        "mixed_basis",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.applyReferenceMatchProposalAction",
       "access": "mutation",
-      "cases": ["valid", "proposal_lifecycle", "mixed_basis", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "proposal_lifecycle",
+        "mixed_basis",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.applyReferenceMatchProposalActions",
       "access": "mutation",
-      "cases": ["valid", "proposal_lifecycle", "mixed_basis", "basis_conflict", "batch_atomicity", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "proposal_lifecycle",
+        "mixed_basis",
+        "basis_conflict",
+        "batch_atomicity",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.mergeEffectiveCanonicalReference",
       "access": "mutation",
-      "cases": ["valid", "dedicated_port", "mixed_basis", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "dedicated_port",
+        "mixed_basis",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.applyCanonicalRevisionMergeRequests",
       "access": "mutation",
-      "cases": ["valid", "dedicated_port", "mixed_basis", "basis_conflict", "batch_atomicity", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "dedicated_port",
+        "mixed_basis",
+        "basis_conflict",
+        "batch_atomicity",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.updateCanonicalReferenceMetadata",
       "access": "mutation",
-      "cases": ["valid", "dedicated_port", "mixed_basis", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "dedicated_port",
+        "mixed_basis",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     },
     {
       "id": "client.archiveCanonicalReference",
       "access": "mutation",
-      "cases": ["valid", "dedicated_port", "mixed_basis", "basis_conflict", "receipt", "reopen", "no_partial_write", "invalid_args", "oversized", "expired"]
+      "cases": [
+        "valid",
+        "dedicated_port",
+        "mixed_basis",
+        "basis_conflict",
+        "receipt",
+        "reopen",
+        "no_partial_write",
+        "invalid_args",
+        "oversized",
+        "expired"
+      ]
     }
   ]
 }

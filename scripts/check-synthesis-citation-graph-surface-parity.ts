@@ -1,8 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-} from "../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../packages/synthesis-contracts/src/sidecarSystem";
 import { readSynthesisProductionSurfaceCorpora } from "./synthesisProductionSurfaceCorpora";
 
 type Corpus = {
@@ -10,7 +8,11 @@ type Corpus = {
   requestCodec: string;
   resultCodec: string;
   bounds: { requestBytes: number; responseBytes: number; deadlineMs: number };
-  operations: Array<{ id: string; access: "read" | "mutation"; cases: string[] }>;
+  operations: Array<{
+    id: string;
+    access: "read" | "mutation";
+    cases: string[];
+  }>;
 };
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -54,7 +56,9 @@ export function inspectSynthesisCitationGraphSurfaceParity() {
       ? []
       : ["invalid operation count"]),
     ...corpus.operations
-      .filter((operation) => boundaryCases.some((name) => !operation.cases.includes(name)))
+      .filter((operation) =>
+        boundaryCases.some((name) => !operation.cases.includes(name)),
+      )
       .map((operation) => `missing boundary cases: ${operation.id}`),
     ...corpus.operations
       .filter(
@@ -100,7 +104,10 @@ export function inspectSynthesisCitationGraphSurfaceParity() {
   return { ok: errors.length === 0, operations: ids.length, errors };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   const report = inspectSynthesisCitationGraphSurfaceParity();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exitCode = 1;

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# synthesis-sidecar-tag-vocabulary-application-foundation Specification
+
+## Purpose
+
+Define typed Rust parity, Host-effect handling, and supersession safety for Tag Vocabulary operations.
+
+## Requirements
 
 ### Requirement: Tag Vocabulary SHALL have typed Rust application parity
 The private Rust candidate SHALL implement strict Tag inspection, vocabulary and staged mutation, validation, promotion, index, audit, effect receipt, and lifecycle behavior over typed repository, compute, Host-effect, and legacy-binding ports.

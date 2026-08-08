@@ -61,6 +61,7 @@ fn main() -> io::Result<()> {
                 std::hint::spin_loop();
             },
             'b' => std::process::exit(17),
+            'd' => panic!("fixture worker panic with private detail"),
             'c' => write_frame(&json!({
                 "protocol": PROTOCOL,
                 "type": "result",

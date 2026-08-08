@@ -31,6 +31,7 @@ type OperationManifest = {
   controlTargetBytes: number;
   deadlineMs: number;
   deadlineOverridesMs: Record<string, number>;
+  workDeadlineMs: Record<string, number>;
   receiptQueryCapability: string;
   policyDefaults: OperationPolicy;
   policyOverrides: Record<string, Partial<OperationPolicy>>;
@@ -54,6 +55,7 @@ const OPERATION_MANIFEST_FIELDS = [
   "controlTargetBytes",
   "deadlineMs",
   "deadlineOverridesMs",
+  "workDeadlineMs",
   "receiptQueryCapability",
   "policyDefaults",
   "policyOverrides",
@@ -197,6 +199,30 @@ function validOperationPolicy(
     );
   }
   return false;
+}
+
+function validSemanticSuccessRules(operations: OperationManifest) {
+  const receiptCapabilities = Object.keys(operations.access).filter(
+    (capability) =>
+      operationPolicy(operations, capability).receipt ===
+      "public-maintenance-operation",
+  );
+  return (
+    receiptCapabilities.every(
+      (capability) => capability in (operations.semanticSuccess || {}),
+    ) &&
+    Object.entries(operations.semanticSuccess || {}).every(
+      ([capability, rule]) =>
+        capability in operations.access &&
+        typeof rule.field === "string" &&
+        rule.field.length > 0 &&
+        Array.isArray(rule.values) &&
+        rule.values.length > 0 &&
+        rule.values.every(
+          (value) => typeof value === "string" && value.length > 0,
+        ),
+    )
+  );
 }
 
 function extractPortCapabilities() {
@@ -564,6 +590,21 @@ export function inspectSynthesisProductionCapabilities(
             deadline >= 100 &&
             deadline <= 60_000,
         ) &&
+        Object.entries(operations.workDeadlineMs || {}).every(
+          ([capability, deadline]) =>
+            capability in operations.access &&
+            operationPolicy(operations, capability).receipt ===
+              "public-maintenance-operation" &&
+            Number.isSafeInteger(deadline) &&
+            deadline >= 100 &&
+            deadline <= 30 * 60_000,
+        ) &&
+        Object.keys(operations.access).every(
+          (capability) =>
+            (operationPolicy(operations, capability).receipt ===
+              "public-maintenance-operation") ===
+            capability in (operations.workDeadlineMs || {}),
+        ) &&
         operations.receiptQueryCapability ===
           "client.getPublicMaintenanceOperation" &&
         operations.policyDefaults?.requestPlane === "control" &&
@@ -582,7 +623,8 @@ export function inspectSynthesisProductionCapabilities(
         ) &&
         operationCapabilities.every((capability) =>
           validOperationPolicy(operations, capability),
-        )
+        ) &&
+        validSemanticSuccessRules(operations)
           ? []
           : ["invalid production operation metadata"],
     },
