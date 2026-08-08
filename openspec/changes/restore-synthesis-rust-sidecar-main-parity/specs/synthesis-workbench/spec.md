@@ -14,6 +14,11 @@ The production Workbench chrome and progress reads SHALL reuse the native operat
 - **THEN** production reports the stable unavailable state
 - **AND** no plugin or Node fallback runs
 
+#### Scenario: Sidecar canary is unavailable
+- **WHEN** the production sidecar Workbench canary is absent, unavailable, or incompatible
+- **THEN** production reports the stable unavailable state
+- **AND** no automatic sidecar-to-plugin or plugin-to-sidecar fallback branch runs
+
 ## ADDED Requirements
 
 ### Requirement: Every Workbench surface SHALL have a domain projection

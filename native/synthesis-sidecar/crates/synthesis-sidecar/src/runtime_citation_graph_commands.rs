@@ -956,7 +956,9 @@ mod tests {
         )
         .expect("canonical");
         let mut apps = build_production_applications(
-            Arc::new(Mutex::new(repository)),
+            Arc::new(synthesis_application::RepositoryPort::new(Arc::new(
+                Mutex::new(repository),
+            ))),
             Arc::new(Mutex::new(canonical)),
             Arc::new(NativeComputePool::new()),
             None,

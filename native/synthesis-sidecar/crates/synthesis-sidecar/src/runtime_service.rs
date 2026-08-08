@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use synthesis_application::RepositoryPort;
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_repository::{Repository, RepositoryIdentity, prepare_production_schema};
 use synthesis_sidecar::production_capabilities::{
@@ -113,8 +114,12 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         .ok_or_else(|| "repository_production_path_invalid".to_owned())?
         .join("native-webdav-state.json");
     let config = Arc::new(config);
-    let applications = build_production_applications(
+    let repository_port = Arc::new(RepositoryPort::new_with_readers(
         Arc::clone(&repository),
+        4,
+    )?);
+    let applications = build_production_applications(
+        repository_port,
         Arc::clone(&canonical),
         Arc::clone(&compute_pool),
         Some(Arc::clone(&config)),

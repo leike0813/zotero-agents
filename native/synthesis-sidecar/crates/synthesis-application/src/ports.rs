@@ -9,7 +9,7 @@ use crate::durable_bundle::{
 use crate::knowledge_checkpoint::KnowledgeCheckpointRepositoryPort;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use synthesis_canonical_store::{
     CanonicalBasis, CanonicalReceipt, CanonicalStore, CurrentTopic, Promotion, TopicSnapshot,
     canonical_json_hash,
@@ -350,77 +350,151 @@ pub trait TopicRepositoryPort: Send + Sync {
     ) -> Result<Option<OperationRecord>, String>;
 }
 
+const MAX_REPOSITORY_READ_CONNECTIONS: usize = 4;
+
+struct RepositoryReadPool {
+    available: Mutex<Vec<Repository>>,
+    ready: Condvar,
+}
+
+impl RepositoryReadPool {
+    fn acquire(&self) -> Result<RepositoryReadLease<'_>, String> {
+        let mut available = self
+            .available
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        while available.is_empty() {
+            available = self
+                .ready
+                .wait(available)
+                .map_err(|_| "repository_unavailable".to_owned())?;
+        }
+        Ok(RepositoryReadLease {
+            pool: self,
+            repository: available.pop(),
+        })
+    }
+}
+
+struct RepositoryReadLease<'a> {
+    pool: &'a RepositoryReadPool,
+    repository: Option<Repository>,
+}
+
+impl RepositoryReadLease<'_> {
+    fn repository(&self) -> Result<&Repository, String> {
+        self.repository
+            .as_ref()
+            .ok_or_else(|| "repository_unavailable".to_owned())
+    }
+}
+
+impl Drop for RepositoryReadLease<'_> {
+    fn drop(&mut self) {
+        let Some(repository) = self.repository.take() else {
+            return;
+        };
+        if let Ok(mut available) = self.pool.available.lock() {
+            available.push(repository);
+            self.pool.ready.notify_one();
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RepositoryPort {
     repository: Arc<Mutex<Repository>>,
+    readers: Option<Arc<RepositoryReadPool>>,
 }
 
 impl RepositoryPort {
     pub fn new(repository: Arc<Mutex<Repository>>) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            readers: None,
+        }
+    }
+
+    pub fn new_with_readers(
+        repository: Arc<Mutex<Repository>>,
+        reader_count: usize,
+    ) -> Result<Self, String> {
+        if !(1..=MAX_REPOSITORY_READ_CONNECTIONS).contains(&reader_count) {
+            return Err("repository_reader_limit_exceeded".into());
+        }
+        let readers = {
+            let repository = repository
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            (0..reader_count)
+                .map(|_| repository.open_reader())
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        Ok(Self {
+            repository,
+            readers: Some(Arc::new(RepositoryReadPool {
+                available: Mutex::new(readers),
+                ready: Condvar::new(),
+            })),
+        })
     }
 
     pub fn owner(&self) -> Arc<Mutex<Repository>> {
         Arc::clone(&self.repository)
     }
+
+    pub fn with_reader<T>(
+        &self,
+        operation: impl FnOnce(&Repository) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let Some(readers) = &self.readers else {
+            let repository = self
+                .repository
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            return operation(&repository);
+        };
+        let reader = readers.acquire()?;
+        reader.repository()?.read_transaction(operation)
+    }
 }
 
 impl TagVocabularyRepositoryPort for RepositoryPort {
     fn get_state(&self) -> Result<Option<TagApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_tag_application_state()
+        self.with_reader(Repository::get_tag_application_state)
     }
 
     fn load_candidate(&self) -> Result<TagVocabularyReplacement, String> {
-        let repository = self
-            .repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        Ok(TagVocabularyReplacement {
-            state: repository.get_tag_application_state()?.unwrap_or_default(),
-            entries: repository.list_tag_vocabulary_entries()?,
-            aliases: repository.list_tag_aliases()?,
-            abbrevs: repository.list_tag_abbrevs()?,
-            protocols: repository.list_tag_protocols()?,
-            warnings: repository.list_tag_validation_warnings()?,
+        self.with_reader(|repository| {
+            Ok(TagVocabularyReplacement {
+                state: repository.get_tag_application_state()?.unwrap_or_default(),
+                entries: repository.list_tag_vocabulary_entries()?,
+                aliases: repository.list_tag_aliases()?,
+                abbrevs: repository.list_tag_abbrevs()?,
+                protocols: repository.list_tag_protocols()?,
+                warnings: repository.list_tag_validation_warnings()?,
+            })
         })
     }
 
     fn list_entries(&self) -> Result<Vec<TagVocabularyEntryRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_tag_vocabulary_entries()
+        self.with_reader(Repository::list_tag_vocabulary_entries)
     }
 
     fn list_staged(&self) -> Result<Vec<TagStagedSuggestionRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_tag_staged_suggestions()
+        self.with_reader(Repository::list_tag_staged_suggestions)
     }
 
     fn list_effects(&self) -> Result<Vec<TagEffectRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_tag_effects()
+        self.with_reader(Repository::list_tag_effects)
     }
 
     fn count_pending_effects(&self) -> Result<usize, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .count_pending_tag_effects()
+        self.with_reader(Repository::count_pending_tag_effects)
     }
 
     fn list_pending_effects(&self, limit: usize) -> Result<Vec<TagEffectRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_pending_tag_effects(limit)
+        self.with_reader(|repository| repository.list_pending_tag_effects(limit))
     }
 
     fn replace_vocabulary(
@@ -500,27 +574,22 @@ impl TagVocabularyRepositoryPort for RepositoryPort {
 
 impl ConceptKbRepositoryPort for RepositoryPort {
     fn get_state(&self) -> Result<Option<ConceptApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_concept_application_state()
+        self.with_reader(Repository::get_concept_application_state)
     }
 
     fn load(&self) -> Result<ConceptKbReplacement, String> {
-        let repository = self
-            .repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        Ok(ConceptKbReplacement {
-            state: repository
-                .get_concept_application_state()?
-                .unwrap_or_default(),
-            concepts: repository.list_concepts()?,
-            senses: repository.list_concept_senses()?,
-            aliases: repository.list_concept_aliases()?,
-            relations: repository.list_concept_relations()?,
-            reviews: repository.list_concept_reviews()?,
-            topic_links: repository.list_topic_concept_links()?,
+        self.with_reader(|repository| {
+            Ok(ConceptKbReplacement {
+                state: repository
+                    .get_concept_application_state()?
+                    .unwrap_or_default(),
+                concepts: repository.list_concepts()?,
+                senses: repository.list_concept_senses()?,
+                aliases: repository.list_concept_aliases()?,
+                relations: repository.list_concept_relations()?,
+                reviews: repository.list_concept_reviews()?,
+                topic_links: repository.list_topic_concept_links()?,
+            })
         })
     }
 
@@ -587,24 +656,19 @@ impl ConceptKbRepositoryPort for RepositoryPort {
 
 impl TopicGraphRepositoryPort for RepositoryPort {
     fn get_state(&self) -> Result<Option<TopicGraphApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_topic_graph_application_state()
+        self.with_reader(Repository::get_topic_graph_application_state)
     }
 
     fn load(&self) -> Result<TopicGraphReplacement, String> {
-        let repository = self
-            .repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        Ok(TopicGraphReplacement {
-            state: repository
-                .get_topic_graph_application_state()?
-                .unwrap_or_default(),
-            nodes: repository.list_topic_graph_nodes()?,
-            edges: repository.list_topic_graph_edges()?,
-            reviews: repository.list_topic_graph_reviews()?,
+        self.with_reader(|repository| {
+            Ok(TopicGraphReplacement {
+                state: repository
+                    .get_topic_graph_application_state()?
+                    .unwrap_or_default(),
+                nodes: repository.list_topic_graph_nodes()?,
+                edges: repository.list_topic_graph_edges()?,
+                reviews: repository.list_topic_graph_reviews()?,
+            })
         })
     }
 
@@ -671,57 +735,36 @@ impl TopicGraphRepositoryPort for RepositoryPort {
 
 impl WorkbenchRepositoryPort for RepositoryPort {
     fn get_cache_basis(&self, cache_key: &str) -> Result<Option<CacheBasisRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_cache_basis(cache_key)
+        self.with_reader(|repository| repository.get_cache_basis(cache_key))
     }
 
     fn list_operations(&self, query: &OperationQuery) -> Result<Vec<OperationRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_operations(query)
+        self.with_reader(|repository| repository.list_operations(query))
     }
 }
 
 impl CitationGraphRepositoryPort for RepositoryPort {
     fn get_state(&self) -> Result<Option<CitationGraphApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_citation_graph_application_state()
+        self.with_reader(Repository::get_citation_graph_application_state)
     }
 
     fn list_nodes(&self) -> Result<Vec<CitationNodeRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_citation_nodes()
+        self.with_reader(Repository::list_citation_nodes)
     }
 
     fn list_edges(&self) -> Result<Vec<CitationEdgeRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_citation_edges()
+        self.with_reader(Repository::list_citation_edges)
     }
 
     fn read_metrics_page(
         &self,
         request: &CitationMetricsPageQuery,
     ) -> Result<CitationMetricsPageRows, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .read_citation_metrics_page(request)
+        self.with_reader(|repository| repository.read_citation_metrics_page(request))
     }
 
     fn list_ready_layout_presets(&self, graph_hash: &str) -> Result<Vec<String>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_ready_citation_layout_presets(graph_hash)
+        self.with_reader(|repository| repository.list_ready_citation_layout_presets(graph_hash))
     }
 
     fn read_layout_window(
@@ -729,10 +772,7 @@ impl CitationGraphRepositoryPort for RepositoryPort {
         layout_key: &str,
         node_ids: &[String],
     ) -> Result<Option<CitationLayoutWindowRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .read_citation_layout_window(layout_key, node_ids)
+        self.with_reader(|repository| repository.read_citation_layout_window(layout_key, node_ids))
     }
 
     fn replace(
@@ -807,31 +847,19 @@ impl CitationGraphRepositoryPort for RepositoryPort {
 
 impl ReferenceRefreshRepositoryPort for RepositoryPort {
     fn get_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_reference_application_state()
+        self.with_reader(Repository::get_reference_application_state)
     }
 
     fn load_projection_snapshot(&self) -> Result<ReferenceProjectionSnapshot, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .load_reference_projection_snapshot()
+        self.with_reader(Repository::load_reference_projection_snapshot)
     }
 
     fn list_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_reference_sources()
+        self.with_reader(Repository::list_reference_sources)
     }
 
     fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_raw_references()
+        self.with_reader(Repository::list_raw_references)
     }
 
     fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String> {
@@ -878,62 +906,38 @@ impl ReferenceRefreshRepositoryPort for RepositoryPort {
 
 impl ReferenceMatchingRepositoryPort for RepositoryPort {
     fn get_reference_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_reference_application_state()
+        self.with_reader(Repository::get_reference_application_state)
     }
 
     fn get_matching_state(&self) -> Result<Option<ReferenceMatchingStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_reference_matching_state()
+        self.with_reader(Repository::get_reference_matching_state)
     }
 
     fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_raw_references()
+        self.with_reader(Repository::list_raw_references)
     }
 
     fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_canonical_references()
+        self.with_reader(Repository::list_canonical_references)
     }
 
     fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_reference_bindings()
+        self.with_reader(Repository::list_reference_bindings)
     }
 
     fn list_redirects(&self) -> Result<Vec<ReferenceRedirectFactRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_reference_redirects()
+        self.with_reader(Repository::list_reference_redirects)
     }
 
     fn get_preparation(
         &self,
         preparation_id: &str,
     ) -> Result<Option<ReferenceMatchingPreparationRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_reference_matching_preparation(preparation_id)
+        self.with_reader(|repository| repository.get_reference_matching_preparation(preparation_id))
     }
 
     fn has_prepared_preparation(&self) -> Result<bool, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .has_prepared_reference_matching_preparation()
+        self.with_reader(Repository::has_prepared_reference_matching_preparation)
     }
 
     fn upsert_preparation(
@@ -964,10 +968,7 @@ impl ReferenceMatchingRepositoryPort for RepositoryPort {
         &self,
         proposal_id: &str,
     ) -> Result<Option<ReferenceMatchProposalRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_reference_match_proposal(proposal_id)
+        self.with_reader(|repository| repository.get_reference_match_proposal(proposal_id))
     }
 
     fn list_proposals(
@@ -975,10 +976,7 @@ impl ReferenceMatchingRepositoryPort for RepositoryPort {
         offset: usize,
         limit: usize,
     ) -> Result<(Vec<ReferenceMatchProposalRecord>, bool), String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_reference_match_proposals(offset, limit)
+        self.with_reader(|repository| repository.list_reference_match_proposals(offset, limit))
     }
 
     fn was_rejected(
@@ -987,10 +985,9 @@ impl ReferenceMatchingRepositoryPort for RepositoryPort {
         basis_hash: &str,
         source_hash: &str,
     ) -> Result<bool, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .has_rejected_reference_match_proposal(kind, basis_hash, source_hash)
+        self.with_reader(|repository| {
+            repository.has_rejected_reference_match_proposal(kind, basis_hash, source_hash)
+        })
     }
 
     fn promote(
@@ -1018,10 +1015,7 @@ impl ReferenceMatchingRepositoryPort for RepositoryPort {
 
 impl TopicRepositoryPort for RepositoryPort {
     fn get_state(&self, topic_id: &str) -> Result<Option<TopicApplicationStateRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_topic_application_state(topic_id)
+        self.with_reader(|repository| repository.get_topic_application_state(topic_id))
     }
 
     fn list_states(
@@ -1029,10 +1023,7 @@ impl TopicRepositoryPort for RepositoryPort {
         offset: usize,
         limit: usize,
     ) -> Result<(Vec<TopicApplicationStateRecord>, usize), String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_topic_application_states(offset, limit)
+        self.with_reader(|repository| repository.list_topic_application_states(offset, limit))
     }
 
     fn list_records(
@@ -1040,10 +1031,7 @@ impl TopicRepositoryPort for RepositoryPort {
         offset: usize,
         limit: usize,
     ) -> Result<TopicApplicationRecordPage, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_topic_application_records(offset, limit)
+        self.with_reader(|repository| repository.list_topic_application_records(offset, limit))
     }
 
     fn find_records_by_paper_refs(
@@ -1051,20 +1039,16 @@ impl TopicRepositoryPort for RepositoryPort {
         paper_refs: &[String],
         limit: usize,
     ) -> Result<TopicApplicationRecordPage, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .find_topic_application_records_by_paper_refs(paper_refs, limit)
+        self.with_reader(|repository| {
+            repository.find_topic_application_records_by_paper_refs(paper_refs, limit)
+        })
     }
 
     fn list_workflow_option_records(
         &self,
         limit: usize,
     ) -> Result<TopicApplicationRecordPage, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_topic_workflow_option_records(limit)
+        self.with_reader(|repository| repository.list_topic_workflow_option_records(limit))
     }
 
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String> {
@@ -1078,10 +1062,7 @@ impl TopicRepositoryPort for RepositoryPort {
         &self,
         topic_id: &str,
     ) -> Result<Option<TopicApplicationProjectionRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_topic_application_projection(topic_id)
+        self.with_reader(|repository| repository.get_topic_application_projection(topic_id))
     }
 
     fn upsert_projection(&self, record: &TopicApplicationProjectionRecord) -> Result<(), String> {
@@ -1092,10 +1073,7 @@ impl TopicRepositoryPort for RepositoryPort {
     }
 
     fn get_deleted(&self, topic_id: &str) -> Result<Option<DeletedTopicArtifactRecord>, String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_deleted_topic_artifact(topic_id)
+        self.with_reader(|repository| repository.get_deleted_topic_artifact(topic_id))
     }
 
     fn list_deleted(
@@ -1103,10 +1081,7 @@ impl TopicRepositoryPort for RepositoryPort {
         offset: usize,
         limit: usize,
     ) -> Result<(Vec<DeletedTopicArtifactRecord>, usize), String> {
-        self.repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .list_deleted_topic_artifacts(offset, limit)
+        self.with_reader(|repository| repository.list_deleted_topic_artifacts(offset, limit))
     }
 
     fn soft_delete(&self, record: &DeletedTopicArtifactRecord) -> Result<(), String> {
@@ -1677,5 +1652,169 @@ impl StructuredArtifactPort for DisabledStructuredArtifact {
         _changed_sections: &BTreeMap<String, Value>,
     ) -> Result<PatchOutput, String> {
         Err("compute_unavailable".into())
+    }
+}
+
+#[cfg(test)]
+mod repository_port_tests {
+    use super::*;
+    use std::fs;
+    use std::sync::{Barrier, mpsc};
+    use std::thread;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use synthesis_repository::{RepositoryIdentity, SCHEMA_VERSION};
+
+    fn repository() -> (std::path::PathBuf, Arc<Mutex<Repository>>) {
+        let root = std::env::temp_dir().join(format!(
+            "synthesis-repository-port-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("root");
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile:reader-pool".into(),
+                data_root_id: "data:reader-pool".into(),
+            },
+        )
+        .expect("repository");
+        (root, Arc::new(Mutex::new(repository)))
+    }
+
+    #[test]
+    fn production_reader_count_is_bounded() {
+        let (root, writer) = repository();
+        assert_eq!(
+            RepositoryPort::new_with_readers(Arc::clone(&writer), 5)
+                .err()
+                .as_deref(),
+            Some("repository_reader_limit_exceeded")
+        );
+        Arc::try_unwrap(writer)
+            .expect("writer owner")
+            .into_inner()
+            .expect("writer")
+            .close()
+            .expect("close writer");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn four_readers_run_concurrently_and_a_fifth_waits() {
+        let (root, writer) = repository();
+        let port = Arc::new(
+            RepositoryPort::new_with_readers(Arc::clone(&writer), 4).expect("reader pool"),
+        );
+        let entered = Arc::new(Barrier::new(5));
+        let release = Arc::new(Barrier::new(5));
+        let mut readers = Vec::new();
+        for _ in 0..4 {
+            let port = Arc::clone(&port);
+            let entered = Arc::clone(&entered);
+            let release = Arc::clone(&release);
+            readers.push(thread::spawn(move || {
+                port.with_reader(|repository| {
+                    assert_eq!(
+                        repository.query(
+                            "SELECT value FROM synt_schema_meta WHERE key='repository_foundation_schema_version'",
+                            &[],
+                        )?[0]["value"],
+                        SCHEMA_VERSION
+                    );
+                    entered.wait();
+                    release.wait();
+                    Ok(())
+                })
+                .expect("reader")
+            }));
+        }
+        entered.wait();
+
+        let (attempted_tx, attempted_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let fifth_port = Arc::clone(&port);
+        let fifth = thread::spawn(move || {
+            attempted_tx.send(()).expect("signal attempt");
+            fifth_port
+                .with_reader(|_| {
+                    acquired_tx.send(()).expect("signal acquired");
+                    Ok(())
+                })
+                .expect("fifth reader");
+        });
+        attempted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("fifth reader attempts checkout");
+        assert!(
+            acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "fifth reader must wait for a bounded slot"
+        );
+        release.wait();
+        acquired_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("fifth reader eventually acquires");
+        for reader in readers {
+            reader.join().expect("reader thread");
+        }
+        fifth.join().expect("fifth thread");
+
+        drop(port);
+        Arc::try_unwrap(writer)
+            .expect("writer owner")
+            .into_inner()
+            .expect("writer")
+            .close()
+            .expect("close writer");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn workbench_read_does_not_wait_for_the_writer_owner() {
+        let (root, writer) = repository();
+        writer
+            .lock()
+            .expect("writer")
+            .upsert_cache_basis(&CacheBasisRecord {
+                cache_key: "reference-sidecar:library".into(),
+                cache_kind: "reference-sidecar".into(),
+                status: "ready".into(),
+                ..CacheBasisRecord::default()
+            })
+            .expect("cache");
+        let port = Arc::new(
+            RepositoryPort::new_with_readers(Arc::clone(&writer), 4).expect("reader pool"),
+        );
+        let writer_guard = writer.lock().expect("hold writer");
+        let (result_tx, result_rx) = mpsc::channel();
+        let read_port = Arc::clone(&port);
+        let reader = thread::spawn(move || {
+            result_tx
+                .send(WorkbenchRepositoryPort::get_cache_basis(
+                    read_port.as_ref(),
+                    "reference-sidecar:library",
+                ))
+                .expect("send read");
+        });
+        let row = result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("read must bypass writer")
+            .expect("read result")
+            .expect("cache row");
+        assert_eq!(row.status, "ready");
+        drop(writer_guard);
+        reader.join().expect("reader thread");
+
+        drop(port);
+        Arc::try_unwrap(writer)
+            .expect("writer owner")
+            .into_inner()
+            .expect("writer")
+            .close()
+            .expect("close writer");
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

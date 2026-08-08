@@ -215,16 +215,12 @@ fn dispatch_public_maintenance_control(
             .get("operation_id")
             .and_then(Value::as_str)
             .ok_or_else(|| "production_projection_invalid".to_owned())?;
-        let basis = {
-            let repository = state
-                .repository
-                .lock()
-                .map_err(|_| "repository_unavailable".to_owned())?;
+        let basis = state.applications.repository.with_reader(|repository| {
             let row = repository
                 .get_operation(operation_id)?
                 .ok_or_else(|| "operation_receipt_missing".to_owned())?;
-            decode_basis(&row)?
-        };
+            decode_basis(&row)
+        })?;
         resume_public_maintenance_operation(state, request_id, operation_id, basis)?;
     }
     Ok(result)
@@ -374,12 +370,11 @@ fn start_public_maintenance_operation(
             Err(&code),
             &utc_now_iso8601(),
         )?;
-        let row = state
-            .repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?
-            .get_operation(&operation_id)?
-            .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+        let row = state.applications.repository.with_reader(|repository| {
+            repository
+                .get_operation(&operation_id)?
+                .ok_or_else(|| "operation_receipt_missing".to_owned())
+        })?;
         return public_maintenance_operation_dto(&row);
     }
     Ok(accepted_dto)
@@ -555,7 +550,9 @@ mod dispatch_integration_tests {
         )
         .expect("canonical");
         build_production_applications(
-            Arc::new(Mutex::new(repository)),
+            Arc::new(synthesis_application::RepositoryPort::new(Arc::new(
+                Mutex::new(repository),
+            ))),
             Arc::new(Mutex::new(canonical)),
             Arc::new(NativeComputePool::new()),
             None,

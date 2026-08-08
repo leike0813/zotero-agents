@@ -166,10 +166,7 @@ fn public_maintenance(apps: &ProductionApplications, args: &[Value]) -> Result<V
         .ok_or_else(|| "maintenance_operation_id_required".to_owned())?;
     let row = apps
         .repository
-        .owner()
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .get_operation(operation_id)?;
+        .with_reader(|repository| repository.get_operation(operation_id))?;
     match row.filter(|row| row.basis_kind == "public_maintenance_operation") {
         Some(row) => public_maintenance_operation_dto(&row),
         None => Ok(json!({

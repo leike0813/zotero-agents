@@ -41,7 +41,6 @@ use synthesis_reference_matcher::{
     BINDING_ALGORITHM_VERSION, CONTRACT_VERSION as REFERENCE_MATCHER_CONTRACT_VERSION,
     DEDUPE_ALGORITHM_VERSION,
 };
-use synthesis_repository::Repository;
 use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationIncomingGroupRecord,
@@ -193,14 +192,13 @@ impl ProductionApplications {
 }
 
 pub(crate) fn build_production_applications(
-    repository: Arc<Mutex<Repository>>,
+    repository: Arc<RepositoryPort>,
     canonical: Arc<Mutex<CanonicalStore>>,
     compute: Arc<NativeComputePool>,
     config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
     webdav_state_path: PathBuf,
 ) -> ProductionApplications {
-    let repository = Arc::new(RepositoryPort::new(repository));
     let canonical = Arc::new(CanonicalStorePort::new(canonical));
     let workbench = WorkbenchApplication::new(repository.clone());
     let host = Arc::new(ReverseHostApplicationPort {

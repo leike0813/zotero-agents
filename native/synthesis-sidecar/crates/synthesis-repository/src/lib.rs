@@ -347,6 +347,34 @@ pub struct Repository {
     savepoint_sequence: u64,
 }
 
+struct RepositoryReadTransaction<'a> {
+    connection: &'a Connection,
+    finished: bool,
+}
+
+impl RepositoryReadTransaction<'_> {
+    fn commit(mut self) -> Result<(), String> {
+        self.connection
+            .execute_batch("COMMIT")
+            .map_err(map_sqlite_error)?;
+        self.finished = true;
+        Ok(())
+    }
+
+    fn rollback(mut self) {
+        let _ = self.connection.execute_batch("ROLLBACK");
+        self.finished = true;
+    }
+}
+
+impl Drop for RepositoryReadTransaction<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.connection.execute_batch("ROLLBACK");
+        }
+    }
+}
+
 fn stable_id(identity: &RepositoryIdentity) -> String {
     stable_id_for_schema(IDENTITY_SCHEMA, identity)
 }
@@ -842,6 +870,55 @@ impl Repository {
             transaction_depth: 0,
             savepoint_sequence: 0,
         })
+    }
+
+    pub fn open_reader(&self) -> Result<Self, String> {
+        let connection = open_existing_database_read_only(&self.database_path)?;
+        connection
+            .busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MILLIS))
+            .map_err(map_sqlite_error)?;
+        connection
+            .execute_batch(
+                "PRAGMA query_only=ON;
+                 PRAGMA foreign_keys=ON;
+                 PRAGMA busy_timeout=250;",
+            )
+            .map_err(map_sqlite_error)?;
+        if read_schema_version(&connection)? != SCHEMA_VERSION {
+            return Err("repository_schema_mismatch".into());
+        }
+        verify_required_application_schema(&connection)?;
+        Ok(Self {
+            connection: Some(connection),
+            database_path: self.database_path.clone(),
+            repository_id: self.repository_id.clone(),
+            transaction_depth: 0,
+            savepoint_sequence: 0,
+        })
+    }
+
+    pub fn read_transaction<T>(
+        &self,
+        operation: impl FnOnce(&Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let connection = self.connection()?;
+        connection
+            .execute_batch("BEGIN DEFERRED")
+            .map_err(map_sqlite_error)?;
+        let transaction = RepositoryReadTransaction {
+            connection,
+            finished: false,
+        };
+        match operation(self) {
+            Ok(value) => {
+                transaction.commit()?;
+                Ok(value)
+            }
+            Err(error) => {
+                transaction.rollback();
+                Err(error)
+            }
+        }
     }
 
     fn connection(&self) -> Result<&Connection, String> {
@@ -2310,6 +2387,59 @@ mod tests {
         assert_eq!(inventory["tables"].as_array().map(Vec::len), Some(53));
         assert_eq!(inventory["indexes"].as_array().map(Vec::len), Some(46));
         repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn read_connection_observes_committed_state_and_rejects_writes() {
+        let root = root("read-connection");
+        let writer = Repository::open(&root, identity()).expect("open writer");
+        writer
+            .upsert_cache_basis(&CacheBasisRecord {
+                cache_key: "reference-sidecar:library".into(),
+                cache_kind: "reference-sidecar".into(),
+                status: "missing".into(),
+                updated_at: "2026-08-08T00:00:00.000Z".into(),
+                ..CacheBasisRecord::default()
+            })
+            .expect("seed cache");
+
+        let reader = writer.open_reader().expect("open reader");
+        assert_eq!(
+            reader
+                .get_cache_basis("reference-sidecar:library")
+                .expect("read cache")
+                .expect("cache row")
+                .status,
+            "missing"
+        );
+        assert!(
+            reader
+                .execute(
+                    "UPDATE synt_cache_basis SET status='ready' WHERE cache_key=?1",
+                    &[json!("reference-sidecar:library")],
+                )
+                .is_err(),
+            "reader must reject writes"
+        );
+
+        writer
+            .execute(
+                "UPDATE synt_cache_basis SET status='ready' WHERE cache_key=?1",
+                &[json!("reference-sidecar:library")],
+            )
+            .expect("update cache");
+        assert_eq!(
+            reader
+                .get_cache_basis("reference-sidecar:library")
+                .expect("read updated cache")
+                .expect("updated cache row")
+                .status,
+            "ready"
+        );
+
+        reader.close().expect("close reader");
+        writer.close().expect("close writer");
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -31,6 +31,16 @@ The shared production operation manifest SHALL define an operation-specific cont
 - **THEN** the route returns the existing public operation receipt without holding the RPC until terminal completion
 - **AND** subsequent progress and terminal reads use the read-only operation API while cancel, continue, and retry use the bounded control mutation
 
+#### Scenario: Reference Refresh exceeds the former plugin timeout
+- **WHEN** an accepted Reference Refresh operation runs for more than five seconds and less than its manifest deadline
+- **THEN** the original command has already returned its public operation receipt and the work remains observable by operation ID
+- **AND** no `worker_timeout` is reported
+
+#### Scenario: Native operation reaches its deadline
+- **WHEN** a bounded production operation exceeds its manifest deadline
+- **THEN** Rust returns `operation_timeout`
+- **AND** the plugin preserves that code before its local transport grace expires
+
 #### Scenario: Native operation reaches a phase deadline
 - **WHEN** bounded work exceeds its phase deadline before promotion
 - **THEN** Rust records `operation_timeout` and preserves the prior usable state
