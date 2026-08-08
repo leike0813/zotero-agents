@@ -1,4 +1,4 @@
-import { rewriteMarkdownLocalImages } from "./literatureBundle.mjs";
+import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
 import { listWorkbenchEmbeddedPayloadBlocksForNote } from "./embeddedPayloadAttachments.mjs";
 import { renderResearchBundleIndex, renderResearchBundleReadme } from "./researchBundleReadme.mjs";
 
