@@ -10,6 +10,11 @@ import {
   dispatchAndResolveGithubWorkflowRun,
   watchGithubWorkflowRun,
 } from "./github-workflow-run";
+import {
+  canonicalizeContentPackageChannels,
+  parseContentPackageChannels,
+  type ContentPackageChannel,
+} from "./content-package-channels";
 
 type RunCommand = CommandRunner;
 
@@ -21,6 +26,7 @@ export type ContentPackageReleaseArgs = {
   watch?: boolean;
   repo?: string;
   ref?: string;
+  channels?: ContentPackageChannel[];
   runCommand?: RunCommand;
   requestId?: string;
   hostReleaseSetFile?: string;
@@ -49,12 +55,12 @@ function usage() {
   return [
     "Usage:",
     "  npm run release:content-package -- <patch|minor|major|version> [--plugin-version <range>]",
-    "  npm run release:content-package -- --dispatch [--watch] [--ref main]",
+    "  npm run release:content-package -- --dispatch --channels <stable,beta,dev> [--watch] [--ref main]",
     "",
     "Examples:",
     "  npm run release:content-package -- patch",
     '  npm run release:content-package -- patch --plugin-version ">=0.6.0"',
-    "  npm run release:content-package -- --dispatch --watch",
+    "  npm run release:content-package -- --dispatch --channels stable,beta,dev --watch",
   ].join("\n");
 }
 
@@ -92,6 +98,12 @@ export function parseContentPackageReleaseArgs(
     if (entry === "--watch") {
       parsed.watch = true;
       index += 1;
+      continue;
+    }
+    if (entry === "--channels" || entry.startsWith("--channels=")) {
+      const option = readOptionValue(argv, index, "--channels");
+      parsed.channels = parseContentPackageChannels(option.value);
+      index += option.consumed;
       continue;
     }
     if (entry === "--repo" || entry.startsWith("--repo=")) {
@@ -180,7 +192,7 @@ function nextCommands(args: { repo: string; ref: string }) {
     `git add ${DEFAULT_VERSION_FILE}`,
     'git commit -m "chore: bump content package version"',
     `git push origin ${args.ref}`,
-    `npm run release:content-package -- --dispatch --watch --repo ${args.repo} --ref ${args.ref}`,
+    `npm run release:content-package -- --dispatch --watch --channels stable,beta,dev --repo ${args.repo} --ref ${args.ref}`,
   ];
 }
 
@@ -224,6 +236,9 @@ export async function prepareContentPackageRelease(
       ].join(" "),
     );
   }
+  if (!args.dispatch && args.channels) {
+    throw new Error("--channels can only be used with --dispatch.");
+  }
 
   if (args.target) {
     result.bump = await bumpContentPackageVersion({
@@ -234,6 +249,12 @@ export async function prepareContentPackageRelease(
   }
 
   if (args.dispatch) {
+    const channels = args.channels
+      ? canonicalizeContentPackageChannels(args.channels)
+      : [];
+    if (channels.length === 0) {
+      throw new Error("--channels is required when using --dispatch.");
+    }
     await assertCleanWorkingTree(commandRunner);
     await assertRemoteRefContainsHead({ commandRunner, ref });
     await assertHostBridgeReleaseComplete({
@@ -248,7 +269,7 @@ export async function prepareContentPackageRelease(
       workflow: WORKFLOW_FILE,
       repo,
       ref,
-      inputs: { request_id: requestId },
+      inputs: { request_id: requestId, channels: channels.join(",") },
       expectedDisplayTitle: `Content package ${requestId}`,
       resolveExpectedHeadSha: async () =>
         (await commandRunner("git", ["rev-parse", "HEAD"])).stdout.trim(),

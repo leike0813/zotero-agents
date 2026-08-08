@@ -27,7 +27,9 @@
 
 ## 执行方式
 
-全自动执行。系统会从现有 Topic、Zotero 文献和可用的引用图谱上下文中发现候选材料，进行有界评估后区分核心文献与相关文献。选中 Topic 的 `resolved_paper_set` 会按 `paper_ref` 去重并强制保留，即使语义评分低于普通阈值或总数超过非 Topic 文献上限。
+全自动执行。系统先评估现有 Topic，收集所有选中 Topic 的 `resolved_paper_set` 并按 `paper_ref` 去重；随后执行有界 Zotero library search，将搜索结果并入同一候选集合，再进行文献评估并区分核心文献与相关文献。选中 Topic 的关联文献会强制保留，即使语义评分低于普通阈值或总数超过非 Topic 文献上限。
+
+引用图谱、reference index 和分析产物只为 Topic 或 library search 已发现的候选补充证据和评分，不会额外加入 graph-only 候选。
 
 Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读取的证据继续执行，并在结果中记录诊断和警告。若没有满足条件的文献，则此次运行会结束而不登记研究产品。
 
@@ -45,7 +47,7 @@ Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读
 - 根目录 `references.bib`：实际成功写入研究包的全部核心文献和相关文献的 BibTeX 引用；优先使用 Better BibTeX，无法导出时回退到 Zotero 原生 BibTeX，并在清单中记录实际格式与回退原因
 - 已选 Topic 的报告（可用时）
 - 每篇核心文献和相关文献的可移植书目信息
-- 可用的 v2 Literature Analysis 或对话产物，例如摘要、参考文献、引文分析和对话内容
+- 可用的 Literature Analysis 三件套：digest、references 和 citation-analysis；普通笔记与 conversation payload 不进入 Research Bundle
 - 对核心文献，优先附带 Markdown 原文及其本地图片；没有可用 Markdown 时尝试附带 PDF；两者均不可用时记录警告
 
 根目录包含 README、清单和参考文献表，研究材料目录只使用 `topics/` 和 `papers/`。每个 Topic 和每篇文献都有稳定逻辑 ID 的独立目录，例如 `topics/topic-001/report.md`、`papers/paper-001/metadata.json`、`papers/paper-001/source.md` 或 `papers/paper-001/digest-001.md`；同类 payload 不再额外建立分类目录。

@@ -1,15 +1,20 @@
 import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
+import { RESEARCH_PRODUCT_SCHEMA } from "./researchBundle.mjs";
 import {
-  buildResearchProduct,
-  RESEARCH_PRODUCT_SCHEMA,
-} from "./researchBundle.mjs";
-import { attachWorkbenchPayloadToNote } from "./embeddedPayloadAttachments.mjs";
+  attachWorkbenchPayloadToNote,
+  listWorkbenchEmbeddedPayloadBlocksForNote,
+  workbenchPayloadArtifactName,
+  workbenchPayloadText,
+} from "./embeddedPayloadAttachments.mjs";
+import { exportBundleBibliography } from "./bundleBibliography.mjs";
 import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
 
 export { rewriteMarkdownLocalImages };
 
 export const LITERATURE_BUNDLE_KIND = "zotero-agents-literature-bundle";
 export const LITERATURE_BUNDLE_SCHEMA_VERSION = 1;
+export const LITERATURE_PRODUCT_SCHEMA = "literature_bundle.product";
+export const LITERATURE_PRODUCT_SCHEMA_VERSION = "1.0.0";
 export const LITERATURE_BUNDLE_SOURCE_ONLY_KIND = "zotero-agents-literature-bundle-source-only";
 export const LITERATURE_EXPORT_MODES = new Set(["selection", "collection", "library"]);
 const EXCLUDED_ITEM_TYPES = new Set(["attachment", "note", "annotation"]);
@@ -213,6 +218,211 @@ export async function verifyResearchProductFiles(manifest, archive) {
   }
 }
 
+function ensureUniqueProductIds(manifest) {
+  if (!manifest.papers.length) {
+    throw new Error("literature product must contain at least one paper");
+  }
+  const paperIds = new Set();
+  for (const paper of manifest.papers) {
+    const paperId = normalizeText(paper?.logical_id);
+    if (!paperId || paperIds.has(paperId)) {
+      throw new Error("duplicate or missing literature product paper id");
+    }
+    paperIds.add(paperId);
+    const paperRoot = `papers/${paperId}`;
+    if (
+      normalizeEntryPath(paper?.metadata_path) !== `${paperRoot}/metadata.json`
+    ) {
+      throw new Error("literature product paper metadata ownership mismatch");
+    }
+    const uniqueIds = (records, kind) => {
+      const ids = new Set();
+      for (const record of records || []) {
+        const id = normalizeText(record?.id);
+        if (!id || ids.has(id)) {
+          throw new Error(`duplicate or missing literature product ${kind} id`);
+        }
+        ids.add(id);
+      }
+      return ids;
+    };
+    const attachmentIds = uniqueIds(paper.attachments, "attachment");
+    uniqueIds(paper.notes, "note");
+    uniqueIds(paper.payloads, "payload");
+    for (const attachment of paper.attachments || []) {
+      uniqueIds(attachment.assets, "asset");
+      const attachmentRoot = `${paperRoot}/attachments/${attachment.id}/`;
+      if (
+        ["file", "markdown"].includes(normalizeText(attachment?.kind)) &&
+        !attachment?.path
+      ) {
+        throw new Error("literature product attachment path is missing");
+      }
+      if (
+        attachment?.path &&
+        !normalizeEntryPath(attachment.path).startsWith(attachmentRoot)
+      ) {
+        throw new Error("literature product attachment ownership mismatch");
+      }
+      for (const asset of attachment.assets || []) {
+        if (!normalizeEntryPath(asset?.path).startsWith(attachmentRoot)) {
+          throw new Error("literature product attachment asset ownership mismatch");
+        }
+      }
+    }
+    const noteImages = new Map();
+    for (const note of paper.notes || []) {
+      if (!note?.htmlPath) {
+        throw new Error("literature product note HTML path is missing");
+      }
+      const noteRoot = `${paperRoot}/notes/${note.id}`;
+      if (normalizeEntryPath(note.htmlPath) !== `${noteRoot}/note.html`) {
+        throw new Error("literature product note ownership mismatch");
+      }
+      for (const image of note.images || []) {
+        if (
+          !normalizeEntryPath(image?.path).startsWith(
+            `${noteRoot}/images/${image.id}/`,
+          )
+        ) {
+          throw new Error("literature product note image ownership mismatch");
+        }
+      }
+      noteImages.set(note.id, uniqueIds(note.images, "image"));
+    }
+    if (paper.primary_source) {
+      const attachmentId = normalizeText(paper.primary_source.attachment_id);
+      const attachment = (paper.attachments || []).find(
+        (entry) => normalizeText(entry?.id) === attachmentId,
+      );
+      if (!attachmentIds.has(attachmentId) || !attachment?.path) {
+        throw new Error("unresolved literature product primary source attachment");
+      }
+      if (normalizeEntryPath(paper.primary_source.path) !== normalizeEntryPath(attachment.path)) {
+        throw new Error("literature product primary source path mismatch");
+      }
+      if (
+        JSON.stringify(paper.primary_source.assets || []) !==
+        JSON.stringify(attachment.assets || [])
+      ) {
+        throw new Error("literature product primary source assets mismatch");
+      }
+    }
+    for (const payload of paper.payloads || []) {
+      if (
+        payload?.path &&
+        !normalizeEntryPath(payload.path).startsWith(`${paperRoot}/payloads/`)
+      ) {
+        throw new Error("literature product payload ownership mismatch");
+      }
+      const noteId = normalizeText(payload?.source_note_id);
+      const imageId = normalizeText(payload?.source_image_id);
+      if (!noteImages.get(noteId)?.has(imageId)) {
+        throw new Error("unresolved literature product payload source");
+      }
+      if (
+        !payload?.path ||
+        !["markdown", "json", "text"].includes(normalizeText(payload?.format)) ||
+        !["present", "stale", "missing"].includes(
+          normalizeText(payload?.anchor_status),
+        )
+      ) {
+        throw new Error("invalid literature product payload projection");
+      }
+    }
+  }
+  for (const paper of manifest.papers) {
+    for (const relatedId of paper.related_paper_ids || []) {
+      if (!paperIds.has(normalizeText(relatedId))) {
+        throw new Error("unresolved related literature product paper ref");
+      }
+    }
+  }
+}
+
+export function validateLiteratureProductManifest(value, archiveEntries) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("literature product manifest must be an object");
+  }
+  if (
+    value.schema_id !== LITERATURE_PRODUCT_SCHEMA ||
+    String(value.schema_version) !== LITERATURE_PRODUCT_SCHEMA_VERSION
+  ) {
+    throw new Error("unsupported literature product schema");
+  }
+  if (!Array.isArray(value.papers) || !value.files || typeof value.files !== "object") {
+    throw new Error("literature product papers/files are missing");
+  }
+  ensureUniqueProductIds(value);
+  const declared = Object.keys(value.files).map(normalizeEntryPath).sort();
+  if (new Set(declared).size !== declared.length) {
+    throw new Error("duplicate declared file path");
+  }
+  for (const path of declared) {
+    const detail = value.files[path];
+    if (
+      !Number.isInteger(detail?.size) ||
+      detail.size < 0 ||
+      !/^[a-f0-9]{64}$/.test(normalizeText(detail?.sha256))
+    ) {
+      throw new Error(`invalid file integrity record: ${path}`);
+    }
+  }
+  const referenced = ["README.md", "index.md"];
+  if (value.bibliography?.path) referenced.push(value.bibliography.path);
+  for (const paper of value.papers) {
+    if (!paper?.metadata_path) {
+      throw new Error("literature product paper metadata is missing");
+    }
+    referenced.push(paper.metadata_path);
+    for (const attachment of paper.attachments || []) {
+      if (attachment?.path) referenced.push(attachment.path);
+      for (const asset of attachment?.assets || []) {
+        if (asset?.path) referenced.push(asset.path);
+      }
+    }
+    for (const note of paper.notes || []) {
+      if (note?.htmlPath) referenced.push(note.htmlPath);
+      for (const image of note?.images || []) {
+        if (image?.path) referenced.push(image.path);
+      }
+    }
+    for (const payload of paper.payloads || []) {
+      if (!workbenchPayloadArtifactName(payload?.payload_type)) {
+        throw new Error("unsupported literature product payload type");
+      }
+      if (payload?.path) referenced.push(payload.path);
+    }
+  }
+  const declaredSet = new Set(declared);
+  for (const path of referenced.map(normalizeEntryPath)) {
+    if (!declaredSet.has(path)) {
+      throw new Error(`unresolved literature product file ref: ${path}`);
+    }
+  }
+  const actual = (archiveEntries || [])
+    .map(normalizeEntryPath)
+    .filter((path) => path !== "manifest.json")
+    .sort();
+  if (JSON.stringify(declared) !== JSON.stringify(actual)) {
+    throw new Error("literature product file closure does not match archive entries");
+  }
+  return value;
+}
+
+export async function verifyLiteratureProductFiles(manifest, archive) {
+  if (typeof archive?.measureEntries !== "function") {
+    throw new Error("extracted archive integrity measurement is unavailable");
+  }
+  const measured = await archive.measureEntries(Object.keys(manifest.files || {}));
+  for (const [path, expected] of Object.entries(manifest.files || {})) {
+    const actual = measured?.files?.[path];
+    if (actual?.size !== expected.size || actual?.sha256 !== expected.sha256) {
+      throw new Error(`literature product file integrity mismatch: ${path}`);
+    }
+  }
+}
+
 function attachmentMetadata(attachment) {
   return {
     title: normalizeText(attachment?.getField?.("title")),
@@ -353,6 +563,217 @@ export async function buildLiteratureBundleExport(args) {
     files: measured.files,
   };
   return { manifest, entries: payloadEntries, warnings };
+}
+
+function literatureProductPath(path, itemId, logicalId) {
+  if (!path) return path;
+  const prefix = `items/${itemId}/`;
+  if (!String(path).startsWith(prefix)) {
+    throw new Error(`unexpected literature snapshot path: ${path}`);
+  }
+  return `papers/${logicalId}/${String(path).slice(prefix.length)}`;
+}
+
+function renderLiteratureProductReadme() {
+  return [
+    "# Literature Bundle",
+    "",
+    "This `literature_bundle.product@1.0.0` archive is both a complete Zotero transfer package and an Agent-readable literature product.",
+    "",
+    "- Use `index.md` to locate papers and their preferred Markdown or PDF source.",
+    "- Read `papers/<id>/metadata.json` for portable bibliographic metadata.",
+    "- Read `papers/<id>/payloads/` for decoded analysis artifacts.",
+    "- Treat `manifest.json` as the authority for attachments, notes, relations, warnings, and file integrity.",
+    "- Zotero import restores `attachments` and `notes`; payload text files are read-only Agent projections.",
+    "",
+  ].join("\n");
+}
+
+function escapeMarkdownCell(value) {
+  return normalizeText(value).replace(/\|/g, "\\|") || "(untitled)";
+}
+
+function renderLiteratureProductIndex(papers) {
+  const lines = [
+    "# Literature Bundle Index",
+    "",
+    "| Title | Directory | Primary source |",
+    "| --- | --- | --- |",
+  ];
+  for (const paper of papers) {
+    lines.push(
+      `| ${escapeMarkdownCell(paper.title)} | \`papers/${paper.logical_id}\` | ${paper.primary_source?.path ? `\`${paper.primary_source.path}\`` : "—"} |`,
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+export async function buildLiteratureProduct(args) {
+  const { host, parents } = args;
+  const snapshot = await buildLiteratureBundleExport({ host, parents });
+  const warnings = [...snapshot.warnings];
+  const entries = [];
+  const paperIdByItemId = new Map(
+    snapshot.manifest.items.map((item, index) => [
+      item.id,
+      `paper-${String(index + 1).padStart(3, "0")}`,
+    ]),
+  );
+  const runtime = {
+    ...(args.runtime || {}),
+    hostApi: host,
+    helpers: {
+      ...(args.runtime?.helpers || {}),
+      resolveItemRef:
+        args.runtime?.helpers?.resolveItemRef || ((ref) => host.items.get(ref)),
+    },
+  };
+
+  for (const entry of snapshot.entries) {
+    const itemId = /^items\/([^/]+)\//.exec(entry.name)?.[1];
+    const logicalId = paperIdByItemId.get(itemId);
+    if (!logicalId) throw new Error(`unresolved literature snapshot entry owner: ${entry.name}`);
+    entries.push({
+      ...entry,
+      name: literatureProductPath(entry.name, itemId, logicalId),
+    });
+  }
+
+  const papers = [];
+  for (let index = 0; index < snapshot.manifest.items.length; index += 1) {
+    const item = snapshot.manifest.items[index];
+    const parent = parents[index];
+    const logicalId = paperIdByItemId.get(item.id);
+    const remapPath = (path) => literatureProductPath(path, item.id, logicalId);
+    const attachments = (item.attachments || []).map((attachment) => ({
+      ...attachment,
+      ...(attachment.path ? { path: remapPath(attachment.path) } : {}),
+      assets: (attachment.assets || []).map((asset) => ({
+        ...asset,
+        path: remapPath(asset.path),
+      })),
+    }));
+    const notes = (item.notes || []).map((note) => ({
+      ...note,
+      htmlPath: remapPath(note.htmlPath),
+      images: (note.images || []).map((image) => ({
+        ...image,
+        path: remapPath(image.path),
+      })),
+    }));
+    const metadataPath = `papers/${logicalId}/metadata.json`;
+    entries.push({
+      name: metadataPath,
+      text: `${JSON.stringify(item.itemJson, null, 2)}\n`,
+    });
+
+    const payloads = [];
+    let noteRecordIndex = 0;
+    const payloadOrdinals = new Map();
+    for (const noteRef of parent.getNotes?.() || []) {
+      const note = host.items.get(noteRef);
+      if (!note) continue;
+      const noteRecord = notes[noteRecordIndex++];
+      if (!noteRecord) continue;
+      const imageIdByKey = new Map();
+      let imageIndex = 0;
+      for (const imageRef of note.getAttachments?.() || []) {
+        const image = host.items.get(imageRef);
+        if (!image) continue;
+        const imageId = `e${++imageIndex}`;
+        if (noteRecord.images.some((record) => record.id === imageId)) {
+          imageIdByKey.set(normalizeText(image.key), imageId);
+        }
+      }
+      const blocks = await listWorkbenchEmbeddedPayloadBlocksForNote({
+        noteItem: note,
+        runtime,
+      });
+      for (const block of blocks) {
+        const artifactName = workbenchPayloadArtifactName(block.payloadType);
+        const sourceImageId = imageIdByKey.get(normalizeText(block.attachmentKey));
+        if (!artifactName || !sourceImageId) continue;
+        const ordinal = (payloadOrdinals.get(block.payloadType) || 0) + 1;
+        payloadOrdinals.set(block.payloadType, ordinal);
+        const extension = block.format === "json" ? "json" : "md";
+        const path = `papers/${logicalId}/payloads/${artifactName}-${String(ordinal).padStart(3, "0")}.${extension}`;
+        entries.push({ name: path, text: workbenchPayloadText(block) });
+        payloads.push({
+          id: `p${payloads.length + 1}`,
+          payload_type: block.payloadType,
+          note_kind: block.noteKind,
+          format: block.format,
+          path,
+          source_note_id: noteRecord.id,
+          source_image_id: sourceImageId,
+          payload_hash: block.payloadHash || "",
+          anchor_status: block.anchorStatus,
+        });
+      }
+    }
+
+    const markdown = attachments.find(
+      (attachment) => attachment.kind === "markdown" && attachment.path,
+    );
+    const pdf = attachments.find(
+      (attachment) =>
+        attachment.kind === "file" &&
+        attachment.path &&
+        (/application\/pdf/i.test(attachment.metadata?.contentType) ||
+          /\.pdf$/i.test(attachment.path)),
+    );
+    const preferred = markdown || pdf || null;
+    if (!preferred) {
+      warnings.push({ code: "primary_source_missing", paper_id: logicalId });
+    }
+    papers.push({
+      logical_id: logicalId,
+      title: normalizeText(parent.getField?.("title") || item.itemJson?.title),
+      metadata_path: metadataPath,
+      attachments,
+      notes,
+      payloads,
+      primary_source: preferred
+        ? {
+            attachment_id: preferred.id,
+            kind: preferred.kind === "markdown" ? "markdown" : "pdf",
+            path: preferred.path,
+            assets: preferred.assets || [],
+          }
+        : null,
+      related_paper_ids: (item.relatedItemIds || [])
+        .map((relatedId) => paperIdByItemId.get(relatedId))
+        .filter(Boolean),
+    });
+  }
+
+  const bibliographyExport = await exportBundleBibliography({
+    host,
+    items: parents,
+    warnings,
+  });
+  const bibliography = bibliographyExport.bibliography;
+  if (bibliography.status === "generated") {
+    entries.push({ name: "references.bib", text: bibliographyExport.content });
+  }
+  entries.push({ name: "index.md", text: renderLiteratureProductIndex(papers) });
+  entries.push({ name: "README.md", text: renderLiteratureProductReadme() });
+  const measured = await host.archive.measureEntries(entries);
+  const manifest = {
+    schema_id: LITERATURE_PRODUCT_SCHEMA,
+    schema_version: LITERATURE_PRODUCT_SCHEMA_VERSION,
+    created_at: new Date().toISOString(),
+    source: {
+      zotero_version: normalizeText(globalThis.Zotero?.version),
+      addon_version: normalizeText(host.addon?.getConfig?.()?.addonVersion),
+    },
+    bibliography,
+    papers,
+    files: measured.files,
+    warnings,
+  };
+  return { manifest, entries, warnings };
 }
 
 export async function buildLiteratureBundleSourceOnlyExport(args) {
@@ -548,40 +969,6 @@ export async function resolveLiteratureBundleParents(args) {
   return parents;
 }
 
-function literatureResearchSelection(parents, mode) {
-  const papers = parents.map((parent, index) => ({
-    paper_ref: `${Number(parent.libraryID ?? parent.libraryId)}:${normalizeText(parent.key)}`,
-    role: "core",
-    semantic_relevance: 1,
-    graph_available: false,
-    graph_importance: 0,
-    topic_coverage: 0,
-    material_readiness: 0,
-    score: 0.8,
-    reason: `Included by literature export ${mode} mode.`,
-    matched_topic_ids: [],
-    candidate_sources: [`literature-export:${mode}:${index + 1}`],
-  }));
-  return {
-    schema_id: "research_bundle.selection",
-    schema_version: "1.0.0",
-    intent: {
-      paper_title: "Literature Export",
-      article_type: "literature collection",
-      research_content: `Zotero literature exported in ${mode} mode.`,
-    },
-    limits: {
-      max_topics: 0,
-      max_core_papers: Math.max(1, papers.length),
-      max_related_papers: Math.max(1, papers.length),
-    },
-    query_plan: {},
-    topics: [],
-    papers,
-    diagnostics: [],
-  };
-}
-
 export async function exportLiteratureBundle(args) {
   const mode = normalizeText(args.mode) || "selection";
   const parents = await resolveLiteratureBundleParents({
@@ -638,10 +1025,10 @@ export async function exportLiteratureBundle(args) {
       ...(output ? { resourceOutputs: [output] } : {}),
     };
   }
-  const built = await buildResearchProduct({
-    selection: literatureResearchSelection(parents, mode),
-    normalizedSelection: true,
-    runtime: args.runtime || { hostApi: args.host },
+  const built = await buildLiteratureProduct({
+    host: args.host,
+    parents,
+    runtime: args.runtime,
   });
   await args.host.archive.writeZipAtomic({
     targetPath,
@@ -659,9 +1046,9 @@ export async function exportLiteratureBundle(args) {
       })
     : null;
   return {
-    kind: "literature_research_product_export",
+    kind: "literature_product_export",
     status: "completed",
-    schemaId: RESEARCH_PRODUCT_SCHEMA,
+    schemaId: LITERATURE_PRODUCT_SCHEMA,
     itemCount: built.manifest.papers.length,
     warnings: built.manifest.warnings,
     ...(output ? { resourceOutputs: [output] } : {}),
@@ -787,6 +1174,26 @@ export async function importLiteratureBundleArchive(args) {
     failedItems,
     warnings,
   };
+}
+
+export async function importLiteratureProductArchive(args) {
+  const items = [];
+  for (const paper of args.manifest.papers || []) {
+    items.push({
+      id: paper.logical_id,
+      itemJson: JSON.parse(await args.archive.readText(paper.metadata_path)),
+      relatedItemIds: paper.related_paper_ids || [],
+      attachments: paper.attachments || [],
+      notes: paper.notes || [],
+    });
+  }
+  return importLiteratureBundleArchive({
+    ...args,
+    manifest: {
+      warnings: args.manifest.warnings || [],
+      items,
+    },
+  });
 }
 
 function productPayloadForImport(payloadType, content) {
@@ -957,15 +1364,20 @@ export async function importLiteratureBundle(args) {
       let manifest;
       try {
         const raw = JSON.parse(await archive.readText("manifest.json"));
-        manifest = raw?.schema_id === RESEARCH_PRODUCT_SCHEMA
-          ? validateResearchProductManifest(raw, archive.entries)
-          : validateLiteratureBundleManifest(raw, archive.entries);
+        manifest =
+          raw?.schema_id === RESEARCH_PRODUCT_SCHEMA
+            ? validateResearchProductManifest(raw, archive.entries)
+            : raw?.schema_id === LITERATURE_PRODUCT_SCHEMA
+              ? validateLiteratureProductManifest(raw, archive.entries)
+              : validateLiteratureBundleManifest(raw, archive.entries);
       } catch (error) {
         return literatureBundleValidationFailure(args.host, "manifest", error);
       }
       try {
         if (manifest?.schema_id === RESEARCH_PRODUCT_SCHEMA) {
           await verifyResearchProductFiles(manifest, archive);
+        } else if (manifest?.schema_id === LITERATURE_PRODUCT_SCHEMA) {
+          await verifyLiteratureProductFiles(manifest, archive);
         } else {
           await verifyLiteratureBundleFiles(manifest, archive);
         }
@@ -988,7 +1400,9 @@ export async function importLiteratureBundle(args) {
         };
         return manifest?.schema_id === RESEARCH_PRODUCT_SCHEMA
           ? await importResearchProductArchive(importArgs)
-          : await importLiteratureBundleArchive(importArgs);
+          : manifest?.schema_id === LITERATURE_PRODUCT_SCHEMA
+            ? await importLiteratureProductArchive(importArgs)
+            : await importLiteratureBundleArchive(importArgs);
       } catch (error) {
         return throwLiteratureBundleImportFailure(
           args.host,

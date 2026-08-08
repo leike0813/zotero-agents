@@ -20,7 +20,7 @@ The system SHALL provide `export-literature-bundle` and `import-literature-bundl
 
 ### Requirement: Export SHALL create one versioned portable ZIP bundle
 
-Export SHALL prompt once for a target `.zip` file and SHALL write a root `manifest.json` with `kind: "zotero-agents-literature-bundle"` and `schemaVersion: 1`.
+Export SHALL prompt once for a target `.zip` file and SHALL write a root `manifest.json` with `schema_id: "literature_bundle.product"` and `schema_version: "1.0.0"` for the default non-source-only mode.
 
 #### Scenario: User confirms an export target
 - **WHEN** the save-file picker returns a target path
@@ -31,6 +31,48 @@ Export SHALL prompt once for a target `.zip` file and SHALL write a root `manife
 - **WHEN** the save-file picker is canceled
 - **THEN** the workflow SHALL return a structured canceled result
 - **AND** it SHALL NOT create or replace a target file.
+
+### Requirement: Default export SHALL be an independent lossless Literature Product
+
+The default non-source-only export SHALL create a `literature_bundle.product@1.0.0` ZIP with `README.md`, `index.md`, `manifest.json`, `references.bib`, and one `papers/paper-###` directory per resolved parent. Each paper SHALL preserve portable parent metadata, every direct attachment record, every child note and note image, package-local relations, and a single Agent navigation source without using Research Product roles or scores.
+
+#### Scenario: Parent has Markdown and PDF sources
+- **WHEN** a parent has readable Markdown and PDF attachments
+- **THEN** both attachments and their portable metadata SHALL be present exactly once in the Product
+- **AND** `primary_source` SHALL reference the existing Markdown attachment record without creating a duplicate source file.
+
+#### Scenario: Parent has no preferred source
+- **WHEN** a parent has no readable Markdown or PDF attachment
+- **THEN** all other portable attachments and notes SHALL remain in the Product
+- **AND** `primary_source` SHALL be null and a stable warning SHALL describe the missing Agent source.
+
+#### Scenario: Package-local relations are exported
+- **WHEN** two Product papers are related in Zotero
+- **THEN** their relationship SHALL use Product-local paper ids
+- **AND** no source Zotero item identity SHALL be used as an import target.
+
+### Requirement: Literature Product SHALL expose Agent-readable payload projections
+
+The Product SHALL decode recognized embedded Workbench payloads into read-only text projections while retaining the original note HTML and note-child attachment bytes as the import source of truth.
+
+#### Scenario: Recognized payload is exported
+- **WHEN** a note contains a valid digest, references, citation-analysis, or conversation-note payload
+- **THEN** the paper manifest SHALL include a payload record with type, format, path, payload hash, anchor state, source note id, and source note-image id
+- **AND** the decoded Markdown or JSON SHALL be stored below that paper's `payloads/` directory.
+
+#### Scenario: Literature Product is imported
+- **WHEN** a valid Literature Product contains payload projections and their source notes
+- **THEN** import SHALL restore the original notes and note images
+- **AND** it SHALL NOT materialize payload projections as additional notes or attachments.
+
+### Requirement: Literature Product SHALL provide deterministic Agent entry documents
+
+`README.md` SHALL describe the Product's migration and Agent-consumption surfaces, while `index.md` SHALL map each safe display title to its paper directory and preferred source. Both files SHALL participate in the declared file-integrity closure.
+
+#### Scenario: Agent locates a paper
+- **WHEN** a Product contains an exported paper
+- **THEN** `index.md` SHALL identify its logical directory and preferred source
+- **AND** the manifest SHALL remain the authority for attachments, notes, payload provenance, warnings, and integrity.
 
 ### Requirement: Bundle parent records SHALL be independent of source Zotero identity
 
@@ -119,13 +161,15 @@ For each exported Markdown parent attachment, export SHALL resolve local Markdow
 
 ### Requirement: Import SHALL validate the complete bundle before mutation
 
-Import SHALL open one selected ZIP and SHALL validate archive safety, root manifest identity and schema version, unique bundle-local ids, reference closure, declared file presence, and declared-entry ownership before creating Zotero objects.
+Import SHALL open one selected ZIP and SHALL validate archive safety, the supported manifest identity and version, unique owner-scoped ids, reference closure, declared file presence, declared-entry ownership, and declared file size/hash before creating Zotero objects. The new Literature Product SHALL validate paper ids globally; attachment, note, note-image, and payload ids SHALL be unique within their owning paper or note as defined by the manifest.
 
-Parent item ids are bundle-global because relations reference them directly. Attachment and note ids are unique only within their owning parent; Markdown asset ids are unique within their attachment; embedded-image ids are unique within their note. Local ids MAY repeat under different owners.
+#### Scenario: Valid Literature Product is selected
+- **WHEN** the selected ZIP has a safe, complete `literature_bundle.product@1.0.0` manifest
+- **THEN** import SHALL proceed to lossless paper materialization.
 
-#### Scenario: Valid schema version one bundle is selected
-- **WHEN** the selected ZIP has a safe, complete `zotero-agents-literature-bundle` version 1 manifest
-- **THEN** import SHALL proceed to materialization.
+#### Scenario: Supported historical bundle is selected
+- **WHEN** the selected ZIP is a valid `zotero-agents-literature-bundle@1` or `research_bundle.product@2.0.0`
+- **THEN** import SHALL dispatch to the corresponding compatibility adapter after complete validation.
 
 #### Scenario: Bundle structure is invalid
 - **WHEN** the ZIP is corrupt, contains an unsafe entry path, has a missing or duplicate manifest, uses an unsupported kind or schema version, contains duplicate logical ids, has unresolved logical references, or omits a required declared file
@@ -215,25 +259,6 @@ The manifest SHALL expose `mode` with enum `selection|collection|library`, defau
 - **THEN** the effective mode is `selection`
 - **AND** `sourceOnly` remains false.
 
-### Requirement: Non-source-only export is a Research Product
-
-The default export SHALL create a `research_bundle.product@2.0.0` ZIP containing `README.md`, root `index.md`, `manifest.json`, `references.bib`, and one `papers/paper-###` directory per resolved parent. Each paper SHALL have `role: core`, metadata, and the first available Markdown or PDF source; missing sources are warnings.
-
-#### Scenario: Collection export creates a Product ZIP
-
-- **WHEN** collection mode resolves two regular parents
-- **THEN** the ZIP contains two core paper directories, `index.md`, and measured `manifest.files` entries.
-
-### Requirement: Product index is minimal and deterministic
-
-`index.md` SHALL map Topic identifiers to `topic-###` and paper titles to `paper-###`. It SHALL not duplicate manifest paths, scores, source, integrity, or diagnostic fields. Its integrity record SHALL be included in `manifest.files`.
-
-#### Scenario: Index maps only lookup keys
-
-- **WHEN** a Product contains a Topic and a paper titled `Example`
-- **THEN** `index.md` maps the Topic id and `Example` to their logical directories
-- **AND** it contains no score or diagnostic columns.
-
 ### Requirement: Source-only compatibility remains explicit
 
 When `sourceOnly` is true, export SHALL retain kind `zotero-agents-literature-bundle-source-only`, its flat `items/` layout, and non-importable semantics while using the mode-resolved parent set.
@@ -246,13 +271,20 @@ When `sourceOnly` is true, export SHALL retain kind `zotero-agents-literature-bu
 
 ### Requirement: Import dispatches both package formats
 
-Import SHALL validate ZIP safety, manifest, file closure, and declared size/hash before dispatching `zotero-agents-literature-bundle@1` to the existing importer or `research_bundle.product@2.0.0` to a Product adapter.
+Import SHALL validate ZIP safety, manifest references, file closure, and declared size/hash before dispatching `literature_bundle.product@1.0.0`, `zotero-agents-literature-bundle@1`, or `research_bundle.product@2.0.0` to its matching materializer.
+
+#### Scenario: Literature Product import
+
+- **WHEN** a valid Literature Product is selected
+- **THEN** each paper metadata record SHALL create a new Zotero parent
+- **AND** every declared attachment, note, note image, and package-local relation SHALL be restored
+- **AND** README, index, BibTeX, and payload projections SHALL remain validated Agent materials rather than additional Zotero children.
 
 #### Scenario: Research Product import
 
 - **WHEN** a valid Research Product is selected
 - **THEN** each paper metadata creates a new Zotero parent
-- **AND** source Markdown/PDF, companion images, and embedded digest/references/citation-analysis/conversation payloads are restored
+- **AND** source Markdown/PDF, companion images, and supported embedded payloads are restored
 - **AND** README, index, topic reports, and BibTeX remain validated agent materials rather than Zotero children.
 
 #### Scenario: One paper fails
@@ -261,17 +293,13 @@ Import SHALL validate ZIP safety, manifest, file closure, and declared size/hash
 - **THEN** its created parent and children are cleaned up
 - **AND** remaining papers continue importing with a structured partial result.
 
----
-
-## Source-only export mode
-
 ### Requirement: `sourceOnly` parameter selects a flat, title-renamed, import-incompatible export format
 
 When `export-literature-bundle` is invoked with `sourceOnly: true`, the produced ZIP SHALL differ from the standard bundle format and SHALL be rejected by `import-literature-bundle`.
 
 #### Scenario: Source-only is disabled by default
 - **GIVEN** no `sourceOnly` parameter is set
-- **THEN** the workflow SHALL produce a standard `zotero-agents-literature-bundle` bundle as specified above.
+- **THEN** the workflow SHALL produce a `literature_bundle.product@1.0.0` Product.
 
 #### Scenario: Markdown is preferred over PDF
 - **GIVEN** a parent item has both a readable Markdown attachment and a readable PDF attachment
@@ -320,4 +348,3 @@ When `export-literature-bundle` is invoked with `sourceOnly: true`, the produced
 - **THEN** the ZIP SHALL contain exactly `manifest.json` and one file per item that has a source file, all under `items/`
 - **AND** the manifest SHALL list `kind`, `createdAt`, `source`, `warnings`, `items`, and `files`
 - **AND** the manifest SHALL NOT contain `schemaVersion`.
-

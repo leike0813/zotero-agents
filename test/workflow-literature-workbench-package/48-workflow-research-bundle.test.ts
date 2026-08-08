@@ -167,15 +167,15 @@ describe("export research bundle workflow", function () {
     );
   });
 
-  it("collects every supported analysis and conversation payload type", function () {
+  it("collects only the literature-analysis three-payload set", function () {
     for (const payloadType of [
       "digest-markdown",
       "references-json",
       "citation-analysis-json",
-      "conversation-note-markdown",
     ]) {
       assert.isTrue(isResearchPayloadType(payloadType));
     }
+    assert.isFalse(isResearchPayloadType("conversation-note-markdown"));
     assert.isFalse(isResearchPayloadType("unrelated-payload"));
     assert.equal(
       researchPayloadArtifactPath({
@@ -469,6 +469,9 @@ describe("export research bundle workflow", function () {
         result.manifest.papers[0].metadata_path,
         "papers/paper-001/metadata.json",
       );
+      assert.isNull(result.manifest.papers[2].source);
+      assert.notInclude(productPaths, "papers/paper-003/source.md");
+      assert.notInclude(productPaths, "papers/paper-003/source.pdf");
       assert.deepEqual(result.manifest.papers[0].source.assets, [
         {
           path: "papers/paper-001/figures/a b.png",
