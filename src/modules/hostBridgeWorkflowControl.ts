@@ -68,12 +68,29 @@ import {
   type HostBridgeAgentRunPreparedRequest,
 } from "./hostBridgeWorkflowAgentRunStore";
 import type { SelectionContext } from "./selectionContext";
-import type { LoadedWorkflow } from "../workflows/types";
+import type {
+  LoadedWorkflow,
+  WorkflowResourceBindings,
+  WorkflowResourceOutputDescriptor,
+} from "../workflows/types";
 import { localizeWorkflowLabel } from "../workflows/localization";
 import { evaluateWorkflowSelection } from "../workflows/workflowInputPlanning";
 import { executeApplyResult, executeBuildRequests } from "../workflows/runtime";
 import { ZipBundleReader } from "../workflows/zipBundleReader";
 import { projectWorkflowManifestContract } from "../workflows/manifestContract";
+import {
+  createHostBridgeWorkflowResourceApi,
+  createNonInteractiveWorkflowHostApi,
+  createWorkflowInteractionRequiredError,
+  parseWorkflowResourceBindings,
+  supportsHostBridgeNonInteractive,
+  validateWorkflowResourceBindings,
+} from "./hostBridgeWorkflowResources";
+import {
+  acquireHostBridgeUploadedFileLease,
+  releaseHostBridgeUploadedFileLease,
+} from "./hostBridgeFileRegistry";
+import { createWorkflowHostApi } from "../workflows/hostApi";
 import {
   createDirectoryBundleReader,
   type BundleReader,
@@ -88,8 +105,17 @@ import {
   describeProviderProfile,
   listProviderProfileBackends,
   validateProviderProfile,
+  type ProviderProfileValidationSource,
   type ProviderProfileDescriptor,
+  ProviderProfileError,
 } from "../providers/profile";
+import { listBackendInstances } from "../backends/registry";
+import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
+import { persistBackendsConfig } from "./backendManager";
+import {
+  getWorkflowSettings,
+  getWorkflowSettingsRevision,
+} from "./workflowSettings";
 import {
   acknowledgeHostBridgeNotificationEvents,
   listHostBridgeNotificationEvents,
@@ -130,6 +156,11 @@ export type HostBridgeWorkflowSummary = {
     artifacts: string[];
     applyBack: boolean;
   };
+  supportedInvocationModes: LoadedWorkflow["manifest"]["supportedInvocationModes"];
+  resourceRequirements: NonNullable<
+    LoadedWorkflow["manifest"]["resourceRequirements"]
+  >;
+  nonInteractiveSupported: boolean;
 };
 
 export type HostBridgeWorkflowSelection =
@@ -162,6 +193,7 @@ export type HostBridgeWorkflowSubmitRequest = {
   providerProfile?: unknown;
   hostOptions?: unknown;
   input?: unknown;
+  resourceBindings?: unknown;
 };
 
 export type HostBridgeWorkflowAgentRunRequest = {
@@ -230,7 +262,9 @@ export type HostBridgeWorkflowSubmitPlan = {
     backendId?: string;
     providerOptions: Record<string, unknown>;
   };
+  providerProfileProvided: boolean;
   executionOptions: WorkflowExecutionOptions;
+  resourceBindings?: WorkflowResourceBindings;
 };
 
 export type HostBridgeWorkflowAgentRunPlan = {
@@ -248,6 +282,7 @@ export type HostBridgeWorkflowSubmitResult =
       totalJobs: number;
       tasks: HostBridgeWorkflowTaskDto[];
       permission: HostBridgePermissionDecision;
+      resourceOutputs: WorkflowResourceOutputDescriptor[];
     }
   | {
       workflowId: string;
@@ -260,6 +295,7 @@ export type HostBridgeWorkflowSubmitResult =
       submissionUrl: string;
       queueUrl: string;
       permission: HostBridgePermissionDecision;
+      resourceOutputs: WorkflowResourceOutputDescriptor[];
     };
 
 export type HostBridgeWorkflowDescribeRequest = {
@@ -289,7 +325,7 @@ export type HostBridgeWorkflowDescribeResult = {
   };
   executionModes: {
     hostOwned: {
-      supported: true;
+      supported: boolean;
       command: "workflow submit";
       acceptsWorkflowOptions: true;
       monitorable: true;
@@ -307,6 +343,9 @@ export type HostBridgeWorkflowDescribeResult = {
     };
   };
   blockedReason?: string;
+  supportedInvocationModes: HostBridgeWorkflowSummary["supportedInvocationModes"];
+  resourceRequirements: HostBridgeWorkflowSummary["resourceRequirements"];
+  nonInteractiveSupported: boolean;
 };
 
 export type HostBridgeWorkflowValidateRequest = {
@@ -315,6 +354,7 @@ export type HostBridgeWorkflowValidateRequest = {
   workflowOptions?: unknown;
   providerProfile?: unknown;
   input?: unknown;
+  resourceBindings?: unknown;
 };
 
 export type HostBridgeWorkflowValidateResult = {
@@ -324,6 +364,7 @@ export type HostBridgeWorkflowValidateResult = {
   selection: HostBridgeWorkflowSubmitPlan["selection"];
   workflowOptions: Record<string, unknown>;
   diagnostics: Array<{ code: string; message: string }>;
+  resourceBindings?: WorkflowResourceBindings;
 };
 
 export type HostBridgeProviderProfileDescribeRequest = {
@@ -334,6 +375,7 @@ export type HostBridgeProviderProfileDescribeRequest = {
 export type HostBridgeProviderProfileValidateRequest = {
   providerProfile?: unknown;
   workflowId?: unknown;
+  source?: unknown;
 };
 
 export type HostBridgeProviderProfileValidateResult = {
@@ -345,6 +387,8 @@ export type HostBridgeProviderProfileValidateResult = {
   };
   descriptor: ProviderProfileDescriptor;
   diagnostics: [];
+  source: ProviderProfileValidationSource;
+  profileFingerprint: string;
 };
 
 export type HostBridgeTaskFilters = {
@@ -538,6 +582,8 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "GET /bridge/v2/workflows/provider-profiles",
       "POST /bridge/v2/workflows/provider-profiles/describe",
       "POST /bridge/v2/workflows/provider-profiles/validate",
+      "POST /bridge/v2/workflows/provider-profiles/refresh",
+      "POST /bridge/v2/workflows/defaults",
       "POST /bridge/v2/workflows/submit",
       "POST /bridge/v2/workflows/agent-run",
       "POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply",
@@ -582,6 +628,9 @@ export function listHostBridgeWorkflows(): HostBridgeWorkflowSummary[] {
       validateSelection: manifestContract.selection.validation,
       parameters: Object.keys(manifest.parameters || {}),
       resultEvidence: manifestContract.resultEvidence,
+      supportedInvocationModes: manifestContract.supportedInvocationModes,
+      resourceRequirements: manifestContract.resourceRequirements,
+      nonInteractiveSupported: supportsHostBridgeNonInteractive(manifest),
     };
   });
 }
@@ -598,7 +647,9 @@ function createBridgeWindow(selectedItems: Zotero.Item[]) {
       getSelectedItems: () => selectedItems,
     },
     alert: () => undefined,
-    confirm: () => true,
+    confirm: () => {
+      throw createWorkflowInteractionRequiredError("window.confirm");
+    },
   } as unknown as _ZoteroTypes.MainWindow;
 }
 
@@ -844,15 +895,23 @@ export function parseHostBridgeWorkflowSubmitRequest(
   );
   const providerProfile = parseProviderProfile(payload.providerProfile);
   const selection = parseWorkflowSelection(payload.selection);
+  const resourceBindings = parseWorkflowResourceBindings(
+    payload.resourceBindings,
+  );
   return {
     ...base,
     providerProfile,
+    providerProfileProvided: Object.prototype.hasOwnProperty.call(
+      payload || {},
+      "providerProfile",
+    ),
     executionOptions: buildWorkflowExecutionOptions({
       workflowOptions: base.workflowOptions,
       providerProfile,
       hostOptions: payload.hostOptions,
     }),
     selection,
+    ...(resourceBindings ? { resourceBindings } : {}),
   };
 }
 
@@ -941,6 +1000,9 @@ export async function describeHostBridgeWorkflow(
     workflowLabel: localizeWorkflowLabel(workflow),
     description: normalizeString(workflow.manifest.description),
     declaredExecutionModes: manifestContract.executionModes,
+    supportedInvocationModes: manifestContract.supportedInvocationModes,
+    resourceRequirements: manifestContract.resourceRequirements,
+    nonInteractiveSupported: supportsHostBridgeNonInteractive(workflow.manifest),
     resultEvidence: manifestContract.resultEvidence,
     selection: {
       acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
@@ -959,7 +1021,9 @@ export async function describeHostBridgeWorkflow(
     },
     executionModes: {
       hostOwned: {
-        supported: true,
+        supported:
+          manifestContract.resourceRequirements.length === 0 ||
+          supportsHostBridgeNonInteractive(workflow.manifest),
         command: "workflow submit",
         acceptsWorkflowOptions: true,
         monitorable: true,
@@ -1031,6 +1095,10 @@ export async function validateHostBridgeWorkflow(
     workflow.manifest,
     descriptor.workflowParams,
   );
+  const resources = await validateWorkflowResourceBindings({
+    manifest: workflow.manifest,
+    raw: payload.resourceBindings,
+  });
   return {
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
@@ -1038,6 +1106,7 @@ export async function validateHostBridgeWorkflow(
     selection,
     workflowOptions: { ...descriptor.workflowParams },
     diagnostics: [],
+    ...(resources.bindings ? { resourceBindings: resources.bindings } : {}),
   };
 }
 
@@ -1051,6 +1120,84 @@ export async function listHostBridgeProviderProfiles() {
   return {
     schema: "zotero-bridge.provider-profile-list.v1",
     profiles: await listProviderProfileBackends(),
+  };
+}
+
+export async function getHostBridgeWorkflowDefaults(payload: {
+  workflowId?: unknown;
+}) {
+  const workflowId = normalizeString(payload?.workflowId);
+  if (!workflowId) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_defaults_request",
+      "workflowId is required",
+    );
+  }
+  const workflow = getWorkflowById(workflowId);
+  if (!workflow) {
+    const error = new Error("workflow not found");
+    (error as { code?: string }).code = "workflow_not_found";
+    throw error;
+  }
+  const settings = getWorkflowSettings(workflowId);
+  const backendId = normalizeString(settings.backendId);
+  const providerOptions = isObject(settings.providerOptions)
+    ? { ...settings.providerOptions }
+    : {};
+  let candidateDiagnostics: Array<{ code: string; message: string }> = [];
+  let descriptor: ProviderProfileDescriptor | undefined;
+  try {
+    rejectUnsafeProviderProfileValue(
+      providerOptions,
+      "providerProfile.providerOptions",
+    );
+  } catch (error) {
+    candidateDiagnostics = [
+      {
+        code: "invalid_provider_profile",
+        message:
+          error instanceof Error
+            ? error.message
+            : String(error || "invalid provider profile"),
+      },
+    ];
+  }
+  if (backendId && candidateDiagnostics.length === 0) {
+    try {
+      descriptor = await describeProviderProfile(backendId);
+    } catch (error) {
+      candidateDiagnostics = [
+        {
+          code:
+            (error as { code?: string }).code || "provider_profile_unavailable",
+          message:
+            error instanceof Error
+              ? error.message
+              : String(error || "unknown error"),
+        },
+      ];
+    }
+  }
+  return {
+    schema: "zotero-bridge.workflow-defaults.v1",
+    workflowId,
+    workflowLabel: localizeWorkflowLabel(workflow),
+    settingsRevision: getWorkflowSettingsRevision(),
+    hasDefault: Boolean(backendId),
+    diagnostics: candidateDiagnostics,
+    ...(backendId &&
+    candidateDiagnostics.every(
+      (entry) => entry.code !== "invalid_provider_profile",
+    )
+      ? {
+          providerProfile: {
+            schema: "zotero-bridge.provider-profile.v1",
+            backendId,
+            providerOptions,
+          },
+          ...(descriptor ? { descriptor } : {}),
+        }
+      : {}),
   };
 }
 
@@ -1075,12 +1222,65 @@ export async function validateHostBridgeProviderProfile(
       "provider profile validate does not accept workflowId",
     );
   }
-  const result = await validateProviderProfile(payload?.providerProfile);
+  const source =
+    payload?.source === "environment-default" ||
+    payload?.source === "host-default"
+      ? payload.source
+      : "explicit";
+  const result = await validateProviderProfile(
+    payload?.providerProfile,
+    source,
+  );
   return {
     valid: true,
     normalizedProfile: result.normalizedProfile,
     descriptor: result.descriptor,
     diagnostics: [],
+    source: result.source,
+    profileFingerprint: result.profileFingerprint,
+  };
+}
+
+export async function refreshHostBridgeProviderProfile(payload: {
+  backendId?: unknown;
+}) {
+  const backendId = normalizeString(payload?.backendId);
+  if (!backendId) {
+    throw codedWorkflowValidationError(
+      "invalid_provider_profile_request",
+      "backendId is required",
+    );
+  }
+  const backends = await listBackendInstances();
+  const backend = backends.find((entry) => entry.id === backendId);
+  if (!backend) {
+    throw new ProviderProfileError(
+      "provider_profile_backend_not_found",
+      `Backend not found: ${backendId}`,
+      { backendId },
+    );
+  }
+  if (backend.type !== "acp") {
+    throw codedWorkflowValidationError(
+      "provider_profile_refresh_unsupported",
+      "Profile refresh is only supported for ACP backends",
+    );
+  }
+  const result = await probeAcpBackendRuntimeOptions({ backend });
+  persistBackendsConfig(
+    backends.map((entry) => (entry.id === backendId ? result.backend : entry)),
+  );
+  if (!result.ok) {
+    throw codedWorkflowValidationError(
+      "provider_profile_refresh_failed",
+      result.error || "ACP profile refresh failed",
+    );
+  }
+  return {
+    schema: "zotero-bridge.provider-profile-refresh.v1",
+    backendId,
+    refreshed: true,
+    descriptor: await describeProviderProfile(backendId),
   };
 }
 
@@ -1166,6 +1366,14 @@ export async function prepareHostBridgeWorkflowSubmit(
     workflow.manifest,
     descriptor.workflowParams,
   );
+  const resources = await validateWorkflowResourceBindings({
+    manifest: workflow.manifest,
+    raw: plan.resourceBindings,
+  });
+  plan = {
+    ...plan,
+    ...(resources.bindings ? { resourceBindings: resources.bindings } : {}),
+  };
   const explicitBackendId = normalizeString(plan.providerProfile.backendId);
   if (explicitBackendId && descriptor.selectedProfile !== explicitBackendId) {
     throw codedWorkflowValidationError(
@@ -1173,10 +1381,13 @@ export async function prepareHostBridgeWorkflowSubmit(
       "providerProfile.backendId is not compatible with this workflow",
     );
   }
-  if (descriptor.requiresBackendProfile && !explicitBackendId) {
+  if (
+    descriptor.requiresBackendProfile &&
+    (!plan.providerProfileProvided || !explicitBackendId)
+  ) {
     throw codedWorkflowValidationError(
-      "invalid_workflow_submit_request",
-      "providerProfile.backendId is required for this workflow",
+      "provider_profile_required",
+      "A provider profile is required for this workflow; validate and submit an explicit profile.",
     );
   }
   if (explicitBackendId) {
@@ -1884,81 +2095,127 @@ export async function submitHostBridgeWorkflow(args: {
     scope: args.scope,
     timeoutMs: args.timeoutMs,
   });
-  const selectedItems = resolveSelectedItemsForPlan(plan);
-  const messageFormatter = createLocalizedMessageFormatter();
-  const win = createBridgeWindow(selectedItems);
-  const preparation = await runWorkflowPreparationSeam({
-    win,
-    workflow,
-    messageFormatter,
-    executionOptionsOverride:
-      plan.executionOptions as unknown as WorkflowExecutionOptions,
-    ignoreSavedWorkflowSettings: true,
-    selectedItemsOverride: selectedItems,
-    suppressUiFeedback: true,
-  });
-  if (preparation.status !== "ready") {
-    throw new Error("workflow preparation halted");
-  }
-
-  const duplicateGuard = await runWorkflowUnitDuplicateGuardSeam(
-    {
-      win,
-      workflowId: workflow.manifest.id,
-      workflowLabel: localizeWorkflowLabel(workflow),
-      units: preparation.prepared.plan.units,
-    },
-    {
-      confirmDuplicateSubmission: () => true,
-    },
+  const inputFileIds = Object.values(plan.resourceBindings?.inputs || {}).flatMap(
+    (binding) => binding.fileIds,
   );
-  if (duplicateGuard.allowedUnits.length === 0) {
-    throw new Error("workflow submission produced no allowed requests");
-  }
+  const lease = inputFileIds.length
+    ? await acquireHostBridgeUploadedFileLease(inputFileIds)
+    : null;
+  let releaseLeaseOnExit = true;
+  try {
+    const validatedResources = await validateWorkflowResourceBindings({
+      manifest: workflow.manifest,
+      raw: plan.resourceBindings,
+    });
+    const resourceApi = await createHostBridgeWorkflowResourceApi({
+      workflowId: workflow.manifest.id,
+      manifest: workflow.manifest,
+      inputs: validatedResources.inputs,
+      outputBindings: validatedResources.bindings?.outputs || {},
+    });
+    const runtime = {
+      invocationMode: "non-interactive" as const,
+      hostApi: createNonInteractiveWorkflowHostApi({
+        base: createWorkflowHostApi(),
+        resources: resourceApi,
+      }),
+    };
+    const selectedItems = resolveSelectedItemsForPlan(plan);
+    const messageFormatter = createLocalizedMessageFormatter();
+    const win = createBridgeWindow(selectedItems);
+    const preparation = await runWorkflowPreparationSeam({
+      win,
+      workflow,
+      messageFormatter,
+      executionOptionsOverride:
+        plan.executionOptions as unknown as WorkflowExecutionOptions,
+      ignoreSavedWorkflowSettings: true,
+      selectedItemsOverride: selectedItems,
+      suppressUiFeedback: true,
+      runtime,
+    });
+    if (preparation.status !== "ready") {
+      throw new Error("workflow preparation halted");
+    }
 
-  const workflowLabel = localizeWorkflowLabel(workflow);
-  const submission = await submitPreparedWorkflowUnits({
-    prepared: preparation.prepared,
-    units: duplicateGuard.allowedUnits,
-    workflowLabel,
-    skippedByGuard: duplicateGuard.skippedByDuplicate,
-    messageFormatter,
-  });
-  if (submission.admission === "host-queue") {
+    const duplicateGuard = await runWorkflowUnitDuplicateGuardSeam(
+      {
+        win,
+        workflowId: workflow.manifest.id,
+        workflowLabel: localizeWorkflowLabel(workflow),
+        units: preparation.prepared.plan.units,
+      },
+      {
+        confirmDuplicateSubmission: () => {
+          throw createWorkflowInteractionRequiredError(
+            "workflow.duplicate-confirmation",
+          );
+        },
+      },
+    );
+    if (duplicateGuard.allowedUnits.length === 0) {
+      throw new Error("workflow submission produced no allowed requests");
+    }
+
+    const workflowLabel = localizeWorkflowLabel(workflow);
+    const submission = await submitPreparedWorkflowUnits({
+      prepared: preparation.prepared,
+      units: duplicateGuard.allowedUnits,
+      workflowLabel,
+      skippedByGuard: duplicateGuard.skippedByDuplicate,
+      messageFormatter,
+      onTerminal: () => {
+        if (lease) {
+          releaseHostBridgeUploadedFileLease(lease.leaseId);
+          releaseLeaseOnExit = false;
+        }
+      },
+    });
+    if (submission.admission === "host-queue") {
+      if (lease) {
+        releaseLeaseOnExit = false;
+      }
+      return {
+        workflowId: workflow.manifest.id,
+        workflowLabel,
+        admission: "host-queue",
+        submissionId: submission.submissionId!,
+        totalUnits: submission.total,
+        queuedUnits: submission.queued,
+        skippedUnits: submission.skipped,
+        submissionUrl: `/bridge/v2/workflows/submissions/${submission.submissionId}`,
+        queueUrl: "/bridge/v2/workflows/queue",
+        permission,
+        resourceOutputs: resourceApi.listOutputs(),
+      };
+    }
+
+    await submission.completion;
+    const runStates = [...submission.executionResults.values()]
+      .map((entry) => entry.runState)
+      .filter((entry): entry is NonNullable<typeof entry> => !!entry);
+    const workflowRunId = runStates[0]?.runId || "";
     return {
       workflowId: workflow.manifest.id,
       workflowLabel,
-      admission: "host-queue",
-      submissionId: submission.submissionId!,
-      totalUnits: submission.total,
-      queuedUnits: submission.queued,
-      skippedUnits: submission.skipped,
-      submissionUrl: `/bridge/v2/workflows/submissions/${submission.submissionId}`,
-      queueUrl: "/bridge/v2/workflows/queue",
+      admission: "direct",
+      workflowRunId,
+      jobIds: runStates.flatMap((entry) => entry.jobIds),
+      totalJobs: runStates.reduce((total, entry) => total + entry.totalJobs, 0),
+      tasks: runStates.flatMap((entry) =>
+        listHostBridgeTasks({
+          runId: entry.runId,
+          includeHistory: false,
+        }),
+      ),
       permission,
+      resourceOutputs: resourceApi.listOutputs(),
     };
+  } finally {
+    if (lease && releaseLeaseOnExit) {
+      releaseHostBridgeUploadedFileLease(lease.leaseId);
+    }
   }
-
-  await submission.completion;
-  const runStates = [...submission.executionResults.values()]
-    .map((entry) => entry.runState)
-    .filter((entry): entry is NonNullable<typeof entry> => !!entry);
-  const workflowRunId = runStates[0]?.runId || "";
-  return {
-    workflowId: workflow.manifest.id,
-    workflowLabel,
-    admission: "direct",
-    workflowRunId,
-    jobIds: runStates.flatMap((entry) => entry.jobIds),
-    totalJobs: runStates.reduce((total, entry) => total + entry.totalJobs, 0),
-    tasks: runStates.flatMap((entry) =>
-      listHostBridgeTasks({
-        runId: entry.runId,
-        includeHistory: false,
-      }),
-    ),
-    permission,
-  };
 }
 
 export function listHostBridgeWorkflowQueue(scope?: WorkflowQueueBackendScope) {

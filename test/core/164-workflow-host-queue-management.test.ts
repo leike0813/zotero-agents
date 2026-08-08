@@ -687,6 +687,7 @@ describe("workflow Host submission queue", function () {
     const queue = createQueue();
     const gate = deferred<WorkflowExecutionUnitOutcome>();
     const events: string[] = [];
+    const terminalSummaries: unknown[] = [];
     queue.subscribe((event) => events.push(event.type));
     const handle = queue.enqueueSubmission(
       createConfig(
@@ -695,7 +696,10 @@ describe("workflow Host submission queue", function () {
           unit.id === "u1"
             ? gate.promise
             : Promise.resolve({ status: "succeeded" }),
-        { maxConcurrency: 1 },
+        {
+          maxConcurrency: 1,
+          onTerminal: (summary) => terminalSummaries.push(summary),
+        },
       ),
     );
     await flushMicrotasks();
@@ -712,13 +716,15 @@ describe("workflow Host submission queue", function () {
     );
 
     gate.resolve({ status: "succeeded" });
-    assert.deepEqual(await handle.completion, {
+    const summary = await handle.completion;
+    assert.deepEqual(summary, {
       submissionId: handle.submissionId,
       total: 2,
       succeeded: 1,
       failed: 0,
       skipped: 1,
     });
+    assert.deepEqual(terminalSummaries, [summary]);
 
     queue.start();
     assert.isFalse(queue.isShuttingDown);

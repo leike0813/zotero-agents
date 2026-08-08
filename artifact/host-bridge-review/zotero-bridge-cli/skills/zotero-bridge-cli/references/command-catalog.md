@@ -1,8 +1,8 @@
 # Zotero Bridge command catalog
 
-当你知道用户希望在 Zotero 中完成什么、但尚不知道规范命令时，使用此目录。它是详细命令卡的导航层，不替代命令卡。
+Use this catalog when you know what the user wants to do in Zotero but do not yet know the canonical command. It is the navigation layer for the detailed command references, not a replacement for them.
 
-## 发现顺序
+## Discovery sequence
 
 1. Restate the requested outcome in Zotero terms: the object, scope, freshness, deliverable, and whether state may change.
 2. Find the matching task family below and inspect its natural-language cues.
@@ -12,7 +12,7 @@
 6. Read the linked detailed command reference before constructing argv or payload.
 7. Execute only after resolving the required identity, input channel, authority, and recovery path.
 
-## 如何阅读索引
+## How to read the index
 
 - The command name and one-line purpose help with discovery.
 - Detailed references own argv, bindings, invocation and result schemas, pagination, effects, approval, handles, targets, aliases, and recovery.
@@ -21,7 +21,7 @@
 - `surface describe` is the live authority for the selected command. If it differs from static guidance, follow the live descriptor and report the mismatch.
 - Use the smallest semantic command that owns the requested effect. Do not replace it with `call` or `debug` merely because a low-level path appears shorter.
 
-## 跨命令族请求
+## Requests that span families
 
 Many user requests require an ordered sequence rather than one command. Keep each family boundary explicit:
 
@@ -35,7 +35,7 @@ Many user requests require an ordered sequence rather than one command. Keep eac
 
 Do not let an earlier read, candidate list, validation result, or completed run imply authority for a later state change.
 
-## File、Product 与 operation 身份模型
+## File, Product, and operation identity model
 
 File transfer, Product inspection, and operation recovery can appear in one task, but their identifiers are not interchangeable.
 
@@ -51,7 +51,7 @@ Start from the identity returned by the owning command. Do not turn an absolute-
 
 Before download, identify the attachment, Product asset, artifact, or operation that owns the bytes; obtain its declared transfer instruction; choose an absolute local destination when required; inspect overwrite and checksum expectations; then download once and verify the result. Before upload, resolve the local file, identify the later semantic operation that will consume it, upload without treating the path as Zotero evidence, preserve the returned handle and integrity fields, and use that handle only in the declared next command. Upload alone does not attach or persist bytes in Zotero, and download alone does not prove a Product or workflow result complete.
 
-对于每个候选命令，在选择前检查 `outputBoundary`。cursor 命令要求在 criteria 不变时完整遍历 continuation；offset 命令要求按序重建文本；limit 命令可能要求缩小 selector；file 命令要求下载 handle 并校验完整性；fixed 命令只有在声明的硬边界内才算完整。`surface search` 只返回紧凑候选，因此必须使用 `surface describe` 或链接的命令卡读取这些详情。
+For every candidate command, inspect `outputBoundary` before choosing it. A cursor command requires full continuation traversal under unchanged criteria; an offset command requires ordered text reconstruction; a limit command may require a narrower selector; a file command requires handle download and integrity verification; a fixed command is complete only within its declared hard bound. `surface search` returns compact candidates only, so use `surface describe` or the linked command card for these details.
 
 Inspect a Product before selecting an asset. Confirm its identity and producing workflow, inspect state and declared assets, select by role and media type rather than guessed filename, preserve size and checksum, request delivery through the current contract, and verify downloaded bytes independently. A terminal workflow with no expected Product is not successful output delivery; a missing required asset is not a complete deliverable; a downloaded Product is not automatically a Zotero attachment or note.
 
@@ -220,10 +220,12 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge workflow agent-renew` | Renew an unconsumed agent-run lease | [Open card](commands/workflow/agent-renew.md) |
 | `zotero-bridge workflow agent-result validate` | Validate a local agent result directory against an output contract | [Open card](commands/workflow/agent-result/validate.md) |
 | `zotero-bridge workflow agent-run` | Prepare a self-owned agent workflow handoff bundle | [Open card](commands/workflow/agent-run.md) |
+| `zotero-bridge workflow defaults` | Show the saved workflow provider profile candidate | [Open card](commands/workflow/defaults.md) |
 | `zotero-bridge workflow describe` | Describe workflow selection and workflow options | [Open card](commands/workflow/describe.md) |
 | `zotero-bridge workflow list` | List loaded workflows | [Open card](commands/workflow/list.md) |
 | `zotero-bridge workflow profile describe` | Describe the provider profile contract for one backend | [Open card](commands/workflow/profile/describe.md) |
 | `zotero-bridge workflow profile list` | List configured backend provider profiles | [Open card](commands/workflow/profile/list.md) |
+| `zotero-bridge workflow profile refresh` | Refresh an ACP backend provider catalog | [Open card](commands/workflow/profile/refresh.md) |
 | `zotero-bridge workflow profile validate` | Validate and normalize one backend provider profile | [Open card](commands/workflow/profile/validate.md) |
 | `zotero-bridge workflow queue cancel` | Cancel one still-pending Zotero-managed workflow queue unit | [Open card](commands/workflow/queue/cancel.md) |
 | `zotero-bridge workflow queue list` | List pending Zotero-managed workflow queue units | [Open card](commands/workflow/queue/list.md) |
@@ -363,7 +365,7 @@ Selection check:
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 
-## 完成检查
+## Completion check
 
 Before leaving the catalog, you must know:
 

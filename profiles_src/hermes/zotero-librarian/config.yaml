@@ -8,6 +8,9 @@ zoteroBridge:
 residentService:
   script: scripts/zotero_librarian_service.py
   stateDirEnv: ZOTERO_LIBRARIAN_STATE_DIR
+  activeProfileEnv: ZOTERO_BRIDGE_PROFILE
+  workspaceRoot: "$ZOTERO_LIBRARIAN_STATE_DIR/workspaces/<sha256>"
+  workspaceLayout: connection-profile-v1
   defaultDatabase: "$HERMES_HOME/zotero-librarian/state.sqlite"
   receiptSchema: zotero-librarian.operation-receipt.v1
   cronSubmission: forbidden

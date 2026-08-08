@@ -9,6 +9,10 @@ sourceRepository: https://github.com/leike0813/zotero-agents
 state:
   defaultDir: "$HERMES_HOME/zotero-librarian"
   overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR
+  activeProfileEnv: ZOTERO_BRIDGE_PROFILE
+  workspaceLayout: connection-profile-v1
+  explicitWorkspace: "$BASE/workspaces/<sha256>"
+  defaultWorkspace: "$BASE/state.sqlite"
 assets:
   zoteroBridgeBinaries: assets/zotero-bridge/bin
 skills:

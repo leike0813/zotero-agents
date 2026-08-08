@@ -385,6 +385,86 @@ describe("export research bundle skill runtime", function () {
     }
   });
 
+  it("retains low-score Topic papers beyond the non-Topic related limit", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "export-research-bundle-topic-mandatory-"),
+    );
+    const dbPath = path.join(
+      runRoot,
+      "runtime",
+      "export-research-bundle.sqlite",
+    );
+    const inputPath = path.join(runRoot, "runtime", "input.json");
+    const harness = await createBridgeHarness(runRoot);
+    await writeJson(inputPath, {
+      parameter: {
+        paperTitle: "Graph-grounded review",
+        researchContent: "Select citation graph evidence for synthesis",
+        maxTopics: 1,
+        maxCorePapers: 1,
+        maxRelatedPapers: 1,
+      },
+    });
+    const common = await advanceToEvidenceStage(
+      runRoot,
+      dbPath,
+      inputPath,
+      harness.env,
+    );
+    runGate(runRoot, [...common, "--action", "run"], harness.env);
+    while (
+      runGate(runRoot, common, harness.env).stage ===
+      "stage_50_paper_assessment"
+    ) {
+      const batchGate = runGate(runRoot, common, harness.env);
+      const packet = JSON.parse(
+        await fs.readFile(batchGate.required_reads[0], "utf8"),
+      );
+      const semantic = (ref: string) =>
+        ref.endsWith("AAAA1111") ? 0.2 : ref.endsWith("BBBB2222") ? 0.9 : 0.8;
+      await writeJson(batchGate.payload_path, {
+        batch_id: packet.batch_id,
+        assessments: packet.candidates.map((candidate: any) => ({
+          paper_ref: candidate.paper_ref,
+          semantic_relevance: semantic(candidate.paper_ref),
+          matched_topic_ids: candidate.paper_ref.endsWith("AAAA1111")
+            ? ["topic-a"]
+            : [],
+          reason: "Assessment for mandatory Topic regression.",
+          evidence_basis: ["metadata"],
+          caveats: [],
+        })),
+      });
+      runGate(
+        runRoot,
+        [...common, "--action", "submit", "--payload", batchGate.payload_path],
+        harness.env,
+      );
+    }
+    runGate(runRoot, [...common, "--action", "run"], harness.env);
+    const preview = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "06-selection-preview.json"),
+        "utf8",
+      ),
+    );
+    assert.sameMembers(
+      preview.papers.map((paper: any) => paper.paper_ref),
+      ["1:AAAA1111", "1:BBBB2222"],
+    );
+    assert.isBelow(
+      preview.papers.find((paper: any) => paper.paper_ref === "1:AAAA1111")
+        .semantic_relevance,
+      0.45,
+    );
+    assert.equal(
+      preview.papers.find((paper: any) => paper.paper_ref === "1:AAAA1111")
+        .role,
+      "related",
+    );
+    runGate(runRoot, [...common, "--action", "run"], harness.env);
+  });
+
   it("publishes bounded semantic relevance in the paper assessment contract", async function () {
     const schema = JSON.parse(
       await fs.readFile(

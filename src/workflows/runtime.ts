@@ -488,6 +488,10 @@ function createRuntimeContext(
       typeof override?.hostApiVersion === "number"
         ? override.hostApiVersion
         : WORKFLOW_HOST_API_VERSION,
+    invocationMode:
+      override?.invocationMode === "non-interactive"
+        ? "non-interactive"
+        : "interactive",
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)
@@ -1193,6 +1197,10 @@ export async function executeApplyResult(args: {
     phase: "sequence-step";
   };
   runtime?: Partial<WorkflowRuntimeContext>;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
 }) {
   return measureAsyncTestPerformanceSpan(
     "executeApplyResult",
@@ -1234,6 +1242,7 @@ export async function executeApplyResult(args: {
                 sequenceStep: args.sequenceStep,
                 manifest: args.workflow.manifest,
                 runtime: hookRuntime,
+                executionOptions: args.executionOptions,
               }),
           }),
       );

@@ -33,3 +33,9 @@ workflow 提交是交互式的，并使用随附的 Generic 与 CLI Skills。先
 - `state-and-recovery.md`：缓存新鲜度、原子更新、类型化 handle、不确定结果、安装和状态重建。
 
 随附 Generic 与 CLI Skills 是有效 profile 的组成部分。不得把它们的任务 playbook 或命令事实复制进常驻文档。
+
+## 连接 profile workspace
+
+Agent 无需计算或手动传入 workspace 路径。service 与 cron 会依次跟随 `--profile`、`ZOTERO_BRIDGE_PROFILE` 和平台 well-known profile。well-known profile 是默认 workspace，并继续拥有 `$HERMES_HOME/zotero-librarian/state.sqlite`；每个显式 profile 都有独立的内容寻址 `workspaces/<sha256>/` 目录，用于 SQLite 状态、run、notification、catalog 和 `.zotero-bridge/bin`。
+
+`--db` 只能作为诊断覆盖，并且解析后的路径必须位于当前 workspace 内。workspace identity 只使用规范化 profile 路径，绝不读取 profile JSON，也不包含 token、endpoint 或其他 secret。profile 不存在、路径规范化失败、workspace 根不可用、连接失败或数据库越界时必须 fail closed，并返回结构化 receipt；不得回退到共享状态。workspace cache 只用于发现，不是当前 Zotero 事实，也不改变 approval、queue、receipt 或 live-state 规则。

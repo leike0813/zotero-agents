@@ -77,6 +77,7 @@ type SubmissionController = {
   readonly limit: number;
   readonly total: number;
   readonly initiallySkipped: number;
+  readonly onTerminal?: (summary: WorkflowSubmissionSummary) => void;
   readonly outcomes: WorkflowExecutionUnitOutcome[];
   readonly completion: Promise<WorkflowSubmissionSummary>;
   readonly resolveCompletion: (summary: WorkflowSubmissionSummary) => void;
@@ -236,6 +237,7 @@ export class WorkflowSubmissionQueue {
       limit,
       total,
       initiallySkipped: initialOutcomes.length,
+      onTerminal: config.onTerminal,
       outcomes: initialOutcomes,
       completion,
       resolveCompletion,
@@ -253,7 +255,9 @@ export class WorkflowSubmissionQueue {
 
     if (config.units.length === 0) {
       controller.completed = true;
-      resolveCompletion(summarize(submissionId, initialOutcomes));
+      const summary = summarize(submissionId, initialOutcomes);
+      resolveCompletion(summary);
+      controller.onTerminal?.(summary);
       return Object.freeze({ submissionId, completion });
     }
 
@@ -834,9 +838,15 @@ export class WorkflowSubmissionQueue {
     }
     controller.completed = true;
     this.submissions.delete(controller.submissionId);
-    controller.resolveCompletion(
-      summarize(controller.submissionId, controller.outcomes),
-    );
+    const summary = summarize(controller.submissionId, controller.outcomes);
+    controller.resolveCompletion(summary);
+    try {
+      controller.onTerminal?.(summary);
+    } catch (error) {
+      this.log("terminal-callback-error", {
+        submissionId: controller.submissionId,
+      }, error);
+    }
   }
 
   private toSnapshot(item: InternalQueuedUnit): QueuedWorkflowUnitSnapshot {

@@ -484,6 +484,67 @@ SHALL be recoverable per paper.
 - **THEN** the main agent SHALL repair or re-delegate only that candidate
 - **AND** it SHALL continue processing valid payloads for other candidates
 
+### Requirement: Literature search ingest SHALL bind raw Host receipts to the current candidate
+
+The Skill SHALL write the exact Host response to the gate-issued `receipt_path`
+and associate it with the current candidate and immutable prepared payload
+without requiring the agent to copy those control values into a receipt wrapper.
+
+#### Scenario: Raw Host response is submitted
+
+- **WHEN** Stage 70 receives exact Host JSON at the gate-issued `receipt_path`
+- **THEN** the receipt SHALL be associated with the current candidate and
+  prepared-payload hash
+- **AND** `created`, `existing`, `failed`, item id, and attachment status SHALL
+  be derived from that response.
+
+#### Scenario: Receipt is reused for another candidate
+
+- **WHEN** an accepted receipt hash or inconsistent Zotero item id is submitted
+  for another candidate
+- **THEN** the receipt SHALL be rejected without advancing state.
+
+#### Scenario: Host mutation cannot start
+
+- **WHEN** the agent records `host_unavailable`, `approval_denied`, or
+  `execution_blocked` with a non-empty message
+- **THEN** the failure SHALL be bound to the current candidate
+- **AND** the Skill SHALL enter canceled terminal state without requiring a
+  receipt wrapper.
+
+### Requirement: Literature search ingest SHALL expose a minimal completed output
+
+The completed output SHALL summarize the run without repeating discovery,
+metadata, PDF, or recovery evidence that is already available in accepted
+payloads and the compact ledger.
+
+#### Scenario: Created or existing item is returned
+
+- **WHEN** an approved candidate completes with `created` or `existing`
+- **THEN** its outcome SHALL contain only `title`, `ingestStatus`, `itemRef`,
+  `pdfStatus`, and `needsCuration`
+- **AND** `itemRef` SHALL contain only the positive Zotero item `id`.
+
+#### Scenario: Failed or not-attempted item is returned
+
+- **WHEN** an approved candidate completes with `failed` or `not_attempted`
+- **THEN** its outcome SHALL contain only `title` and `ingestStatus`.
+
+#### Scenario: Completed counts are generated
+
+- **WHEN** completed output is constructed
+- **THEN** the output SHALL include discovered, selected, created, existing,
+  failed, and not-attempted counts
+- **AND** selected count SHALL equal the number of outcomes
+- **AND** terminal-status counts SHALL sum to selected count.
+
+#### Scenario: Detailed audit information is needed
+
+- **WHEN** a caller needs identifiers, evidence paths, hashes, reasons, or Host
+  receipt summaries
+- **THEN** the completed output SHALL point to `result/search-ledger.json`
+- **AND** it SHALL NOT duplicate those details in every outcome.
+
 ### Requirement: Literature Digest SHALL persist generated-note payloads through Zotero-safe storage
 Generated digest-family notes MUST keep machine-readable payloads available after Zotero note editor normalization by using v2 anchored embedded payload storage.
 

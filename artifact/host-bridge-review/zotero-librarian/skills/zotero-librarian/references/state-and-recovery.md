@@ -14,6 +14,13 @@
 
 该数据库是可重建的缓存和 journal。UI 上下文、文献库内容、工作流定义、执行模式、run、permission、通知、Product、文件、operation 和写入仍以实时 Zotero 为权威。
 
+## Profile-local state 边界
+
+active connection profile 由 service `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台 well-known profile 选择。well-known profile 是现有 state path 的默认 owner。每个显式规范化 profile 路径拥有独立的 `workspaces/<sha256>/` root，包括 SQLite database、workflow catalog、watched run、notification 和 `.zotero-bridge/bin`；identity 不包含 profile 内容或 token。Agent 无需手动计算该 root。
+
+`--db` 只能指定当前 root 内的诊断 database。profile/path/root/connection 错误和 `workspace_path_outside_profile` 会在创建 database 前停止 pass，且不回退到共享目录。该路由不改变 `state.v3` schema，也不改变要求 live Zotero facts、current approval、native queue ownership 和 durable receipt 的规则。
+
+
 ## 新鲜度与原子更新
 
 每项缓存结论都附带相关刷新或更新时间。缓存用于发现与变化检测；对外可见的当前事实，以及所有可能导致写入或交互的决策，都使用实时读取。

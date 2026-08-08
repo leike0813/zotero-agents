@@ -52,6 +52,7 @@ function directReferenceLinks(skill: string) {
 }
 
 const COMMAND_CATALOG = "references/command-catalog.md";
+const EXPECTED_CANONICAL_COMMAND_COUNT = 127;
 const APPROVED_AGGREGATE_COMMAND_REFERENCES = new Set([
   "references/commands/connection-and-context.md",
   "references/commands/diagnostics.md",
@@ -101,9 +102,9 @@ function inspectGeneratedCommandCards(root: string) {
   const actualFiles = cardFiles
     .map((file) => relative(root, file).replace(/\\/g, "/"))
     .sort();
-  if (canonical.length !== 125) {
+  if (canonical.length !== EXPECTED_CANONICAL_COMMAND_COUNT) {
     errors.push(
-      `${relative(process.cwd(), root)}: command coverage is ${canonical.length}/125`,
+      `${relative(process.cwd(), root)}: command coverage is ${canonical.length}/${EXPECTED_CANONICAL_COMMAND_COUNT}`,
     );
   }
   if (linkedFiles.length !== canonical.length) {

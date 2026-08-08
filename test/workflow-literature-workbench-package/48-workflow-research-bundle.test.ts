@@ -12,6 +12,7 @@ import {
   researchPayloadArtifactPath,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundle.mjs";
 import {
+  renderResearchBundleIndex,
   renderResearchBundleReadme,
   resolveResearchBundleReadmeLocale,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
@@ -90,6 +91,28 @@ describe("export research bundle workflow", function () {
           { paper_ref: "1:LOW00000", semantic_relevance: 0.2, role: "related" },
         ],
       }),
+    );
+    const mandatory = normalizeResearchSelection({
+      ...selection,
+      limits: { ...selection.limits, max_related_papers: 1 },
+      papers: [
+        {
+          paper_ref: "1:TOPIC0001",
+          semantic_relevance: 0.2,
+          role: "related",
+          matched_topic_ids: ["graph"],
+          candidate_sources: ["topic:graph"],
+        },
+        {
+          paper_ref: "1:OPTIONAL1",
+          semantic_relevance: 0.9,
+          role: "core",
+        },
+      ],
+    });
+    assert.sameMembers(
+      mandatory.papers.map((paper) => paper.paper_ref),
+      ["1:TOPIC0001", "1:OPTIONAL1"],
     );
     assert.equal(
       normalizeResearchSelection({
@@ -243,6 +266,23 @@ describe("export research bundle workflow", function () {
       assert.equal(tableCellCount(tableLines[paperHeaderIndex]), 7);
       assert.equal(tableCellCount(tableLines[paperHeaderIndex + 1]), 7);
     }
+  });
+
+  it("renders a minimal deterministic index for Topic ids and paper titles", function () {
+    const index = renderResearchBundleIndex({
+      topics: [{ topic_id: "topic-a", logical_id: "topic-001" }],
+      papers: [
+        {
+          title: "Graph | Evidence",
+          paper_ref: "1:AAAA1111",
+          logical_id: "paper-001",
+        },
+      ],
+    });
+    assert.include(index, "| topic-a | `topics/topic-001` |");
+    assert.include(index, "| Graph \\| Evidence | `papers/paper-001` |");
+    assert.notInclude(index, "manifest.json");
+    assert.notInclude(index, "score");
   });
 
   it("registers topic reports, all metadata, and core Markdown sidecars as one atomic product", async function () {
@@ -407,6 +447,7 @@ describe("export research bundle workflow", function () {
       assert.include(productPaths, "papers/paper-002/source.pdf");
       assert.include(productPaths, "papers/paper-003/metadata.json");
       assert.include(productPaths, "references.bib");
+      assert.include(productPaths, "index.md");
       assert.deepEqual(exportedItemKeys, ["AAAA1111", "BBBB2222", "CCCC3333"]);
       assert.notInclude(productPaths, "papers/paper-001.image-m1-figure.png");
       assert.notInclude(productPaths, `papers/paper-001/${outsideFileName}`);
@@ -450,6 +491,7 @@ describe("export research bundle workflow", function () {
       });
       assert.notProperty(result.manifest.files, "manifest.json");
       assert.property(result.manifest.files, "references.bib");
+      assert.property(result.manifest.files, "index.md");
       assert.deepInclude(result.manifest.bibliography, {
         status: "generated",
         path: "references.bib",

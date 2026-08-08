@@ -141,10 +141,12 @@ This section is generated from the executable Host Bridge capability and CLI com
 | `workflow agent-renew` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
 | `workflow agent-run` | `POST /bridge/v2/workflows/agent-run` | endpoint | - |
 | `workflow agent-run` | `GET /bridge/v2/files/{fileId}` | endpoint | - |
+| `workflow defaults` | `POST /bridge/v2/workflows/defaults` | endpoint | - |
 | `workflow describe` | `POST /bridge/v2/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v2/workflows` | endpoint | - |
 | `workflow profile describe` | `POST /bridge/v2/workflows/provider-profiles/describe` | endpoint | - |
 | `workflow profile list` | `GET /bridge/v2/workflows/provider-profiles` | endpoint | - |
+| `workflow profile refresh` | `POST /bridge/v2/workflows/provider-profiles/refresh` | endpoint | - |
 | `workflow profile validate` | `POST /bridge/v2/workflows/provider-profiles/validate` | endpoint | - |
 | `workflow queue cancel` | `POST /bridge/v2/workflows/queue/{queueId}/cancel` | endpoint | - |
 | `workflow queue list` | `GET /bridge/v2/workflows/queue` | endpoint | - |
@@ -558,7 +560,9 @@ zotero-bridge synthesis artifact <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge synthesis insight <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge mutation literature-ingest --input <JSON_OR_FILE>
 zotero-bridge workflow list
-zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>]
+zotero-bridge workflow defaults --workflow <id>
+zotero-bridge workflow profile refresh --backend <id>
 zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 zotero-bridge run get <workflowRunId>
@@ -932,8 +936,7 @@ capabilities、workflow control、file download 和 CLI metadata。
       }
     ]
   },
-  "workflowOptions": {},
-  "providerProfile": {}
+  "workflowOptions": {}
 }
 ```
 
@@ -1137,7 +1140,6 @@ PATH 已经可用。
 - `mutation literature-ingest --input`
 - `call --input`
 - `workflow describe --workflow-options`
-- `workflow describe --provider-profile`
 - `workflow submit --selection`
 - `workflow submit --workflow-options`
 - `workflow submit --provider-profile`
@@ -2055,7 +2057,7 @@ GET <endpoint>/workflows
 调用格式：
 
 ```text
-zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>]
 zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 ```
@@ -2069,8 +2071,7 @@ Content-Type: application/json
 
 {
   "workflowId": "<id>",
-  "workflowOptions": {},
-  "providerProfile": {}
+  "workflowOptions": {}
 }
 
 POST <endpoint>/workflows/submit
@@ -2165,6 +2166,14 @@ requirements 允许空选择的 workflow。`workflow agent-run --none` 使用同
 ```
 
 profile 文件不得保存 bearer token、backend auth、baseUrl 或本地路径。
+
+提交时 profile 优先级为显式 `--provider-profile`、环境变量
+`ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`、Host 保存的 workflow 默认候选，
+最后才是无 profile。环境变量 profile 已代表用户配置的默认授权路径，CLI
+会直接验证并使用；没有环境变量时，先运行 `workflow defaults --workflow`
+披露候选并取得用户确认，再独立运行 profile validate 和 workflow submit。
+Host 默认候选不会自动注入 submit，显式 `{}` 会覆盖环境默认。ACP catalog
+缺失、过期或关系不一致时，先运行 `workflow profile refresh --backend`。
 
 成功 `data`：
 

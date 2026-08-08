@@ -119,6 +119,77 @@ function formatValidationError(errors) {
   return String(first || "validation failed").trim();
 }
 
+async function buildNonInteractiveSelection({ host, runtime }) {
+  const resources = host.resources;
+  const selected = {
+    digest: null,
+    references: null,
+    citationAnalysis: null,
+    customNotes: [],
+  };
+  const digest = resources?.getInput("digest");
+  if (digest) {
+    const markdown = await host.file.readText(digest.path);
+    const resolved = await resolveRepresentativeImageMarkdownImportCandidate({
+      runtime,
+      digestPath: digest.path,
+      markdown,
+    });
+    selected.digest = {
+      sourcePath: digest.path,
+      markdown: resolved.markdown,
+      representativeImage: resolved.representativeImage,
+    };
+  }
+  const schemas = await loadImportSchemas(runtime);
+  const references = resources?.getInput("references");
+  if (references) {
+    const payload = normalizeImportedReferencesPayload(
+      JSON.parse(await host.file.readText(references.path)),
+    );
+    const validation = validateImportedReferencesPayload(
+      payload,
+      schemas.referencesSchema,
+    );
+    if (!validation.valid) throw new Error(formatValidationError(validation.errors));
+    selected.references = {
+      sourcePath: references.path,
+      payload: { ...payload, entry: payload.entry || references.path },
+    };
+  }
+  const citation = resources?.getInput("citation-analysis");
+  if (citation) {
+    const payload = normalizeImportedCitationPayload(
+      JSON.parse(await host.file.readText(citation.path)),
+    );
+    const validation = validateImportedCitationPayload(
+      payload,
+      schemas.citationSchema,
+    );
+    if (!validation.valid) throw new Error(formatValidationError(validation.errors));
+    selected.citationAnalysis = {
+      sourcePath: citation.path,
+      payload: { ...payload, entry: payload.entry || citation.path },
+    };
+  }
+  selected.customNotes = (resources?.getInputs("custom-notes") || []).map(
+    (file) => ({
+      sourcePath: file.path,
+      fileName: getBaseName(file.displayName).replace(/\.md$/i, ""),
+    }),
+  );
+  return selected;
+}
+
+function conflictPolicyError(conflictedKinds) {
+  const error = new Error(
+    `import-notes conflicts require an explicit non-interactive policy: ${conflictedKinds.join(", ")}`,
+  );
+  error.code = "workflow_conflict_requires_policy";
+  error.details = { conflictedKinds };
+  return error;
+}
+
 function createImportRenderer(args) {
   return {
     render({ doc, root, state, context, host }) {
@@ -793,9 +864,80 @@ async function applySelectedImportBatch(args) {
   };
 }
 
-async function applyResultImpl({ parent, runtime }) {
+function findConflictedKinds(selected, existing) {
+  return [
+    selected.digest && existing.digest ? "digest" : "",
+    selected.references && existing.references ? "references" : "",
+    selected.citationAnalysis && existing["citation-analysis"]
+      ? "citation-analysis"
+      : "",
+  ].filter(Boolean);
+}
+
+function buildAppliedImportResult(applied) {
+  return {
+    imported: applied.imported,
+    skipped: 0,
+    representative_image: applied.representative_image,
+    ...(applied.sidecar_apply !== undefined
+      ? {
+          sidecar_apply: applied.sidecar_apply,
+        }
+      : {}),
+  };
+}
+
+async function applyNonInteractiveImport(args) {
+  const host = requireHostApi(args.runtime);
+  const selected = await buildNonInteractiveSelection({
+    host,
+    runtime: args.runtime,
+  });
+  const standardCount = countSelectedCandidates(selected);
+  const customCount = countCustomNotes(selected);
+  if (standardCount === 0 && customCount === 0) {
+    return { imported: 0, skipped: 0 };
+  }
+  const conflictedKinds = findConflictedKinds(selected, args.existing);
+  const conflictPolicy = String(
+    args.executionOptions?.workflowParams?.conflictPolicy || "error",
+  ).trim();
+  if (conflictedKinds.length > 0) {
+    if (conflictPolicy === "error") {
+      throw conflictPolicyError(conflictedKinds);
+    }
+    if (conflictPolicy === "skip") {
+      return {
+        imported: 0,
+        skipped: standardCount + customCount,
+      };
+    }
+  }
+  const applied = await applySelectedImportBatch({
+    runtime: args.runtime,
+    parentItem: args.parentItem,
+    selected,
+    standardCount,
+    customCount,
+  });
+  return buildAppliedImportResult(applied);
+}
+
+async function applyResultImpl({ parent, runtime, executionOptions }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const existing = resolveExistingGeneratedKinds(parentItem, runtime);
+  const host = requireHostApi(runtime);
+  if (
+    runtime.invocationMode === "non-interactive" ||
+    host.resources?.mode === "non-interactive"
+  ) {
+    return applyNonInteractiveImport({
+      runtime,
+      executionOptions,
+      parentItem,
+      existing,
+    });
+  }
   const parentTitle = String(parentItem.getField?.("title") || "").trim();
   let selectionState = {
     digest: null,
@@ -833,16 +975,7 @@ async function applyResultImpl({ parent, runtime }) {
       };
     }
 
-    const conflictedKinds = [];
-    if (selected.digest && existing.digest) {
-      conflictedKinds.push("digest");
-    }
-    if (selected.references && existing.references) {
-      conflictedKinds.push("references");
-    }
-    if (selected.citationAnalysis && existing["citation-analysis"]) {
-      conflictedKinds.push("citation-analysis");
-    }
+    const conflictedKinds = findConflictedKinds(selected, existing);
 
     if (conflictedKinds.length === 0) {
       const applied = await applySelectedImportBatch({
@@ -852,16 +985,7 @@ async function applyResultImpl({ parent, runtime }) {
         standardCount,
         customCount,
       });
-      return {
-        imported: applied.imported,
-        skipped: 0,
-        representative_image: applied.representative_image,
-        ...(applied.sidecar_apply !== undefined
-          ? {
-              sidecar_apply: applied.sidecar_apply,
-            }
-          : {}),
-      };
+      return buildAppliedImportResult(applied);
     }
 
     const conflictResult = await openConflictDialog({
@@ -877,16 +1001,7 @@ async function applyResultImpl({ parent, runtime }) {
         standardCount,
         customCount,
       });
-      return {
-        imported: applied.imported,
-        skipped: 0,
-        representative_image: applied.representative_image,
-        ...(applied.sidecar_apply !== undefined
-          ? {
-              sidecar_apply: applied.sidecar_apply,
-            }
-          : {}),
-      };
+      return buildAppliedImportResult(applied);
     }
     if (actionId === "skip") {
       return {

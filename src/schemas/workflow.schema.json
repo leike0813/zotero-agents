@@ -35,6 +35,22 @@
         "enum": ["auto", "interactive"]
       }
     },
+    "supportedInvocationModes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["interactive", "non-interactive"]
+      }
+    },
+    "resourceRequirements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/resourceRequirement"
+      }
+    },
     "provider": {
       "$ref": "#/$defs/nonEmptyString"
     },
@@ -189,6 +205,37 @@
   ],
   "additionalProperties": true,
   "$defs": {
+    "resourceRequirement": {
+      "type": "object",
+      "required": ["id", "direction", "kind", "cardinality", "required"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "direction": { "enum": ["input", "output"] },
+        "kind": { "enum": ["file", "archive"] },
+        "cardinality": { "enum": ["one", "many"] },
+        "required": { "type": "boolean" },
+        "accept": {
+          "type": "object",
+          "properties": {
+            "contentTypes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nonEmptyString" },
+              "uniqueItems": true
+            },
+            "extensions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nonEmptyString" },
+              "uniqueItems": true
+            },
+            "maxCount": { "type": "integer", "minimum": 1 },
+            "maxBytes": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "suggestedName": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
     "nonEmptyString": {
       "type": "string",
       "minLength": 1

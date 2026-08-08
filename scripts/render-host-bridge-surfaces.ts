@@ -197,6 +197,14 @@ function tableCell(value: unknown) {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ") || "—";
 }
 
+function renderExampleArgument(value: unknown, schema: Record<string, unknown>) {
+  const serialized =
+    schema.type === "string" && typeof value === "string"
+      ? value
+      : JSON.stringify(value);
+  return `'${serialized.replaceAll("'", `'"'"'`)}'`;
+}
+
 function markdownTable(headers: string[], rows: string[][]) {
   return [
     `| ${headers.join(" | ")} |`,
@@ -600,7 +608,7 @@ function renderCommandCard(args: {
           `Governed ${example.kind} example for ${input.token}.`,
         "",
         "```console",
-        `zotero-bridge ${args.command.command} ${input.token} '${JSON.stringify(example.value)}'`,
+        `zotero-bridge ${args.command.command} ${input.token} ${renderExampleArgument(example.value, input.schema)}`,
         "```",
         "",
         ...(example.prerequisites.length
@@ -998,6 +1006,10 @@ function profileDistribution(version: string) {
     "state:",
     '  defaultDir: "$HERMES_HOME/zotero-librarian"',
     "  overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR",
+    "  activeProfileEnv: ZOTERO_BRIDGE_PROFILE",
+    "  workspaceLayout: connection-profile-v1",
+    '  explicitWorkspace: "$BASE/workspaces/<sha256>"',
+    '  defaultWorkspace: "$BASE/state.sqlite"',
     "assets:",
     "  zoteroBridgeBinaries: assets/zotero-bridge/bin",
     "skills:",
@@ -1027,14 +1039,24 @@ function profileContent(args: {
     args.root,
     args.surface.sourceRoot,
     "",
-    (path) => !path.startsWith("skills/") && path !== "profile-version.json",
+    (path) =>
+      !path.startsWith("skills/") &&
+      path !== "profile-version.json" &&
+      !path.includes("__pycache__/") &&
+      !path.endsWith(".pyc"),
   );
   content.set("distribution.yaml", profileDistribution(args.version));
   content.set(
     ".gitignore",
-    ["state.sqlite", "*.sqlite", "runs/", "logs/", ".zotero-bridge/", ""].join(
-      "\n",
-    ),
+    [
+      "state.sqlite",
+      "*.sqlite",
+      "workspaces/",
+      "runs/",
+      "logs/",
+      ".zotero-bridge/",
+      "",
+    ].join("\n"),
   );
   merge(content, args.ownSkill, "skills/zotero-librarian");
   for (const inherited of args.inheritedSkills) {

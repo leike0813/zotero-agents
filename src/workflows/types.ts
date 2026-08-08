@@ -223,6 +223,69 @@ export type WorkflowExecutionSpec = {
   };
 };
 
+export type WorkflowInvocationMode = "interactive" | "non-interactive";
+
+export type WorkflowResourceRequirement = {
+  id: string;
+  direction: "input" | "output";
+  kind: "file" | "archive";
+  cardinality: "one" | "many";
+  required: boolean;
+  accept?: {
+    contentTypes?: string[];
+    extensions?: string[];
+    maxCount?: number;
+    maxBytes?: number;
+  };
+  suggestedName?: string;
+};
+
+export type WorkflowResourceBindings = {
+  schema: "zotero-bridge.workflow-resources.v1";
+  inputs: Record<string, { fileIds: string[] }>;
+  outputs: Record<string, { delivery: "bridge-download" }>;
+};
+
+export type WorkflowResourceFile = {
+  fileId: string;
+  path: string;
+  displayName: string;
+  contentType: string;
+  size?: number;
+  sha256?: string;
+};
+
+export type WorkflowResourceOutputDescriptor = {
+  slotId: string;
+  fileId: string;
+  sourceKind: "workflow-artifact";
+  displayName: string;
+  contentType: string;
+  size?: number;
+  sha256?: string;
+  createdAt: string;
+  expiresAt: string;
+  downloadCommand: string;
+};
+
+export type WorkflowResourceApi = {
+  mode: WorkflowInvocationMode;
+  getInput: (slotId: string) => WorkflowResourceFile | null;
+  getInputs: (slotId: string) => WorkflowResourceFile[];
+  allocateOutput: (args: {
+    slotId: string;
+    suggestedName?: string;
+    contentType?: string;
+  }) => Promise<{ path: string }>;
+  publishOutput: (args: {
+    slotId: string;
+    path: string;
+    displayName?: string;
+    contentType?: string;
+  }) => Promise<WorkflowResourceOutputDescriptor>;
+  listOutputs: () => WorkflowResourceOutputDescriptor[];
+};
+
 export type WorkflowResultSpec = {
   fetch?: {
     type?: "bundle" | "result";
@@ -305,6 +368,8 @@ export type WorkflowManifest = {
   label: string;
   description?: string;
   executionModes?: Array<"auto" | "interactive">;
+  supportedInvocationModes?: WorkflowInvocationMode[];
+  resourceRequirements?: WorkflowResourceRequirement[];
   debug_only?: boolean;
   provider: string;
   version?: string;
@@ -366,6 +431,7 @@ export type HookHelpers = {
 
 export type WorkflowHostApi = {
   version: number;
+  resources?: WorkflowResourceApi;
   addon: {
     getConfig: () => {
       addonName: string;
@@ -623,6 +689,7 @@ export type WorkflowRuntimeContext = {
   addon?: typeof addon | null;
   hostApi: WorkflowHostApi;
   hostApiVersion: number;
+  invocationMode?: WorkflowInvocationMode;
   debugMode?: boolean;
   workflowId?: string;
   packageId?: string;
@@ -755,6 +822,10 @@ export type ApplyResultHook = (args: {
   };
   manifest: WorkflowManifest;
   runtime: WorkflowRuntimeContext;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
 }) => WorkflowApplyResult | void | Promise<WorkflowApplyResult | void>;
 
 export type NormalizeWorkflowSettingsHook = (

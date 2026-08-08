@@ -5,7 +5,7 @@ Submit a workflow with explicit JSON input
 ## Usage
 
 ```console
-zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--selection <JSON_OR_FILE>] [--none] [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>] [--max-concurrency <MAX_CONCURRENCY>]
+zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--selection <JSON_OR_FILE>] [--none] [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>] [--input-resource <SLOT=FILE_ID>] [--output-resource <SLOT=bridge-download>] [--max-concurrency <MAX_CONCURRENCY>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -28,6 +28,8 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | --none | none | option | no | — | NONE; values: true, false | no | — | selection | Submit a no-selection workflow |
 | --workflow-options | workflow_options | option | no | — | JSON_OR_FILE | no | — | — | Workflow options JSON object, file path, @file, or '-' for stdin |
 | --provider-profile | provider_profile | option | no | — | JSON_OR_FILE | no | — | — | Provider profile JSON object with backendId and providerOptions |
+| --input-resource | input_resource | option | no | — | SLOT=FILE_ID | yes | — | — | Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files |
+| --output-resource | output_resource | option | no | — | SLOT=bridge-download | yes | — | — | Request bridge-download delivery for a workflow output resource slot |
 | --max-concurrency | max_concurrency | option | no | — | MAX_CONCURRENCY | no | — | — | Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited |
 
 ## Invocation schema
@@ -60,6 +62,13 @@ The global options may appear before or after the leaf command. Use `--schema` t
     }
   ],
   "properties": {
+    "input-resource": {
+      "description": "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "max-concurrency": {
       "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
       "type": "string"
@@ -67,6 +76,13 @@ The global options may appear before or after the leaf command. Use `--schema` t
     "none": {
       "description": "Submit a no-selection workflow",
       "type": "boolean"
+    },
+    "output-resource": {
+      "description": "Request bridge-download delivery for a workflow output resource slot",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "provider-profile": {
       "description": "Provider profile JSON object with backendId and providerOptions",
@@ -94,6 +110,30 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ## Structured input schemas
 
+### `--input-resource` (input_resource)
+
+Required: `false`.
+
+```json
+{
+  "description": "One workflow resource slot and opaque handle returned by file upload. Repeat the flag to bind multiple files in order.",
+  "pattern": "^[A-Za-z0-9._-]+=file-[A-Za-z0-9-]+$",
+  "type": "string"
+}
+```
+
+### `--output-resource` (output_resource)
+
+Required: `false`.
+
+```json
+{
+  "description": "One workflow output slot whose completed artifact is returned as an opaque download descriptor.",
+  "pattern": "^[A-Za-z0-9._-]+=bridge-download$",
+  "type": "string"
+}
+```
+
 ### `--provider-profile` (provider_profile)
 
 Required: `false`.
@@ -105,14 +145,6 @@ Required: `false`.
     "backendId": {
       "minLength": 1,
       "type": "string"
-    },
-    "backendType": {
-      "enum": [
-        "acp",
-        "skillrunner",
-        "generic-http",
-        "pass-through"
-      ]
     },
     "providerOptions": {
       "additionalProperties": true,
@@ -204,8 +236,16 @@ Required: `false`.
 {
   "additionalProperties": false,
   "properties": {
+    "input_resource": {
+      "description": "Repeatable workflow input resource binding in SLOT=FILE_ID form",
+      "type": "string"
+    },
     "max_concurrency": {
       "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+      "type": "string"
+    },
+    "output_resource": {
+      "description": "Workflow output resource delivery binding in SLOT=bridge-download form",
       "type": "string"
     },
     "provider_profile": {
@@ -287,6 +327,59 @@ This command has no separate field-mapping program. Its binding mode is executab
     "queuedUnits": {
       "type": "integer"
     },
+    "resourceOutputs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "downloadCommand": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "fileId": {
+            "pattern": "^file-[A-Za-z0-9-]+$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^sha256:[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slotId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sourceKind": {
+            "const": "workflow-artifact"
+          }
+        },
+        "required": [
+          "slotId",
+          "fileId",
+          "sourceKind",
+          "displayName",
+          "contentType",
+          "createdAt",
+          "expiresAt",
+          "downloadCommand"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "runUrl": {
       "type": "string"
     },
@@ -322,13 +415,34 @@ This command has no separate field-mapping program. Its binding mode is executab
     "workflowId",
     "workflowLabel",
     "admission",
-    "permission"
+    "permission",
+    "resourceOutputs"
   ],
   "type": "object"
 }
 ```
 
 ## Examples
+
+### input_resource: shape-only
+
+Bind one uploaded file to the source slot.
+
+```console
+zotero-bridge workflow submit --input-resource 'source=file-example'
+```
+
+Prerequisites:
+
+- Run file upload first and replace file-example with the returned opaque fileId.
+
+### output_resource: shape-only
+
+Request bridge-download delivery for the result slot.
+
+```console
+zotero-bridge workflow submit --output-resource 'result=bridge-download'
+```
 
 ### provider_profile: shape-only
 
@@ -477,6 +591,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "conflictsWith": [],
       "defaultValues": [],
       "global": false,
+      "help": "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files",
+      "id": "input_resource",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": false,
+      "takesValue": true,
+      "token": "--input-resource",
+      "valueNames": [
+        "SLOT=FILE_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Request bridge-download delivery for a workflow output resource slot",
+      "id": "output_resource",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": false,
+      "takesValue": true,
+      "token": "--output-resource",
+      "valueNames": [
+        "SLOT=bridge-download"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
       "help": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
       "id": "max_concurrency",
       "kind": "option",
@@ -547,6 +695,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
     },
     {
       "kind": "option",
+      "property": "input-resource",
+      "required": false,
+      "takesValue": true,
+      "token": "--input-resource",
+      "valueNames": [
+        "SLOT=FILE_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "output-resource",
+      "required": false,
+      "takesValue": true,
+      "token": "--output-resource",
+      "valueNames": [
+        "SLOT=bridge-download"
+      ]
+    },
+    {
+      "kind": "option",
       "property": "max-concurrency",
       "required": false,
       "takesValue": true,
@@ -577,6 +745,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": false
     },
     {
+      "condition": "Consumed only when supplied through --input-resource after file upload.",
+      "direction": "consume",
+      "handle": "fileId",
+      "lifetime": "one-shot",
+      "required": false
+    },
+    {
       "condition": "Returned when direct admission starts workflow jobs.",
       "direction": "produce",
       "handle": "workflowRunId",
@@ -589,10 +764,57 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "handle": "submissionId",
       "lifetime": "response",
       "required": false
+    },
+    {
+      "condition": "Returned in resourceOutputs when a bound output slot is published.",
+      "direction": "produce",
+      "handle": "fileId",
+      "lifetime": "short-lived",
+      "required": false
     }
   ],
   "hiddenFromIntentSearch": false,
   "inputSchemas": {
+    "input_resource": {
+      "examples": [
+        {
+          "description": "Bind one uploaded file to the source slot.",
+          "kind": "shape-only",
+          "prerequisites": [
+            "Run file upload first and replace file-example with the returned opaque fileId."
+          ],
+          "value": "source=file-example"
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "description": "One workflow resource slot and opaque handle returned by file upload. Repeat the flag to bind multiple files in order.",
+        "pattern": "^[A-Za-z0-9._-]+=file-[A-Za-z0-9-]+$",
+        "type": "string"
+      },
+      "schemaSource": "inline",
+      "token": "--input-resource"
+    },
+    "output_resource": {
+      "examples": [
+        {
+          "description": "Request bridge-download delivery for the result slot.",
+          "kind": "shape-only",
+          "prerequisites": [],
+          "value": "result=bridge-download"
+        }
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "description": "One workflow output slot whose completed artifact is returned as an opaque download descriptor.",
+        "pattern": "^[A-Za-z0-9._-]+=bridge-download$",
+        "type": "string"
+      },
+      "schemaSource": "inline",
+      "token": "--output-resource"
+    },
     "provider_profile": {
       "examples": [
         {
@@ -612,14 +834,6 @@ This closed descriptor is the machine-readable command contract returned by `sur
           "backendId": {
             "minLength": 1,
             "type": "string"
-          },
-          "backendType": {
-            "enum": [
-              "acp",
-              "skillrunner",
-              "generic-http",
-              "pass-through"
-            ]
           },
           "providerOptions": {
             "additionalProperties": true,
@@ -756,6 +970,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
       }
     ],
     "properties": {
+      "input-resource": {
+        "description": "Bind an uploaded opaque file handle to a workflow input resource slot; repeat for multiple files",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
       "max-concurrency": {
         "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
         "type": "string"
@@ -763,6 +984,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "none": {
         "description": "Submit a no-selection workflow",
         "type": "boolean"
+      },
+      "output-resource": {
+        "description": "Request bridge-download delivery for a workflow output resource slot",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "provider-profile": {
         "description": "Provider profile JSON object with backendId and providerOptions",
@@ -799,6 +1027,12 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "workflow-options",
     "provider_profile",
     "provider-profile",
+    "input_resource",
+    "input-resource",
+    "SLOT=FILE_ID",
+    "output_resource",
+    "output-resource",
+    "SLOT=bridge-download",
     "max_concurrency",
     "max-concurrency",
     "MAX_CONCURRENCY"
@@ -810,8 +1044,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "payloadSchema": {
     "additionalProperties": false,
     "properties": {
+      "input_resource": {
+        "description": "Repeatable workflow input resource binding in SLOT=FILE_ID form",
+        "type": "string"
+      },
       "max_concurrency": {
         "description": "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited",
+        "type": "string"
+      },
+      "output_resource": {
+        "description": "Workflow output resource delivery binding in SLOT=bridge-download form",
         "type": "string"
       },
       "provider_profile": {
@@ -835,6 +1077,13 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "type": "object"
   },
   "recovery": [
+    {
+      "action": "Treat the process-local transfer handle as invalid, upload the input again, and validate fresh bindings before any replacement submission.",
+      "nextCommand": "file upload",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "An input resource fileId is unavailable after expiry or service restart."
+    },
     {
       "action": "Inspect the active native submission without inventing a workflow run id.",
       "nextCommand": "workflow submission get",
@@ -902,6 +1151,59 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "queuedUnits": {
         "type": "integer"
       },
+      "resourceOutputs": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "contentType": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "downloadCommand": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "fileId": {
+              "pattern": "^file-[A-Za-z0-9-]+$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "size": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "slotId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "sourceKind": {
+              "const": "workflow-artifact"
+            }
+          },
+          "required": [
+            "slotId",
+            "fileId",
+            "sourceKind",
+            "displayName",
+            "contentType",
+            "createdAt",
+            "expiresAt",
+            "downloadCommand"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
       "runUrl": {
         "type": "string"
       },
@@ -937,7 +1239,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "workflowId",
       "workflowLabel",
       "admission",
-      "permission"
+      "permission",
+      "resourceOutputs"
     ],
     "type": "object"
   },
@@ -971,7 +1274,7 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 - Category: `write`; danger: `review`.
 - Structured binding mode: `overlay`.
 - Intent visibility: `visible`.
-- Operational aliases: `workflow submit`, `workflow`, `submit`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`, `provider_profile`, `provider-profile`, `max_concurrency`, `max-concurrency`, `MAX_CONCURRENCY`.
+- Operational aliases: `workflow submit`, `workflow`, `submit`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`, `provider_profile`, `provider-profile`, `input_resource`, `input-resource`, `SLOT=FILE_ID`, `output_resource`, `output-resource`, `SLOT=bridge-download`, `max_concurrency`, `max-concurrency`, `MAX_CONCURRENCY`.
 
 ### Effects
 
@@ -1007,6 +1310,13 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
     "required": false
   },
   {
+    "condition": "Consumed only when supplied through --input-resource after file upload.",
+    "direction": "consume",
+    "handle": "fileId",
+    "lifetime": "one-shot",
+    "required": false
+  },
+  {
     "condition": "Returned when direct admission starts workflow jobs.",
     "direction": "produce",
     "handle": "workflowRunId",
@@ -1019,6 +1329,13 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
     "handle": "submissionId",
     "lifetime": "response",
     "required": false
+  },
+  {
+    "condition": "Returned in resourceOutputs when a bound output slot is published.",
+    "direction": "produce",
+    "handle": "fileId",
+    "lifetime": "short-lived",
+    "required": false
   }
 ]
 ```
@@ -1027,6 +1344,13 @@ Parameter failures are returned as one JSON error envelope. Inspect `error.code`
 
 ```json
 [
+  {
+    "action": "Treat the process-local transfer handle as invalid, upload the input again, and validate fresh bindings before any replacement submission.",
+    "nextCommand": "file upload",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "An input resource fileId is unavailable after expiry or service restart."
+  },
   {
     "action": "Inspect the active native submission without inventing a workflow run id.",
     "nextCommand": "workflow submission get",

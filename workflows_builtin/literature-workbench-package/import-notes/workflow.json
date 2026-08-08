@@ -4,6 +4,48 @@
   "label": "Import Notes",
   "description": "Import supported external analysis files and upsert their generated Zotero notes.",
   "executionModes": ["auto"],
+  "supportedInvocationModes": ["interactive", "non-interactive"],
+  "resourceRequirements": [
+    {
+      "id": "digest",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "one",
+      "required": false,
+      "accept": { "extensions": [".md"] }
+    },
+    {
+      "id": "references",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "one",
+      "required": false,
+      "accept": { "extensions": [".json"] }
+    },
+    {
+      "id": "citation-analysis",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "one",
+      "required": false,
+      "accept": { "extensions": [".json"] }
+    },
+    {
+      "id": "custom-notes",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "many",
+      "required": false,
+      "accept": { "extensions": [".md"] }
+    }
+  ],
+  "parameters": {
+    "conflictPolicy": {
+      "type": "string",
+      "enum": ["error", "overwrite", "skip"],
+      "default": "error"
+    }
+  },
   "version": "1.0.0",
   "provider": "pass-through",
   "trigger": {

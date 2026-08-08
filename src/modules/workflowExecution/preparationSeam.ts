@@ -16,6 +16,7 @@ import {
 } from "../../workflows/runtime";
 import { summarizeWorkflowExecutionError } from "../../workflows/errorMeta";
 import type { LoadedWorkflow } from "../../workflows/types";
+import type { WorkflowRuntimeContext } from "../../workflows/types";
 import type { WorkflowExecutionOptions } from "../workflowSettingsDomain";
 import type {
   BuildPreparedWorkflowUnitResult,
@@ -363,6 +364,7 @@ export async function runWorkflowPreparationSeam(
     selectedItemsOverride?: Zotero.Item[];
     selectionContextOverride?: WorkflowScopedSelectionContext;
     suppressUiFeedback?: boolean;
+    runtime?: Partial<WorkflowRuntimeContext>;
   },
   deps: Partial<PreparationDeps> = {},
 ): Promise<PreparationSeamResult> {
@@ -477,6 +479,7 @@ export async function runWorkflowPreparationSeam(
         providerOptions: preview.providerOptions,
         runOptions: preview.runOptions,
       },
+      runtime: args.runtime,
     });
     candidateSkipped = plan.stats.candidateStats.skipped;
     resolved.appendRuntimeLog({
@@ -718,6 +721,7 @@ export async function runWorkflowPreparationSeam(
       executionOptions: preview,
       candidateSkipped,
       executionContext,
+      runtime: args.runtime,
     },
   };
 }
@@ -812,6 +816,7 @@ export async function buildPreparedWorkflowUnitExecution(
       selectionContext: args.unit.selectionContext,
       executionOptions: args.prepared.executionOptions,
       preparedUnit: args.unit,
+      runtime: args.prepared.runtime,
     });
   } catch (error) {
     if (isNoValidInputUnitsError(error)) {
@@ -861,6 +866,8 @@ export async function buildPreparedWorkflowUnitExecution(
       preflight,
       skillDisplayById,
       executionContext: args.prepared.executionContext,
+      executionOptions: args.prepared.executionOptions,
+      runtime: args.prepared.runtime,
     },
   };
 }

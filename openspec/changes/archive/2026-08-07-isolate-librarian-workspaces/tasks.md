@@ -1,0 +1,9 @@
+- [x] Add resolver tests for default, explicit, normalization, content independence, and `--db` containment.
+- [x] Add service regression tests for profile-local index, catalog, watched runs, notifications, bridge profile propagation, and default-state ownership.
+- [x] Add installer tests for explicit workspace binaries and well-known-link preservation.
+- [x] Implement the shared workspace resolver and structured fail-closed errors.
+- [x] Update resident service to resolve once, enforce database containment, propagate profile, and prefer profile-local CLI.
+- [x] Update installer, config, renderer metadata, and generated ignore rules.
+- [x] Add current-state agent guidance without deleting or reordering existing instructions.
+- [x] Render materialized profile surfaces and run semantic thickness/audit checks.
+- [x] Run OpenSpec validation, focused tests, profile/render checks, lint, and report residual risks.
