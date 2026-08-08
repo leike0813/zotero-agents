@@ -536,3 +536,99 @@ All gates green (recorded below).
   validation all green. Change archived as
   `openspec/changes/archive/2026-08-01-assistant-workspace-data-plane-merge/`.
   Manual Zotero 7/9 smoke remains a manual item before merge to `main`.
+
+## Phase 5 implementation notes (2026-08-07)
+
+**Status: implemented.** OpenSpec change:
+`openspec/changes/2026-08-07-assistant-workspace-hardening-merge-prep/`.
+
+### Decisions recorded
+
+- **Transcript renderer: keep custom, component-wrapped (final).** The
+  Phase 2 design is the shipped state and needs no change:
+  `src/sidebar/components/TranscriptRegion.tsx` (memo + signature
+  equality) wraps the imperative
+  `src/sidebar/assistantTranscriptRenderer.js` (virtualization, row
+  identity). Rationale: virtualization and row identity are
+  performance-critical, the Phase 0 subtree node-identity tests lock the
+  observable semantics, and Preact's keyed diff offers no benefit inside
+  the transcript window. Decision closed.
+- **Phase 4 ≤ ~2k LOC split-target deviation: accepted, closed.** The
+  four split remainders (4081/3376/2181/2858 LOC) are cohesive domain
+  cores; further splitting would cut through cohesive logic. Not
+  revisited further.
+
+### What landed
+
+- **R3 production metric emission** (previously reserved-but-unemitted
+  names): the coordinator's region signature guard
+  (`assistantWorkspacePublicationCoordinator.ts` `publishRegion`) now
+  emits `panel_signature` / `panel_signature_bytes` /
+  `panel_signature_duration` on build and `panel_signature_skip` on hit
+  (labels: surface + kind; synchronous observations only). The
+  publication runtime funnels all three `readTranscriptPage` call sites
+  through `readProfiledTranscriptPage`, emitting `transcript_page_read` /
+  `transcript_page_scan_items` / `transcript_page_read_duration` (labels:
+  surface + phase; `initialization` phase is the host-side
+  first-paint proxy). Timing-neutral wraps only — no added microtask
+  yields (Phase 4 lesson); test 97 mount-preservation cases are the
+  tripwire and stay green.
+- **Baseline refresh**:
+  `artifact/performance-baselines/acp-runtime-after-workspace-refactor-*`
+  recorded via `scripts/record-acp-runtime-governance-baseline.ts
+  --output-prefix` (new option; default preserves the historical name).
+  The 2026-07-18 files are retained; label shapes are not comparable by
+  design (post-Phase-3/4 publication plane), noted in the new summary.
+- **Pre-existing gate fragility fixed**: the recorder's double-run
+  determinism gate was unpassable on unmodified HEAD because
+  `beginHostHttpRequestRead` measures wall-clock `Date.now()`; the R2
+  harness seam now freezes `Date.now` during the read, making
+  `host_input_duration` / `host_input_callback_max_duration`
+  machine-independent. Production code untouched.
+- **Test migration (sanctioned)**: `test/core/176` +
+  `test/helpers/acpRuntimePerformanceHarness.ts` — the synthetic R3
+  metric block was deleted; the harness now drives the real signature
+  guard (two identical `message-counts` publishes → build + skip) and
+  asserts the production-emitted counts.
+
+### Acceptance
+
+- Gates: `npm run build` green; `test:node:core` 2827 passing / 0
+  failing; `lint:check`, `check:localization-governance`,
+  `check:help-docs`, `check:ssot-invariants`, `test:lite` (41 passed)
+  green; OpenSpec strict validation of the change green
+  (`openspec validate --all --strict` shows 9 pre-existing spec warnings
+  unrelated to this refactor — recorded in the merge-prep artifact).
+- Live Zotero 9 replay matrix: **executed** (2026-08-07, Zotero 9
+  140 esr, dev profile). Seven matrices across four traces; archived
+  summaries and the full analysis in
+  `artifact/performance-baselines/replay-matrices/`:
+  - Pre-refactor chat trace (6653 events): accepted (live, logical).
+  - Pre-refactor workflow trace (15428 events): boundary/logical
+    **accepted ×2** (second run doubles as retry-with-fresh-owners);
+    like-for-like posted bytes 512,783 (2026-07-17 pre-refactor) →
+    508,717/508,756 (now) — no regression. The live-mode run was rejected
+    on the fixed byte budget exactly as the pre-refactor live-mode runs
+    were in July (635,763 then, 631,639 now — slightly fewer bytes).
+  - Fresh traces recorded on the refactored build (chat 208 events,
+    workflow 108145 events; opencode/kilo ACP backends): chat matrix
+    accepted; workflow matrix 9/9 complete, over the fixed budget only
+    because the trace is 6× the calibration trace — all governance shape
+    checks clean (steady-state deltas only, lifecycles accepted, no
+    rebase/recovery-full).
+  - Recorder/replay edge cases covered: save→replay handoff (automatic
+    prefill), live 9-record progress, Finish during an active turn,
+    automatic workflow completion, cancellation saving an incomplete
+    artifact, second recording round without restart, unicode stage
+    names in artifact filenames, replay with no running backend, stable
+    trace digest, surface attribution, 3×3 layout. Not exercised:
+    disconnect recovery, replacement-session notice, same-session
+    reconnect binding (open items for the Zotero 7 pass).
+  - SkillRunner tab smoke: backend-unavailable path verified live
+    (不可用 badge + empty state + composer render on the converged
+    plane). Full lifecycle smoke deferred — no reachable SkillRunner
+    backend (remote central down; local mock on 18030/8030 stayed
+    不可达 through the reachability governor; not investigated further,
+    out of scope).
+- Zotero 7 matrix: open pre-merge item (host not installed), tracked in
+  `artifact/assistant-workspace-merge-prep-20260807.md`.

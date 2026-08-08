@@ -10,6 +10,11 @@ import {
 } from "./assistantWorkspacePublication";
 import { isWorkspacePublicationWireAssertAvailable } from "./debugMode";
 import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
+} from "./acpRuntimePerformanceProfiler";
+import {
   AssistantWorkspaceTranscriptAccumulator,
   AssistantWorkspaceTranscriptProjection,
   type AssistantWorkspaceTranscriptMutation,
@@ -104,8 +109,37 @@ export class AssistantWorkspacePublicationCoordinator {
       return this.drop(args.owner);
     }
     const signatureKey = `${args.owner.source}\n${args.owner.ownerKey}\n${args.publicationKind}`;
+    const signatureStartedAtMs = readAcpRuntimePerformanceClockMs();
     const signature = JSON.stringify(args.payload);
+    // Region-isolation cost metrics (R3). Synchronous observations only —
+    // no control-flow change; no-ops unless a matching profile is active.
+    const signatureLabels = {
+      publicationSurface: args.owner.source,
+      publicationKind: args.publicationKind,
+    } as const;
+    observeAcpRuntimeDuration(
+      args.owner.ownerKey,
+      "panel_signature_duration",
+      signatureLabels,
+      readAcpRuntimePerformanceClockMs() - signatureStartedAtMs,
+    );
+    incrementAcpRuntimeMetric(
+      args.owner.ownerKey,
+      "panel_signature",
+      signatureLabels,
+    );
+    incrementAcpRuntimeMetric(
+      args.owner.ownerKey,
+      "panel_signature_bytes",
+      signatureLabels,
+      signature.length,
+    );
     if (!args.force && this.regionSignatures.get(signatureKey) === signature) {
+      incrementAcpRuntimeMetric(
+        args.owner.ownerKey,
+        "panel_signature_skip",
+        signatureLabels,
+      );
       return undefined;
     }
     const publication = this.publish({
