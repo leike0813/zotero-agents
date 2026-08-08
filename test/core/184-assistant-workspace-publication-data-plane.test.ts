@@ -38,6 +38,7 @@ import {
   resetAcpSkillRunsForTests,
   selectAcpSkillRun,
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
+  registerAcpSkillRunController,
 } from "../../src/modules/acpSkillRunStore";
 import {
   ACP_SKILLS_WORKSPACE_ADAPTER,
@@ -215,6 +216,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           attention: null,
           updatedAt: "2026-07-21T00:00:00.000Z",
           messageCount: 1,
+          canArchive: false,
           submission: null,
           resumptionPending: false,
         },
@@ -372,6 +374,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       status: "running",
       backendStatus: null,
       applyState: null,
+      canArchive: false,
     });
 
     const publication = assistantWorkspaceTestPublication({
@@ -389,7 +392,62 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       status: "running",
       backendStatus: null,
       applyState: null,
+      canArchive: false,
     });
+  });
+
+  it("projects terminal Connect, composer, and archive state independently", async function () {
+    upsertAcpSkillRun({
+      requestId: skillsOwner.requestId,
+      status: "succeeded",
+      backendStatus: "succeeded",
+      sessionId: "terminal-session-1",
+      applyResultState: "succeeded",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      activePrompt: false,
+      replyState: "idle",
+      connectionActionState: "idle",
+    });
+
+    const detachedNavigation =
+      await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+    const detachedEntry = detachedNavigation.entries.find(
+      (entry) => entry.owner.ownerKey === skillsOwner.ownerKey,
+    );
+    const detachedRegions = await readAcpSkillRunWorkspaceRegions({
+      requestId: skillsOwner.requestId,
+      kinds: ["owner-control", "composer"],
+    });
+    assert.equal(detachedEntry?.status, "succeeded");
+    assert.isTrue(detachedEntry?.canArchive);
+    assert.isTrue(detachedRegions["owner-control"]?.connection.canConnect);
+    assert.equal(detachedRegions.composer?.reply.status, "disabled");
+
+    registerAcpSkillRunController(
+      skillsOwner.requestId,
+      {
+        cancel: async () => undefined,
+        reply: async () => undefined,
+        disconnect: async () => undefined,
+      },
+      undefined,
+      "post-terminal-conversation",
+    );
+    const connectedNavigation =
+      await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+    const connectedEntry = connectedNavigation.entries.find(
+      (entry) => entry.owner.ownerKey === skillsOwner.ownerKey,
+    );
+    const connectedRegions = await readAcpSkillRunWorkspaceRegions({
+      requestId: skillsOwner.requestId,
+      kinds: ["owner-control", "composer"],
+    });
+    assert.equal(connectedEntry?.status, "succeeded");
+    assert.isFalse(connectedEntry?.canArchive);
+    assert.isFalse(connectedRegions["owner-control"]?.connection.canConnect);
+    assert.isTrue(connectedRegions["owner-control"]?.connection.canDisconnect);
+    assert.equal(connectedRegions.composer?.reply.status, "enabled");
   });
 
   it("publishes ACP ui_hints without duplicating the pending message", async function () {

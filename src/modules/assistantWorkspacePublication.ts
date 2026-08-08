@@ -539,6 +539,7 @@ export type AssistantWorkspaceOwnerNavigation = {
     attention: string | null;
     updatedAt: string | null;
     messageCount: number;
+    canArchive: boolean;
     submission: WorkflowSubmissionDisplayIdentity | null;
     resumptionPending: boolean;
   }>;
@@ -1531,6 +1532,7 @@ function assertPublicationPayloadInvariant(
           "attention",
           "updatedAt",
           "messageCount",
+          "canArchive",
           "submission",
           "resumptionPending",
         ],

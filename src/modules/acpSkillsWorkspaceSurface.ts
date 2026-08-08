@@ -12,6 +12,8 @@ import {
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
+  isEligibleForPostTerminalAcpSkillRunConversation,
+  isPostTerminalAcpSkillRunConversationConnected,
   listAcpSkillRunSummaries,
   readAcpSkillRunTranscriptRegion,
   type AcpSkillRunWorkspaceChange,
@@ -81,6 +83,9 @@ type AcpSkillRunWorkspaceRecord = NonNullable<
 >;
 
 function isAcpSkillRunConnected(record: AcpSkillRunWorkspaceRecord) {
+  if (isEligibleForPostTerminalAcpSkillRunConversation(record)) {
+    return isPostTerminalAcpSkillRunConversationConnected(record.requestId);
+  }
   return (
     record.conversationState === "active" ||
     record.conversationRecoveryState === "connected"
@@ -119,9 +124,21 @@ function acpSkillRunHint(
   connected: boolean,
   interactionState: ReturnType<typeof acpSkillRunInteractionState>,
 ) {
+  const status = String(record.status || "").trim();
+  if (status === "succeeded") {
+    return { kind: "completed" as const, message: null };
+  }
+  if (status === "canceled") {
+    return { kind: "canceled" as const, message: null };
+  }
+  if (status === "failed") {
+    return {
+      kind: "error" as const,
+      message: String(record.error || "").trim() || null,
+    };
+  }
   const error = String(record.error || record.conversationError || "").trim();
   if (error) return { kind: "error" as const, message: error };
-  const status = String(record.status || "").trim();
   if (interactionState.waitingForUser) {
     return {
       kind: "waiting_user" as const,
@@ -146,13 +163,7 @@ function acpSkillRunHint(
   ) {
     return { kind: "running" as const, message: null };
   }
-  if (status === "succeeded") {
-    return { kind: "completed" as const, message: null };
-  }
-  if (status === "canceled") {
-    return { kind: "canceled" as const, message: null };
-  }
-  if (status === "failed" || status === "failed_retriable") {
+  if (status === "failed_retriable") {
     return { kind: "error" as const, message: null };
   }
   return { kind: "hidden" as const, message: null };
@@ -202,7 +213,8 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
         const replyAllowed =
           connected &&
           (interactionState.waitingForUser ||
-            record.status === "failed_retriable");
+            record.status === "failed_retriable" ||
+            isEligibleForPostTerminalAcpSkillRunConversation(record));
         return {
           reply: {
             status:
@@ -396,7 +408,11 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
             sessionAvailable: Boolean(record.sessionId),
             connected,
             canConnect:
-              Boolean(record.sessionId) &&
+              (isEligibleForPostTerminalAcpSkillRunConversation(record) ||
+                (!["succeeded", "failed", "canceled"].includes(
+                  String(record.status || ""),
+                ) &&
+                  Boolean(record.sessionId))) &&
               !connected &&
               !connectionChanging &&
               record.conversationState !== "ended" &&
@@ -504,6 +520,15 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
           (summary.pendingPermission ? "permission-required" : null),
         updatedAt: String(summary.updatedAt || "").trim() || null,
         messageCount: Math.max(0, Number(summary.transcriptItemCount) || 0),
+        canArchive:
+          terminal &&
+          !summary.activePrompt &&
+          summary.replyState !== "submitted" &&
+          summary.replyState !== "accepted" &&
+          summary.connectionActionState !== "connecting" &&
+          summary.connectionActionState !== "disconnecting" &&
+          summary.conversationRecoveryState !== "connecting" &&
+          summary.conversationRecoveryState !== "connected",
         submission,
         resumptionPending: slot?.state === "resumption-pending",
       };

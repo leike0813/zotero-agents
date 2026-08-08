@@ -466,6 +466,10 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
             (messageCounts?.thought || 0) +
             (messageCounts?.tool || 0),
         ),
+        canArchive:
+          ["succeeded", "failed", "canceled"].includes(
+            String(task.status || ""),
+          ) || String(task.applyState || "") === "failed",
         submission: task.submission ?? null,
         resumptionPending: task.resumptionPending === true,
       });

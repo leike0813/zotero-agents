@@ -736,6 +736,12 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     replyState: run.replyState,
     connectionActionState: run.connectionActionState,
     applyResultState: run.applyResultState,
+    appliedAt: run.appliedAt,
+    sessionId: run.sessionId,
+    outputConvergenceState: run.outputConvergenceState,
+    pendingInteraction: run.pendingInteraction
+      ? parsePendingInteraction(run.pendingInteraction)
+      : undefined,
     pendingPermission: run.pendingPermission
       ? { ...run.pendingPermission }
       : null,

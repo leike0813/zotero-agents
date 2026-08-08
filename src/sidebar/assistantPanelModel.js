@@ -856,7 +856,7 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
                   : "archive-run",
               label: labelFrom(labelSource, "actions.archive", "Archive"),
               icon: "archive",
-              enabled: true,
+              enabled: entry && entry.canArchive !== false,
               payload: { owner },
             },
           ]

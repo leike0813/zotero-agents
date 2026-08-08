@@ -14,6 +14,8 @@ import {
   cancelAcpSkillRun,
   connectAcpSkillRun,
   getAcpSkillRunRecord,
+  isEligibleForPostTerminalAcpSkillRunConversation,
+  isPostTerminalAcpSkillRunConversationConnected,
   listAcpSkillRunSummaries,
   replyAcpSkillRun,
   type AcpSkillRunSummary,
@@ -2272,25 +2274,15 @@ function isActiveTaskState(state: string) {
 }
 
 function isRecoverableAcpSummary(summary?: AcpSkillRunSummary | null) {
-  if (!summary) {
-    return false;
-  }
-  if (summary.status === "failed_retriable") {
-    return true;
-  }
-  const recovery = normalizeString(summary.conversationRecoveryState);
-  return (
-    summary.status === "failed" &&
-    (recovery === "available" ||
-      recovery === "connecting" ||
-      recovery === "connected" ||
-      recovery === "failed")
-  );
+  return summary?.status === "failed_retriable";
 }
 
 function acpSummaryWorkflowTaskState(
   summary: AcpSkillRunSummary,
 ): WorkflowTaskRecord["state"] {
+  if (isTerminalTaskState(summary.status)) {
+    return summary.status;
+  }
   if (summary.status === "repairing") {
     return "running";
   }
@@ -2329,12 +2321,28 @@ function actionsForSkillRun(args: {
   canCancelBackendRun?: boolean;
 }): HostBridgeSkillRunActions {
   const failedRetriable = isRecoverableAcpSummary(args.acp);
+  const terminalConversation = isEligibleForPostTerminalAcpSkillRunConversation(
+    args.acp,
+  );
+  const terminalConnected =
+    terminalConversation &&
+    isPostTerminalAcpSkillRunConversationConnected(args.acp?.requestId || "");
+  const terminalBusy = Boolean(
+    args.acp?.activePrompt ||
+    args.acp?.replyState === "submitted" ||
+    args.acp?.replyState === "accepted",
+  );
   return {
     canReply:
-      (args.state === "waiting_user" ||
+      ((args.state === "waiting_user" ||
         (failedRetriable && !!args.acp?.pendingInteraction)) &&
-      (!!args.acp || args.canReply === true),
-    canConnect: failedRetriable,
+        (!!args.acp || args.canReply === true)) ||
+      (terminalConnected && !terminalBusy),
+    canConnect:
+      failedRetriable ||
+      (terminalConversation &&
+        !terminalConnected &&
+        args.acp?.connectionActionState !== "connecting"),
     canCancelWorkflow:
       !isTerminalTaskState(args.state) ||
       failedRetriable ||
@@ -2370,12 +2378,20 @@ function buildSkillRunFromTask(
     skillLabel?: string;
     skillId?: string;
   };
-  const state = acp?.status === "repairing" ? "running" : task.state;
+  const state = acp
+    ? isTerminalTaskState(acp.status)
+      ? acp.status
+      : acp.status === "repairing"
+        ? "running"
+        : task.state
+    : task.state;
   const actions = actionsForSkillRun({
     state,
     acp,
     canReply: workflowTask.canReply,
-    canCancelBackendRun: workflowTask.canCancelBackendRun,
+    canCancelBackendRun: isTerminalTaskState(state)
+      ? false
+      : workflowTask.canCancelBackendRun,
   });
   const dto: HostBridgeSkillRunDto = {
     skillRunId,
@@ -3232,6 +3248,10 @@ export function getHostBridgeSkillRun(
       replyState: acp.replyState,
       connectionActionState: acp.connectionActionState,
       applyResultState: acp.applyResultState,
+      appliedAt: acp.appliedAt,
+      sessionId: acp.sessionId,
+      outputConvergenceState: acp.outputConvergenceState,
+      pendingInteraction: acp.pendingInteraction,
       pendingPermission: acp.pendingPermission || null,
       activePrompt: acp.activePrompt,
       error: acp.error,

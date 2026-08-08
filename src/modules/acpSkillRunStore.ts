@@ -434,6 +434,9 @@ export type AcpSkillRunSummary = Pick<
   | "replyState"
   | "connectionActionState"
   | "applyResultState"
+  | "appliedAt"
+  | "sessionId"
+  | "outputConvergenceState"
   | "pendingInteraction"
   | "pendingPermission"
   | "activePrompt"
@@ -586,6 +589,10 @@ type AcpSkillRunController = {
   setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
 };
 
+export type AcpSkillRunControllerPurpose =
+  | "workflow"
+  | "post-terminal-conversation";
+
 export type AcpSkillRunSetupController = {
   cancel: () => Promise<void>;
 };
@@ -609,6 +616,7 @@ const ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS = 750;
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const transcriptLiveStates = new Map<string, AcpSkillRunTranscriptLiveState>();
 const controllers = new Map<string, AcpSkillRunController>();
+const controllerPurposes = new Map<string, AcpSkillRunControllerPurpose>();
 const applyResultControllerDetachPromises = new Map<string, Promise<void>>();
 const waitingUserDetachTimers = new Map<
   string,
@@ -646,6 +654,8 @@ configureAcpSkillRunPersistenceHost({
   deleteRunRecord: (requestId) => {
     deleteAcpSkillRunRecord(requestId);
   },
+  isEligibleForPostTerminalConversation: (record) =>
+    isEligibleForPostTerminalAcpSkillRunConversation(record),
   getSelectedRequestId: () => selectedRequestId,
   clearSelectedRequestId: () => {
     selectedRequestId = "";
@@ -778,6 +788,61 @@ export function isRecoverableAcpSkillRunStatus(status: AcpSkillRunStatus) {
     status === "waiting_user" ||
     status === "repairing" ||
     status === "failed_retriable"
+  );
+}
+
+type PostTerminalConversationEligibilityRecord = Pick<
+  AcpSkillRunRecord,
+  | "status"
+  | "sessionId"
+  | "removedAt"
+  | "archivedAt"
+  | "conversationState"
+  | "conversationRecoveryState"
+  | "pendingInteraction"
+  | "pendingPermission"
+  | "applyResultState"
+  | "outputConvergenceState"
+>;
+
+export function isEligibleForPostTerminalAcpSkillRunConversation(
+  record: PostTerminalConversationEligibilityRecord | null | undefined,
+) {
+  if (
+    !record ||
+    (record.status !== "succeeded" && record.status !== "failed")
+  ) {
+    return false;
+  }
+  if (
+    record.removedAt ||
+    record.archivedAt ||
+    !normalizeString(record.sessionId) ||
+    record.conversationState === "ended" ||
+    record.conversationRecoveryState === "unavailable" ||
+    record.conversationRecoveryState === "unsupported" ||
+    record.pendingInteraction ||
+    record.pendingPermission ||
+    record.applyResultState === "pending" ||
+    record.outputConvergenceState === "pending"
+  ) {
+    return false;
+  }
+  return (
+    record.status === "failed" ||
+    record.applyResultState === "succeeded" ||
+    typeof record.applyResultState === "undefined"
+  );
+}
+
+export function isPostTerminalAcpSkillRunConversationConnected(
+  requestIdRaw: string,
+) {
+  const requestId = normalizeString(requestIdRaw);
+  return (
+    !!requestId &&
+    controllers.has(requestId) &&
+    controllerPurposes.get(requestId) === "post-terminal-conversation"
   );
 }
 
@@ -1998,6 +2063,7 @@ export function registerAcpSkillRunController(
   requestIdRaw: string,
   controller: AcpSkillRunController | null,
   setupController?: AcpSkillRunSetupController,
+  purpose: AcpSkillRunControllerPurpose = "workflow",
 ): boolean {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
@@ -2005,6 +2071,7 @@ export function registerAcpSkillRunController(
   }
   if (!controller) {
     controllers.delete(requestId);
+    controllerPurposes.delete(requestId);
     clearWaitingUserDetachTimer(requestId);
     cancelAcpSkillRunPermissionQueue(
       requestId,
@@ -2023,6 +2090,7 @@ export function registerAcpSkillRunController(
   }
   setupControllers.delete(requestId);
   controllers.set(requestId, controller);
+  controllerPurposes.set(requestId, purpose);
   upsertAcpSkillRun({
     requestId,
     conversationRecoveryState: "connected",
@@ -2547,7 +2615,11 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
     throw new Error("requestId is required");
   }
   const existing = getAcpSkillRunRecord(requestId);
-  if (existing && isTerminalAcpSkillRunStatus(existing.status)) {
+  if (
+    existing &&
+    isTerminalAcpSkillRunStatus(existing.status) &&
+    controllerPurposes.get(requestId) !== "post-terminal-conversation"
+  ) {
     throw new Error("Terminal ACP skill runs cannot be interrupted.");
   }
   if (existing && !isAcpSkillRunPromptActive(existing)) {
@@ -2596,6 +2668,20 @@ export function archiveAcpSkillRun(requestIdRaw: string) {
   ) {
     throw new Error("Only terminal ACP skill runs can be archived.");
   }
+  if (
+    controllers.has(requestId) ||
+    existing.activePrompt ||
+    existing.replyState === "submitted" ||
+    existing.replyState === "accepted" ||
+    existing.connectionActionState === "connecting" ||
+    existing.connectionActionState === "disconnecting" ||
+    existing.conversationRecoveryState === "connecting" ||
+    existing.conversationRecoveryState === "connected"
+  ) {
+    throw new Error(
+      "Disconnect the ACP skill run conversation before archiving it.",
+    );
+  }
   const archivedAt = nowIso();
   upsertAcpSkillRun({
     requestId,
@@ -2632,15 +2718,27 @@ export async function replyAcpSkillRun(args: {
   if (!existing) {
     throw new Error("No ACP skill run record is available for reply.");
   }
-  if (isTerminalAcpSkillRunStatus(existing.status)) {
-    throw new Error("Terminal ACP skill runs cannot accept replies.");
+  const terminalConversation =
+    isEligibleForPostTerminalAcpSkillRunConversation(existing);
+  if (isTerminalAcpSkillRunStatus(existing.status) && !terminalConversation) {
+    throw new Error("Terminal ACP skill run conversation is not recoverable.");
   }
   if (
+    !terminalConversation &&
     existing.status !== "waiting_user" &&
     existing.status !== "failed_retriable"
   ) {
     throw new Error(
       "ACP skill run replies are only accepted for waiting or recoverable failed runs.",
+    );
+  }
+  if (
+    terminalConversation &&
+    (!controllers.has(requestId) ||
+      controllerPurposes.get(requestId) !== "post-terminal-conversation")
+  ) {
+    throw new Error(
+      "Connect the terminal ACP skill run conversation before replying.",
     );
   }
   upsertAcpSkillRun({
@@ -2649,14 +2747,16 @@ export async function replyAcpSkillRun(args: {
     replyError: "",
     conversationError: "",
     lastRecoveryError: "",
-    error: "",
+    error: terminalConversation ? existing.error : "",
     event: {
       stage: "reply-submitted",
       message: "User reply submitted.",
       level: "info",
     },
   });
-  const slot = getAcpSkillRunSlotCoordinator(requestId);
+  const slot = terminalConversation
+    ? null
+    : getAcpSkillRunSlotCoordinator(requestId);
   if (slot && !(await slot.ensureSlot("user-reply"))) {
     const detail = "ACP skill reply admission was canceled before send.";
     upsertAcpSkillRun({
@@ -2672,7 +2772,12 @@ export async function replyAcpSkillRun(args: {
     throw new Error(detail);
   }
   let controller = controllers.get(requestId);
-  if (!controller?.reply && !controller?.replyRequest && recoveryHandler) {
+  if (
+    !terminalConversation &&
+    !controller?.reply &&
+    !controller?.replyRequest &&
+    recoveryHandler
+  ) {
     try {
       await recoveryHandler({ requestId, reason: "reply" });
       controller = controllers.get(requestId);
@@ -2722,7 +2827,7 @@ export async function replyAcpSkillRun(args: {
     replyError: "",
     conversationError: "",
     lastRecoveryError: "",
-    error: "",
+    error: terminalConversation ? existing.error : "",
     event: {
       stage: "reply-accepted",
       message: "User reply accepted by ACP skill run controller.",
@@ -2746,6 +2851,7 @@ export async function replyAcpSkillRun(args: {
       requestId,
       replyState: "rejected",
       replyError: detail,
+      conversationError: terminalConversation ? detail : undefined,
       event: {
         stage: "reply-rejected",
         message: detail,
@@ -3038,7 +3144,24 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
   if (!requestId) {
     throw new Error("requestId is required");
   }
+  const existing = getAcpSkillRunRecord(requestId);
+  if (!existing) {
+    throw new Error("No ACP skill run record is available for connection.");
+  }
+  const terminalConversation =
+    isEligibleForPostTerminalAcpSkillRunConversation(existing);
+  if (isTerminalAcpSkillRunStatus(existing.status) && !terminalConversation) {
+    throw new Error("Terminal ACP skill run conversation is not recoverable.");
+  }
   if (controllers.has(requestId)) {
+    if (
+      isTerminalAcpSkillRunStatus(existing.status) &&
+      controllerPurposes.get(requestId) !== "post-terminal-conversation"
+    ) {
+      throw new Error(
+        "Wait for the workflow controller to detach, then Connect the terminal conversation.",
+      );
+    }
     upsertAcpSkillRun({
       requestId,
       conversationRecoveryState: "connected",
@@ -3077,7 +3200,9 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
     },
   });
   try {
-    const slot = getAcpSkillRunSlotCoordinator(requestId);
+    const slot = terminalConversation
+      ? null
+      : getAcpSkillRunSlotCoordinator(requestId);
     if (slot && !(await slot.ensureSlot("retry"))) {
       throw new Error("ACP skill recovery admission was canceled.");
     }
@@ -3203,8 +3328,18 @@ export async function endAcpSkillRunSession(requestIdRaw: string) {
   });
 }
 
-function applyResultTerminalRecoveryState(state: "succeeded" | "failed") {
-  return state === "failed" ? "unavailable" : "available";
+function applyResultTerminalRecoveryState(
+  requestId: string,
+  state: "succeeded" | "failed",
+): AcpSkillRunRecoveryState {
+  const record = getAcpSkillRunRecord(requestId);
+  if (record?.conversationState === "ended") {
+    return "unavailable";
+  }
+  if (state === "succeeded") {
+    return "available";
+  }
+  return normalizeString(record?.sessionId) ? "available" : "unavailable";
 }
 
 function finalizeAcpSkillRunApplyResultControllerDetach(args: {
@@ -3221,7 +3356,10 @@ function finalizeAcpSkillRunApplyResultControllerDetach(args: {
     requestId: args.requestId,
     activePrompt: false,
     conversationState: "closed",
-    conversationRecoveryState: applyResultTerminalRecoveryState(args.state),
+    conversationRecoveryState: applyResultTerminalRecoveryState(
+      args.requestId,
+      args.state,
+    ),
     connectionActionState: "idle",
     event: {
       stage: args.stage,
@@ -3553,6 +3691,7 @@ export function resetAcpSkillRunsForTests() {
   resetAcpSkillRunPersistenceForTests();
   resetAcpTranscriptWritesForTests();
   controllers.clear();
+  controllerPurposes.clear();
   setupControllers.clear();
   applyResultControllerDetachPromises.clear();
   runtimeCatalogByRequestId.clear();

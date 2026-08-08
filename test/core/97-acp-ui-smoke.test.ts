@@ -168,6 +168,7 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
           attention: null,
           updatedAt: "2026-07-16T00:00:00.000Z",
           messageCount: 3,
+          canArchive: false,
         },
       ],
       queuedEntries: [],
@@ -1658,6 +1659,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       applyState: "succeeded",
       updatedAt: "2026-07-17T00:00:00.000Z",
       messageCount: 1,
+      canArchive: false,
     });
     skillsState.navigation.queuedEntries.push({
       queueId: "queue-b",
@@ -1729,6 +1731,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       applyState: "succeeded",
       updatedAt: "2026-07-17T00:00:00.000Z",
       messageCount: 1,
+      canArchive: false,
     });
     state.navigation.queuedEntries.push({
       queueId: "queue-a",
@@ -2326,6 +2329,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       attention: null,
       updatedAt: "2026-07-17T01:00:00.000Z",
       messageCount: 1,
+      canArchive: false,
       submission: {
         symbol: "🌙",
         provider: "openai",
@@ -2421,6 +2425,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       attention: null,
       updatedAt: "2026-07-17T03:00:00.000Z",
       messageCount: 0,
+      canArchive: false,
     });
     const render = () =>
       chromePanelRenderer(renderer)(
@@ -2583,6 +2588,7 @@ describe("Assistant Workspace ACP UI v1", function () {
         status: fixture.status,
         backendStatus: fixture.backendStatus,
         applyState: fixture.applyState,
+        canArchive: fixture.archiveActions.length > 0,
       });
       const panel = model.projectAssistantWorkspacePanel(
         state,
@@ -3012,6 +3018,36 @@ describe("Assistant Workspace ACP UI v1", function () {
       Object.entries(regions).filter(([key]) => key !== "hint"),
     );
     assertRegionSubtreesPreserved(nonHintRegions, afterTranscript);
+
+    Object.assign(state.navigation.entries[0], {
+      status: "succeeded",
+      backendStatus: "succeeded",
+      applyState: "succeeded",
+      canArchive: false,
+    });
+    state.selection.control = {
+      ...state.selection.control,
+      status: "succeeded",
+      busy: true,
+      hint: { kind: "completed", message: null },
+      interaction: null,
+    };
+    state.selection.composer = {
+      ...state.selection.composer,
+      reply: { status: "busy" },
+    };
+    render();
+    const terminalStreamingRegions = captureRegionSubtrees(regions);
+    state.selection.transcript = {
+      ...state.selection.transcript,
+      transcriptRevision: 2,
+      page: {
+        ...state.selection.transcript.page,
+        sourceEventSeq: 2,
+      },
+    };
+    render();
+    assertRegionSubtreesPreserved(regions, terminalStreamingRegions);
   });
 
   it("updates only the task drawer region when an ACP task status axis changes", async function () {

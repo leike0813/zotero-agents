@@ -95,6 +95,7 @@ export type AcpSkillRunPersistenceHost = {
   setAcpSkillRunRecord(record: AcpSkillRunRecord): void;
   upsertAcpSkillRun(update: Parameters<typeof upsertAcpSkillRun>[0]): void;
   deleteRunRecord(requestId: string): void;
+  isEligibleForPostTerminalConversation(record: AcpSkillRunRecord): boolean;
   getSelectedRequestId(): string;
   clearSelectedRequestId(): void;
   peekTranscriptLiveState(
@@ -445,8 +446,22 @@ function isLegacyRecoverableAcpRecoveryState(state: AcpSkillRunRecoveryState) {
 
 function shouldMigrateLegacyFailedRunToRetriable(record: AcpSkillRunRecord) {
   const recoveryState = record.conversationRecoveryState || "unavailable";
+  const workflowOpen = Boolean(
+    record.pendingInteraction ||
+    record.applyResultState === "pending" ||
+    record.outputConvergenceState === "pending",
+  );
+  const terminalEvidence = Boolean(
+    record.applyResultState === "succeeded" ||
+    record.applyResultState === "failed" ||
+    record.appliedAt ||
+    record.outputConvergenceState === "final" ||
+    record.validationStatus === "valid",
+  );
   return (
     record.status === "failed" &&
+    workflowOpen &&
+    !terminalEvidence &&
     !record.removedAt &&
     !record.archivedAt &&
     !!normalizeString(record.sessionId) &&
@@ -1107,6 +1122,56 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
   let terminalSyncedCount = 0;
   let recoverableCount = 0;
   let failedCount = 0;
+  for (const run of runsByRequestId.values()) {
+    if (!isTerminalStatus(run.status) || run.removedAt || run.archivedAt) {
+      continue;
+    }
+    const staleConversationState =
+      run.activePrompt ||
+      run.pendingPermission ||
+      run.replyState === "submitted" ||
+      run.replyState === "accepted" ||
+      run.connectionActionState === "connecting" ||
+      run.connectionActionState === "disconnecting" ||
+      run.conversationRecoveryState === "connecting" ||
+      run.conversationRecoveryState === "connected";
+    if (!staleConversationState) {
+      continue;
+    }
+    const recoveryCandidate = host.isEligibleForPostTerminalConversation({
+      ...run,
+      activePrompt: false,
+      pendingInteraction: undefined,
+      pendingPermission: null,
+      replyState: "idle",
+      connectionActionState: "idle",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+    });
+    host.upsertAcpSkillRun({
+      requestId: run.requestId,
+      activePrompt: false,
+      pendingInteraction: null,
+      pendingPermission: null,
+      replyState: "idle",
+      promptInterruptState: "idle",
+      connectionActionState: "idle",
+      conversationState: "closed",
+      conversationRecoveryState: recoveryCandidate
+        ? "available"
+        : run.conversationState === "ended"
+          ? "unavailable"
+          : run.conversationRecoveryState === "unsupported"
+            ? "unsupported"
+            : "unavailable",
+      event: {
+        stage: "startup-terminal-conversation-normalized",
+        message:
+          "Stale terminal ACP conversation activity was cleared after restart.",
+        level: "info",
+      },
+    });
+  }
   for (const task of listWorkflowTasks()) {
     if (!isAcpSkillRunWorkflowTask(task) || !task.requestId) {
       continue;

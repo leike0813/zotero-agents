@@ -171,6 +171,7 @@ export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNav
         attention: String(summary.lastError || "").trim() || null,
         updatedAt: String(summary.updatedAt || "").trim() || null,
         messageCount: Math.max(0, Number(summary.messageCount) || 0),
+        canArchive: summary.status === "idle",
         submission: null,
         resumptionPending: false,
       };

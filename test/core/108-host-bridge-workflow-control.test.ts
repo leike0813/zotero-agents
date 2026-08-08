@@ -2990,6 +2990,55 @@ describe("host bridge workflow control", function () {
     );
   });
 
+  it("keeps terminal ACP task liveness separate from conversation actions", function () {
+    const requestId = "acp-terminal-conversation-host";
+    upsertAcpSkillRun({
+      requestId,
+      status: "failed",
+      backendStatus: "failed",
+      runId: "run-acp-terminal-conversation-host",
+      workflowId: "bridge-workflow",
+      taskName: "Failed ACP Task",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-acp-terminal-conversation-host",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      applyResultState: "failed",
+      error: "original workflow failure",
+    });
+
+    const detached = getHostBridgeSkillRun(requestId);
+    assert.equal(detached.state, "failed");
+    assert.equal(detached.liveness, "terminal");
+    assert.deepInclude(detached.actions, {
+      canReply: false,
+      canConnect: true,
+      canCancelWorkflow: false,
+      isFailedRetriable: false,
+    });
+
+    registerAcpSkillRunController(
+      requestId,
+      {
+        cancel: async () => undefined,
+        reply: async () => undefined,
+        disconnect: async () => undefined,
+      },
+      undefined,
+      "post-terminal-conversation",
+    );
+    const connected = getHostBridgeSkillRun(requestId);
+    assert.equal(connected.state, "failed");
+    assert.equal(connected.liveness, "terminal");
+    assert.deepInclude(connected.actions, {
+      canReply: true,
+      canConnect: false,
+      canCancelWorkflow: false,
+      isFailedRetriable: false,
+    });
+  });
+
   it("reports ACP sequence workflow status from root state and concrete step runs only", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     const now = new Date().toISOString();

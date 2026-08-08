@@ -1247,14 +1247,15 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     registerAcpSkillRunController(workspace.requestId, null);
     const latest = getAcpSkillRunRecord(workspace.requestId);
-    const applyFailedTerminal =
-      latest?.status === "failed" && latest.applyResultState === "failed";
+    const recoverableTerminalSession =
+      !!normalizeString(latest?.sessionId) &&
+      options?.conversationState !== "ended";
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       activePrompt: false,
       conversationState: options?.conversationState,
       conversationRecoveryState:
-        options?.conversationState === "ended" || applyFailedTerminal
+        options?.conversationState === "ended" || !recoverableTerminalSession
           ? "unavailable"
           : "available",
       conversationError: options?.conversationError,

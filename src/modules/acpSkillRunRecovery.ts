@@ -53,6 +53,7 @@ import {
   flushAcpSkillRunRuntimeFileWrites,
   getAcpSkillRunRecord,
   hydrateAcpSkillRunTranscriptMirror,
+  isEligibleForPostTerminalAcpSkillRunConversation,
   isRecoverablePromptFailure,
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
@@ -883,6 +884,16 @@ function canContinueRecoveredWorkflowTask(
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
 ) {
   if (
+    record.status === "succeeded" ||
+    record.status === "failed" ||
+    record.status === "canceled" ||
+    record.applyResultState === "succeeded" ||
+    record.applyResultState === "failed" ||
+    !normalizeString(record.sessionId)
+  ) {
+    return false;
+  }
+  if (
     !!record.pendingInteraction &&
     (record.status === "waiting_user" ||
       record.outputConvergenceState === "pending" ||
@@ -890,14 +901,6 @@ function canContinueRecoveredWorkflowTask(
       record.status === "failed_retriable")
   ) {
     return true;
-  }
-  if (
-    record.status === "succeeded" ||
-    record.status === "canceled" ||
-    record.applyResultState === "succeeded" ||
-    !normalizeString(record.sessionId)
-  ) {
-    return false;
   }
   if (record.status === "waiting_user") {
     return true;
@@ -972,6 +975,18 @@ export async function recoverAcpSkillRunConversation(args: {
   const record = getAcpSkillRunRecord(requestId);
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
+  }
+  const postTerminalConversation =
+    isEligibleForPostTerminalAcpSkillRunConversation(record);
+  if (
+    (record.status === "succeeded" ||
+      record.status === "failed" ||
+      record.status === "canceled") &&
+    (!postTerminalConversation || args.reason !== "connect")
+  ) {
+    throw new Error(
+      "Eligible terminal ACP skill conversations must be explicitly connected before reply.",
+    );
   }
   try {
     assertHostBridgePluginSkillBundleIdentityCurrent(
@@ -1296,7 +1311,7 @@ export async function recoverAcpSkillRunConversation(args: {
         requestId,
         activePrompt: false,
         replyState: "idle",
-        error: "",
+        error: postTerminalConversation ? record.error : "",
         conversationState: "closed",
         conversationRecoveryState: "available",
         connectionActionState: "idle",
@@ -1441,22 +1456,38 @@ export async function recoverAcpSkillRunConversation(args: {
     if (options?.appendUserReply !== false) {
       appendAcpSkillRunUserReply({ requestId, message: displayMessage });
     }
-    markAcpSkillRunContinuationRunning({
-      requestId,
-      event: {
-        stage: options?.startedStage || "recovered-reply-continuing",
-        message:
-          options?.startedMessage ||
-          (shouldContinueWorkflow
-            ? "Recovered reply accepted; continuing ACP skill output convergence."
-            : "Recovered reply accepted; starting the next ACP turn."),
-        level: "info",
-        details: {
-          previousStatus: latest.status,
-          workflowContinuation: shouldContinueWorkflow,
+    if (postTerminalConversation) {
+      upsertAcpSkillRun({
+        requestId,
+        activePrompt: true,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        conversationError: "",
+        event: {
+          stage: "post-terminal-reply-started",
+          message: "Post-terminal ACP conversation turn started.",
+          level: "info",
+          details: { previousStatus: latest.status },
         },
-      },
-    });
+      });
+    } else {
+      markAcpSkillRunContinuationRunning({
+        requestId,
+        event: {
+          stage: options?.startedStage || "recovered-reply-continuing",
+          message:
+            options?.startedMessage ||
+            (shouldContinueWorkflow
+              ? "Recovered reply accepted; continuing ACP skill output convergence."
+              : "Recovered reply accepted; starting the next ACP turn."),
+          level: "info",
+          details: {
+            previousStatus: latest.status,
+            workflowContinuation: shouldContinueWorkflow,
+          },
+        },
+      });
+    }
     const promptRecoveredReply = async (
       userMessage: string,
     ): Promise<AcpPromptOutcome> => {
@@ -1496,6 +1527,21 @@ export async function recoverAcpSkillRunConversation(args: {
         }
         if (shouldContinueWorkflow) {
           await failRecoveredAcpPrompt(classifyAcpPromptError(error));
+        } else if (postTerminalConversation) {
+          const message = errorMessage(error);
+          upsertAcpSkillRun({
+            requestId,
+            activePrompt: false,
+            conversationState: "active",
+            conversationRecoveryState: "connected",
+            conversationError: message,
+            replyError: message,
+            event: {
+              stage: "post-terminal-reply-failed",
+              message,
+              level: "error",
+            },
+          });
         } else {
           const message = errorMessage(error);
           upsertAcpSkillRun({
@@ -1525,6 +1571,19 @@ export async function recoverAcpSkillRunConversation(args: {
       return;
     }
     if (recoveredCancellationRequested) {
+      if (postTerminalConversation) {
+        upsertAcpSkillRun({
+          requestId,
+          activePrompt: false,
+          replyState: "idle",
+          event: {
+            stage: "post-terminal-turn-canceled",
+            message: "Post-terminal ACP conversation turn canceled.",
+            level: "warn",
+          },
+        });
+        return;
+      }
       upsertAcpSkillRun({
         requestId,
         status: "canceled",
@@ -1547,35 +1606,75 @@ export async function recoverAcpSkillRunConversation(args: {
     if (recoveredInterruptionRequested) {
       recoveredInterruptWatchdog?.clear();
       recoveredInterruptWatchdog = null;
-      upsertAcpSkillRun({
-        requestId,
-        ...CONFIRMED_ACP_SKILL_PROMPT_INTERRUPTION_STATE,
-        event: {
-          stage: "interrupt-confirmed",
-          message: "ACP skill run current turn interrupted.",
-          level: "warn",
-          details: { recovered: true, stopReason: promptOutcome.stopReason },
-        },
-      });
+      upsertAcpSkillRun(
+        postTerminalConversation
+          ? {
+              requestId,
+              activePrompt: false,
+              replyState: "idle",
+              promptInterruptState: "confirmed",
+              event: {
+                stage: "interrupt-confirmed",
+                message: "ACP conversation turn interrupted.",
+                level: "warn",
+                details: {
+                  recovered: true,
+                  postTerminalConversation: true,
+                  stopReason: promptOutcome.stopReason,
+                },
+              },
+            }
+          : {
+              requestId,
+              ...CONFIRMED_ACP_SKILL_PROMPT_INTERRUPTION_STATE,
+              event: {
+                stage: "interrupt-confirmed",
+                message: "ACP skill run current turn interrupted.",
+                level: "warn",
+                details: {
+                  recovered: true,
+                  stopReason: promptOutcome.stopReason,
+                },
+              },
+            },
+      );
       return;
     }
     if (!shouldContinueWorkflow) {
-      upsertAcpSkillRun({
-        requestId,
-        status: "waiting_user",
-        statusReason: "waiting_user",
-        activePrompt: false,
-        pendingInteraction: null,
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        error: "",
-        event: {
-          stage: "recovered-reply-settled",
-          message: "Recovered ACP reply settled; waiting for user input.",
-          level: "info",
-          details: { stopReason: promptOutcome.stopReason },
-        },
-      });
+      upsertAcpSkillRun(
+        postTerminalConversation
+          ? {
+              requestId,
+              activePrompt: false,
+              replyState: "idle",
+              conversationState: "active",
+              conversationRecoveryState: "connected",
+              conversationError: "",
+              replyError: "",
+              event: {
+                stage: "post-terminal-reply-settled",
+                message: "Post-terminal ACP conversation turn settled.",
+                level: "info",
+                details: { stopReason: promptOutcome.stopReason },
+              },
+            }
+          : {
+              requestId,
+              status: "waiting_user",
+              statusReason: "waiting_user",
+              activePrompt: false,
+              pendingInteraction: null,
+              conversationState: "active",
+              conversationRecoveryState: "connected",
+              error: "",
+              event: {
+                stage: "recovered-reply-settled",
+                message: "Recovered ACP reply settled; waiting for user input.",
+                level: "info",
+                details: { stopReason: promptOutcome.stopReason },
+              },
+            },
+      );
       return;
     }
     const runnerJsonForConvergence = latest.runnerJson || contextRunnerJson;
@@ -1929,7 +2028,7 @@ export async function recoverAcpSkillRunConversation(args: {
       sessionId,
       backend,
     });
-    registerAcpSkillRunController(requestId, {
+    const recoveredController = {
       cancel: async () => {
         recoveredCancellationRequested = true;
         await adapter.cancel({ sessionId: liveSessionId });
@@ -1993,8 +2092,12 @@ export async function recoverAcpSkillRunConversation(args: {
                 recoveredInterruptionRequested = false;
                 upsertAcpSkillRun({
                   requestId,
-                  status: "failed_retriable",
-                  statusReason: "prompt_failed_retriable",
+                  ...(postTerminalConversation
+                    ? {}
+                    : {
+                        status: "failed_retriable" as const,
+                        statusReason: "prompt_failed_retriable" as const,
+                      }),
                   activePrompt: false,
                   promptInterruptState: "unconfirmed",
                   conversationState: "error",
@@ -2011,8 +2114,12 @@ export async function recoverAcpSkillRunConversation(args: {
               }
               upsertAcpSkillRun({
                 requestId,
-                status: "waiting_user",
-                statusReason: "interrupt_turn",
+                ...(postTerminalConversation
+                  ? {}
+                  : {
+                      status: "waiting_user" as const,
+                      statusReason: "interrupt_turn" as const,
+                    }),
                 activePrompt: false,
                 promptInterruptState: "forced",
                 conversationState: "closed",
@@ -2022,7 +2129,10 @@ export async function recoverAcpSkillRunConversation(args: {
                   message:
                     "ACP skill run prompt did not confirm cancellation and was force-stopped.",
                   level: "warn",
-                  details: { recovered: true },
+                  details: {
+                    recovered: true,
+                    postTerminalConversation,
+                  },
                 },
               });
             },
@@ -2088,7 +2198,15 @@ export async function recoverAcpSkillRunConversation(args: {
       setConfigOption: async ({ sessionId, category, value }) =>
         (await adapter.setConfigOption?.({ sessionId, category, value })) ===
         true,
-    });
+    } satisfies NonNullable<
+      Parameters<typeof registerAcpSkillRunController>[1]
+    >;
+    registerAcpSkillRunController(
+      requestId,
+      recoveredController,
+      undefined,
+      postTerminalConversation ? "post-terminal-conversation" : "workflow",
+    );
     upsertAcpSkillRun({
       requestId,
       sessionId,

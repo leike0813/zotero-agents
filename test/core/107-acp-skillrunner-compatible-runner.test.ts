@@ -34,6 +34,7 @@ import {
   hasAcpSkillRunController,
   hydrateAcpSkillRunTranscriptMirror,
   interruptAcpSkillRunCurrentTurn,
+  isEligibleForPostTerminalAcpSkillRunConversation,
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
   projectAcpSkillRunOutputEnvelopeToTranscript,
@@ -2623,6 +2624,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         sessionId: "session-legacy",
         conversationState: "closed",
         conversationRecoveryState: "available",
+        applyResultState: "pending",
         createdAt: updatedAt,
         updatedAt,
         events: [],
@@ -2641,6 +2643,77 @@ describe("ACP SkillRunner-compatible runner", function () {
       (record?.events || []).map((event) => event.stage),
       "legacy-status-migrated",
     );
+  });
+
+  it("keeps legacy terminal failed sessions failed and independently recoverable", function () {
+    const updatedAt = "2026-06-12T08:00:00.000Z";
+    upsertPluginRunStoreEntry("acp", {
+      runKey: "acp-legacy-terminal-failed",
+      requestId: "acp-legacy-terminal-failed",
+      backendId: "backend-acp",
+      state: "failed",
+      updatedAt,
+      payload: JSON.stringify({
+        requestId: "acp-legacy-terminal-failed",
+        status: "failed",
+        backendStatus: "failed",
+        backendId: "backend-acp",
+        backendType: "acp",
+        sessionId: "session-legacy-terminal",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        applyResultState: "failed",
+        error: "original terminal failure",
+        createdAt: updatedAt,
+        updatedAt,
+        events: [],
+      }),
+    });
+
+    const record = getAcpSkillRunRecord("acp-legacy-terminal-failed");
+
+    assert.equal(record?.status, "failed");
+    assert.equal(record?.backendStatus, "failed");
+    assert.equal(record?.error, "original terminal failure");
+    assert.isTrue(isEligibleForPostTerminalAcpSkillRunConversation(record));
+    assert.notInclude(
+      (record?.events || []).map((event) => event.stage),
+      "legacy-status-migrated",
+    );
+  });
+
+  it("normalizes stale terminal conversation activity on startup", function () {
+    upsertAcpSkillRun({
+      requestId: "acp-terminal-startup-cleanup",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "succeeded",
+      backendStatus: "succeeded",
+      sessionId: "session-terminal-startup",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "connecting",
+      activePrompt: true,
+      replyState: "accepted",
+      promptInterruptState: "requested",
+      applyResultState: "succeeded",
+      appliedAt: "2026-08-08T00:00:00.000Z",
+      resultJson: { stable: true },
+    });
+
+    reconcileAcpSkillRunWorkflowTasksOnStartup();
+
+    const record = getAcpSkillRunRecord("acp-terminal-startup-cleanup");
+    assert.equal(record?.status, "succeeded");
+    assert.equal(record?.backendStatus, "succeeded");
+    assert.equal(record?.applyResultState, "succeeded");
+    assert.equal(record?.appliedAt, "2026-08-08T00:00:00.000Z");
+    assert.equal(record?.conversationState, "closed");
+    assert.equal(record?.conversationRecoveryState, "available");
+    assert.equal(record?.connectionActionState, "idle");
+    assert.equal(record?.replyState, "idle");
+    assert.equal(record?.promptInterruptState, "idle");
+    assert.equal(record?.activePrompt, false);
   });
 
   it("keeps ACP skill run listing stable by creation time and interrupts without canceling the run", async function () {
@@ -11408,6 +11481,132 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("uses conversation-only settlement for explicitly recovered terminal sessions", async function () {
+    const root = await mkTempRoot();
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-workflow",
+      jobId: "job-terminal-conversation",
+    });
+    const prompts: string[] = [];
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener) => {
+        updateListener = listener;
+        return () => undefined;
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async ({ message }) => {
+        prompts.push(message);
+        await updateListener?.({
+          sessionId: "session-terminal-recovered",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text:
+                prompts.length === 1
+                  ? "ordinary answer"
+                  : '{"__SKILL_DONE__":true,"result":"transcript only"}',
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "succeeded",
+        backendStatus: "succeeded",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        workflowId: "demo-workflow",
+        skillId: "demo-skill",
+        sessionId: "session-terminal-recovered",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        outputConvergenceState: "final",
+        validationStatus: "valid",
+        applyResultState: "succeeded",
+        appliedAt: "2026-08-08T00:00:00.000Z",
+        resultJson: { stable: true },
+      });
+      const before = getAcpSkillRunRecord(workspace.requestId)!;
+      const revisionsBefore = await readRunOutputRevisions(workspace.requestId);
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "connect",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+      assert.deepEqual(prompts, [], "Connect must not send a prompt");
+
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "plain follow-up",
+      });
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "completion-shaped follow-up",
+      });
+
+      const after = getAcpSkillRunRecord(workspace.requestId)!;
+      assert.deepEqual(prompts, [
+        "plain follow-up",
+        "completion-shaped follow-up",
+      ]);
+      assert.equal(after.status, before.status);
+      assert.equal(after.backendStatus, before.backendStatus);
+      assert.equal(after.applyResultState, before.applyResultState);
+      assert.equal(after.appliedAt, before.appliedAt);
+      assert.deepEqual(after.resultJson, before.resultJson);
+      assert.equal(after.outputConvergenceState, before.outputConvergenceState);
+      assert.deepEqual(
+        await readRunOutputRevisions(workspace.requestId),
+        revisionsBefore,
+      );
+      assert.notInclude(
+        after.events.map((event) => event.stage),
+        "recovered-output-validation-succeeded",
+      );
+    } finally {
+      await disconnectAcpSkillRun(workspace.requestId).catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("connect and disconnect actions recover then detach without ending session", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
@@ -11423,13 +11622,18 @@ describe("ACP SkillRunner-compatible runner", function () {
     setAcpSkillRunRecoveryHandlerForTests(async ({ requestId, reason }) => {
       assert.equal(requestId, "run-connect");
       assert.equal(reason, "connect");
-      registerAcpSkillRunController(requestId, {
-        cancel: async () => undefined,
-        reply: async () => undefined,
-        disconnect: async () => {
-          disconnected = true;
+      registerAcpSkillRunController(
+        requestId,
+        {
+          cancel: async () => undefined,
+          reply: async () => undefined,
+          disconnect: async () => {
+            disconnected = true;
+          },
         },
-      });
+        undefined,
+        "post-terminal-conversation",
+      );
     });
 
     await connectAcpSkillRun("run-connect");
@@ -11443,6 +11647,101 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(disconnected);
     assert.equal(record?.conversationState, "closed");
     assert.equal(record?.conversationRecoveryState, "available");
+  });
+
+  it("requires explicit terminal Connect and freezes workflow evidence across replies", async function () {
+    resetAcpSkillRunsForTests();
+    const requestId = "run-terminal-conversation";
+    const replies: string[] = [];
+    upsertAcpSkillRun({
+      requestId,
+      status: "failed",
+      backendStatus: "failed",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-terminal-conversation",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      applyResultState: "failed",
+      resultJson: { stable: true },
+      error: "original apply failure",
+      outputConvergenceState: "final",
+    });
+    const before = getAcpSkillRunRecord(requestId)!;
+    assert.isTrue(isEligibleForPostTerminalAcpSkillRunConversation(before));
+    try {
+      await replyAcpSkillRun({ requestId, message: "must connect first" });
+      assert.fail("expected detached terminal reply to be rejected");
+    } catch (error) {
+      assert.match(String(error), /connect/i);
+    }
+    setAcpSkillRunRecoveryHandlerForTests(async ({ reason }) => {
+      assert.equal(reason, "connect");
+      registerAcpSkillRunController(
+        requestId,
+        {
+          cancel: async () => undefined,
+          reply: async (message) => {
+            replies.push(message);
+          },
+          disconnect: async () => undefined,
+        },
+        undefined,
+        "post-terminal-conversation",
+      );
+    });
+
+    await connectAcpSkillRun(requestId);
+    await replyAcpSkillRun({ requestId, message: "ordinary prose" });
+    await replyAcpSkillRun({
+      requestId,
+      message: '{"__SKILL_DONE__":true,"result":"ignored"}',
+    });
+
+    const after = getAcpSkillRunRecord(requestId)!;
+    assert.deepEqual(replies, [
+      "ordinary prose",
+      '{"__SKILL_DONE__":true,"result":"ignored"}',
+    ]);
+    assert.equal(after.status, before.status);
+    assert.equal(after.backendStatus, before.backendStatus);
+    assert.equal(after.applyResultState, before.applyResultState);
+    assert.deepEqual(after.resultJson, before.resultJson);
+    assert.equal(after.outputConvergenceState, before.outputConvergenceState);
+    assert.equal(after.error, "original apply failure");
+    assert.equal(after.conversationRecoveryState, "connected");
+
+    assert.throws(() => archiveAcpSkillRun(requestId), /disconnect.*archiv/i);
+    await disconnectAcpSkillRun(requestId);
+    assert.doesNotThrow(() => archiveAcpSkillRun(requestId));
+  });
+
+  it("does not accept terminal replies through a workflow-purpose controller", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-terminal-controller-race",
+      status: "succeeded",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-terminal-controller-race",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      applyResultState: "succeeded",
+    });
+    registerAcpSkillRunController("run-terminal-controller-race", {
+      cancel: async () => undefined,
+      reply: async () => undefined,
+    });
+
+    try {
+      await replyAcpSkillRun({
+        requestId: "run-terminal-controller-race",
+        message: "too early",
+      });
+      assert.fail("expected workflow controller terminal reply rejection");
+    } catch (error) {
+      assert.match(String(error), /connect/i);
+    }
   });
 
   it("settles disconnect state and releases controller when detach rejects", async function () {

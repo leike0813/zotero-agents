@@ -6,12 +6,16 @@ import type { BackendInstance } from "../../src/backends/types";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import {
   cancelAcpSkillRun,
+  connectAcpSkillRun,
+  disconnectAcpSkillRun,
   getAcpSkillRunRecord,
   hasAcpSkillRunController,
   listAcpSkillRuns,
   registerAcpSkillRunController,
   registerAcpSkillRunSetupController,
   resetAcpSkillRunsForTests,
+  replyAcpSkillRun,
+  setAcpSkillRunRecoveryHandlerForTests,
   unregisterAcpSkillRunSetupController,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
@@ -27,6 +31,7 @@ import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapte
 import { flushAcpSkillRunAuditTrailWritesForTests } from "../../src/modules/acpSkillRunAuditTrail";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
+import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -359,6 +364,69 @@ describe("ACP Skills concurrent setup lifecycle", function () {
       assert.equal(createAdapterCalls, 0);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps terminal sequence conversation outside submission slot admission", async function () {
+    const requestId = "terminal-sequence-step-conversation";
+    let slotCalls = 0;
+    const originalGetSlotCoordinator =
+      workflowSubmissionQueue.getSlotCoordinator.bind(workflowSubmissionQueue);
+    const queue = workflowSubmissionQueue as unknown as {
+      getSlotCoordinator: typeof workflowSubmissionQueue.getSlotCoordinator;
+    };
+    queue.getSlotCoordinator = (() => ({
+      ensureSlot: async () => {
+        slotCalls += 1;
+        return true;
+      },
+    })) as typeof workflowSubmissionQueue.getSlotCoordinator;
+    try {
+      upsertAcpSkillRun({
+        requestId,
+        status: "succeeded",
+        backendStatus: "succeeded",
+        backendId: "backend-acp",
+        backendType: "acp",
+        submissionId: "submission-sequence",
+        submissionUnitId: "unit-sequence-step-1",
+        sequenceStepId: "step-1",
+        sequenceStepIndex: 0,
+        sequenceFinalStepId: "step-2",
+        sessionId: "session-terminal-sequence-step",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        outputConvergenceState: "final",
+        applyResultState: "succeeded",
+      });
+      setAcpSkillRunRecoveryHandlerForTests(async ({ reason }) => {
+        assert.equal(reason, "connect");
+        registerAcpSkillRunController(
+          requestId,
+          {
+            cancel: async () => undefined,
+            reply: async () => undefined,
+            disconnect: async () => undefined,
+          },
+          undefined,
+          "post-terminal-conversation",
+        );
+      });
+
+      await connectAcpSkillRun(requestId);
+      await replyAcpSkillRun({ requestId, message: "parallel follow-up" });
+
+      const record = getAcpSkillRunRecord(requestId);
+      assert.equal(slotCalls, 0);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.sequenceStepId, "step-1");
+      assert.equal(record?.sequenceStepIndex, 0);
+      assert.equal(record?.sequenceFinalStepId, "step-2");
+      assert.equal(record?.submissionUnitId, "unit-sequence-step-1");
+    } finally {
+      await disconnectAcpSkillRun(requestId).catch(() => undefined);
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      queue.getSlotCoordinator = originalGetSlotCoordinator;
     }
   });
 
