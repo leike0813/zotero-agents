@@ -27,7 +27,7 @@
 
 - [x] 4.1 Run targeted ACP and Host queue tests, then the core test suite and
       TypeScript/build checks required by the repository.
-- [ ] 4.2 Perform Windows Kilo ACP manual acceptance with concurrency two and
+- [x] 4.2 Perform Windows Kilo ACP manual acceptance with concurrency two and
       compare both request audit trails; document any external-stage blocker
       without speculative bridge, npx, or Kilo isolation changes.
 
