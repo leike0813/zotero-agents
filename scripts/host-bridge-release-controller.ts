@@ -41,7 +41,10 @@ export type HostBridgeReleaseReceiptV2 = {
 };
 
 type ReleaseSetV2 = {
-  schema: "host-bridge.release-set.v2" | "host-bridge.release-set.v3";
+  schema:
+    | "host-bridge.release-set.v2"
+    | "host-bridge.release-set.v3"
+    | "host-bridge.release-set.v4";
   releaseSetId: string;
   payloadDigest: string;
   source: { commit: string };
@@ -58,7 +61,8 @@ export function createHostBridgeReleaseReceipt(args: {
 }): HostBridgeReleaseReceiptV2 {
   if (
     args.releaseSet.schema !== "host-bridge.release-set.v2" &&
-    args.releaseSet.schema !== "host-bridge.release-set.v3"
+    args.releaseSet.schema !== "host-bridge.release-set.v3" &&
+    args.releaseSet.schema !== "host-bridge.release-set.v4"
   ) {
     throw new Error("Release receipt v2 requires a release set v2");
   }

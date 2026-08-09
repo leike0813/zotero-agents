@@ -407,6 +407,8 @@
       changedSection:
         typeof meta.changedSection === "string" ? meta.changedSection : "",
       changedKey: typeof meta.changedKey === "string" ? meta.changedKey : "",
+      changedOrigin:
+        typeof meta.changedOrigin === "string" ? meta.changedOrigin : "",
     });
     applyConditionalFieldVisibility(document);
   }
@@ -821,6 +823,7 @@
         args.onChange({
           changedSection: args.section,
           changedKey: args.entry.key,
+          changedOrigin: "text",
         });
       }
       lastCommittedRaw = rawValue;

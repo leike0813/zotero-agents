@@ -1,4 +1,8 @@
 import type { SynthesisJsonValue } from "./common.js";
+import type {
+  LiteratureQualitySnapshot,
+  SynthesisPaperArtifactType,
+} from "./literatureArtifacts.js";
 
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT = 50 as const;
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX = 100 as const;
@@ -54,10 +58,7 @@ export type SynthesisHostLibraryItemsByRefResult = {
   missingPaperRefs: string[];
 };
 
-export type SynthesisHostArtifactType =
-  | "digest"
-  | "references"
-  | "citation_analysis";
+export type SynthesisHostArtifactType = SynthesisPaperArtifactType;
 
 export type SynthesisHostArtifactStatus =
   | "available"
@@ -65,9 +66,8 @@ export type SynthesisHostArtifactStatus =
   | "decode_error"
   | "unsupported";
 
-export type SynthesisHostArtifactDescriptor = {
+type SynthesisHostArtifactDescriptorBase = {
   paperRef: string;
-  artifactType: SynthesisHostArtifactType;
   payloadType: string;
   status: SynthesisHostArtifactStatus;
   locator?: string;
@@ -75,6 +75,16 @@ export type SynthesisHostArtifactDescriptor = {
   estimatedSize?: number;
   diagnostics: string[];
 };
+
+export type SynthesisHostArtifactDescriptor =
+  | (SynthesisHostArtifactDescriptorBase & {
+      artifactType: "literature_score";
+      literatureQuality: LiteratureQualitySnapshot;
+    })
+  | (SynthesisHostArtifactDescriptorBase & {
+      artifactType: Exclude<SynthesisHostArtifactType, "literature_score">;
+      literatureQuality?: never;
+    });
 
 export type SynthesisHostArtifactScanPageRequest = SynthesisHostPageRequest & {
   paperRefs?: string[];

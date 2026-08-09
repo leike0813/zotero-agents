@@ -187,6 +187,9 @@ export function parseWorkbenchNoteKind(noteContent) {
   if (/data-zs-payload=(["'])citation-analysis-markdown\1/i.test(text)) {
     return "citation-analysis";
   }
+  if (/data-zs-payload=(["'])literature-score-json\1/i.test(text)) {
+    return "literature-score";
+  }
   if (/data-zs-payload=(["'])conversation-note-markdown\1/i.test(text)) {
     return "conversation-note";
   }
@@ -205,6 +208,7 @@ export function parseWorkbenchNoteKind(noteContent) {
     kind === "references" ||
     kind === "citation-analysis" ||
     kind === "citation_analysis" ||
+    kind === "literature-score" ||
     kind === "conversation-note" ||
     kind === "custom"
   ) {

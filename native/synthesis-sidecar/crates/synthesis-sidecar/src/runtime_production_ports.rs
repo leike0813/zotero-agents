@@ -1697,10 +1697,17 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
         &self,
         cursor: &str,
         limit: usize,
+        paper_refs: &[String],
+        artifact_types: &[&str],
     ) -> Result<ReferenceHostArtifactsPage, String> {
         serde_json::from_value(self.call(
             "library.artifacts.scan_page",
-            serde_json::json!({"cursor":cursor,"limit":limit}),
+            serde_json::json!({
+                "cursor":cursor,
+                "limit":limit,
+                "paperRefs":paper_refs,
+                "artifactTypes":artifact_types,
+            }),
         )?)
         .map_err(|_| "reverse_host_result_invalid".into())
     }

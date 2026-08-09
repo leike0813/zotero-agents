@@ -1,6 +1,6 @@
 # `zotero-bridge operation get`
 
-读取一份持久化 Zotero operation receipt
+Read one durable Zotero operation receipt
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] OPERATION_ID <OPERATION_ID>
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -29,18 +29,18 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "operation_id": {
-      "type": "string",
       "description": "Operation id returned by or supplied to a state-changing command",
-      "position": 1
+      "position": 1,
+      "type": "string"
     }
   },
   "required": [
     "operation_id"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -48,68 +48,39 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "operation_id": {
-      "type": "string",
-      "description": "Operation id returned by or supplied to a state-changing command"
+      "description": "Operation id returned by or supplied to a state-changing command",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "schema": {
-      "const": "host-bridge.operation-receipt.v1"
-    },
-    "operationId": {
-      "type": "string"
-    },
-    "requestDigest": {
-      "type": "string"
-    },
     "attemptId": {
       "type": "string"
     },
-    "method": {
-      "type": "string"
-    },
-    "path": {
-      "type": "string"
-    },
-    "state": {
-      "enum": [
-        "in_progress",
-        "completed",
-        "outcome_unknown"
-      ]
-    },
     "createdAt": {
       "type": "string"
-    },
-    "updatedAt": {
-      "type": "string"
-    },
-    "retentionExpiresAt": {
-      "type": "string"
-    },
-    "stateChange": {
-      "enum": [
-        "unchanged",
-        "changed",
-        "unknown"
-      ]
     },
     "handleConsumption": {
       "enum": [
@@ -118,8 +89,43 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
         "unknown"
       ]
     },
+    "method": {
+      "type": "string"
+    },
+    "operationId": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "requestDigest": {
+      "type": "string"
+    },
     "response": {
       "type": "object"
+    },
+    "retentionExpiresAt": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "host-bridge.operation-receipt.v1"
+    },
+    "state": {
+      "enum": [
+        "in_progress",
+        "completed",
+        "outcome_unknown"
+      ]
+    },
+    "stateChange": {
+      "enum": [
+        "unchanged",
+        "changed",
+        "unknown"
+      ]
+    },
+    "updatedAt": {
+      "type": "string"
     }
   },
   "required": [
@@ -136,130 +142,138 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
     "stateChange",
     "handleConsumption"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "operation get",
-  "argv": [
-    "operation",
-    "get"
-  ],
-  "summary": "Read one durable Zotero operation receipt",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "operation_id": {
-        "type": "string",
-        "description": "Operation id returned by or supplied to a state-changing command",
-        "position": 1
-      }
-    },
-    "required": [
-      "operation_id"
-    ],
-    "additionalProperties": false
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
   },
   "arguments": [
     {
-      "id": "operation_id",
-      "kind": "positional",
-      "token": "OPERATION_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
       "global": false,
       "help": "Operation id returned by or supplied to a state-changing command",
-      "valueNames": [
-        "OPERATION_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "operation_id",
+      "id": "operation_id",
       "kind": "positional",
-      "token": "OPERATION_ID",
       "position": 1,
-      "takesValue": true,
+      "possibleValues": [],
+      "repeatable": false,
       "required": true,
+      "takesValue": true,
+      "token": "OPERATION_ID",
       "valueNames": [
         "OPERATION_ID"
       ]
     }
   ],
+  "argv": [
+    "operation",
+    "get"
+  ],
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "operation_id",
+      "required": true,
+      "takesValue": true,
+      "token": "OPERATION_ID",
+      "valueNames": [
+        "OPERATION_ID"
+      ]
+    }
+  ],
+  "binding": "none",
+  "category": "read",
+  "command": "operation get",
+  "composition": null,
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "operationId",
+      "lifetime": "caller-owned",
+      "required": true
+    }
+  ],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "operation_id": {
-        "type": "string",
-        "description": "Operation id returned by or supplied to a state-changing command"
+        "description": "Operation id returned by or supplied to a state-changing command",
+        "position": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "operation_id"
+    ],
+    "type": "object"
+  },
+  "operationalAliases": [
+    "operation get",
+    "operation",
+    "get",
+    "operation_id",
+    "OPERATION_ID"
+  ],
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "operation_id": {
+        "description": "Operation id returned by or supplied to a state-changing command",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
-      "schema": {
-        "const": "host-bridge.operation-receipt.v1"
-      },
-      "operationId": {
-        "type": "string"
-      },
-      "requestDigest": {
-        "type": "string"
-      },
       "attemptId": {
         "type": "string"
       },
-      "method": {
-        "type": "string"
-      },
-      "path": {
-        "type": "string"
-      },
-      "state": {
-        "enum": [
-          "in_progress",
-          "completed",
-          "outcome_unknown"
-        ]
-      },
       "createdAt": {
         "type": "string"
-      },
-      "updatedAt": {
-        "type": "string"
-      },
-      "retentionExpiresAt": {
-        "type": "string"
-      },
-      "stateChange": {
-        "enum": [
-          "unchanged",
-          "changed",
-          "unknown"
-        ]
       },
       "handleConsumption": {
         "enum": [
@@ -268,8 +282,43 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
           "unknown"
         ]
       },
+      "method": {
+        "type": "string"
+      },
+      "operationId": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "requestDigest": {
+        "type": "string"
+      },
       "response": {
         "type": "object"
+      },
+      "retentionExpiresAt": {
+        "type": "string"
+      },
+      "schema": {
+        "const": "host-bridge.operation-receipt.v1"
+      },
+      "state": {
+        "enum": [
+          "in_progress",
+          "completed",
+          "outcome_unknown"
+        ]
+      },
+      "stateChange": {
+        "enum": [
+          "unchanged",
+          "changed",
+          "unknown"
+        ]
+      },
+      "updatedAt": {
+        "type": "string"
       }
     },
     "required": [
@@ -286,75 +335,48 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
       "stateChange",
       "handleConsumption"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [
-    {
-      "handle": "operationId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
+  "summary": "Read one durable Zotero operation receipt",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "GET /bridge/v1/operations/{operationId}"
+      "target": "GET /bridge/v2/operations/{operationId}"
     }
-  ],
-  "operationalAliases": [
-    "operation get",
-    "operation",
-    "get",
-    "operation_id",
-    "OPERATION_ID"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `operation` `get`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `none`.
+- intent 可见性： `visible`.
 - 操作别名： `operation get`, `operation`, `get`, `operation_id`, `OPERATION_ID`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -364,21 +386,21 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
-    "handle": "operationId",
-    "direction": "consume",
-    "required": true,
     "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "direction": "consume",
+    "handle": "operationId",
+    "lifetime": "caller-owned",
+    "required": true
   }
 ]
 ```
@@ -388,22 +410,22 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "GET /bridge/v1/operations/{operationId}"
+    "target": "GET /bridge/v2/operations/{operationId}"
   }
 ]
 ```

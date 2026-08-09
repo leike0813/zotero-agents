@@ -1,4 +1,5 @@
 import type { HookHelpers } from "./types";
+import { evaluateGeneratedNoteReadiness } from "../modules/libraryArtifactReadiness";
 
 type AttachmentLike = {
   item?: {
@@ -335,6 +336,10 @@ export function createHookHelpers(zotero: typeof Zotero): HookHelpers {
     resolveReferenceSource,
     renderReferenceLocator,
     renderReferencesTable,
+    inspectGeneratedNoteReadiness: async (parentRef, spec) => {
+      const parent = helpers.resolveItemRef(parentRef);
+      return evaluateGeneratedNoteReadiness(parent, spec);
+    },
   };
 
   return helpers;

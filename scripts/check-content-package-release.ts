@@ -5,7 +5,13 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-type Channel = "stable" | "beta" | "dev";
+import {
+  CONTENT_PACKAGE_CHANNELS,
+  parseContentPackageChannels,
+  type ContentPackageChannel,
+} from "./content-package-channels";
+
+type Channel = ContentPackageChannel;
 
 type ContentFeedArtifact = {
   path: string;
@@ -45,12 +51,44 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Pick<Response, "ok" | "status" | "arrayBuffer" | "json" | "text">>;
 
-const DEFAULT_CHANNELS: Channel[] = ["stable", "beta", "dev"];
+const DEFAULT_CHANNELS: Channel[] = ["stable", "beta"];
+const ALL_CHANNELS: Channel[] = [...CONTENT_PACKAGE_CHANNELS];
 const CONTENT_VERSION_FILE = "content-package.version.json";
 const CONTENT_REPO = "leike0813/zotero-agents-workflows";
 const CONTENT_BRANCH = "content-feed";
 const GITHUB_API_CONTENT_BASE = `https://api.github.com/repos/${CONTENT_REPO}/contents`;
 const GITEE_FEED_BASE = `https://gitee.com/${CONTENT_REPO}/raw/${CONTENT_BRANCH}`;
+
+export function parseContentPackageCheckArgs(
+  argv: string[] = process.argv.slice(2),
+): {
+  checkMirror: boolean;
+  includeDev: boolean;
+  channels: Channel[];
+} {
+  const checkMirror = argv.includes("--check-mirror");
+  const includeDev = argv.includes("--include-dev");
+  const channelsFlagIndex = argv.findIndex((entry) => entry === "--channels");
+  const channelsInline = argv.find((entry) => entry.startsWith("--channels="));
+  let channels: Channel[] | undefined;
+  if (channelsFlagIndex >= 0 || channelsInline) {
+    const raw = channelsInline
+      ? channelsInline.slice("--channels=".length)
+      : String(argv[channelsFlagIndex + 1] || "");
+    channels = parseContentPackageChannels(raw);
+  }
+  if (includeDev && channels) {
+    throw new Error("Use either --include-dev or --channels, not both");
+  }
+  if (includeDev) {
+    channels = [...ALL_CHANNELS];
+  }
+  return {
+    checkMirror,
+    includeDev,
+    channels: channels || [...DEFAULT_CHANNELS],
+  };
+}
 
 function normalizeSha256(value: string) {
   return String(value || "")
@@ -388,10 +426,14 @@ export async function verifyContentPackageRelease(args?: {
 }
 
 async function main() {
+  const args = parseContentPackageCheckArgs(process.argv.slice(2));
   await verifyContentPackageRelease({
-    checkMirror: process.argv.includes("--check-mirror"),
+    checkMirror: args.checkMirror,
+    channels: args.channels,
   });
-  console.log("[content-package] release verification passed");
+  console.log(
+    `[content-package] release verification passed (channels=${args.channels.join(",")})`,
+  );
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

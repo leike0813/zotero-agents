@@ -99,3 +99,27 @@ Host Bridge SHALL validate registered file size and known SHA-256 metadata befor
 - **THEN** the transfer SHALL terminate or produce length/checksum mismatch evidence consumable by the existing CLI retry contract
 - **AND** the server SHALL NOT fall back to buffering the complete source.
 
+### Requirement: Broker file routes SHALL use the Host Bridge v2 namespace
+Broker-issued file upload and download operations SHALL use `/bridge/v2` and retain their opaque-handle, authorization, integrity, and path-redaction requirements.
+
+#### Scenario: Authenticated v2 client downloads a file
+- **WHEN** a v2 client downloads a valid broker-issued file handle
+- **THEN** Host Bridge SHALL return the authorized bytes under the existing integrity and redaction rules.
+
+#### Scenario: Client uses the removed v1 route
+- **WHEN** a client requests the corresponding `/bridge/v1/files` route
+- **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.
+
+### Requirement: Workflow output resources reuse broker downloads
+Workflow output resources SHALL be registered through the existing broker-issued file registry and SHALL use the existing authorization, expiry, size, SHA-256, content type, and path-redaction rules for downloads.
+
+#### Scenario: Workflow output is downloaded remotely
+- **WHEN** an authenticated client requests the `fileId` returned for a workflow output
+- **THEN** Host Bridge SHALL stream the registered bytes under the existing bounded-transfer and integrity contract
+- **AND** it SHALL not require a Host-local output path
+
+#### Scenario: Workflow artifact expires
+- **WHEN** a client requests an expired workflow output handle
+- **THEN** Host Bridge SHALL return the existing structured expired/unknown handle error
+- **AND** it SHALL return no bytes
+

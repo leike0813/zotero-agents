@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import Ajv2020 from "ajv/dist/2020";
+import { startHostBridgeCliFixtureHarness } from "../helpers/hostBridgeCliHarness";
 
 const createPrepareRoot = path.join(
   "skills_builtin",
@@ -22,11 +23,17 @@ function runGate(
   runtimeRoot: string,
   runRoot: string,
   args: string[],
+  env: NodeJS.ProcessEnv = {},
 ): Record<string, any> {
   const output = execFileSync(
     pythonCommand(),
     [path.resolve(runtimeRoot, "scripts/gate.py"), ...args],
-    { cwd: runRoot, encoding: "utf8", stdio: "pipe" },
+    {
+      cwd: runRoot,
+      encoding: "utf8",
+      stdio: "pipe",
+      env: { ...process.env, ...env },
+    },
   );
   return JSON.parse(output);
 }
@@ -40,33 +47,26 @@ async function writeJson(filePath: string, value: unknown) {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
 }
 
-async function createFakeZoteroBridge(runRoot: string) {
-  const binDir = path.join(runRoot, ".zotero-bridge", "bin");
-  await fs.mkdir(binDir, { recursive: true });
-  const fakeScript = path.join(binDir, "fake-zotero-bridge.cjs");
+async function createBridgeHarness(runRoot: string) {
+  const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
+  await fs.mkdir(fixtureRoot, { recursive: true });
+  const provider = path.join(fixtureRoot, "host-bridge-provider.cjs");
   await fs.writeFile(
-    fakeScript,
+    provider,
     [
       "const fs = require('fs');",
       "const path = require('path');",
-      "const args = process.argv.slice(2);",
-      "if (args.includes('--input')) { process.stderr.write('semantic reads must use --query'); process.exit(64); }",
-      "const queryIndex = args.indexOf('--query');",
-      "if (queryIndex < 0) { process.stderr.write('missing --query'); process.exit(64); }",
-      "const queryArg = args[queryIndex + 1];",
-      "const queryText = queryArg.startsWith('@') ? fs.readFileSync(path.resolve(process.cwd(), queryArg.slice(1)), 'utf8') : queryArg;",
-      "const input = JSON.parse(queryText);",
-      "const command = args.slice(0, queryIndex).join(' ');",
+      "const { command, input } = JSON.parse(process.argv[2]);",
       "fs.mkdirSync(path.join(process.cwd(), 'runtime', 'payloads'), { recursive: true });",
-      "function send(data) { process.stdout.write(JSON.stringify({ ok: true, data: { approval: 'none', data } })); }",
+      "function send(data) { process.stdout.write(JSON.stringify(data)); }",
       "if (command === 'synthesis resolver resolve') {",
       "  fs.appendFileSync(path.join(process.cwd(), 'runtime', 'host-resolver-inputs.jsonl'), JSON.stringify(input) + '\\n');",
-      "  send({ ok: true, papers: [{ paper_ref: '1:DETR', item_key: 'DETR', title: 'DETR', match_reasons: ['paper_refs'] }], diagnostics: { final_count: 1 } });",
+      "  send({ ok: true, candidates: [{ paper_ref: '1:DETR', item_key: 'DETR', title: 'DETR', match_reasons: ['paper_refs'] }], nextCursor: '', hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25), diagnostics: { final_count: 1 } });",
       "  process.exit(0);",
       "}",
       "if (command === 'synthesis graph get-metrics') {",
       "  const refs = input.paper_refs || input.paperRefs || [];",
-      "  send({ ok: true, status: 'ready', items: refs.map((paper_ref) => ({ paper_ref, status: 'ready' })) });",
+      "  send({ ok: true, status: 'ready', metrics: refs.map((paper_ref) => ({ paper_ref, status: 'ready' })), nextCursor: '', hasMore: false, returned: refs.length, total: refs.length, limit: Number(input.limit || 25) });",
       "  process.exit(0);",
       "}",
       "if (command === 'synthesis artifact export-filtered') {",
@@ -82,18 +82,15 @@ async function createFakeZoteroBridge(runRoot: string) {
     ].join("\n"),
     "utf8",
   );
-  await fs.writeFile(
-    path.join(binDir, "zotero-bridge.cmd"),
-    '@echo off\r\nnode "%~dp0\\fake-zotero-bridge.cjs" %*\r\n',
-    "utf8",
-  );
-  const posixShim = path.join(binDir, "zotero-bridge");
-  await fs.writeFile(
-    posixShim,
-    '#!/usr/bin/env sh\nexec node "$(dirname "$0")/fake-zotero-bridge.cjs" "$@"\n',
-    "utf8",
-  );
-  await fs.chmod(posixShim, 0o755);
+  return startHostBridgeCliFixtureHarness({
+    commands: [
+      "synthesis resolver resolve",
+      "synthesis graph get-metrics",
+      "synthesis artifact export-filtered",
+    ],
+    providerPath: provider,
+    cwd: runRoot,
+  });
 }
 
 function validateWithSchema(schemaText: string, value: unknown) {
@@ -185,63 +182,85 @@ describe("Topic synthesis runtime contract", function () {
       path.join(os.tmpdir(), "topic-synthesis-runtime-contract-"),
     );
     const dbPath = "runtime/topic-synthesis.sqlite";
-    await createFakeZoteroBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
+    const env = harness.env;
+    try {
+      runGate(
+        createPrepareRoot,
+        runRoot,
+        ["--db", dbPath, "--action", "run"],
+        env,
+      );
+      await writeJson(
+        path.join(runRoot, "runtime/payloads/topic-context.json"),
+        {
+          topic_title: "DETR-style Object Detection",
+          aliases: ["query detector"],
+          definition: "Query-based object detection methods derived from DETR.",
+          scope_include: ["DETR-style detection"],
+          scope_exclude: ["generic image classification"],
+          duplicate_status: "none",
+          duplicate_candidate_ids: [],
+          duplicate_reason: "",
+        },
+      );
+      runGate(
+        createPrepareRoot,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/topic-context.json",
+        ],
+        env,
+      );
 
-    runGate(createPrepareRoot, runRoot, ["--db", dbPath, "--action", "run"]);
-    await writeJson(path.join(runRoot, "runtime/payloads/topic-context.json"), {
-      topic_title: "DETR-style Object Detection",
-      aliases: ["query detector"],
-      definition: "Query-based object detection methods derived from DETR.",
-      scope_include: ["DETR-style detection"],
-      scope_exclude: ["generic image classification"],
-      duplicate_status: "none",
-      duplicate_candidate_ids: [],
-      duplicate_reason: "",
-    });
-    runGate(createPrepareRoot, runRoot, [
-      "--db",
-      dbPath,
-      "--action",
-      "submit",
-      "--payload",
-      "runtime/payloads/topic-context.json",
-    ]);
+      await writeJson(
+        path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
+        {
+          resolver: { paper_refs: ["1:DETR"], combine: "union" },
+          resolver_reasoning:
+            "Fixture resolver selects the representative DETR paper.",
+          operation_intent: "create",
+        },
+      );
+      const result = runGate(
+        createPrepareRoot,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/resolver-proposal.json",
+        ],
+        env,
+      );
 
-    await writeJson(
-      path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
-      {
-        resolver: { paper_refs: ["1:DETR"], combine: "union" },
-        resolver_reasoning:
-          "Fixture resolver selects the representative DETR paper.",
-        operation_intent: "create",
-      },
-    );
-    const result = runGate(createPrepareRoot, runRoot, [
-      "--db",
-      dbPath,
-      "--action",
-      "submit",
-      "--payload",
-      "runtime/payloads/resolver-proposal.json",
-    ]);
-
-    assert.deepEqual(result.result.paper_refs, ["1:DETR"]);
-    const hostInputs = await fs.readFile(
-      path.join(runRoot, "runtime/host-resolver-inputs.jsonl"),
-      "utf8",
-    );
-    assert.include(hostInputs, '"paper_refs":["1:DETR"]');
-    assert.notInclude(hostInputs, '"resolver"');
-    const manifest = JSON.parse(
-      await fs.readFile(
-        path.join(runRoot, "runtime/payloads/resolver.json"),
+      assert.deepEqual(result.result.paper_refs, ["1:DETR"]);
+      const hostInputs = await fs.readFile(
+        path.join(runRoot, "runtime/host-resolver-inputs.jsonl"),
         "utf8",
-      ),
-    );
-    assert.deepEqual(manifest.resolver, {
-      paper_refs: ["1:DETR"],
-      combine: "union",
-    });
+      );
+      assert.include(hostInputs, '"paper_refs":["1:DETR"]');
+      assert.notInclude(hostInputs, '"resolver"');
+      const manifest = JSON.parse(
+        await fs.readFile(
+          path.join(runRoot, "runtime/payloads/resolver.json"),
+          "utf8",
+        ),
+      );
+      assert.deepEqual(manifest.resolver, {
+        paper_refs: ["1:DETR"],
+        combine: "union",
+      });
+    } finally {
+      await harness.close();
+    }
   });
 
   it("keeps generated agent-facing instructions on the simplified resolver contract", async function () {

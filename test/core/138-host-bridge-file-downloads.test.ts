@@ -10,11 +10,18 @@ import {
   rotateHostBridgeMasterToken,
 } from "../../src/modules/hostBridgeServer";
 import {
+  acquireHostBridgeUploadedFileLease,
+  hasHostBridgeUploadedFileLease,
   registerHostBridgeExportFile,
   registerHostBridgeFileHandle,
+  registerHostBridgeUploadedFile,
   registerHostBridgeWorkflowArtifactFile,
+  releaseHostBridgeUploadedFileLease,
   resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+  resolveHostBridgeUploadedFile,
 } from "../../src/modules/hostBridgeFileRegistry";
+import { createHostBridgeWorkflowResourceApi } from "../../src/modules/hostBridgeWorkflowResources";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
   resetHostBridgePermissionManagerForTests,
@@ -109,7 +116,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -160,7 +167,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -189,7 +196,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 404);
@@ -214,7 +221,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 404);
@@ -240,7 +247,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -276,7 +283,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token: master.token,
         method: "GET",
-        path: `/bridge/v1/files/${descriptor.fileId}`,
+        path: `/bridge/v2/files/${descriptor.fileId}`,
       });
 
       assert.strictEqual(parsed.status, 200);
@@ -293,7 +300,7 @@ describe("host bridge file downloads", function () {
       const unknown = await bridgeRequest({
         token,
         method: "GET",
-        path: "/bridge/v1/files/file-missing",
+        path: "/bridge/v2/files/file-missing",
       });
       assert.strictEqual(unknown.status, 404);
       assert.strictEqual(unknown.json.error.code, "file_not_found");
@@ -301,7 +308,7 @@ describe("host bridge file downloads", function () {
       const pathLike = await bridgeRequest({
         token,
         method: "GET",
-        path: "/bridge/v1/files/..%2Fsecret.txt",
+        path: "/bridge/v2/files/..%2Fsecret.txt",
       });
       assert.strictEqual(pathLike.status, 400);
       assert.strictEqual(pathLike.json.error.code, "invalid_file_id");
@@ -315,13 +322,155 @@ describe("host bridge file downloads", function () {
       const expired = await bridgeRequest({
         token,
         method: "GET",
-        path: `/bridge/v1/files/${expiredDescriptor.fileId}`,
+        path: `/bridge/v2/files/${expiredDescriptor.fileId}`,
       });
       assert.strictEqual(expired.status, 410);
       assert.strictEqual(expired.json.error.code, "file_handle_expired");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("retains leased uploads through expiry and acquires each handle atomically", async function () {
+    const descriptor = await registerHostBridgeUploadedFile({
+      bytes: new TextEncoder().encode("leased input"),
+      displayName: "input.txt",
+      contentType: "text/plain",
+      ttlMs: 50,
+    });
+    const attempts = await Promise.allSettled([
+      acquireHostBridgeUploadedFileLease([descriptor.fileId]),
+      acquireHostBridgeUploadedFileLease([descriptor.fileId]),
+    ]);
+    const fulfilled = attempts.filter(
+      (
+        entry,
+      ): entry is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof acquireHostBridgeUploadedFileLease>>
+      > => entry.status === "fulfilled",
+    );
+    const rejected = attempts.filter(
+      (entry): entry is PromiseRejectedResult => entry.status === "rejected",
+    );
+    assert.lengthOf(fulfilled, 1);
+    assert.lengthOf(rejected, 1);
+    assert.strictEqual(
+      (rejected[0].reason as { code?: string }).code,
+      "file_handle_leased",
+    );
+    assert.isTrue(hasHostBridgeUploadedFileLease(descriptor.fileId));
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const resolved = await resolveHostBridgeUploadedFile(descriptor.fileId);
+    assert.strictEqual(resolved.descriptor.fileId, descriptor.fileId);
+
+    releaseHostBridgeUploadedFileLease(fulfilled[0].value.leaseId, false);
+    assert.isFalse(hasHostBridgeUploadedFileLease(descriptor.fileId));
+    try {
+      await resolveHostBridgeUploadedFile(descriptor.fileId);
+      assert.fail("expected the expired unleased handle to be rejected");
+    } catch (error) {
+      assert.strictEqual(
+        (error as { code?: string }).code,
+        "file_handle_expired",
+      );
+    }
+  });
+
+  it("invalidates process-scoped resource handles and leases after a registry restart", async function () {
+    const upload = await registerHostBridgeUploadedFile({
+      bytes: new TextEncoder().encode("restart input"),
+      displayName: "restart-input.txt",
+      contentType: "text/plain",
+    });
+    await acquireHostBridgeUploadedFileLease([upload.fileId]);
+    const { root, filePath } = await writeTempFile(
+      "restart-output.txt",
+      "restart output",
+    );
+    try {
+      const output = await registerHostBridgeWorkflowArtifactFile({
+        localPath: filePath,
+        workflowId: "restart-boundary-workflow",
+        displayName: "restart-output.txt",
+        contentType: "text/plain",
+      });
+
+      resetHostBridgeFileRegistryForTests();
+
+      assert.isFalse(hasHostBridgeUploadedFileLease(upload.fileId));
+      for (const fileId of [upload.fileId, output.fileId]) {
+        try {
+          await resolveHostBridgeFileDownload(fileId);
+          assert.fail("expected a process-scoped handle to be unavailable");
+        } catch (error) {
+          assert.strictEqual(
+            (error as { code?: string }).code,
+            "file_not_found",
+          );
+        }
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes workflow resource outputs through the existing download registry", async function () {
+    const resources = await createHostBridgeWorkflowResourceApi({
+      workflowId: "resource-output-workflow",
+      manifest: {
+        schemaVersion: 2,
+        id: "resource-output-workflow",
+        label: "Resource output workflow",
+        provider: "pass-through",
+        supportedInvocationModes: ["non-interactive"],
+        resourceRequirements: [
+          {
+            id: "report",
+            direction: "output",
+            kind: "file",
+            cardinality: "one",
+            required: true,
+            suggestedName: "report.txt",
+          },
+        ],
+      },
+      inputs: {},
+      outputBindings: {
+        report: { delivery: "bridge-download" },
+      },
+    });
+    const allocation = await resources.allocateOutput({
+      slotId: "report",
+      suggestedName: "report.txt",
+      contentType: "text/plain",
+    });
+    const secondAllocation = await resources.allocateOutput({
+      slotId: "report",
+      suggestedName: "report.txt",
+      contentType: "text/plain",
+    });
+    assert.notStrictEqual(secondAllocation.path, allocation.path);
+    await fs.writeFile(allocation.path, "workflow output", "utf8");
+    const output = await resources.publishOutput({
+      slotId: "report",
+      path: allocation.path,
+      displayName: "report.txt",
+      contentType: "text/plain",
+    });
+
+    assert.strictEqual(output.sourceKind, "workflow-artifact");
+    assert.strictEqual(output.slotId, "report");
+    assert.strictEqual(output.displayName, "report.txt");
+    assert.strictEqual(output.size, 15);
+    assert.match(output.sha256 || "", /^sha256:[a-f0-9]{64}$/);
+    assert.include(output.downloadCommand, output.fileId);
+    assert.notProperty(output, "path");
+    const resolved = await resolveHostBridgeFileDownload(output.fileId);
+    assert.strictEqual(
+      await fs.readFile(resolved.source.path, "utf8"),
+      "workflow output",
+    );
   });
 
   it("returns bridge-download attachment descriptors without local paths", async function () {
@@ -361,7 +510,7 @@ describe("host bridge file downloads", function () {
       const parsed = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/call",
+        path: "/bridge/v2/call",
         body: {
           capability: "library.get_item_attachments",
           input: { id: parent.id },

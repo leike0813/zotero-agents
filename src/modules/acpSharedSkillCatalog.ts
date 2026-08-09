@@ -41,6 +41,7 @@ export type AcpSharedSkillCatalog = {
     code: string;
     message: string;
   }>;
+  hostBridgePluginSkillBundle?: PluginSkillRegistrySnapshot["hostBridgePluginSkillBundle"];
 };
 
 function normalizeString(value: unknown) {
@@ -56,10 +57,20 @@ function fnv1a32(input: string) {
   return hash.toString(16).padStart(8, "0");
 }
 
-function buildCatalogId(entries: PluginSkillRegistryEntry[]) {
+function buildCatalogId(
+  entries: PluginSkillRegistryEntry[],
+  hostBridgePluginSkillBundle?: PluginSkillRegistrySnapshot["hostBridgePluginSkillBundle"],
+) {
   const key = entries
     .map((entry) => `${entry.skillId}:${entry.sourceKind}:${entry.checksum}`)
     .sort()
+    .concat(
+      hostBridgePluginSkillBundle
+        ? [
+            `host-bridge:${hostBridgePluginSkillBundle.identity.aggregateSha256}:${hostBridgePluginSkillBundle.identity.cli.version}:${hostBridgePluginSkillBundle.identity.cli.buildFingerprint}:${hostBridgePluginSkillBundle.identity.cli.commandCatalogChecksum}`,
+          ]
+        : [],
+    )
     .join("|");
   return `catalog-${fnv1a32(key)}`;
 }
@@ -86,7 +97,10 @@ async function buildAcpSharedSkillCatalogImpl(args: {
   const baseRoot =
     normalizeString(args.catalogRootDir) ||
     joinPath(getRuntimePersistencePaths().cacheDir, "acp-shared-skill-catalog");
-  const catalogId = buildCatalogId(effectiveEntries);
+  const catalogId = buildCatalogId(
+    effectiveEntries,
+    args.registry.hostBridgePluginSkillBundle,
+  );
   const catalogRoot = joinPath(baseRoot, catalogId);
   const skillsRoot = joinPath(catalogRoot, "skills");
   const indexPath = joinPath(catalogRoot, "zotero-skill-catalog.json");
@@ -139,6 +153,12 @@ async function buildAcpSharedSkillCatalogImpl(args: {
     schema: "zotero-skills.acp.shared-skill-catalog.v1",
     catalogId,
     generatedAt: new Date().toISOString(),
+    ...(args.registry.hostBridgePluginSkillBundle
+      ? {
+          hostBridgePluginSkillBundle:
+            args.registry.hostBridgePluginSkillBundle,
+        }
+      : {}),
     entries: entries.map((entry) => ({
       skillId: entry.skillId,
       skillName: entry.skillName,
@@ -167,6 +187,12 @@ async function buildAcpSharedSkillCatalogImpl(args: {
       entries.map((entry) => [entry.skillId, entry]),
     ),
     diagnostics,
+    ...(args.registry.hostBridgePluginSkillBundle
+      ? {
+          hostBridgePluginSkillBundle:
+            args.registry.hostBridgePluginSkillBundle,
+        }
+      : {}),
   };
 }
 
@@ -183,6 +209,7 @@ export function buildAcpSharedSkillCatalog(args: {
       entry.sourceKind,
       entry.checksum,
     ]),
+    hostBridgePluginSkillBundle: args.registry.hostBridgePluginSkillBundle,
   });
   const existing = catalogBuildInflight.get(key);
   if (existing) return existing;

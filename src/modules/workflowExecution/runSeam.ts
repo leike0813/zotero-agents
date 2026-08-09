@@ -274,6 +274,7 @@ function observeWorkflowRunTerminal(args: {
   requestKind: string;
   backendType: string;
   idlePromise: Promise<void>;
+  submissionLineage?: WorkflowSubmissionQueueExecutionContext;
 }) {
   return new Promise<void>((resolve) => {
     if (
@@ -403,6 +404,69 @@ function observeWorkflowRunTerminal(args: {
       return false;
     };
     const check = () => {
+      if (args.submissionLineage) {
+        const statuses = args.jobIds
+          .map((jobId) => {
+            const job = args.queue.getJob(jobId);
+            if (!job) return "";
+            if (args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+              const state = getSequenceRunState(`${args.runId}-${jobId}`);
+              const requestId = normalizeText(
+                [...(state?.steps || [])]
+                  .reverse()
+                  .find((step) => normalizeText(step.requestId))?.requestId,
+              );
+              if (requestId && args.backendType === "skillrunner") {
+                return normalizeText(
+                  getSkillRunnerRunRecordByRequest({
+                    backendId: state?.backendId || "",
+                    requestId,
+                  })?.status,
+                );
+              }
+              if (requestId && args.backendType === ACP_BACKEND_TYPE) {
+                return normalizeText(getAcpSkillRunRecord(requestId)?.status);
+              }
+            }
+            if (
+              args.requestKind === "skillrunner.job.v1" &&
+              args.backendType === "skillrunner"
+            ) {
+              return normalizeText(
+                getSkillRunnerRunRecord(
+                  buildSkillRunnerSingleRunKey({
+                    workflowRunId: args.runId,
+                    jobId,
+                  }),
+                )?.status,
+              );
+            }
+            if (args.backendType === ACP_BACKEND_TYPE) {
+              const requestId = normalizeText(
+                job.meta.requestId ||
+                  (job.result as { requestId?: unknown } | undefined)
+                    ?.requestId,
+              );
+              return normalizeText(getAcpSkillRunRecord(requestId)?.status);
+            }
+            return normalizeText(job.state);
+          })
+          .filter(Boolean);
+        if (statuses.some((status) => status === "waiting_user")) {
+          args.submissionLineage.slot.yield("waiting-user");
+        } else if (statuses.some((status) => status === "waiting_auth")) {
+          args.submissionLineage.slot.yield("waiting-auth");
+        } else if (statuses.some((status) => status === "failed_retriable")) {
+          args.submissionLineage.slot.yield("recoverable-failure");
+        } else if (
+          statuses.some(
+            (status) => status === "running" || status === "repairing",
+          ) &&
+          args.submissionLineage.slot.snapshot()?.state === "yielded"
+        ) {
+          void args.submissionLineage.slot.ensureSlot("remote-resume");
+        }
+      }
       if (!settled && args.jobIds.every(isTerminal)) {
         settle();
       }
@@ -548,6 +612,7 @@ export function runWorkflowExecutionSeam(
                     finalStep: stepApply.finalStep,
                     phase: "sequence-step",
                   },
+                  runtime: args.prepared.runtime,
                 });
               }
             : undefined;
@@ -586,6 +651,8 @@ export function runWorkflowExecutionSeam(
           workflowLabel,
           workflowRunId: `${runId}-${job.id}`,
           jobId: job.id,
+          submissionId: args.submissionLineage?.submissionId,
+          submissionUnitId: args.submissionLineage?.submissionUnitId,
           executeWithProvider: resolved.executeWithProvider,
           applySequenceStepResult,
           appendRuntimeLog: resolved.appendRuntimeLog,
@@ -601,6 +668,8 @@ export function runWorkflowExecutionSeam(
         workflowLabel,
         workflowRunId: runId,
         jobId: job.id,
+        submissionId: args.submissionLineage?.submissionId,
+        submissionUnitId: args.submissionLineage?.submissionUnitId,
       };
       if (
         __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -977,6 +1046,7 @@ export function runWorkflowExecutionSeam(
     requestKind: args.prepared.executionContext.requestKind,
     backendType: args.prepared.executionContext.backend.type,
     idlePromise,
+    submissionLineage: args.submissionLineage,
   });
 
   return {
@@ -992,5 +1062,7 @@ export function runWorkflowExecutionSeam(
       (args.prepared.preflight?.shortCircuitApplies.length || 0),
     idlePromise,
     terminalPromise,
+    runtime: args.prepared.runtime,
+    executionOptions: args.prepared.executionOptions,
   };
 }

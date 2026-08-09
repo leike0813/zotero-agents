@@ -77,6 +77,10 @@ import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
+  isWorkflowSettingsStructuralRefreshChange,
+  normalizeWorkflowSettingsDraftChangeOrigin,
+} from "./workflowSettingsDialogModel";
+import {
   compareWorkflowDisplayOrder,
   isCoreWorkflow,
   localizeWorkflowLabel,
@@ -902,26 +906,6 @@ function normalizeDraftChangedSection(raw: unknown) {
 
 function normalizeDraftChangedKey(raw: unknown) {
   return String(raw || "").trim();
-}
-
-function isWorkflowSettingsStructuralRefreshChange(args: {
-  changedSection: string;
-  changedKey: string;
-}) {
-  if (args.changedSection === "backend" && args.changedKey === "backendId") {
-    return true;
-  }
-  if (
-    args.changedSection === "providerOptions" &&
-    (args.changedKey === "engine" ||
-      args.changedKey === "provider_id" ||
-      args.changedKey === "model" ||
-      args.changedKey === "acpModelProvider" ||
-      args.changedKey === "acpModelId")
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function isSkillRunnerBackend(backend: BackendInstance) {
@@ -1836,6 +1820,10 @@ async function buildDashboardSnapshot(args: {
       "Runtime Logs",
     ),
     synthesisSidecarTabTitle: "Synthesis Sidecar",
+    synthesisSidecarCorrelationPlaceholder: localize(
+      "task-dashboard-synthesis-sidecar-correlation-placeholder",
+      "correlation / request / operation / attempt",
+    ),
     skillRunnerConnectionAuditTabTitle: "SkillRunner 连接审计",
     skillRunnerConnectionAuditTitle: "SkillRunner 连接审计",
     skillRunnerConnectionAuditEmpty: "暂无 SkillRunner 连接事件。",
@@ -3648,6 +3636,9 @@ export async function openTaskManagerDialog(args?: {
         payload.changedSection,
       );
       const changedKey = normalizeDraftChangedKey(payload.changedKey);
+      const changeOrigin = normalizeWorkflowSettingsDraftChangeOrigin(
+        payload.changedOrigin,
+      );
       if (!workflowId) {
         return;
       }
@@ -3693,6 +3684,7 @@ export async function openTaskManagerDialog(args?: {
         isWorkflowSettingsStructuralRefreshChange({
           changedSection,
           changedKey,
+          origin: changeOrigin,
         })
       ) {
         refresh("user-action");
@@ -4540,7 +4532,7 @@ export async function openTaskManagerDialog(args?: {
       const eventBackend =
         event.type === "added"
           ? event.entry
-          : event.type === "removed"
+          : event.type === "removed" || event.type === "slot-changed"
             ? event.backend
             : null;
       if (

@@ -1,4 +1,5 @@
 import { joinPath } from "../utils/path";
+import { config } from "../../package.json";
 import {
   type RuntimeWriteBytesOptions,
   readRuntimeBytes,
@@ -70,6 +71,30 @@ function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map(normalizeString).filter(Boolean)));
 }
 
+type PackagedAssetRoots = {
+  rootURI?: string;
+  resourceURI?: string;
+  rootPath?: string;
+};
+
+function resolveInstalledAddonPackagedAssetRoots(): PackagedAssetRoots {
+  try {
+    const runtime = globalThis as unknown as {
+      Zotero?: Record<
+        string,
+        {
+          data?: {
+            packagedAssets?: PackagedAssetRoots;
+          };
+        }
+      >;
+    };
+    return runtime.Zotero?.[config.addonInstance]?.data?.packagedAssets || {};
+  } catch {
+    return {};
+  }
+}
+
 export function resolveRuntimeRootURI() {
   try {
     if (typeof rootURI === "string") {
@@ -79,7 +104,10 @@ export function resolveRuntimeRootURI() {
     // Fall back to object property lookup below.
   }
   const runtime = globalThis as { rootURI?: string };
-  return normalizeString(runtime.rootURI);
+  return (
+    normalizeString(runtime.rootURI) ||
+    normalizeString(resolveInstalledAddonPackagedAssetRoots().rootURI)
+  );
 }
 
 export function resolveRuntimeResourceURI() {
@@ -91,7 +119,10 @@ export function resolveRuntimeResourceURI() {
     // Fall back to object property lookup below.
   }
   const runtime = globalThis as { resourceURI?: string };
-  return normalizeString(runtime.resourceURI);
+  return (
+    normalizeString(runtime.resourceURI) ||
+    normalizeString(resolveInstalledAddonPackagedAssetRoots().resourceURI)
+  );
 }
 
 export function resolveRuntimeRootPath() {
@@ -103,7 +134,10 @@ export function resolveRuntimeRootPath() {
     // Fall back to object property lookup below.
   }
   const runtime = globalThis as { rootPath?: string };
-  return normalizeString(runtime.rootPath);
+  return (
+    normalizeString(runtime.rootPath) ||
+    normalizeString(resolveInstalledAddonPackagedAssetRoots().rootPath)
+  );
 }
 
 export function resolveRuntimeCwd() {

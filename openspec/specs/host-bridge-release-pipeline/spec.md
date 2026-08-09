@@ -38,6 +38,8 @@ catalog, or CLI prebuild inputs change.
 
 The unified Host Bridge release workflow SHALL run the pinned seven-platform build matrix only when the prepared release plan reports changed CLI binary inputs or an explicit rebuild intent. Version and generated-file changes SHALL be prepared in the source change before publication; CI SHALL not create a version self-commit on `main`.
 
+The CLI build fingerprint SHALL include the exact canonical capability and command contract bytes embedded by Rust and SHALL exclude materialized Agent Surface output that the binary no longer consumes.
+
 #### Scenario: Surface-only change
 
 - **WHEN** only wrapper, Library Agent, Profile, semantic, schema, installer, or generated surface inputs change without changing CLI binary inputs
@@ -62,6 +64,24 @@ The unified Host Bridge release workflow SHALL run the pinned seven-platform bui
 
 - **WHEN** restored or built binaries do not match the prepared fingerprint and checksum set
 - **THEN** publication SHALL fail before creating or advancing any surface target.
+
+#### Scenario: Executable contract changes
+
+- **WHEN** either canonical runtime contract changes
+- **THEN** the CLI build fingerprint SHALL change and a new complete prebuild set SHALL be required before publication.
+
+#### Scenario: Only a generated command card changes
+
+- **WHEN** materialized Agent Surface content changes without a parser or executable contract change
+- **THEN** the CLI build fingerprint SHALL remain unchanged
+- **AND** content validation SHALL still require the derivative to match its source.
+
+### Requirement: Publication SHALL reject contract or derivative drift
+PR and release gates SHALL validate canonical contract structure, handler and command coverage, runtime descriptor parity, and materialized surface parity.
+
+#### Scenario: Source changes without its derivative
+- **WHEN** parser or executable contract source changes without regenerated command content
+- **THEN** publication SHALL fail before any immutable or mutable Host Bridge surface advances.
 
 ### Requirement: Surface Publishing Reuses Latest Prebuilds
 
@@ -361,7 +381,30 @@ validation, and artifact download.
 
 ### Requirement: Host Bridge publication SHALL validate governed Skill contracts
 The content gate SHALL structurally validate every Skill declared by the three surfaces before materialization and SHALL require semantic-surface review for minimum completeness, semantic-baseline parity, package-local uniqueness, reference coherence, and layer independence.
-
 #### Scenario: Invalid Skill blocks release preparation
+
 - **WHEN** a governed Skill has a long/missing trigger description, missing mandatory section, orphan reference, duplicated substantive prose, or generated target used as source
 - **THEN** Host Bridge content validation fails before release dispatch can be prepared
+
+### Requirement: Plugin release SHALL verify the matching complete Host Bridge release set
+
+A plugin release that bundles Host Bridge Skills and CLI assets SHALL require a complete Host Bridge receipt matching its source and release identities. The release SHALL verify the built XPI contains the exact manifest-declared seven-Skill inventory, byte digests, CLI identity, seven platform binaries, sidecars, and release manifest before publication.
+
+#### Scenario: Matching receipt is absent
+
+- **WHEN** plugin release preparation or publication cannot resolve a matching complete Host Bridge receipt
+- **THEN** the plugin release is blocked before publication
+
+#### Scenario: Built XPI drifts from the bundle manifest
+
+- **WHEN** the built XPI has a missing, extra, duplicate, digest-mismatched, traversal, or CLI-identity-mismatched Host Bridge asset
+- **THEN** the plugin release is blocked
+
+### Requirement: Host Bridge-only plugin changes SHALL not require Content Package release
+
+Changes confined to the plugin-owned Host Bridge Skill bundle or XPI verification SHALL be classified as plugin/Host Bridge release candidates and SHALL not independently require a Content Package release.
+
+#### Scenario: Change touches only bundled Host Bridge assets
+
+- **WHEN** release coordination evaluates a change limited to the addon Host Bridge bundle and its plugin-side consumers
+- **THEN** it requires the applicable plugin and Host Bridge gates but not Content Package publication

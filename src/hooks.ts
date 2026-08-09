@@ -16,7 +16,7 @@ import {
   ensureDefaultWorkflowDirExistsOnStartup,
   rescanWorkflowRegistry,
 } from "./modules/workflowRuntime";
-import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
+import { materializeHostBridgePluginSkillBundle } from "./modules/hostBridgePluginSkillBundle";
 import {
   checkContentPackageUpdate,
   clearContentPackageInstallProgress,
@@ -54,7 +54,9 @@ import {
   isLibraryArtifactsColumnInvalidationEvent,
   notifyLibraryArtifactsColumnItemsChanged,
   registerLibraryArtifactsColumn,
+  registerLibraryRatingColumn,
   unregisterLibraryArtifactsColumn,
+  unregisterLibraryRatingColumn,
 } from "./modules/libraryArtifactsColumn";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
@@ -824,8 +826,6 @@ async function onStartup() {
   installMarkdownAttachmentOpenProbe();
   registerZoteroPaneStylesheet();
 
-  const runtimeRootURI = resolveRuntimeRootURI();
-  setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
   const synthesisProductionReady = startDefaultSynthesisProductionOwner();
   void synthesisProductionReady.catch((error) => {
@@ -863,6 +863,14 @@ async function onStartup() {
     });
 
   await ensureDefaultWorkflowDirExistsOnStartup();
+  const hostBridgeSkillBundle = await materializeHostBridgePluginSkillBundle();
+  if (!hostBridgeSkillBundle.ok) {
+    Zotero.logError(
+      new Error(
+        `[host-bridge-plugin-skill-bundle] ${hostBridgeSkillBundle.error}`,
+      ),
+    );
+  }
   await rescanWorkflowRegistry();
   reconcileRecoveredRuntimeTasksOnStartup();
   workflowSubmissionQueue.start();
@@ -890,6 +898,7 @@ async function onStartup() {
 
   registerPrefsPane();
   await registerLibraryArtifactsColumn();
+  await registerLibraryRatingColumn();
   registerLibraryArtifactsNotifierObserver();
 
   await Promise.all(
@@ -1227,6 +1236,7 @@ async function onShutdown(): Promise<void> {
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
   unregisterLibraryArtifactsNotifierObserver();
+  await unregisterLibraryRatingColumn();
   await unregisterLibraryArtifactsColumn();
   uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
@@ -1731,7 +1741,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         await writeHostBridgeWellKnownProfile({
           endpoint:
             server.bindMode === "lan"
-              ? `http://127.0.0.1:${server.port}/bridge/v1`
+              ? `http://127.0.0.1:${server.port}/bridge/v2`
               : server.endpoint,
           token: rotated.token,
           updatedAt: rotated.rotatedAt,

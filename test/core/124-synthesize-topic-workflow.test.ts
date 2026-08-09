@@ -533,9 +533,13 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(prepareText, "synthesis topic list");
-    assert.include(prepareText, "synthesis resolver resolve");
-    assert.include(prepareText, "synthesis artifact export-filtered");
+    assert.include(prepareText, "references/command-catalog.md");
+    assert.include(prepareText, "references/commands/<command-path>.md");
+    assert.include(prepareText, "surface describe '<canonical command>'");
+    assert.match(
+      prepareText,
+      /runtime 负责 resolver、citation metrics 和 filtered artifact export cascade/,
+    );
     assert.include(prepareText, "topic_synthesis_canceled");
     assert.include(coreText, "source_paper_refs");
     assert.include(coreText, "improvement dimensions");
@@ -696,16 +700,20 @@ describe("Synthesize topic workflow contract", function () {
     }
 
     assert.include(createPrepare, "topic seed");
-    assert.include(createPrepare, "synthesis topic list");
-    assert.include(createPrepare, "synthesis resolver resolve");
-    assert.include(createPrepare, "synthesis index library get");
-    assert.include(createPrepare, "synthesis graph get-metrics");
+    assert.include(createPrepare, "references/command-catalog.md");
+    assert.include(createPrepare, "references/commands/<command-path>.md");
+    assert.include(createPrepare, "surface describe '<canonical command>'");
+    assert.match(
+      createPrepare,
+      /runtime 负责 resolver、citation metrics 和 filtered artifact export cascade/,
+    );
     assert.include(createPrepare, "duplicate check");
     assert.notInclude(createPrepare, "update_full");
     assert.notInclude(createPrepare, "update_patch");
 
     assert.include(updatePrepare, "update topic synthesis workflow");
-    assert.include(updatePrepare, "synthesis topic get-context");
+    assert.include(updatePrepare, "update preflight");
+    assert.include(updatePrepare, "updated resolver cascade");
     assert.include(updatePrepare, "update-audit-report.json");
     assert.notInclude(updatePrepare, "synthesis topic list --input '{}'");
 
@@ -727,7 +735,11 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(skillText, "synthesis topic get-context");
+    assert.include(skillText, "references/command-catalog.md");
+    assert.include(skillText, "references/commands/<command-path>.md");
+    assert.include(skillText, "surface describe '<canonical command>'");
+    assert.include(skillText, "update preflight");
+    assert.include(skillText, "updated resolver cascade");
     assert.include(skillText, "update-audit-report.json");
     assert.include(skillText, "update_full");
     assert.include(skillText, "update_decision");

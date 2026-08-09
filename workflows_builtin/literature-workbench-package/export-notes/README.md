@@ -2,7 +2,7 @@
 
 ## 这个 Workflow 做什么？
 
-将 [Literature Analysis](../literature-analysis/README.md) 生成的三种分析笔记（摘要、参考文献、引文分析）导出为独立文件。方便分享给协作者、在其他 Zotero 实例中恢复、或备份分析产物。
+将 [Literature Analysis](../literature-analysis/README.md) 生成的四种分析笔记（摘要、参考文献、引文分析、论文评分）导出为独立文件。方便分享给协作者、在其他 Zotero 实例中恢复、或备份分析产物。
 
 ## 前置准备
 
@@ -10,7 +10,7 @@
 
 ## 怎么输入？
 
-- **选中父条目**、或者**直接选中三类分析 note**，都可以触发
+- **选中父条目**、或者**直接选中四类分析 note**，都可以触发
 - 支持多选：一次选择多个条目/note，只弹一次导出目录选择窗口
 - 选中父条目时，插件自动定位其下的分析 note
 
@@ -33,6 +33,7 @@
 | `references.json` | 参考文献列表 JSON |
 | `citation_analysis.json` | 引文分析数据 JSON |
 | `citation_analysis.md` | 引文分析报告 Markdown |
+| `literature_score.json` | 原始论文评分 JSON |
 
 代表图以 `zs:representative-image:v1` Markdown 注释块引用同目录的图片文件。图片导出失败不阻塞文本产物的导出。
 

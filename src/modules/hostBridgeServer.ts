@@ -8,7 +8,9 @@ import {
   rotateHostBridgeToken as rotateStoredHostBridgeToken,
 } from "./hostBridgeAuth";
 import {
+  executeHostBridgeCapability,
   getHostBridgeCapability,
+  HostBridgeCapabilityContractError,
   HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
@@ -16,6 +18,7 @@ import {
   SynthesisClientError,
   type SynthesisClient,
 } from "../../packages/synthesis-contracts/src/index";
+import { validateHostBridgeCapabilityInput } from "./hostBridgeCapabilityContract";
 import {
   describeHostBridgeWorkflow,
   requirementsForHostBridgeWorkflow,
@@ -33,6 +36,8 @@ import {
   describeHostBridgeProviderProfile,
   listHostBridgeProviderProfiles,
   validateHostBridgeProviderProfile,
+  getHostBridgeWorkflowDefaults,
+  refreshHostBridgeProviderProfile,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -374,7 +379,7 @@ function clearConnectionInitializationError() {
 }
 
 function buildEndpoint(host: string, port: number) {
-  return `http://${host}:${port}/bridge/v1`;
+  return `http://${host}:${port}/bridge/v2`;
 }
 
 function normalizeAdvertisedHost(value: unknown) {
@@ -417,7 +422,7 @@ function hostAccessRoutes(bindMode = state.bindMode, port = state.port) {
   const mcpBridgeEndpoint =
     bindMode === "lan" ? buildRemoteEndpoint(port) || hostBridge : hostBridge;
   const mcp = String(mcpBridgeEndpoint || "").replace(
-    /\/bridge\/v1\/?$/,
+    /\/bridge\/v2\/?$/,
     "/mcp",
   );
   return {
@@ -641,7 +646,7 @@ function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
     contentLength > 0 ? bodyBytes.slice(0, contentLength) : new Uint8Array();
   const body = decodeUtf8Body(boundedBodyBytes);
   const bodyParseError =
-    body === null && parsedPath.path !== "/bridge/v1/files/upload"
+    body === null && parsedPath.path !== "/bridge/v2/files/upload"
       ? "invalid_utf8_body"
       : "";
   return {
@@ -708,14 +713,14 @@ function operationIdFromRequest(request: HttpRequest) {
 }
 
 function isOperationReceiptPath(path: string) {
-  return path.startsWith("/bridge/v1/operations/");
+  return path.startsWith("/bridge/v2/operations/");
 }
 
 function isStateChangingHostBridgeRequest(request: HttpRequest) {
   if (request.method === "GET" || isOperationReceiptPath(request.path)) {
     return false;
   }
-  if (request.path === "/bridge/v1/call") {
+  if (request.path === "/bridge/v2/call") {
     try {
       const payload = parseJsonBody(request.body) as HostBridgeCallRequest;
       return (
@@ -727,15 +732,15 @@ function isStateChangingHostBridgeRequest(request: HttpRequest) {
     }
   }
   const exact = new Set([
-    "/bridge/v1/context/selection/open",
-    "/bridge/v1/context/items/open",
-    "/bridge/v1/context/collections/open",
-    "/bridge/v1/context/notes/open",
-    "/bridge/v1/workflows/submit",
-    "/bridge/v1/workflows/agent-run",
-    "/bridge/v1/notifications/ack",
-    "/bridge/v1/synthesis/cache/invalidate",
-    "/bridge/v1/files/upload",
+    "/bridge/v2/context/selection/open",
+    "/bridge/v2/context/items/open",
+    "/bridge/v2/context/collections/open",
+    "/bridge/v2/context/notes/open",
+    "/bridge/v2/workflows/submit",
+    "/bridge/v2/workflows/agent-run",
+    "/bridge/v2/notifications/ack",
+    "/bridge/v2/synthesis/cache/invalidate",
+    "/bridge/v2/files/upload",
   ]);
   if (exact.has(request.path)) return true;
   return (
@@ -804,6 +809,13 @@ function workflowValidationErrorCode(
     code === "provider_profile_option_invalid" ||
     code === "provider_profile_option_unavailable" ||
     code === "workflow_provider_incompatible" ||
+    code === "workflow_resource_missing" ||
+    code === "workflow_resource_ineligible" ||
+    code === "workflow_resource_mismatch" ||
+    code === "workflow_resource_output_invalid" ||
+    code === "invalid_workflow_resource_bindings" ||
+    code === "workflow_interaction_required" ||
+    code === "workflow_conflict_requires_policy" ||
     code === "missing_required_workflow_parameter"
     ? code
     : fallback;
@@ -812,13 +824,19 @@ function workflowValidationErrorCode(
 function workflowValidationErrorDetails(error: unknown) {
   const requiredFields = (error as { requiredFields?: unknown })
     ?.requiredFields;
-  return Array.isArray(requiredFields)
-    ? {
-        requiredFields: requiredFields
-          .map((entry) => String(entry || "").trim())
-          .filter(Boolean),
-      }
-    : undefined;
+  const details =
+    (error as { details?: Record<string, unknown> | undefined })?.details || {};
+  const normalized = {
+    ...details,
+    ...(Array.isArray(requiredFields)
+      ? {
+          requiredFields: requiredFields
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean),
+        }
+      : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function parsePermissionScopeHeader(request: HttpRequest) {
@@ -1387,7 +1405,7 @@ function buildFileHttpResponse(args: {
 }
 
 function isBridgePath(path: string) {
-  return path === "/bridge/v1" || path.startsWith("/bridge/v1/");
+  return path === "/bridge/v2" || path.startsWith("/bridge/v2/");
 }
 
 function isMcpPath(path: string) {
@@ -1461,12 +1479,12 @@ function manifest(request?: HttpRequest) {
       supported: true,
       approvalRequired: false,
       endpoints: [
-        "GET /bridge/v1/context/current",
-        "GET /bridge/v1/context/selection",
-        "POST /bridge/v1/context/selection/open",
-        "POST /bridge/v1/context/items/open",
-        "POST /bridge/v1/context/collections/open",
-        "POST /bridge/v1/context/notes/open",
+        "GET /bridge/v2/context/current",
+        "GET /bridge/v2/context/selection",
+        "POST /bridge/v2/context/selection/open",
+        "POST /bridge/v2/context/items/open",
+        "POST /bridge/v2/context/collections/open",
+        "POST /bridge/v2/context/notes/open",
       ],
     },
     fileDownloads: {
@@ -1474,7 +1492,7 @@ function manifest(request?: HttpRequest) {
     },
     fileUploads: {
       supported: true,
-      endpoint: "POST /bridge/v1/files/upload",
+      endpoint: "POST /bridge/v2/files/upload",
       auth: "bearer",
       maxBytes: MAX_UPLOAD_BODY_BYTES,
       arbitraryPathAllowed: false,
@@ -1553,6 +1571,31 @@ async function callCapability(
     );
   }
 
+  const normalizedInput = payload.input ?? {};
+  const inputViolations = validateHostBridgeCapabilityInput(
+    capabilityName,
+    normalizedInput,
+  );
+  if (inputViolations.length) {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_capability_input",
+        "Capability input does not satisfy its executable contract",
+        "validation",
+        {
+          schema: "host-bridge.argument-error.v1",
+          phase: "capability_input",
+          capability: capabilityName,
+          violations: inputViolations,
+          truncated: inputViolations.length >= 8,
+        },
+      ),
+      "invalid_capability_input",
+    );
+  }
+
   try {
     const permissionScope = parsePermissionScopeHeader(request);
     const autoApprovedWrite =
@@ -1561,7 +1604,7 @@ async function callCapability(
     if (capability.approval !== "none" && !autoApprovedWrite) {
       const approvalPrompt = buildCapabilityApprovalPrompt(
         capability,
-        payload.input,
+        normalizedInput,
       );
       await requestHostBridgePermission({
         action: capability.name,
@@ -1570,13 +1613,17 @@ async function callCapability(
         scope: permissionScope,
       });
     }
-    const data = await capability.handler(payload.input, {
-      getStatus: getHostBridgeServerStatus,
-      connectionMode: parseConnectionModeHeader(request, transportContext),
-      ...(synthesisClientResolverForTests
-        ? { resolveSynthesisClient: synthesisClientResolverForTests }
-        : {}),
-    });
+    const data = await executeHostBridgeCapability(
+      capability.name,
+      normalizedInput,
+      {
+        getStatus: getHostBridgeServerStatus,
+        connectionMode: parseConnectionModeHeader(request, transportContext),
+        ...(synthesisClientResolverForTests
+          ? { resolveSynthesisClient: synthesisClientResolverForTests }
+          : {}),
+      },
+    );
     return response(
       200,
       "OK",
@@ -1587,6 +1634,26 @@ async function callCapability(
       }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCapabilityContractError) {
+      const inputError = error.code === "invalid_capability_input";
+      return response(
+        inputError ? 400 : 500,
+        inputError ? "Bad Request" : "Internal Server Error",
+        hostBridgeError(
+          error.code,
+          error.message,
+          inputError ? "validation" : "internal",
+          {
+            schema: "host-bridge.argument-error.v1",
+            phase: inputError ? "capability_input" : "command_result",
+            capability: capability.name,
+            violations: error.violations,
+            truncated: error.violations.length >= 8,
+          },
+        ),
+        error.code,
+      );
+    }
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
     }
@@ -2016,7 +2083,8 @@ async function inspectProfile(
     name: entry.name,
     category: entry.category,
     approval: entry.approval,
-    input: entry.input.type,
+    inputSchema: entry.inputSchema,
+    outputSchema: entry.outputSchema,
   }));
   return response(
     200,
@@ -2082,7 +2150,7 @@ async function getBackendStatus(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Backend status endpoint only supports GET", "GET");
   }
-  const prefix = "/bridge/v1/diagnostics/backends/";
+  const prefix = "/bridge/v2/diagnostics/backends/";
   const backendId = safeDecodeURIComponent(request.path.slice(prefix.length));
   if (!backendId) {
     return response(
@@ -2359,6 +2427,97 @@ async function validateProviderProfile(request: HttpRequest) {
   }
 }
 
+async function workflowDefaults(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow defaults endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: { workflowId?: unknown };
+  try {
+    payload = parseJsonBody(request.body) as { workflowId?: unknown };
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_defaults_request",
+        "Workflow defaults request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_defaults_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await getHostBridgeWorkflowDefaults(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_defaults_request",
+    );
+    const status = code === "workflow_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(code, errorMessage(error), "validation"),
+      code,
+    );
+  }
+}
+
+async function refreshProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile refresh endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: { backendId?: unknown };
+  try {
+    payload = parseJsonBody(request.body) as { backendId?: unknown };
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile_request",
+        "Provider profile refresh request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await refreshHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "provider_profile_refresh_failed",
+    );
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
+    );
+  }
+}
+
 async function workflowRequirements(request: HttpRequest) {
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -2458,8 +2617,9 @@ async function submitWorkflow(request: HttpRequest) {
             workflowRunId: result.workflowRunId,
             totalJobs: result.totalJobs,
             permission: result.permission,
-            runUrl: `/bridge/v1/workflows/runs/${encodeURIComponent(result.workflowRunId)}`,
-            tasksUrl: `/bridge/v1/tasks?runId=${encodeURIComponent(result.workflowRunId)}`,
+            resourceOutputs: result.resourceOutputs,
+            runUrl: `/bridge/v2/workflows/runs/${encodeURIComponent(result.workflowRunId)}`,
+            tasksUrl: `/bridge/v2/tasks?runId=${encodeURIComponent(result.workflowRunId)}`,
           }
         : result;
     return response(
@@ -2583,7 +2743,7 @@ async function agentRunWorkflow(request: HttpRequest) {
 }
 
 async function applyAgentRunWorkflow(request: HttpRequest) {
-  const prefix = "/bridge/v1/workflows/agent-runs/";
+  const prefix = "/bridge/v2/workflows/agent-runs/";
   const suffix = "/apply";
   const encoded = request.path.slice(prefix.length, -suffix.length);
   const agentRunId = safeDecodeURIComponent(encoded) || "";
@@ -2666,7 +2826,7 @@ async function applyAgentRunWorkflow(request: HttpRequest) {
       "OK",
       hostBridgeOk({
         ...boundedResult,
-        receiptUrl: `/bridge/v1/workflows/agent-runs/${encodeURIComponent(agentRunId)}/apply`,
+        receiptUrl: `/bridge/v2/workflows/agent-runs/${encodeURIComponent(agentRunId)}/apply`,
       }),
     );
   } catch (error) {
@@ -2687,7 +2847,7 @@ async function changeAgentRunWorkflowLifecycle(
       "POST",
     );
   }
-  const prefix = "/bridge/v1/workflows/agent-runs/";
+  const prefix = "/bridge/v2/workflows/agent-runs/";
   const suffix = `/${action}`;
   const encoded = request.path.slice(prefix.length, -suffix.length);
   const agentRunId = safeDecodeURIComponent(encoded) || "";
@@ -2706,7 +2866,7 @@ async function getWorkflowRun(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow run endpoint only supports GET", "GET");
   }
-  const prefix = "/bridge/v1/workflows/runs/";
+  const prefix = "/bridge/v2/workflows/runs/";
   const runId = safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
   const status = getHostBridgeWorkflowRunStatus(runId);
   if (!status.found) {
@@ -2921,7 +3081,7 @@ async function cancelWorkflowRun(request: HttpRequest) {
       "POST",
     );
   }
-  const prefix = "/bridge/v1/workflows/runs/";
+  const prefix = "/bridge/v2/workflows/runs/";
   const suffix = "/cancel";
   const encoded = request.path.slice(prefix.length, -suffix.length);
   const workflowRunId = safeDecodeURIComponent(encoded) || "";
@@ -2995,7 +3155,7 @@ async function getWorkflowSubmission(request: HttpRequest) {
       "GET",
     );
   }
-  const prefix = "/bridge/v1/workflows/submissions/";
+  const prefix = "/bridge/v2/workflows/submissions/";
   const submissionId =
     safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
   try {
@@ -3032,7 +3192,7 @@ async function cancelWorkflowQueueUnit(request: HttpRequest) {
       "POST",
     );
   }
-  const prefix = "/bridge/v1/workflows/queue/";
+  const prefix = "/bridge/v2/workflows/queue/";
   const suffix = "/cancel";
   const queueId =
     safeDecodeURIComponent(request.path.slice(prefix.length, -suffix.length)) ||
@@ -3241,7 +3401,7 @@ async function getPermission(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Permission get endpoint only supports GET", "GET");
   }
-  const prefix = "/bridge/v1/permissions/";
+  const prefix = "/bridge/v2/permissions/";
   const permissionRequestId =
     safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
   const permission = getHostBridgePermissionProjection(permissionRequestId);
@@ -3547,7 +3707,7 @@ async function ackNotifications(request: HttpRequest) {
 }
 
 function skillRunPathParts(path: string) {
-  const prefix = "/bridge/v1/skill-runs/";
+  const prefix = "/bridge/v2/skill-runs/";
   const rest = path.slice(prefix.length);
   const parts = rest.split("/");
   return {
@@ -3704,7 +3864,7 @@ async function downloadFile(request: HttpRequest): Promise<RawHttpResponse> {
   if (request.method !== "GET") {
     return methodNotAllowed("File download endpoint only supports GET", "GET");
   }
-  const prefix = "/bridge/v1/files/";
+  const prefix = "/bridge/v2/files/";
   const fileId =
     safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
   try {
@@ -3834,7 +3994,8 @@ async function getSynthesisCacheStatus(
         "capability_not_found",
       );
     }
-    const data = await capability.handler(
+    const data = await executeHostBridgeCapability(
+      capability.name,
       { operation_id: operationId },
       {
         getStatus: getHostBridgeServerStatus,
@@ -3977,7 +4138,7 @@ async function handleHttpRequestImpl(
     );
   }
 
-  if (request.path === "/bridge/v1/health") {
+  if (request.path === "/bridge/v2/health") {
     if (request.method !== "GET") {
       return response(
         405,
@@ -4008,7 +4169,7 @@ async function handleHttpRequestImpl(
   }
 
   if (
-    request.path !== "/bridge/v1/files/upload" &&
+    request.path !== "/bridge/v2/files/upload" &&
     (request.bodyByteLength || 0) > MAX_REQUEST_BODY_BYTES
   ) {
     return response(
@@ -4031,7 +4192,7 @@ async function handleHttpRequestImpl(
         "GET",
       );
     }
-    const prefix = "/bridge/v1/operations/";
+    const prefix = "/bridge/v2/operations/";
     const operationId =
       safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
     const record = getHostBridgeOperation(operationId);
@@ -4121,7 +4282,7 @@ async function handleHttpRequestImpl(
   }
 
   const dispatchAuthorizedRequest = async (): Promise<RawHttpResponse> => {
-    if (request.path === "/bridge/v1/manifest") {
+    if (request.path === "/bridge/v2/manifest") {
       if (request.method !== "GET") {
         return response(
           405,
@@ -4145,190 +4306,198 @@ async function handleHttpRequestImpl(
       }
     }
 
-    if (request.path === "/bridge/v1/diagnostics/profile") {
+    if (request.path === "/bridge/v2/diagnostics/profile") {
       return inspectProfile(request, transportContext);
     }
 
-    if (request.path === "/bridge/v1/diagnostics/profile/diagnose") {
+    if (request.path === "/bridge/v2/diagnostics/profile/diagnose") {
       return diagnoseProfile(request);
     }
 
-    if (request.path === "/bridge/v1/diagnostics/backends") {
+    if (request.path === "/bridge/v2/diagnostics/backends") {
       return listBackends(request);
     }
 
-    if (request.path.startsWith("/bridge/v1/diagnostics/backends/")) {
+    if (request.path.startsWith("/bridge/v2/diagnostics/backends/")) {
       return getBackendStatus(request);
     }
 
-    if (request.path === "/bridge/v1/call") {
+    if (request.path === "/bridge/v2/call") {
       return callCapability(request, transportContext);
     }
 
-    if (request.path === "/bridge/v1/context/current") {
+    if (request.path === "/bridge/v2/context/current") {
       return getCurrentContext(request);
     }
 
-    if (request.path === "/bridge/v1/context/selection") {
+    if (request.path === "/bridge/v2/context/selection") {
       return getCurrentSelection(request);
     }
 
-    if (request.path === "/bridge/v1/context/selection/open") {
+    if (request.path === "/bridge/v2/context/selection/open") {
       return openContextSelection(request);
     }
 
-    if (request.path === "/bridge/v1/context/items/open") {
+    if (request.path === "/bridge/v2/context/items/open") {
       return openContextItem(request);
     }
 
-    if (request.path === "/bridge/v1/context/collections/open") {
+    if (request.path === "/bridge/v2/context/collections/open") {
       return openContextCollection(request);
     }
 
-    if (request.path === "/bridge/v1/context/notes/open") {
+    if (request.path === "/bridge/v2/context/notes/open") {
       return openContextNote(request);
     }
 
-    if (request.path === "/bridge/v1/workflows") {
+    if (request.path === "/bridge/v2/workflows") {
       return listWorkflows(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/describe") {
+    if (request.path === "/bridge/v2/workflows/describe") {
       return describeWorkflow(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/provider-profiles") {
+    if (request.path === "/bridge/v2/workflows/provider-profiles") {
       return listProviderProfiles(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/provider-profiles/describe") {
+    if (request.path === "/bridge/v2/workflows/provider-profiles/describe") {
       return describeProviderProfile(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/provider-profiles/validate") {
+    if (request.path === "/bridge/v2/workflows/provider-profiles/validate") {
       return validateProviderProfile(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/validate") {
+    if (request.path === "/bridge/v2/workflows/provider-profiles/refresh") {
+      return refreshProviderProfile(request);
+    }
+
+    if (request.path === "/bridge/v2/workflows/defaults") {
+      return workflowDefaults(request);
+    }
+
+    if (request.path === "/bridge/v2/workflows/validate") {
       return validateWorkflow(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/requirements") {
+    if (request.path === "/bridge/v2/workflows/requirements") {
       return workflowRequirements(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/submit") {
+    if (request.path === "/bridge/v2/workflows/submit") {
       return submitWorkflow(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/queue") {
+    if (request.path === "/bridge/v2/workflows/queue") {
       return listWorkflowQueue(request);
     }
 
     if (
-      request.path.startsWith("/bridge/v1/workflows/queue/") &&
+      request.path.startsWith("/bridge/v2/workflows/queue/") &&
       request.path.endsWith("/cancel")
     ) {
       return cancelWorkflowQueueUnit(request);
     }
 
-    if (request.path.startsWith("/bridge/v1/workflows/submissions/")) {
+    if (request.path.startsWith("/bridge/v2/workflows/submissions/")) {
       return getWorkflowSubmission(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/agent-run") {
+    if (request.path === "/bridge/v2/workflows/agent-run") {
       return agentRunWorkflow(request);
     }
 
     if (
-      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.startsWith("/bridge/v2/workflows/agent-runs/") &&
       request.path.endsWith("/apply")
     ) {
       return applyAgentRunWorkflow(request);
     }
 
     if (
-      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.startsWith("/bridge/v2/workflows/agent-runs/") &&
       request.path.endsWith("/renew")
     ) {
       return changeAgentRunWorkflowLifecycle(request, "renew");
     }
 
     if (
-      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.startsWith("/bridge/v2/workflows/agent-runs/") &&
       request.path.endsWith("/abandon")
     ) {
       return changeAgentRunWorkflowLifecycle(request, "abandon");
     }
 
     if (
-      request.path.startsWith("/bridge/v1/workflows/runs/") &&
+      request.path.startsWith("/bridge/v2/workflows/runs/") &&
       request.path.endsWith("/cancel")
     ) {
       return cancelWorkflowRun(request);
     }
 
-    if (request.path === "/bridge/v1/workflows/runs") {
+    if (request.path === "/bridge/v2/workflows/runs") {
       return listWorkflowRuns(request);
     }
 
-    if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
+    if (request.path.startsWith("/bridge/v2/workflows/runs/")) {
       return getWorkflowRun(request);
     }
 
-    if (request.path === "/bridge/v1/tasks/active") {
+    if (request.path === "/bridge/v2/tasks/active") {
       return listActiveTasks(request);
     }
 
-    if (request.path === "/bridge/v1/tasks/recent") {
+    if (request.path === "/bridge/v2/tasks/recent") {
       return listRecentTasks(request);
     }
 
-    if (request.path === "/bridge/v1/tasks") {
+    if (request.path === "/bridge/v2/tasks") {
       return listTasks(request);
     }
 
-    if (request.path === "/bridge/v1/permissions/pending") {
+    if (request.path === "/bridge/v2/permissions/pending") {
       return listPendingPermissions(request);
     }
 
-    if (request.path.startsWith("/bridge/v1/permissions/")) {
+    if (request.path.startsWith("/bridge/v2/permissions/")) {
       return getPermission(request);
     }
 
-    if (request.path === "/bridge/v1/notifications") {
+    if (request.path === "/bridge/v2/notifications") {
       return listNotifications(request);
     }
 
-    if (request.path === "/bridge/v1/notifications/ack") {
+    if (request.path === "/bridge/v2/notifications/ack") {
       return ackNotifications(request);
     }
 
-    if (request.path === "/bridge/v1/skill-runs/recent") {
+    if (request.path === "/bridge/v2/skill-runs/recent") {
       return listRecentSkillRuns(request);
     }
 
-    if (request.path.startsWith("/bridge/v1/skill-runs/")) {
+    if (request.path.startsWith("/bridge/v2/skill-runs/")) {
       return handleSkillRun(request);
     }
 
-    if (request.path === "/bridge/v1/synthesis/cache/status") {
+    if (request.path === "/bridge/v2/synthesis/cache/status") {
       return getSynthesisCacheStatus(request, transportContext);
     }
 
-    if (request.path === "/bridge/v1/synthesis/cache/invalidate") {
+    if (request.path === "/bridge/v2/synthesis/cache/invalidate") {
       return invalidateSynthesisCache(request);
     }
 
-    if (request.path === "/bridge/v1/synthesis/index/status") {
+    if (request.path === "/bridge/v2/synthesis/index/status") {
       return getSynthesisIndexStatus(request);
     }
 
-    if (request.path === "/bridge/v1/files/upload") {
+    if (request.path === "/bridge/v2/files/upload") {
       return uploadFile(request);
     }
 
-    if (request.path.startsWith("/bridge/v1/files/")) {
+    if (request.path.startsWith("/bridge/v2/files/")) {
       return downloadFile(request);
     }
 

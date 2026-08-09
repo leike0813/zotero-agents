@@ -86,6 +86,7 @@ import {
 } from "./synthesis/builtinTagPolicy";
 import { readSynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import { openTaskManagerDialog } from "./taskManagerDialog";
+import { isSynthesisLiteratureScoreInvalidationEvent } from "./synthesis/itemObserver";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -165,6 +166,10 @@ type SynthesisWorkbenchRuntime = {
   latestSurfaceRequestBySurface: Partial<
     Record<SynthesisWorkbenchSurfaceName, number>
   >;
+  inFlightSurfaceRefreshes: Partial<
+    Record<SynthesisWorkbenchSurfaceName, Promise<void>>
+  >;
+  queuedServiceSurfaceRefreshes: Set<SynthesisWorkbenchSurfaceName>;
   libraryReadModelRevision: number;
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
@@ -186,6 +191,7 @@ type SurfaceRefreshRequestMeta = {
   surface: SynthesisWorkbenchSurfaceName;
   selectedTabAtRequest: SynthesisUiTab;
   refreshFromService: boolean;
+  libraryReadModelRevision: number;
   startedAt: string;
 };
 
@@ -202,6 +208,7 @@ function beginSurfaceRefreshRequest(
     surface,
     selectedTabAtRequest: runtime.state.selectedTab,
     refreshFromService,
+    libraryReadModelRevision: runtime.libraryReadModelRevision,
     startedAt: new Date().toISOString(),
   };
 }
@@ -605,9 +612,14 @@ function mergeRuntimeSnapshotInput(
 function markSurfaceLoaded(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
+  libraryReadModelRevision = runtime.libraryReadModelRevision,
 ) {
   runtime.loadedSurfaces.add(surface);
-  runtime.dirtySurfaces.delete(surface);
+  if (runtime.libraryReadModelRevision === libraryReadModelRevision) {
+    runtime.dirtySurfaces.delete(surface);
+  } else {
+    runtime.dirtySurfaces.add(surface);
+  }
 }
 
 function markSurfaceDirty(
@@ -650,7 +662,10 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
   extraData?: Record<string, unknown>;
 }) {
   synthesisLibraryReadModelRevision += 1;
-  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"];
+  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
+    isSynthesisLiteratureScoreInvalidationEvent(args)
+      ? ["index", "topics", "home"]
+      : ["index"];
   for (const runtime of synthesisWorkbenchRuntimes) {
     runtime.libraryReadModelRevision = synthesisLibraryReadModelRevision;
     invalidatedSurfaces.forEach((surface) =>
@@ -1412,6 +1427,7 @@ function currentGraphSurfaceRequest(
     surface: "graph",
     selectedTabAtRequest: "graph",
     refreshFromService: true,
+    libraryReadModelRevision: runtime.libraryReadModelRevision,
     startedAt: new Date().toISOString(),
   };
 }
@@ -1505,7 +1521,7 @@ async function expandGraphNeighborhood(
   }
 }
 
-async function sendSurface(
+async function performSurfaceSend(
   runtime: SynthesisWorkbenchRuntime,
   surface: SynthesisWorkbenchSurfaceName,
   options: { refreshFromService?: boolean } = {},
@@ -1551,7 +1567,13 @@ async function sendSurface(
         return;
       }
       mergeRuntimeSnapshotInput(runtime, input);
-      markSurfaceLoaded(runtime, surface);
+      markSurfaceLoaded(runtime, surface, request.libraryReadModelRevision);
+      if (
+        runtime.libraryReadModelRevision !== request.libraryReadModelRevision &&
+        isActiveSurface(runtime, surface)
+      ) {
+        runtime.queuedServiceSurfaceRefreshes.add(surface);
+      }
     }
     if (
       !isLatestSurfaceRefreshRequest(runtime, request) ||
@@ -1588,6 +1610,42 @@ async function sendSurface(
       code: transient ? "storage_busy" : "surface_refresh_failed",
       message: error instanceof Error ? error.message : String(error || ""),
     });
+  }
+}
+
+async function sendSurface(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+  options: { refreshFromService?: boolean } = {},
+) {
+  const refreshFromService = options.refreshFromService !== false;
+  const inFlight = runtime.inFlightSurfaceRefreshes[surface];
+  if (inFlight) {
+    if (refreshFromService) {
+      runtime.queuedServiceSurfaceRefreshes.add(surface);
+    }
+    return inFlight;
+  }
+
+  const run = (async () => {
+    let nextRefreshFromService = refreshFromService;
+    do {
+      runtime.queuedServiceSurfaceRefreshes.delete(surface);
+      await performSurfaceSend(runtime, surface, {
+        refreshFromService: nextRefreshFromService,
+      });
+      nextRefreshFromService =
+        runtime.queuedServiceSurfaceRefreshes.has(surface) &&
+        isActiveSurface(runtime, surface);
+    } while (nextRefreshFromService);
+  })();
+  runtime.inFlightSurfaceRefreshes[surface] = run;
+  try {
+    await run;
+  } finally {
+    if (runtime.inFlightSurfaceRefreshes[surface] === run) {
+      delete runtime.inFlightSurfaceRefreshes[surface];
+    }
   }
 }
 
@@ -2615,6 +2673,7 @@ function handleAction(
       surface: "graph",
       selectedTabAtRequest: "graph",
       refreshFromService: true,
+      libraryReadModelRevision: runtime.libraryReadModelRevision,
       startedAt: new Date().toISOString(),
     };
     publishGraphPage(runtime, request);
@@ -2659,7 +2718,6 @@ function handleAction(
   }
   if (envelope.action === "ready") {
     void sendChrome(runtime, { refreshFromService: true });
-    scheduleActiveSurfaceRefresh(runtime);
     return;
   }
   if (envelope.action === "refresh") {
@@ -4056,6 +4114,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
     latestSurfaceRequestBySurface: {},
+    inFlightSurfaceRefreshes: {},
+    queuedServiceSurfaceRefreshes: new Set(),
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
@@ -4133,6 +4193,8 @@ export async function openSynthesisWorkbenchTab(
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
     latestSurfaceRequestBySurface: {},
+    inFlightSurfaceRefreshes: {},
+    queuedServiceSurfaceRefreshes: new Set(),
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],

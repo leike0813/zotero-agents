@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import {
+  hostBridgeSkillGeneratedRoot,
+  loadHostBridgeSurfaceDefinitions,
+  resolveHostBridgeSurface,
+  type HostBridgeSurfaceDefinition,
+} from "./host-bridge-surface-model";
 
 export type HostBridgeReleaseChangePlan = {
   schema: "host-bridge.release-plan.v1";
@@ -20,7 +26,8 @@ export type HostBridgeCliIdentity = {
     | "host-bridge.surface-identity.v1"
     | "host-bridge.surface-identity.v2"
     | "host-bridge.surface-identity.v3"
-    | "host-bridge.surface-identity.v5";
+    | "host-bridge.surface-identity.v5"
+    | "host-bridge.surface-identity.v6";
   protocol: string;
   cliSchema: string;
   version: string;
@@ -59,8 +66,7 @@ export type HostBridgeReleaseSetInput = {
 export type HostBridgeReleaseSet = ReturnType<typeof buildHostBridgeReleaseSet>;
 
 const GENERATED_PREFIXES = [
-  "skills_builtin/zotero-bridge-cli/",
-  "skills_builtin/zotero-library-agent/",
+  "addon/content/host-bridge-skills/",
   "profiles/hermes/zotero-librarian/",
 ];
 const GENERATED_EXACT = new Set([
@@ -110,8 +116,7 @@ export function classifyHostBridgeReleaseChanges(
       "cli/zotero-bridge/",
       "skills_src/zotero-bridge-cli/",
       "skills_src/zotero-library-agent/",
-      "skills_builtin/zotero-bridge-cli/",
-      "skills_builtin/zotero-library-agent/",
+      "addon/content/host-bridge-skills/",
       "profiles_src/hermes/zotero-librarian/",
       "profiles/hermes/zotero-librarian/",
       "workflows_builtin/",
@@ -226,7 +231,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     );
   }
   const cliIdentity: HostBridgeCliIdentity = {
-    schema: "host-bridge.surface-identity.v5",
+    schema: "host-bridge.surface-identity.v6",
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     version: input.cli.version,
@@ -265,7 +270,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     ]),
   ) as Record<keyof HostBridgeReleaseSetInput["surfaces"], unknown>;
   return {
-    schema: "host-bridge.release-set.v3" as const,
+    schema: "host-bridge.release-set.v4" as const,
     releaseSetId,
     status: "planned" as const,
     payloadDigest,
@@ -349,22 +354,30 @@ export function contentDigest(root: string, paths: string[]) {
   return hash.digest("hex");
 }
 
+const surfaceDefinitions = loadHostBridgeSurfaceDefinitions();
+
+function resolvedGeneratedSkillRoots(surfaceId: string) {
+  const resolved = resolveHostBridgeSurface(surfaceDefinitions, surfaceId);
+  const owners = new Map<string, HostBridgeSurfaceDefinition>();
+  for (const layer of resolved.lineage) {
+    for (const skill of layer.skills) owners.set(skill.id, layer);
+  }
+  return resolved.skills.map((skill) => {
+    const owner = owners.get(skill.id);
+    if (!owner)
+      throw new Error(`Missing owner for Host Bridge Skill ${skill.id}`);
+    return hostBridgeSkillGeneratedRoot(owner, skill).replace(/\\/g, "/");
+  });
+}
+
 export const HOST_BRIDGE_PUBLIC_CONTENT = {
   cliBundle: [
-    "skills_builtin/zotero-bridge-cli",
+    ...resolvedGeneratedSkillRoots("zotero-bridge-cli"),
     "cli/zotero-bridge/scripts",
-    "cli/zotero-bridge/src/agent-surface.json",
   ],
   libraryAgent: [
-    "skills_builtin/zotero-bridge-cli",
-    "skills_builtin/zotero-library-agent",
-    "skills_builtin/zotero-library-query",
-    "skills_builtin/zotero-literature-acquisition",
-    "skills_builtin/zotero-literature-analysis",
-    "skills_builtin/zotero-research-synthesis",
-    "skills_builtin/zotero-library-curation",
+    ...resolvedGeneratedSkillRoots("zotero-library-agent"),
     "cli/zotero-bridge/scripts",
-    "cli/zotero-bridge/src/agent-surface.json",
   ],
   librarianProfile: ["profiles/hermes/zotero-librarian"],
 } as const;

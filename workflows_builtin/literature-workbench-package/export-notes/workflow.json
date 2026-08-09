@@ -4,6 +4,18 @@
   "label": "Export Notes",
   "description": "Export supported generated Zotero notes as editable external files.",
   "executionModes": ["auto"],
+  "supportedInvocationModes": ["interactive", "non-interactive"],
+  "resourceRequirements": [
+    {
+      "id": "notes",
+      "direction": "output",
+      "kind": "archive",
+      "cardinality": "one",
+      "required": true,
+      "suggestedName": "notes-export.zip",
+      "accept": { "contentTypes": ["application/zip"] }
+    }
+  ],
   "version": "1.0.0",
   "provider": "pass-through",
   "trigger": {

@@ -90,9 +90,9 @@ Based on execution method and backend type, workflows can be classified as follo
 
 | Pattern | Typical Use Case | Backend Type |
 |---------|-----------------|--------------|
-| **pass-through** | Pure local operations (export, file processing), no remote backend needed | None |
-| **skillrunner.job.v1** | Single-step skill execution submitted to SkillRunner | skillrunner / acp |
-| **skillrunner.sequence.v1** | Multi-step chained skill execution, with relay between steps | acp |
+| **pass-through** | Pure local operations (export, file processing), no remote backend needed | Pass-through |
+| **skillrunner.job.v1** | Single-step skill execution submitted to SkillRunner | skillrunner |
+| **skillrunner.sequence.v1** | Multi-step chained skill execution, with relay between steps | acp / skillrunner |
 | **generic-http.request.v1** | Single HTTP API call | generic-http |
 | **generic-http.steps.v1** | Multi-step HTTP API calls | generic-http |
 

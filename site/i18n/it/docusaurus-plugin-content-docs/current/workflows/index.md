@@ -21,8 +21,12 @@ workflow.json (file manifesto)
 |------|-------------|
 | `attachment` | File allegati di un elemento |
 | `parent` | Elemento padre dell'elemento selezionato |
+| `child` | Elemento figlio |
+| `selection` | Elemento selezionato direttamente |
 | `note` | Elemento nota |
-| `workflow` | Ambito batch |
+| `generated-note` | Nota generata da un workflow |
+| `digest-image-target` | Destinazione immagine per il riassunto |
+| `workflow` | Ambito batch (nessuna selezione richiesta) |
 
 ### Sistema di hook
 
@@ -34,15 +38,16 @@ I Workflow possono eseguire script JavaScript personalizzati in varie fasi dell'
 - **normalizeSettings**: Normalizzare le impostazioni dell'utente
 - **applyResult**: Applicare i risultati restituiti dal backend a Zotero
 
-## Tre backend di esecuzione
+## Quattro backend di esecuzione
 
-I Workflow possono essere eseguiti tramite tre tipi di backend:
+I Workflow possono essere eseguiti tramite quattro tipi di backend:
 
 | Backend | Tipo di richiesta | Caso d'uso |
 |---------|------------------|------------|
-| **Skill-Runner** | `skill.run.v1` | Esecuzione generica di skill, supporta la modalità interattiva |
-| **ACP** | `acp.skill.run.v1` | Esecuzione di skill tramite backend ACP |
-| **Generic HTTP** | `generic-http.request.v1` | Chiamate API HTTP |
+| **Skill-Runner** | `skillrunner.job.v1` / `skillrunner.sequence.v1` | Esecuzione generica di skill, supporta la modalità interattiva |
+| **ACP** | `acp.prompt.v1` / `acp.skill.run.v1` / `skillrunner.sequence.v1` | Esecuzione di conversazioni o skill tramite backend ACP |
+| **Generic HTTP** | `generic-http.request.v1` / `generic-http.steps.v1` | Chiamate API HTTP |
+| **Pass-through** | `pass-through.run.v1` | Operazioni puramente locali, nessun backend remoto necessario |
 
 ## Pacchetto ufficiale dei Workflow
 
@@ -68,12 +73,13 @@ Il plugin include una serie di workflow ufficiali, raggruppati per funzione:
 | **Lettura approfondita** | Genera una vista HTML strutturata di lettura approfondita con supporto per la traduzione | Allegato | ACP | [Dettagli](literature-deep-reading) |
 | **Ricerca e acquisizione della letteratura** | Lascia che l'Agent cerchi letteratura accademica e la acquisisca direttamente in Zotero | workflow | ACP | [Dettagli](literature-search-ingest) |
 | **Collection Collector** | Selezionare letteratura esistente dalla libreria per una raccolta in base a un ambito dichiarato | workflow | ACP | [Dettagli](collection-collector) |
-| **Export/Import Literature Bundle** | Esportare/importare bundle ZIP portabili di elementi Zotero con metadati, allegati e note | Elemento padre / workflow | Nessun backend richiesto | [Dettagli](export-import-literature-bundle) |
+| **Export/Import Literature Bundle** | Esportare/importare bundle ZIP portabili di elementi Zotero con metadati, allegati e note | Elemento padre / workflow | Pass-through | [Dettagli](export-import-literature-bundle) |
 | **Export Research Bundle** | Assemblare automaticamente un bundle di ricerca di sola lettura per un progetto dalla libreria e dal contesto Synthesis | workflow | Skill-Runner | [Dettagli](export-research-bundle) |
-| **Tag Auditor** | Scansionare tutti gli elementi della libreria rispetto al vocabolario di tag controllato e segnalare la conformità | workflow | Nessun backend richiesto | [Dettagli](tag-auditor) |
+| **Tag Auditor** | Scansionare tutti gli elementi della libreria rispetto al vocabolario di tag controllato e segnalare la conformità | workflow | Pass-through | [Dettagli](tag-auditor) |
 | **Bootstrapper dei tag** | Crea in modo interattivo un vocabolario controllato di tag per un dominio di ricerca | workflow | Skill-Runner | [Dettagli](tag-bootstrapper) |
 | **Regolatore dei tag** | Normalizza i tag in base a un vocabolario controllato e inferisce nuovi tag | Elemento padre | Skill-Runner | [Dettagli](tag-regulator) |
-| **Esporta/Importa note** | Esporta o importa note di analisi con supporto per la modifica e la reimportazione | Elemento padre | Nessun backend richiesto | [Dettagli](export-import-notes) |
+| **Esporta/Importa note** | Esporta o importa note di analisi con supporto per la modifica e la reimportazione | Elemento padre | Pass-through | [Dettagli](export-import-notes) |
+| **Add Digest Representative Image** | Aggiungere un'immagine rappresentativa a un riassunto della letteratura | Elemento padre | ACP | — |
 
 ### 🛠️ Utilità
 

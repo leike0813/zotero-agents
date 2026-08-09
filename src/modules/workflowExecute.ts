@@ -36,6 +36,7 @@ import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPol
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getString } from "../utils/locale";
 import { localizeWorkflowLabel } from "../workflows/localization";
+import { buildSelectionContext } from "./selectionContext";
 
 function stripRunOptionsForPersistence(
   options: WorkflowExecutionOptions,
@@ -91,6 +92,55 @@ export async function executeWorkflowFromCurrentSelection(args: {
       };
   const workflowSource = getLoadedWorkflowSourceById(args.workflow.manifest.id);
   const workflowLabel = localizeWorkflowLabel(args.workflow);
+  let selectedItemsSnapshot: Zotero.Item[];
+  let selectionContextSnapshot: Awaited<
+    ReturnType<typeof buildSelectionContext>
+  >;
+  try {
+    selectedItemsSnapshot = [
+      ...(args.win.ZoteroPane?.getSelectedItems?.() || []),
+    ];
+    selectionContextSnapshot = await buildSelectionContext(
+      selectedItemsSnapshot,
+    );
+  } catch (error) {
+    const reason =
+      String(
+        error && typeof error === "object" && "message" in error
+          ? (error as { message?: unknown }).message
+          : error,
+      ).trim() || "selection context is unavailable";
+    appendRuntimeLog({
+      level: "error",
+      scope: "workflow-trigger",
+      workflowId: args.workflow.manifest.id,
+      providerId: String(args.workflow.manifest.provider || "").trim(),
+      stage: "selection-context-capture-failed",
+      message: "workflow trigger could not capture selection context",
+      details: { workflowSource, reason },
+      error,
+    });
+    const message = buildWorkflowCannotRunMessage({
+      workflowLabel,
+      reason,
+    });
+    if (showWorkflowNotifications) {
+      alertWindow(args.win, message);
+    } else {
+      showWorkflowToast(
+        {
+          text: message,
+          type: "error",
+          semantic: "error",
+          owner: "workflow",
+          scope: "workflow-preparation",
+          displayGroupKey: `workflow:${workflowLabel}:selection-context-failed`,
+        },
+        { display: false },
+      );
+    }
+    return;
+  }
   let executionOptionsOverride = args.executionOptionsOverride;
   if (args.requireSettingsGate === true && !executionOptionsOverride) {
     const loadedBackends = await loadBackendsRegistry();
@@ -120,6 +170,8 @@ export async function executeWorkflowFromCurrentSelection(args: {
         win: args.win,
         workflow: args.workflow,
         executionOptionsOverride: args.settingsGateInitialOptions,
+        selectedItemsOverride: selectedItemsSnapshot,
+        selectionContextOverride: selectionContextSnapshot,
       });
       const dialogResult = await openWorkflowSettingsWebDialog({
         workflow: args.workflow,
@@ -203,6 +255,8 @@ export async function executeWorkflowFromCurrentSelection(args: {
     workflow: args.workflow,
     messageFormatter,
     executionOptionsOverride,
+    selectedItemsOverride: selectedItemsSnapshot,
+    selectionContextOverride: selectionContextSnapshot,
   });
   if (preparation.status !== "ready") {
     return;

@@ -80,52 +80,37 @@ project skill roots required by every configured ACP backend, including disabled
 profiles. Each backend SHALL contribute its family defaults and its additional
 `acp.skillRoots`. The injected skill source SHALL be the plugin skill registry
 effective entry for each skill id, preserving official, dev-local, and user
-source priority.
+source priority. Managed target resolution SHALL preserve native local filesystem
+syntax; portable path normalization SHALL be used only for validation and
+comparison. The managed ownership manifest SHALL bound writes and cleanup but
+SHALL NOT be treated as evidence that materialization succeeded.
 
-#### Scenario: Chat materializes whitelisted skills into configured family roots
+#### Scenario: Windows chat workspace materializes native Skill targets
 
-- **GIVEN** the configured ACP backends resolve to OpenCode and CodeBuddy
-- **WHEN** an ACP Chat session prepares its shared workspace
-- **THEN** the target roots SHALL be `.agents/skills`, `.opencode/skills`, and `.codebuddy/skills`
-- **AND** the injected whitelist SHALL be materialized into every target root
-- **AND** roots belonging only to unconfigured families SHALL NOT be materialized.
+- **GIVEN** the shared ACP Chat workspace is on a Windows drive
+- **WHEN** ACP Chat resolves and copies its whitelisted Skill targets
+- **THEN** paths passed to native runtime and Zotero file APIs SHALL use valid
+  Windows local-path syntax
+- **AND** portable containment comparison SHALL NOT alter the returned target
+  path.
 
-#### Scenario: Chat appends configured skill roots from every backend
+#### Scenario: Complete materialization reports ready
 
-- **GIVEN** one or more configured ACP backend profiles declare `acp.skillRoots`
-- **WHEN** the chat injected skill target roots are resolved
-- **THEN** every safe configured root SHALL be added to the family-root union
-- **AND** duplicate roots SHALL be materialized only once
-- **AND** an invalid or escaping root SHALL be ignored with a warning.
+- **GIVEN** every whitelisted Skill is available in the plugin Skill registry
+- **AND** every planned target can be copied
+- **WHEN** ACP Chat completes shared-workspace preparation
+- **THEN** it SHALL report `acp_chat_injected_skills_ready`
+- **AND** the diagnostic SHALL identify the complete planned and materialized
+  target counts.
 
-#### Scenario: Missing injected skill records a warning
+#### Scenario: Incomplete materialization does not report ready
 
-- **GIVEN** an ACP Chat injected skill id is not present in the plugin skill registry
-- **WHEN** ACP Chat prepares injected skills
-- **THEN** ACP Chat SHALL record a warning diagnostic for that missing skill
-- **AND** it SHALL continue preparing the chat adapter.
-
-#### Scenario: Current managed skill copy is replaced
-
-- **GIVEN** a shared ACP Chat workspace contains an older managed copy under a current target root
-- **WHEN** ACP Chat prepares injected skills
-- **THEN** the old skill copy SHALL be replaced by the current registry effective entry.
-
-#### Scenario: Stale managed root is reconciled
-
-- **GIVEN** the managed injection manifest contains a root no longer contributed by any configured ACP backend
-- **WHEN** ACP Chat next prepares an adapter
-- **THEN** only the manifest-owned whitelist directories under that root SHALL be removed
-- **AND** the root itself and non-managed content SHALL remain unchanged
-- **AND** a failed cleanup SHALL remain recorded for a later retry.
-
-#### Scenario: Target ownership cannot be committed
-
-- **GIVEN** ACP Chat cannot atomically commit the next managed target set
-- **WHEN** the shared workspace is prepared
-- **THEN** no Skill target SHALL be copied or removed during that reconcile
-- **AND** a warning SHALL be recorded
-- **AND** adapter initialization SHALL continue.
+- **GIVEN** a whitelisted Skill is missing or a planned target copy fails
+- **WHEN** ACP Chat completes shared-workspace preparation
+- **THEN** it SHALL report `acp_chat_injected_skills_unavailable`
+- **AND** it SHALL NOT report `acp_chat_injected_skills_ready`
+- **AND** the structured diagnostic SHALL identify missing Skill ids and failed
+  targets without treating manifest ownership as success.
 
 ### Requirement: ACP Chat SHALL inject shared-workspace instructions from a packaged template
 
@@ -288,6 +273,34 @@ snapshot without reading transcript pages.
 - **AND** the snapshot does not include `selectedTranscriptPage`
 - **AND** the child panel does not emit `load-transcript-page`.
 
+#### Scenario: Newly configured backend is available without restart
+
+- **GIVEN** ACP Chat previously had no available backend
+- **WHEN** a valid ACP backend configuration is persisted and its typed backend
+  change is projected
+- **THEN** the snapshot has `backendAvailability: "selected"`
+- **AND** the new backend is present in `backendOptions`
+- **AND** ACP Chat does not require a plugin restart or a pre-existing
+  conversation to expose that backend.
+
+#### Scenario: Backend-level connect establishes a local conversation
+
+- **GIVEN** an ACP backend is selected without an ACP Chat conversation
+- **WHEN** the user invokes Connect for that backend
+- **THEN** ACP Chat SHALL reuse or create one local conversation for the backend
+- **AND** it SHALL select and persist that conversation before opening the ACP
+  connection
+- **AND** repeated Connect actions SHALL NOT create duplicate local
+  conversations.
+
+#### Scenario: Backend-level connection failure preserves retry state
+
+- **GIVEN** backend-level Connect has selected and persisted a local conversation
+- **WHEN** ACP connection initialization fails
+- **THEN** ACP Chat SHALL retain that selected local conversation
+- **AND** it SHALL expose the existing connection error diagnostics
+- **AND** the user SHALL be able to retry without restarting the plugin.
+
 #### Scenario: Backend without conversation allows backend-level actions
 
 - **GIVEN** an ACP backend is available
@@ -310,6 +323,22 @@ snapshot without reading transcript pages.
 - **AND** the snapshot has `conversationAvailability: "selected"`
 - **AND** the selected transcript page request is scoped to the selected backend
   and conversation.
+
+### Requirement: ACP Chat backend-level Connect SHALL use navigation-group scope
+
+ACP Chat Connect SHALL target the selected backend through the existing
+navigation-group action contract. The child SHALL send the selected `groupId`,
+and the host SHALL validate and map that group to the ACP `backendId` before
+connection.
+
+#### Scenario: Backend-level Connect is routed without an owner
+
+- **GIVEN** an ACP backend navigation group is selected
+- **AND** no ACP Chat conversation owner is selected
+- **WHEN** the user invokes Connect
+- **THEN** the child action payload SHALL contain the selected `groupId`
+- **AND** the action SHALL pass navigation-group validation
+- **AND** the host SHALL connect the mapped ACP backend.
 
 ### Requirement: ACP Chat local transport cleanup SHALL release plugin-managed process trees
 
@@ -382,10 +411,72 @@ ACP Chat SHALL answer a pending ACP permission request with the cancelled outcom
 - **THEN** the pending permission request MUST be resolved as cancelled
 - **AND** prompt cancellation MUST continue through the same interruption lifecycle.
 
-### Requirement: ACP Chat process-tree cleanup SHALL preserve validated signal targets
-ACP Chat SHALL delegate local transport teardown to the shared controller whose POSIX signal actuation preserves the complete validated process-group target.
+### Requirement: ACP Chat startup preamble SHALL guide Windows Unicode-path recovery
 
-#### Scenario: Wrapper-backed Chat conversation closes
-- **WHEN** an ACP Chat conversation using a wrapper-prone local backend does not exit during EOF grace
-- **THEN** any TERM or KILL escalation SHALL use the shared controller's validated target
-- **AND** an actuation failure SHALL fall back only to the directly held child process
+The packaged ACP Chat startup preamble SHALL instruct the agent that a Windows path which appears mojibake or fails lookup is not by itself a reason to abandon the task. The instruction SHALL require a Unicode-capable listing of a known parent directory, use of the exact returned filename together with available metadata, one retry, and no filename guessing or transliteration.
+
+#### Scenario: ACP Chat starts with Windows recovery guidance
+
+- **WHEN** ACP Chat builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the Windows Unicode-path recovery guidance
+- **AND** it SHALL preserve the existing ACP Chat startup placeholders and Host Bridge guidance.
+
+### Requirement: ACP Chat startup preamble SHALL guide PowerShell file arguments
+
+The packaged ACP Chat startup preamble SHALL instruct agents that, when Windows PowerShell invokes a command-line tool or script and that target supports an `@file` argument form, structured or path-containing values SHALL prefer that form over inline command-line values to reduce shell quoting and escaping errors.
+
+#### Scenario: ACP Chat starts with conditional file-argument guidance
+
+- **WHEN** ACP Chat builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the conditional PowerShell `@file` guidance
+- **AND** it SHALL preserve existing ACP Chat startup placeholders and Host Bridge guidance.
+
+### Requirement: ACP Chat SHALL bind Host Bridge scope to the adapter environment
+
+Each ACP Chat adapter SHALL receive a `ZOTERO_BRIDGE_SCOPE` containing its own conversation ID, and the shared ACP Chat profile SHALL NOT contain conversation-specific scope.
+
+#### Scenario: A second conversation connects
+
+- **GIVEN** conversation A and conversation B use the same ACP Chat workspace and Host Bridge profile
+- **WHEN** conversation B connects after conversation A
+- **THEN** each adapter environment SHALL retain its own conversation scope
+- **AND** a Host Bridge write from conversation A SHALL route only to conversation A.
+
+### Requirement: ACP Chat SHALL serialize pending permission requests
+
+ACP Chat SHALL retain pending permission requests per conversation in arrival order, expose only the active head request, and settle every queued resolver exactly once.
+
+#### Scenario: Two requests overlap
+
+- **WHEN** a conversation receives a second permission request before the first is resolved
+- **THEN** the first request SHALL remain visible
+- **AND** resolving it SHALL promote the second request without losing either resolver.
+
+#### Scenario: A stale permission action arrives
+
+- **WHEN** an action names a request ID other than the active request
+- **THEN** ACP Chat SHALL NOT resolve or remove the active request.
+
+#### Scenario: The conversation terminates with queued requests
+
+- **WHEN** a conversation is cancelled, disconnected, or otherwise terminated with unresolved permission requests
+- **THEN** ACP Chat SHALL settle every unresolved request as cancelled
+- **AND** SHALL publish an empty permission state.
+
+### Requirement: ACP Chat SHALL use registry-selected bundled Host Bridge Skills
+
+ACP Chat SHALL inject all allowed Host Bridge Skills through the existing registry-backed known-root path. Its allowed Host Bridge Skill IDs SHALL match the resolved surface closure, and no XPI-specific injection bypass or alternate-source fallback SHALL exist.
+
+#### Scenario: Chat starts without official content
+
+- **WHEN** ACP Chat starts with a valid plugin bundle and no installed Content Package
+- **THEN** every surface-resolved Host Bridge Skill is available through the normal registry injection path
+
+### Requirement: ACP Chat SHALL reject recovery across plugin bundle identity changes
+
+Persisted ACP Chat run state that can resume work using Host Bridge Skills SHALL include the plugin bundle identity. Recovery SHALL fail with structured code `host_bridge_plugin_skill_bundle_identity_changed` when the persisted identity differs from the current validated bundle identity.
+
+#### Scenario: Plugin upgrade changes bundle identity
+
+- **WHEN** a user attempts to recover a persisted ACP Chat run whose bundle identity differs from the current plugin bundle
+- **THEN** the system refuses silent recovery, returns the structured identity-changed error, and directs the user to run again

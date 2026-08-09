@@ -52,7 +52,11 @@ export type SynthesisReferenceSourceRecord = {
 
 export type SynthesisReferenceArtifactRecord = {
   paperRef: string;
-  artifactType: "digest" | "references" | "citation_analysis";
+  artifactType:
+    | "digest"
+    | "references"
+    | "citation_analysis"
+    | "literature_score";
   payloadType: string;
   status: string;
   locator: string;
@@ -212,7 +216,8 @@ export function rebuildSynthesisReferenceArtifactRow(
   if (
     artifactType !== "digest" &&
     artifactType !== "references" &&
-    artifactType !== "citation_analysis"
+    artifactType !== "citation_analysis" &&
+    artifactType !== "literature_score"
   ) {
     throw new Error("reference_artifact_type_invalid");
   }

@@ -74,7 +74,7 @@ describe("skillrunner sidebar entrypoints", function () {
     const js = await readProjectFile("src/sidebar/assistantWorkspaceShell.js");
     assert.include(html, 'src="./acp-chat.html"');
     assert.include(html, 'src="./acp-skill-run.html"');
-    assert.include(html, 'src="./run-dialog.html"');
+    assert.include(html, 'src="./skillrunner.html"');
     assert.include(js, '"acp-chat"');
     assert.include(js, '"acp-skills"');
     assert.include(js, '"skillrunner"');

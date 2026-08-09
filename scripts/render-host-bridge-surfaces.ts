@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -13,7 +14,12 @@ import {
   buildHostBridgeAgentSurfaceDescriptor,
   serializeHostBridgeAgentSurface,
 } from "./host-bridge-agent-surface";
-import { buildHostBridgeSurfaceCatalog } from "./host-bridge-surface-catalog";
+import {
+  buildHostBridgeSurfaceCatalog,
+  type HostBridgeCapabilityCatalogEntry,
+  type HostBridgeCliMapping,
+  type HostBridgeSurfaceCatalog,
+} from "./host-bridge-surface-catalog";
 import {
   inspectHostBridgeSurfaceVersion,
   loadHostBridgeSurfaceDefinitions,
@@ -25,6 +31,11 @@ import {
   loadBuiltinWorkflowCatalog,
   renderBuiltinWorkflowCatalog,
 } from "./host-bridge-workflow-catalog";
+import {
+  HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+  hostBridgePluginSkillBundleDigestPayload,
+  type HostBridgePluginSkillBundleManifest,
+} from "../src/shared/hostBridgePluginSkillBundleContract";
 
 type ContentMap = Map<string, string>;
 type RenderMode = "content" | "release";
@@ -57,6 +68,96 @@ function copyTree(
 
 function merge(target: ContentMap, source: ContentMap, prefix = "") {
   for (const [path, content] of source) target.set(join(prefix, path), content);
+}
+
+function sha256(content: string) {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+function runnerVersion(content: ContentMap, skillId: string) {
+  const runner = content.get("assets/runner.json");
+  if (!runner) throw new Error(`Missing runner manifest for ${skillId}`);
+  const version = String(
+    (JSON.parse(runner) as { version?: unknown }).version || "",
+  ).trim();
+  if (!version) throw new Error(`Missing runner version for ${skillId}`);
+  return version;
+}
+
+function pluginSkillBundleContent(args: {
+  root: string;
+  cliRelease: string;
+  minimum: HostBridgeSurfaceDefinition;
+  generic: HostBridgeSurfaceDefinition;
+  minimumVersion: string;
+  genericVersion: string;
+  commandCatalogChecksum: string;
+  core: ContentMap;
+  genericSkills: Array<{
+    skill: HostBridgeSurfaceSkillDefinition;
+    content: ContentMap;
+  }>;
+}) {
+  const content: ContentMap = new Map();
+  merge(content, args.core, args.minimum.skills[0].id);
+  for (const entry of args.genericSkills) {
+    merge(content, entry.content, entry.skill.id);
+  }
+  const release = JSON.parse(read(args.root, args.cliRelease)) as {
+    version?: unknown;
+    buildFingerprint?: unknown;
+  };
+  const files = [...content.entries()]
+    .map(([path, value]) => ({
+      path: path.replaceAll("\\", "/"),
+      bytes: Buffer.byteLength(value, "utf8"),
+      sha256: sha256(value),
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  const manifestWithoutDigest: Omit<
+    HostBridgePluginSkillBundleManifest,
+    "aggregateSha256"
+  > = {
+    schema: HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+    cli: {
+      version: String(release.version || ""),
+      buildFingerprint: String(release.buildFingerprint || ""),
+      commandCatalogChecksum: args.commandCatalogChecksum,
+    },
+    surfaces: [
+      {
+        id: args.minimum.id,
+        kind: "minimum-core",
+        version: args.minimumVersion,
+      },
+      {
+        id: args.generic.id,
+        kind: "generic-agent",
+        version: args.genericVersion,
+      },
+    ],
+    skills: [
+      {
+        id: args.minimum.skills[0].id,
+        mount: args.minimum.skills[0].mount,
+        runnerVersion: runnerVersion(args.core, args.minimum.skills[0].id),
+      },
+      ...args.genericSkills.map(({ skill, content: skillContent }) => ({
+        id: skill.id,
+        mount: skill.mount,
+        runnerVersion: runnerVersion(skillContent, skill.id),
+      })),
+    ],
+    files,
+  };
+  const manifest: HostBridgePluginSkillBundleManifest = {
+    ...manifestWithoutDigest,
+    aggregateSha256: sha256(
+      hostBridgePluginSkillBundleDigestPayload(manifestWithoutDigest),
+    ),
+  };
+  content.set("manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  return content;
 }
 
 function replaceVersion(source: string, version: string) {
@@ -192,6 +293,307 @@ function tableCell(value: unknown) {
   return text.replaceAll("|", "\\|").replaceAll("\n", " ") || "—";
 }
 
+function renderExampleArgument(
+  value: unknown,
+  schema: Record<string, unknown>,
+) {
+  const serialized =
+    schema.type === "string" && typeof value === "string"
+      ? value
+      : JSON.stringify(value);
+  return `'${serialized.replaceAll("'", `'"'"'`)}'`;
+}
+
+function markdownTable(headers: string[], rows: string[][]) {
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.join(" | ")} |`),
+  ].join("\n");
+}
+
+function commandForDocSort(mapping: HostBridgeCliMapping) {
+  const groupOrder = [
+    "bridge",
+    "library",
+    "synthesis",
+    "workflow",
+    "run",
+    "mutation",
+    "file",
+    "product",
+    "operation",
+    "debug",
+    "call",
+    "context",
+  ];
+  const group = mapping.command.split(" ")[0] || "";
+  const groupIndex = groupOrder.indexOf(group);
+  return `${String(groupIndex < 0 ? 99 : groupIndex).padStart(2, "0")}:${mapping.command}`;
+}
+
+function sortedDocMappings(catalog: HostBridgeSurfaceCatalog) {
+  return [...catalog.endpointMappings, ...catalog.cliMappings].sort(
+    (left, right) =>
+      commandForDocSort(left).localeCompare(commandForDocSort(right)),
+  );
+}
+
+function sortedDocCapabilities(
+  catalog: HostBridgeSurfaceCatalog,
+  predicate: (entry: HostBridgeCapabilityCatalogEntry) => boolean,
+) {
+  const categoryOrder = [
+    "workflow_products",
+    "context",
+    "library",
+    "topics",
+    "schemas",
+    "concepts",
+    "citation_graph",
+    "library_index",
+    "resolvers",
+    "reference_index",
+    "paper_artifacts",
+    "insights",
+    "mutation",
+    "diagnostic",
+    "debug",
+  ];
+  return catalog.capabilities.filter(predicate).sort((left, right) => {
+    const categoryDelta =
+      categoryOrder.indexOf(left.category) -
+      categoryOrder.indexOf(right.category);
+    return categoryDelta || left.name.localeCompare(right.name);
+  });
+}
+
+function capabilityFlags(entry: HostBridgeCapabilityCatalogEntry) {
+  return [
+    entry.cacheView ? "cache-view" : "",
+    entry.debugOnly ? "debug-only" : "",
+    entry.dangerous ? "dangerous" : "",
+    entry.rawOnly ? "raw-only" : "",
+    entry.responseSizing !== "unclassified"
+      ? `response:${entry.responseSizing}`
+      : "",
+    entry.mcpMirror ? "mcp-mirror" : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function capabilityInputSummary(entry: HostBridgeCapabilityCatalogEntry) {
+  const schema = entry.inputSchema;
+  const type = Array.isArray(schema.type)
+    ? schema.type.join(" | ")
+    : String(schema.type || "object");
+  const required = Array.isArray(schema.required) && schema.required.length > 0;
+  return `${type}${required ? " required" : ""}`;
+}
+
+function capabilityTable(entries: HostBridgeCapabilityCatalogEntry[]) {
+  return markdownTable(
+    ["Capability", "Category", "Approval", "Input", "CLI exposure", "Flags"],
+    entries.map((entry) => [
+      `\`${entry.name}\``,
+      entry.category,
+      `\`${entry.approval}\``,
+      `\`${capabilityInputSummary(entry)}\``,
+      entry.cliCommands.length
+        ? entry.cliCommands.map((command) => `\`${command}\``).join(", ")
+        : entry.rawOnly
+          ? "`raw call only`"
+          : "",
+      capabilityFlags(entry) || "-",
+    ]),
+  );
+}
+
+function capabilityCategoryTable(catalog: HostBridgeSurfaceCatalog) {
+  const categories = new Map<string, string[]>();
+  for (const capability of catalog.capabilities) {
+    const names = categories.get(capability.category) || [];
+    names.push(capability.name);
+    categories.set(capability.category, names);
+  }
+  return markdownTable(
+    ["Category", "Count", "Capabilities"],
+    [...categories.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([category, names]) => [
+        `\`${category}\``,
+        String(names.length),
+        names
+          .sort()
+          .map((name) => `\`${name}\``)
+          .join(", "),
+      ]),
+  );
+}
+
+function mappingTable(mappings: HostBridgeCliMapping[]) {
+  return markdownTable(
+    ["CLI command", "Target", "Kind", "Flags"],
+    mappings.map((mapping) => [
+      `\`${mapping.command}\``,
+      `\`${mapping.target}\``,
+      mapping.kind,
+      [
+        mapping.cacheView ? "cache-view" : "",
+        mapping.dangerous ? "dangerous" : "",
+      ]
+        .filter(Boolean)
+        .join(", ") || "-",
+    ]),
+  );
+}
+
+function capabilityInputFields(
+  catalog: HostBridgeSurfaceCatalog,
+  capability: string,
+) {
+  const entry = catalog.capabilities.find(
+    (candidate) => candidate.name === capability,
+  );
+  const properties = entry?.inputSchema.properties;
+  if (
+    !properties ||
+    typeof properties !== "object" ||
+    Array.isArray(properties)
+  )
+    return [];
+  return Object.keys(properties);
+}
+
+function libraryDocGuidance(catalog: HostBridgeSurfaceCatalog) {
+  const searchFields = capabilityInputFields(catalog, "library.search_items");
+  if (!searchFields.includes("query") || searchFields.includes("text")) {
+    throw new Error(
+      "library.search_items documentation requires canonical query without legacy text",
+    );
+  }
+  const listFields = capabilityInputFields(catalog, "library.list_items");
+  const snapshotFields = capabilityInputFields(
+    catalog,
+    "library.sync_snapshot",
+  );
+  const readinessFields = capabilityInputFields(
+    catalog,
+    "library.readiness_audit",
+  );
+  return [
+    "- Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.",
+    '- Use `zotero-bridge library item search --query \'{"query":"graph","limit":10}\'` for finite candidate discovery.',
+    '- Use `zotero-bridge library items list --query \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library inventory pages.',
+    "- Use `zotero-bridge library snapshot --query '{\"limit\":200}'` for the first local metadata index page.",
+    "- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{\"limit\":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.",
+    `- \`library item search\` accepts ${searchFields.map((field) => `\`${field}\``).join(", ")} in \`--query\`.`,
+    `- \`library items list\` accepts ${listFields.map((field) => `\`${field}\``).join(", ")} in \`--query\`.`,
+    `- \`library snapshot\` accepts ${snapshotFields.map((field) => `\`${field}\``).join(", ")} in \`--query\`.`,
+    `- \`library readiness audit\` accepts ${readinessFields.map((field) => `\`${field}\``).join(", ")} in \`--query\`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.`,
+    "- Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.",
+  ].join("\n");
+}
+
+function largeResponseDocGuidance() {
+  return [
+    "- Treat `response:paged` capabilities as one-page reads. Iterate the returned cursor metadata instead of assuming one call returns the whole collection.",
+    "- `synthesis graph overview` returns summary plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. Use `cursor`/`limit` for all sections together or section cursors such as `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor`.",
+    "- Use `synthesis graph get-slice`, `synthesis graph get-layout`, or `synthesis graph get-metrics` when the task needs a coherent bounded subgraph, layout, or ranked metric page instead of the entire citation graph.",
+    "- `synthesis topic list`, `synthesis index library get`, graph metrics, and graph rankings are paged reads. Do not build workflows that rely on stdout containing every topic, index row, graph node, edge, or rank item in one response.",
+  ].join("\n");
+}
+
+function resolverDocGuidance() {
+  return [
+    "- `synthesis resolver resolve` accepts direct resolver fields in `--query`; do not wrap them in a top-level `resolver` object.",
+    "- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.",
+    "- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.",
+    "- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.",
+    '- Examples: `zotero-bridge synthesis resolver resolve --query \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge synthesis resolver resolve --query \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
+    "- Unsupported fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
+  ].join("\n");
+}
+
+function workflowDocGuidance() {
+  return [
+    "- Use `workflow describe --workflow <id>` or `workflow requirements --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.",
+    "- `workflow submit` and `workflow validate` use `--selection <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows.",
+    "- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.",
+    "- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.",
+    "- Use `workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
+    "- `workflow agent-run` does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task; the host only prepares request context for the handoff.",
+    "- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and is recalculated when apply-back is submitted.",
+    "- Use `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` after finalizing a SkillRunner-compatible output bundle from the handoff output contract.",
+    "- Agent-run apply-back is one-shot. Approval denial does not consume the agentRunId, but once applyResult starts the agentRunId cannot be reused.",
+  ].join("\n");
+}
+
+function runDocGuidance() {
+  return [
+    "- Use `run get <workflowRunId>` for workflow-level runtime status and known skill run projections.",
+    "- Use `run active` for the lightweight global active-task list; it excludes transcripts, local paths, and provider-private payloads.",
+    "- Use `run cancel <workflowRunId>` for workflow-level cancellation intent; cancellation does not imply immediate terminal state.",
+    "- Use `run skill get|reply|connect <skillRunId>` for explicit skill run interactions. Do not infer a skill run target from a workflow run id.",
+  ].join("\n");
+}
+
+function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
+  return [
+    "This section is generated from the executable Host Bridge capability and CLI command contracts plus the Rust CLI runtime descriptor. Edit those sources, then run `npm run render:host-bridge-content`.",
+    "",
+    "#### Public capabilities",
+    "",
+    capabilityTable(sortedDocCapabilities(catalog, (entry) => entry.public)),
+    "",
+    "#### CLI mappings",
+    "",
+    mappingTable(sortedDocMappings(catalog)),
+    "",
+    "#### Library guidance",
+    "",
+    libraryDocGuidance(catalog),
+    "",
+    "#### Large response pagination",
+    "",
+    largeResponseDocGuidance(),
+    "",
+    "#### Resolver payloads",
+    "",
+    resolverDocGuidance(),
+    "",
+    "#### Workflow payloads",
+    "",
+    workflowDocGuidance(),
+    "",
+    "#### Runtime control payloads",
+    "",
+    runDocGuidance(),
+    "",
+    "#### Debug capabilities",
+    "",
+    capabilityTable(sortedDocCapabilities(catalog, (entry) => entry.debugOnly)),
+    "",
+    "MCP tools mirror Host Bridge capability names from the executable contract and return structured content containing `{ capability, approval, data }`.",
+  ].join("\n");
+}
+
+function replaceGeneratedSection(
+  source: string,
+  section: string,
+  replacement: string,
+) {
+  const start = `<!-- host-bridge-surface:${section}:start -->`;
+  const end = `<!-- host-bridge-surface:${section}:end -->`;
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end);
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+    throw new Error(`Missing generated section markers for ${section}`);
+  }
+  return `${source.slice(0, startIndex + start.length)}\n${replacement.trim()}\n${source.slice(endIndex)}`;
+}
+
 function commandReferencePaths(
   descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>,
 ) {
@@ -305,7 +707,7 @@ function renderCommandCard(args: {
           `Governed ${example.kind} example for ${input.token}.`,
         "",
         "```console",
-        `zotero-bridge ${args.command.command} ${input.token} '${JSON.stringify(example.value)}'`,
+        `zotero-bridge ${args.command.command} ${input.token} ${renderExampleArgument(example.value, input.schema)}`,
         "```",
         "",
         ...(example.prerequisites.length
@@ -318,11 +720,49 @@ function renderCommandCard(args: {
           : []),
       ]),
   );
+  const paperArtifactGuidance = (() => {
+    if (
+      ![
+        "synthesis artifact manifest",
+        "synthesis artifact read",
+        "synthesis artifact export-filtered",
+      ].includes(args.command.command)
+    ) {
+      return [];
+    }
+    const shared = [
+      "## Paper artifact contract",
+      "",
+      "- The complete paper artifact set is `digest`, `references`, `citation_analysis`, and `literature_score`. Omit `artifact_types` only when all four are intended; pass an explicit subset for a filtered operation.",
+      "- Complete coverage requires all four statuses to be available. A missing score is `missing`; a decode or schema failure is `error` and yields an invalid quality snapshot. Both are unavailable for coverage.",
+      "- `literature_quality` is the compact frozen score snapshot. Preserve its status, schema/rubric identity, paper type, scores, confidence, quality prior, payload hash, and diagnostics; do not replace it with a subjective quality label.",
+      "- Missing or invalid score snapshots use neutral `quality_prior=0.5` and retain `literature_score_missing` or `literature_score_invalid`. Reference-sidecar refresh does not create or repair scores.",
+      "",
+    ];
+    if (args.command.command === "synthesis artifact manifest") {
+      shared.push(
+        "The response is paged by paper under `data.papers[]`; each paper owns its artifact status rows. Iterate `nextCursor` while `hasMore=true` before claiming the requested manifest scope is complete.",
+        "",
+      );
+    } else if (args.command.command === "synthesis artifact read") {
+      shared.push(
+        "This command returns decoded payload content. Treat an `error/decode_error` row as unusable evidence and preserve its diagnostics instead of interpreting raw note markup.",
+        "",
+      );
+    } else {
+      shared.push(
+        "The filtered export writes the full decoded literature-score payload when selected and carries the compact `literature_quality` snapshot in its versioned manifest. For remote delivery, download and verify the returned bundle handle before reading workspace paths.",
+        "",
+      );
+    }
+    return shared;
+  })();
   return [
     `# \`zotero-bridge ${args.command.command}\``,
     "",
     args.command.summary,
     "",
+    ...paperArtifactGuidance,
     "## Usage",
     "",
     "```console",
@@ -354,6 +794,16 @@ function renderCommandCard(args: {
     "",
     prettyJson(args.command.payloadSchema),
     "",
+    "## Payload composition",
+    "",
+    args.command.composition
+      ? "The executable command contract owns the base source, fixed values, field mappings, and closed transforms shown below. Command handlers only provide values under the referenced Clap argument IDs."
+      : "This command has no separate field-mapping program. Its binding mode is executable directly: passthrough uses the sole structured source, while `none` and `raw` retain their declared closed behavior.",
+    "",
+    args.command.composition
+      ? prettyJson(args.command.composition)
+      : "`composition`: `null`.",
+    "",
     "## Result schema",
     "",
     prettyJson(args.command.resultSchema),
@@ -372,12 +822,31 @@ function renderCommandCard(args: {
     "",
     prettyJson(args.command),
     "",
+    "## Parameter failure and recovery contract",
+    "",
+    "Parameter failures are returned as one JSON error envelope. Inspect `error.code`, then require `error.details.schema` to be `host-bridge.argument-error.v1` before using the structured boundary fields. Preserve the canonical command, sanitized inputs, and any already-returned typed handles; never include the complete raw payload in evidence.",
+    "",
+    "- `argv` reports a missing, unknown, conflicting, or invalid CLI argument. Rebuild argv from this card's parameter tables or the active command help.",
+    "- `json_source` reports an unreadable stdin or file source. Correct that source without moving the value to a different binding.",
+    "- `json_syntax` reports invalid JSON with safe line and column context. Repair syntax before interpreting domain fields.",
+    ...(inputSections.length
+      ? [
+          "- `command_input` reports schema violations for a structured input. Inspect the bounded `violations`, then run this exact leaf with `--schema` and correct the declared field or type; do not invent an alias.",
+        ]
+      : [
+          "- This leaf has no structured JSON input, so `command_input` is not an expected invocation boundary. Use `surface describe` for its scalar and positional contract.",
+        ]),
+    "- `payload_contract` means the CLI's composed capability payload violates the executable contract before network I/O. Treat this as an implementation fault; do not bypass the semantic command with raw transport.",
+    "- `command_result` means a Host response or local result failed its executable result schema. Do not accept or report it as successful evidence.",
+    "- Violation arrays are redacted, deterministically ordered, and capped at eight. When `truncated` is true, correct the reported violations and validate again rather than requesting secret or complete payload disclosure.",
+    "",
     "## Operational contract",
     "",
     `- Canonical argv path: ${args.command.argv.map((token) => `\`${token}\``).join(" ")}.`,
     `- Output boundary: \`${args.command.outputBoundary.strategy}\`; governed details: ${JSON.stringify(args.command.outputBoundary)}.`,
     `- Pagination: \`${args.command.pagination}\`.`,
     `- Category: \`${args.command.category}\`; danger: \`${args.command.danger}\`.`,
+    `- Structured binding mode: \`${args.command.binding}\`.`,
     `- Intent visibility: \`${args.command.hiddenFromIntentSearch ? "hidden" : "visible"}\`.`,
     `- Operational aliases: ${args.command.operationalAliases.map((alias) => `\`${alias}\``).join(", ") || "none"}.`,
     "",
@@ -533,6 +1002,7 @@ function coreSkillContent(args: {
   surface: HostBridgeSurfaceDefinition;
   skill: HostBridgeSurfaceSkillDefinition;
   version: string;
+  descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>;
 }) {
   const content: ContentMap = new Map();
   const sourceRoot = args.surface.sourceRoot;
@@ -543,12 +1013,8 @@ function coreSkillContent(args: {
     "",
     (path) => path === "SKILL.md" || path.startsWith("references/"),
   );
-  const descriptor = buildHostBridgeAgentSurfaceDescriptor(
-    buildHostBridgeSurfaceCatalog(args.root),
-    args.root,
-  );
-  const commandsByPath = partitionCommands(descriptor);
-  const referencePaths = renderCommandReferences(content, descriptor);
+  const commandsByPath = partitionCommands(args.descriptor);
+  const referencePaths = renderCommandReferences(content, args.descriptor);
   const commandCatalogTemplate = content.get(COMMAND_CATALOG_PATH);
   if (!commandCatalogTemplate) {
     throw new Error(
@@ -580,7 +1046,7 @@ function coreSkillContent(args: {
   );
   content.set(
     "assets/agent-surface.json",
-    serializeHostBridgeAgentSurface(descriptor),
+    serializeHostBridgeAgentSurface(args.descriptor),
   );
   return content;
 }
@@ -677,6 +1143,10 @@ function profileDistribution(version: string) {
     "state:",
     '  defaultDir: "$HERMES_HOME/zotero-librarian"',
     "  overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR",
+    "  activeProfileEnv: ZOTERO_BRIDGE_PROFILE",
+    "  workspaceLayout: connection-profile-v1",
+    '  explicitWorkspace: "$BASE/workspaces/<sha256>"',
+    '  defaultWorkspace: "$BASE/state.sqlite"',
     "assets:",
     "  zoteroBridgeBinaries: assets/zotero-bridge/bin",
     "skills:",
@@ -706,14 +1176,24 @@ function profileContent(args: {
     args.root,
     args.surface.sourceRoot,
     "",
-    (path) => !path.startsWith("skills/") && path !== "profile-version.json",
+    (path) =>
+      !path.startsWith("skills/") &&
+      path !== "profile-version.json" &&
+      !path.includes("__pycache__/") &&
+      !path.endsWith(".pyc"),
   );
   content.set("distribution.yaml", profileDistribution(args.version));
   content.set(
     ".gitignore",
-    ["state.sqlite", "*.sqlite", "runs/", "logs/", ".zotero-bridge/", ""].join(
-      "\n",
-    ),
+    [
+      "state.sqlite",
+      "*.sqlite",
+      "workspaces/",
+      "runs/",
+      "logs/",
+      ".zotero-bridge/",
+      "",
+    ].join("\n"),
   );
   merge(content, args.ownSkill, "skills/zotero-librarian");
   for (const inherited of args.inheritedSkills) {
@@ -802,11 +1282,14 @@ export function renderHostBridgeSurfaces(
     surfaceId: hermes.id,
   }).version;
 
+  const catalog = buildHostBridgeSurfaceCatalog(root);
+  const descriptor = buildHostBridgeAgentSurfaceDescriptor(catalog, root);
   const core = coreSkillContent({
     root,
     surface: minimum,
     skill: minimum.skills[0],
     version: minimumVersion,
+    descriptor,
   });
   const genericSkills = generic.skills.map((skill) => ({
     skill,
@@ -817,42 +1300,53 @@ export function renderHostBridgeSurfaces(
       version: genericVersion,
     }),
   }));
+  const pluginBundle = pluginSkillBundleContent({
+    root,
+    cliRelease: definitions.cliRelease,
+    minimum,
+    generic,
+    minimumVersion,
+    genericVersion,
+    commandCatalogChecksum: descriptor.commandCatalogChecksum,
+    core,
+    genericSkills,
+  });
   const ownLibrarian = hostedSkillContent({
     root,
     surface: hermes,
     skill: hermes.skills[0],
   });
+  const docPath = "doc/host-bridge-cli.md";
+  const docContent = replaceGeneratedSection(
+    read(root, docPath),
+    "doc-surface",
+    renderDocSurface(catalog),
+  );
+  const capabilityDocPath = "doc/components/host-bridge-capability-registry.md";
+  const capabilityDocContent = replaceGeneratedSection(
+    read(root, capabilityDocPath),
+    "capability-categories",
+    capabilityCategoryTable(catalog),
+  );
   const changes = [
     ...applyContent({
       root,
       outputRoot,
       targetRoot: "",
       content: new Map([
-        [
-          "cli/zotero-bridge/src/agent-surface.json",
-          core.get("assets/agent-surface.json") || "",
-        ],
+        [docPath, docContent],
+        [capabilityDocPath, capabilityDocContent],
       ]),
       check,
     }),
     ...applyContent({
       root,
       outputRoot,
-      targetRoot: minimum.generatedRoot,
-      content: core,
+      targetRoot: generic.generatedRoot,
+      content: pluginBundle,
       check,
       prune: true,
     }),
-    ...genericSkills.flatMap(({ skill, content }) =>
-      applyContent({
-        root,
-        outputRoot,
-        targetRoot: join(generic.generatedRoot, skill.id),
-        content,
-        check,
-        prune: true,
-      }),
-    ),
     ...applyContent({
       root,
       outputRoot,

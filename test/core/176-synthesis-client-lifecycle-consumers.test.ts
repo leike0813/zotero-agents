@@ -316,7 +316,7 @@ describe("Synthesis lifecycle client consumers", function () {
     });
     const bridgeRaw = await handleHostBridgeHttpRequestForTests({
       method: "POST",
-      path: "/bridge/v1/call",
+      path: "/bridge/v2/call",
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({
         capability: "topics.get_context",

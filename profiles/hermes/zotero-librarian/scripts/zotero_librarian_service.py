@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from zotero_librarian_workspace import WorkspaceError, prepare_workspace, resolve_workspace
+
 RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"
 STATE_SCHEMA = "zotero-librarian.state.v3"
 TERMINAL_STATES = {"succeeded", "failed", "canceled", "cancelled", "completed"}
@@ -33,16 +35,8 @@ def stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def state_path(raw: str | None) -> Path:
-    if raw:
-        return Path(raw).expanduser()
-    base = os.environ.get("ZOTERO_LIBRARIAN_STATE_DIR")
-    if base:
-        return Path(base).expanduser() / "state.sqlite"
-    hermes_home = os.environ.get("HERMES_HOME")
-    if hermes_home:
-        return Path(hermes_home).expanduser() / "zotero-librarian" / "state.sqlite"
-    return Path.home() / ".hermes" / "zotero-librarian" / "state.sqlite"
+def state_path(args: argparse.Namespace) -> Path:
+    return args.workspace.database
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -91,8 +85,8 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def call_bridge(bridge: str, argv: list[str]) -> Any:
-    proc = subprocess.run([bridge, *argv], text=True, capture_output=True, check=False)
+def call_bridge(bridge: str, argv: list[str], profile_prefix: list[str] | None = None) -> Any:
+    proc = subprocess.run([bridge, *(profile_prefix or []), *argv], text=True, capture_output=True, check=False)
     if proc.returncode:
         raise ServiceError("bridge_command_failed", proc.stderr.strip() or proc.stdout.strip() or "zotero-bridge failed", {"command": argv, "returncode": proc.returncode})
     try:
@@ -144,7 +138,7 @@ def item_identity(item: dict[str, Any]) -> tuple[int, str]:
 
 
 def index_refresh(args: argparse.Namespace) -> dict[str, Any]:
-    conn = connect(state_path(args.db))
+    conn = connect(state_path(args))
     changed = added = updated = 0
     seen: set[tuple[int, str]] = set()
     with conn:
@@ -153,7 +147,7 @@ def index_refresh(args: argparse.Namespace) -> dict[str, Any]:
             query: dict[str, Any] = {"limit": args.limit}
             if cursor:
                 query["cursor"] = cursor
-            page = unwrap(call_bridge(args.bridge, ["library", "snapshot", "--input", stable_json(query)]))
+            page = unwrap(call_bridge(args.bridge, ["library", "snapshot", "--input", stable_json(query)], args.profile_prefix))
             if not isinstance(page, dict):
                 raise ServiceError("invalid_snapshot", "library snapshot must be an object")
             entries = page.get("items", [])
@@ -189,28 +183,28 @@ def index_refresh(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def index_search(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args.db)).execute("SELECT payload_json FROM library_items WHERE lower(title) LIKE ? OR lower(payload_json) LIKE ? ORDER BY title LIMIT ?", (f"%{args.query.lower()}%", f"%{args.query.lower()}%", args.limit)).fetchall()
+    rows = connect(state_path(args)).execute("SELECT payload_json FROM library_items WHERE lower(title) LIKE ? OR lower(payload_json) LIKE ? ORDER BY title LIMIT ?", (f"%{args.query.lower()}%", f"%{args.query.lower()}%", args.limit)).fetchall()
     items = [json.loads(row["payload_json"]) for row in rows]
     return receipt("index.search", "ok", {"items": items})
 
 
 def index_item(args: argparse.Namespace) -> dict[str, Any]:
-    row = connect(state_path(args.db)).execute("SELECT payload_json FROM library_items WHERE item_key = ? OR item_id = ? LIMIT 1", (args.ref, args.ref)).fetchone()
+    row = connect(state_path(args)).execute("SELECT payload_json FROM library_items WHERE item_key = ? OR item_id = ? LIMIT 1", (args.ref, args.ref)).fetchone()
     if not row:
         raise ServiceError("item_not_found", "cached item was not found", {"ref": args.ref})
     return receipt("index.item", "ok", {"item": json.loads(row["payload_json"])})
 
 
 def index_stats(args: argparse.Namespace) -> dict[str, Any]:
-    conn = connect(state_path(args.db))
+    conn = connect(state_path(args))
     count = conn.execute("SELECT COUNT(*) AS count FROM library_items").fetchone()["count"]
     refreshed = conn.execute("SELECT value FROM meta WHERE key = 'last_index_refresh'").fetchone()
     return receipt("index.stats", "ok", {"itemCount": count, "lastRefresh": refreshed["value"] if refreshed else None})
 
 
 def workflow_catalog_refresh(args: argparse.Namespace) -> dict[str, Any]:
-    conn = connect(state_path(args.db))
-    data = unwrap(call_bridge(args.bridge, ["workflow", "list"]))
+    conn = connect(state_path(args))
+    data = unwrap(call_bridge(args.bridge, ["workflow", "list"], args.profile_prefix))
     entries = data.get("workflows", []) if isinstance(data, dict) else []
     changed = 0
     with conn:
@@ -225,33 +219,33 @@ def workflow_catalog_refresh(args: argparse.Namespace) -> dict[str, Any]:
             if prior and prior["digest"] == current:
                 continue
             changed += 1
-            detail = unwrap(call_bridge(args.bridge, ["workflow", "describe", "--workflow", workflow_id]))
+            detail = unwrap(call_bridge(args.bridge, ["workflow", "describe", "--workflow", workflow_id], args.profile_prefix))
             conn.execute("INSERT INTO workflow_catalog(workflow_id,payload_json,digest,updated_at) VALUES(?,?,?,?) ON CONFLICT(workflow_id) DO UPDATE SET payload_json=excluded.payload_json,digest=excluded.digest,updated_at=excluded.updated_at", (workflow_id, stable_json(detail), current, now()))
     return receipt("workflow.catalog-refresh", "changed" if changed else "unchanged", {"updated": changed})
 
 
 def workflow_show(args: argparse.Namespace) -> dict[str, Any]:
-    row = connect(state_path(args.db)).execute("SELECT payload_json FROM workflow_catalog WHERE workflow_id = ?", (args.workflow_id,)).fetchone()
+    row = connect(state_path(args)).execute("SELECT payload_json FROM workflow_catalog WHERE workflow_id = ?", (args.workflow_id,)).fetchone()
     if not row:
         raise ServiceError("workflow_not_found", "cached workflow was not found", {"workflowId": args.workflow_id})
     return receipt("workflow.show", "ok", {"workflow": json.loads(row["payload_json"])})
 
 
 def run_register(args: argparse.Namespace) -> dict[str, Any]:
-    conn = connect(state_path(args.db))
+    conn = connect(state_path(args))
     with conn:
         conn.execute("INSERT OR REPLACE INTO watched_runs(run_id,workflow_id,state,payload_json,updated_at) VALUES(?,?,?,?,?)", (args.run_id, args.workflow_id, args.state, "{}", now()))
     return receipt("run.register", "changed", {"runId": args.run_id})
 
 
 def run_watch(args: argparse.Namespace) -> dict[str, Any]:
-    conn = connect(state_path(args.db))
+    conn = connect(state_path(args))
     rows = conn.execute("SELECT * FROM watched_runs WHERE state NOT IN ('succeeded','failed','canceled','cancelled','completed')").fetchall()
     changed = 0
     states: list[dict[str, Any]] = []
     with conn:
         for row in rows:
-            data = unwrap(call_bridge(args.bridge, ["run", "get", row["run_id"]]))
+            data = unwrap(call_bridge(args.bridge, ["run", "get", row["run_id"]], args.profile_prefix))
             state = str(data.get("state") or row["state"]) if isinstance(data, dict) else row["state"]
             if state != row["state"]:
                 changed += 1
@@ -265,10 +259,10 @@ def event_id(event: dict[str, Any]) -> str:
 
 
 def notification_sync(args: argparse.Namespace) -> dict[str, Any]:
-    data = unwrap(call_bridge(args.bridge, ["run", "notification", "list", "--acknowledged", "false", "--limit", str(args.limit)]))
+    data = unwrap(call_bridge(args.bridge, ["run", "notification", "list", "--acknowledged", "false", "--limit", str(args.limit)], args.profile_prefix))
     events = data.get("events", []) if isinstance(data, dict) else []
     inserted = updated = 0
-    conn = connect(state_path(args.db))
+    conn = connect(state_path(args))
     with conn:
         for event in events if isinstance(events, list) else []:
             if not isinstance(event, dict):
@@ -282,47 +276,48 @@ def notification_sync(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def notification_inbox(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args.db)).execute("SELECT * FROM notifications WHERE acknowledged = 0 ORDER BY updated_at DESC LIMIT ?", (args.limit,)).fetchall()
+    rows = connect(state_path(args)).execute("SELECT * FROM notifications WHERE acknowledged = 0 ORDER BY updated_at DESC LIMIT ?", (args.limit,)).fetchall()
     events = [{"eventId": row["event_id"], "workflowRunId": row["workflow_run_id"], "type": row["event_type"], "payload": json.loads(row["payload_json"])} for row in rows]
     return receipt("notification.inbox", "ok", {"events": events})
 
 
 def notification_summary(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args.db)).execute("SELECT event_type, COUNT(*) AS count FROM notifications WHERE acknowledged = 0 GROUP BY event_type").fetchall()
+    rows = connect(state_path(args)).execute("SELECT event_type, COUNT(*) AS count FROM notifications WHERE acknowledged = 0 GROUP BY event_type").fetchall()
     counts = [{"type": row["event_type"], "count": row["count"]} for row in rows]
     return receipt("notification.summary", "ok", {"counts": counts})
 
 
 def notification_ack(args: argparse.Namespace) -> dict[str, Any]:
-    call_bridge(args.bridge, ["run", "notification", "ack", *sum((["--event", value] for value in args.event), [])])
-    conn = connect(state_path(args.db))
+    call_bridge(args.bridge, ["run", "notification", "ack", *sum((["--event", value] for value in args.event), [])], args.profile_prefix)
+    conn = connect(state_path(args))
     with conn:
         conn.executemany("UPDATE notifications SET acknowledged = 1, updated_at = ? WHERE event_id = ?", [(now(), event) for event in args.event])
     return receipt("notification.ack", "changed", {"acknowledged": args.event})
 
 
 def maintenance_workflow_status(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args.db)).execute("SELECT run_id, workflow_id, state FROM watched_runs WHERE state NOT IN ('succeeded','completed') ORDER BY updated_at DESC").fetchall()
+    rows = connect(state_path(args)).execute("SELECT run_id, workflow_id, state FROM watched_runs WHERE state NOT IN ('succeeded','completed') ORDER BY updated_at DESC").fetchall()
     records = [{"runId": row["run_id"], "workflowId": row["workflow_id"], "state": row["state"]} for row in rows]
     return receipt("maintenance.workflow-status", "attention" if records else "unchanged", {"runs": records})
 
 
 def maintenance_library_hygiene(args: argparse.Namespace) -> dict[str, Any]:
-    rows = connect(state_path(args.db)).execute("SELECT title, GROUP_CONCAT(item_key) AS keys, COUNT(*) AS count FROM library_items WHERE title <> '' GROUP BY lower(title) HAVING COUNT(*) > 1").fetchall()
+    rows = connect(state_path(args)).execute("SELECT title, GROUP_CONCAT(item_key) AS keys, COUNT(*) AS count FROM library_items WHERE title <> '' GROUP BY lower(title) HAVING COUNT(*) > 1").fetchall()
     candidates = [{"title": row["title"], "itemKeys": row["keys"].split(","), "reason": "duplicate_title"} for row in rows]
     return receipt("maintenance.library-hygiene", "attention" if candidates else "unchanged", {"candidates": candidates})
 
 
 def synthesis_attention_queue(args: argparse.Namespace) -> dict[str, Any]:
-    data = unwrap(call_bridge(args.bridge, ["synthesis", "insight", "attention-queue"]))
+    data = unwrap(call_bridge(args.bridge, ["synthesis", "insight", "attention-queue"], args.profile_prefix))
     items = data.get("items", []) if isinstance(data, dict) else []
     return receipt("synthesis.attention-queue", "attention" if items else "unchanged", {"items": items})
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="One-pass Zotero Librarian resident service")
-    result.add_argument("--db", help="state.sqlite path")
-    result.add_argument("--bridge", default="zotero-bridge")
+    result.add_argument("--db", help="diagnostic state.sqlite path inside the active workspace")
+    result.add_argument("--profile", help="connection profile path; defaults to ZOTERO_BRIDGE_PROFILE or the well-known profile")
+    result.add_argument("--bridge", help="zotero-bridge executable; defaults to the active workspace binary or PATH")
     result.add_argument("--quiet", action="store_true", help="emit [SILENT] for unchanged receipts")
     domains = result.add_subparsers(dest="domain", required=True)
 
@@ -357,7 +352,17 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
+        workspace = resolve_workspace(args.profile, args.db)
+        prepare_workspace(workspace)
+        args.workspace = workspace
+        args.profile_prefix = workspace.bridge_prefix
+        if not args.bridge:
+            binary_name = "zotero-bridge.exe" if os.name == "nt" else "zotero-bridge"
+            local = workspace.workspace / ".zotero-bridge" / "bin" / binary_name
+            args.bridge = str(local) if local.exists() else "zotero-bridge"
         return emit(args.func(args), args.quiet)
+    except WorkspaceError as error:
+        return emit({"schema": RECEIPT_SCHEMA, "operation": getattr(args, "operation", "unknown"), "status": "failed", "generatedAt": now(), "error": {"code": error.code, "message": str(error), "details": error.details}}, False)
     except ServiceError as error:
         return emit({"schema": RECEIPT_SCHEMA, "operation": getattr(args, "operation", "unknown"), "status": "failed", "generatedAt": now(), "error": {"code": error.code, "message": str(error), "details": error.details}}, False)
 

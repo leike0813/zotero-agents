@@ -997,6 +997,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         sessionId: this.currentSessionId,
         toolCallId: requestId,
         toolTitle: `Zotero MCP: ${request.toolName}`,
+        approvalKind: "zotero-write",
         source: "zotero-mcp-write",
         summary: request.summary,
         detail: safeJson(
@@ -1186,6 +1187,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
               sessionId: String(params.sessionId || "").trim(),
               toolCallId: String(toolCall.toolCallId || "").trim(),
               toolTitle: String(toolCall.title || "Tool Call").trim(),
+              approvalKind: "acp-tool",
               source: "acp-tool-call",
               summary,
               detail,

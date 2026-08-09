@@ -1,13 +1,32 @@
 ## zotero-bridge CLI 使用说明
 
 Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill 维护。
-使用 Zotero host 能力前，先阅读该 wrapper skill 及其生成的
-`references/host-bridge-cli.md` 参考。
+使用 Zotero host 能力前，先阅读该 wrapper skill，再从
+`references/command-catalog.md` 按意图选择命令，并只读取所选命令的
+`references/commands/<command-path>.md` 命令卡。
 
 <!-- host-bridge-surface:topic-synthesis-fragment:start -->
 Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
-当前 topic synthesis 相关命令族摘要：`library annotation export`, `library annotation list`, `library item attachments`, `library item get`, `library item notes`, `library item search`, `library items list`, `library note get`, `library note payload`, `library note payloads`, `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf`, `library snapshot`, `synthesis artifact export-filtered`, `synthesis artifact manifest`, `synthesis artifact read`, `synthesis artifact resolve-topic-digest`, `synthesis cache refresh-reference-sidecar`, `synthesis cache status`, `synthesis concept query`, `synthesis graph get-layout`, `synthesis graph get-metrics`, `synthesis graph get-slice`, `synthesis graph overview`, `synthesis graph query-cluster`, `synthesis graph rank-external-references`, `synthesis graph rank-library-papers`, `synthesis graph refresh-metrics`, `synthesis graph update`, `synthesis index library get`, `synthesis index reference get`, `synthesis insight attention-queue`, `synthesis resolver resolve`, `synthesis schema get`, `synthesis topic find-by-paper-ref`, `synthesis topic get-context`, `synthesis topic get-report`, `synthesis topic get-review-input`, `synthesis topic list`。
-使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
+从 wrapper skill 直接链接的 `references/command-catalog.md` 选择最小语义命令；
+命令名、参数、payload、分页、权限和恢复规则只以所选命令卡与当前二进制的
+`surface describe '<canonical command>'` 为准。静态命令卡与 live descriptor
+不一致时，停止并报告 release identity 漂移，不要根据相似命令猜字段。
+
+Topic synthesis 读取如果要用“没有匹配项”作为证据，必须按命令卡声明的
+`outputBoundary` 完整遍历对应分页 section。保留原查询条件，只把
+`pagination.<section>.nextCursor` 作为同一 section 的下一页 cursor；不要把第一
+页为空、短页或截断结果当作全量不存在。
+
+所有 CLI stdout 都按单一 JSON envelope 处理。失败时保留 canonical command、
+脱敏后的输入摘要、`error.code`、`error.details.phase`、`argumentId`、bounded
+violations、`retryable`、`stateChange`、`handleConsumption` 和
+`safeNextActions`。`argv`、JSON source/syntax 与 `command_input` 错误只按
+命令卡或同一 leaf 的 `--schema` 修复已指明的边界；`payload_composition`、
+`payload_contract` 或 `command_result` 表示 executable contract 路径不一致，
+不得通过改用相似命令、raw capability 或 MCP 绕过。若 `stateChange` 或 handle
+状态不是明确安全值，先执行 descriptor 给出的 receipt/live-state 检查，再决定
+是否继续。
+
 不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 <!-- host-bridge-surface:topic-synthesis-fragment:end -->
 

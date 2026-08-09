@@ -588,6 +588,15 @@ between Running and Completed. Queued rows are source-level DTOs: they do not
 create owners, run keys, request IDs, transcript selection, or provider
 placeholders. Their only action is an icon-only Host cancel carrying `queueId`.
 
+Every unfinished Host-managed task row shows its submission symbol immediately
+before the task title. Queued, running, waiting, and resumption-pending rows from
+one submission keep the same symbol; completed rows omit it. The symbol conveys
+lineage only. Status text and existing status components continue to convey
+execution state, and phase order remains in the subtitle without copying the
+symbol. Hover text and the symbol's equivalent `aria-label` expose only the
+frozen symbol, provider label, and model label, using localized field labels and
+an explicit default for missing values.
+
 Running, Queued, and Completed are independently collapsible. Running is
 expanded by default; Queued and Completed are collapsed by default. The shared
 Assistant labels localize every section title, queued state, and queue cancel
@@ -599,3 +608,8 @@ Sections and backend groups have local collapse state and region-level
 signatures. Queue-only add/remove/collapse changes reconcile keyed drawer
 nodes without rebuilding transcript, Runner pane, toolbar, banner, plan, hint,
 reply, context/details drawers, or permission drawer.
+
+Submission symbol, provider/model tooltip data, and resumption-pending state
+belong only to the keyed task-row signature. Their changes may replace the
+affected row but SHALL NOT enter transcript or another managed-region
+signature, rebuild a section/group container, or disturb the current owner.

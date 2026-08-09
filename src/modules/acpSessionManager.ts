@@ -1,14 +1,12 @@
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { ACP_BACKEND_TYPE } from "../config/defaults";
-import { joinPath } from "../utils/path";
 import {
   watchPromiseSettlement,
   type PromiseSettlementWatchdog,
 } from "../utils/wait";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
-  canPublishAssistantWorkspaceLiveUpdates,
   getAssistantExecutionDisplayMode,
   isAssistantSilentExecutionMode,
   subscribeAssistantExecutionDisplayMode,
@@ -27,20 +25,22 @@ import {
   createAcpSilentTerminalAssistantCollector,
   type AcpSilentTerminalAssistantCollector,
 } from "./acpSilentTerminalAssistantCollector";
-import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
+import { classifyAcpTranscriptSessionUpdate } from "./acpTranscriptBoundary";
+import type { AssistantWorkspaceTranscriptMutationEvent } from "./assistantWorkspaceTranscriptPublication";
 import {
-  classifyAcpTranscriptSessionUpdate,
-  isAcpTranscriptHardBoundaryUpdate,
-} from "./acpTranscriptBoundary";
-import type {
-  AssistantWorkspaceTranscriptBoundary,
-  AssistantWorkspaceTranscriptMutationEvent,
-} from "./assistantWorkspaceTranscriptPublication";
-import { createAssistantWorkspaceTranscriptMutation } from "./assistantWorkspaceTranscriptPublication";
-import {
-  createAcpChatWorkspaceOwner,
-  type AssistantWorkspaceOwnerNavigation,
-} from "./assistantWorkspacePublication";
+  clearAcpChatTranscriptMirrorLru,
+  completeAcpChatActiveStreamingTextItems,
+  configureAcpChatTranscriptMirrorHost,
+  finalizeAcpChatStreamingItems,
+  handleAcpChatTranscriptSessionUpdate,
+  hydrateAcpChatTranscriptMirror,
+  isLiveAcpChatSessionRuntime,
+  pruneIdleAcpChatBackgroundTranscriptMirrors,
+  pushAcpChatTranscriptItem,
+  releaseIdleAcpChatBackgroundTranscriptMirror,
+  scheduleAcpChatTranscriptHydrate,
+  upsertAcpChatStatusItem,
+} from "./acpChatTranscriptMirror";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -55,7 +55,6 @@ import {
   deleteAcpConversationState,
   listAllAcpChatSessions,
   listAcpChatSessions,
-  listStoredVisibleAcpChatSessions,
   loadAcpChatSessionIndex,
   loadAcpConversationState,
   loadAcpFrontendState,
@@ -66,10 +65,7 @@ import {
   saveAcpFrontendState,
 } from "./acpConversationStore";
 import {
-  enqueueAcpChatTranscriptEvent,
   flushAcpChatTranscriptWrites,
-  readAcpChatTranscriptPage,
-  readFullAcpChatTranscript,
   resolveAcpChatTranscriptPaths,
 } from "./acpConversationTranscriptStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
@@ -118,17 +114,11 @@ import {
   type AcpChatSessionSummary,
   type AcpChatDisplayMode,
   type AcpConversationItem,
-  type AcpConversationMessageItem,
-  type AcpConversationPlanItem,
   type AcpConversationSnapshot,
-  type AcpConversationStatusItem,
-  type AcpConversationThoughtItem,
-  type AcpConversationToolCallItem,
   type AcpDiagnosticsBundle,
   type AcpDiagnosticsEntry,
   type AcpHostContext,
   type AcpPendingPermissionRequest,
-  type AcpPlanEntry,
   type AcpSelectableOption,
 } from "./acpTypes";
 import type {
@@ -136,20 +126,12 @@ import type {
   SessionModelState,
   SessionModeState,
 } from "./acpProtocol";
+import { ensureRuntimeDirectory } from "./runtimePersistence";
 import {
-  copyRuntimeDirectory,
-  ensureRuntimeDirectory,
-  getRuntimePersistencePaths,
-  readRuntimeTextFile,
-  removeRuntimePath,
-  replaceRuntimeTextFileAtomically,
-  runtimePathExists,
-} from "./runtimePersistence";
-import {
-  buildAcpChatSkillInjectionPlan,
-  normalizeAcpProjectSkillRoot,
-} from "./acpAgentFamilyResolver";
-import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
+  assertHostBridgePluginSkillBundleIdentityCurrent,
+  HostBridgePluginSkillBundleIdentityChangedError,
+} from "../shared/hostBridgePluginSkillBundleContract";
+import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
 import {
   getZoteroMcpHealthSnapshot,
   getZoteroMcpServerStatus,
@@ -166,90 +148,56 @@ import {
   registerAcpConversationHostBridgePermissionHandler,
   resetAcpConversationHostBridgePermissionHandlersForTests,
 } from "./acpConversationHostBridgePermissionRegistry";
+import {
+  AcpPermissionQueue,
+  type AcpQueuedPermissionRequest,
+} from "./acpPermissionQueue";
 import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions";
 import {
   buildAcpStartupPromptPreamble,
   prependAcpStartupPromptPreamble,
 } from "./acpStartupPromptPreambles";
 import {
-  ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID,
-  loadAcpRuntimePromptTemplate,
-} from "./acpRuntimePromptTemplates";
+  getAcpChatWorkspaceEmission,
+  type AcpChatWorkspaceEmission,
+  type AcpChatWorkspaceEmitOptions,
+} from "./acpChatWorkspaceEmissionFacade";
+import {
+  configureAcpChatSkillInjectionHost,
+  materializeAcpChatInjectedSkills,
+  materializeAcpChatWorkspaceInstructions,
+  resetAcpChatWorkspacePreparationState,
+  withAcpChatWorkspacePreparationLock,
+} from "./acpChatSkillInjection";
+import type {
+  AcpChatWorkspaceChange,
+  AcpChatWorkspaceChangeKind,
+} from "./acpChatWorkspaceDataPlane";
 
-export type AcpChatWorkspaceChangeKind =
-  | "active-scope"
-  | "status"
-  | "permission"
-  | "session-list"
-  | "transcript-boundary"
-  | "transcript-append"
-  | "transcript-progress"
-  | "message-counts"
-  | "plan"
-  | "composer"
-  | "owner-presentation"
-  | "runtime-options"
-  | "backend"
-  | "global";
-export type AcpChatWorkspaceChange = Readonly<{
-  backendId?: string;
-  conversationId?: string;
-  active?: boolean;
-  global?: boolean;
-  kinds: readonly AcpChatWorkspaceChangeKind[];
-  transcriptEvents?: readonly AssistantWorkspaceTranscriptMutationEvent[];
-  transcriptEventSeq?: number;
-  transcriptItemCount?: number;
-}>;
-type AcpChatWorkspaceListener = (change: AcpChatWorkspaceChange) => void;
+// Barrel re-exports: the workspace data plane owns the ACP Chat owner
+// navigation, read models, transcript page reads, and the workspace-change
+// subscription surface; re-exported here to keep existing acpSessionManager
+// import sites stable (Phase 1 barrel precedent).
+export {
+  getActiveAcpChatOwner,
+  getAcpChatWorkspaceOwnerNavigation,
+  getAcpChatWorkspaceReadModel,
+  getAcpConversationSnapshot,
+  getAcpChatTranscriptMirrorDiagnosticsForTests,
+  readAcpConversationTranscriptMirrorPage,
+  readAcpConversationTranscriptPage,
+  scheduleAcpChatTranscriptHydrateForOwner,
+  subscribeAcpChatWorkspaceChanges,
+} from "./acpChatWorkspaceDataPlane";
+export type {
+  AcpChatWorkspaceChange,
+  AcpChatWorkspaceChangeKind,
+  AcpChatWorkspaceReadModel,
+  AcpConversationTranscriptPage,
+} from "./acpChatWorkspaceDataPlane";
 
-export type AcpChatWorkspaceReadModel = Readonly<{
-  backendId: string;
-  backendDisplayName: string;
-  conversationId: string;
-  conversationTitle: string;
-  sessionTitle: string;
-  sessionUpdatedAt: string;
-  status: string;
-  busy: boolean;
-  connected: boolean;
-  promptInterruptState: AcpConversationSnapshot["promptInterruptState"];
-  lastError: string;
-  prerequisiteError: string;
-  sessionId: string;
-  remoteSessionId: string;
-  remoteSessionRestoreStatus: string;
-  remoteSessionRestoreMessage: string;
-  agentLabel: string;
-  agentVersion: string;
-  autoApproveAcpPermissions: boolean;
-  authMethods: AcpConversationSnapshot["authMethods"];
-  commandLine: string;
-  lastStopReason: string;
-  diagnostics: AcpConversationSnapshot["diagnostics"];
-  stderrTail: string;
-  lastHostContext: AcpConversationSnapshot["lastHostContext"];
-  usage: AcpConversationSnapshot["usage"];
-  pendingPermissionRequest: AcpConversationSnapshot["pendingPermissionRequest"];
-  modeOptions: AcpConversationSnapshot["modeOptions"];
-  currentMode: AcpConversationSnapshot["currentMode"];
-  modelOptions: AcpConversationSnapshot["modelOptions"];
-  currentModel: AcpConversationSnapshot["currentModel"];
-  displayModelOptions: AcpConversationSnapshot["displayModelOptions"];
-  currentDisplayModel: AcpConversationSnapshot["currentDisplayModel"];
-  reasoningEffortOptions: AcpConversationSnapshot["reasoningEffortOptions"];
-  currentReasoningEffort: AcpConversationSnapshot["currentReasoningEffort"];
-  planEntries: AcpPlanEntry[];
-  agentWorkspaceDir: string;
-  sessionCwd: string;
-  workspaceDir: string;
-  runtimeDir: string;
-  updatedAt: string;
-}>;
 const ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
 const DEFAULT_ACP_CHAT_PROMPT_INTERRUPT_GRACE_MS = 10_000;
-const ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10;
-const coldAcpChatTranscriptMirrorLru = new Map<string, true>();
 export type AcpChatSessionRuntime = {
   key: string;
   backendId: string;
@@ -297,23 +245,11 @@ export type AcpChatSessionRuntime = {
   transcriptHydratePromise?: Promise<void>;
   transcriptMirrorReleasePromise?: Promise<void>;
   transcriptWrites: Set<Promise<unknown>>;
-  pendingPermissionResolver:
-    | ((outcome: RequestPermissionOutcome) => void)
-    | null;
+  permissionQueue: AcpPermissionQueue;
   suppressSessionLoadReplay: boolean;
   workspaceChangeTimer: ReturnType<typeof setTimeout> | null;
   persistTimer: ReturnType<typeof setTimeout> | null;
   lastLiveActivityMs: number;
-};
-
-type AcpEmitOptions = {
-  persist?: boolean;
-  throttleUi?: boolean;
-  throttlePersist?: boolean;
-  touchUpdatedAt?: boolean;
-  notifyUi?: boolean;
-  uiReason?: AssistantWorkspacePublishReason;
-  changeKinds?: AcpChatWorkspaceChangeKind[];
 };
 
 let adapterFactory: (
@@ -327,51 +263,26 @@ let activeBackendId = "";
 let activeConversationId = "";
 let cachedAcpBackends: BackendInstance[] = [];
 const sessionRuntimes = new Map<string, AcpChatSessionRuntime>();
-const acpChatWorkspaceListeners = new Set<AcpChatWorkspaceListener>();
 const chatTranscriptWrites = new Set<Promise<unknown>>();
+
+configureAcpChatTranscriptMirrorHost({
+  ownerKey: (sessionRuntime) =>
+    acpChatSessionKey(
+      sessionRuntime.backendId,
+      sessionRuntime.snapshot.conversationId,
+    ),
+  resolveSessionRuntime: (ownerKey) => sessionRuntimes.get(ownerKey),
+  listSessionRuntimes: () => sessionRuntimes.values(),
+  isForegroundSessionRuntime,
+  emitSessionRuntimeSnapshot,
+  appendDiagnostic,
+});
+configureAcpChatSkillInjectionHost({
+  appendDiagnostic,
+});
 const MAX_DIAGNOSTICS = 40;
 const MAX_LIVE_ACP_CHAT_ADAPTERS = 3;
 const STREAMING_PERSIST_THROTTLE_MS = 2000;
-const ACP_CHAT_INJECTED_SKILL_IDS = [
-  "zotero-bridge-cli",
-  "literature-search-ingest",
-  "literature-metadata-search",
-  "zotero-library-agent",
-  "zotero-library-curation",
-  "zotero-library-query",
-  "zotero-literature-acquisition",
-  "zotero-literature-analysis",
-  "zotero-research-synthesis",
-] as const;
-const ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA =
-  "zotero-agents.acp-chat-injected-skills.v1";
-const ACP_CHAT_INJECTED_SKILLS_MANIFEST_FILENAME =
-  "injected-skills-manifest.json";
-const ACP_CHAT_WORKSPACE_AGENTS_FILENAME = "AGENTS.md";
-const ACP_CHAT_WORKSPACE_AGENTS_START =
-  "<!-- zotero-agents:acp-chat-workspace:start -->";
-const ACP_CHAT_WORKSPACE_AGENTS_END =
-  "<!-- zotero-agents:acp-chat-workspace:end -->";
-const LEGACY_ACP_CHAT_SKILL_ROOTS = [
-  ".agents/skills",
-  ".codex/skills",
-  ".claude/skills",
-  ".gemini/skills",
-  ".qwen/skills",
-  ".kilo/skills",
-] as const;
-
-type AcpChatInjectedSkillTarget = {
-  relativeRoot: string;
-  skillId: string;
-};
-
-type AcpChatInjectedSkillsManifest = {
-  schema: typeof ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA;
-  targets: AcpChatInjectedSkillTarget[];
-};
-
-let acpChatWorkspacePreparationTail: Promise<void> = Promise.resolve();
 
 function nowIso() {
   return new Date().toISOString();
@@ -396,7 +307,7 @@ function nextOpaqueId(prefix: string) {
     .slice(2, 8)}`;
 }
 
-function normalizeBackendId(value: unknown) {
+export function normalizeBackendId(value: unknown) {
   return String(value || "").trim();
 }
 
@@ -404,17 +315,20 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function normalizeConversationId(value: unknown) {
+export function normalizeConversationId(value: unknown) {
   return String(value || "").trim();
 }
 
-function acpChatSessionKey(backendIdRaw: unknown, conversationIdRaw: unknown) {
+export function acpChatSessionKey(
+  backendIdRaw: unknown,
+  conversationIdRaw: unknown,
+) {
   const backendId = normalizeBackendId(backendIdRaw) || activeBackendId;
   const conversationId = normalizeConversationId(conversationIdRaw);
   return `${backendId}\u0000${conversationId}`;
 }
 
-function resolveActiveConversationId(backendIdRaw: unknown) {
+export function resolveActiveConversationId(backendIdRaw: unknown) {
   const backendId = normalizeBackendId(backendIdRaw) || activeBackendId;
   if (!backendId) {
     return "";
@@ -472,7 +386,7 @@ function clearActiveAcpChatPrompt(sessionRuntime: AcpChatSessionRuntime) {
   sessionRuntime.activePrompt = null;
 }
 
-function cloneSnapshotValue(value: AcpConversationSnapshot) {
+export function cloneSnapshotValue(value: AcpConversationSnapshot) {
   return {
     ...value,
     authMethods: value.authMethods.map((entry) => ({ ...entry })),
@@ -512,7 +426,7 @@ function cloneSnapshotValue(value: AcpConversationSnapshot) {
   } satisfies AcpConversationSnapshot;
 }
 
-function ensureInitialized() {
+export function ensureInitialized() {
   if (initialized) {
     return;
   }
@@ -532,7 +446,7 @@ function ensureInitialized() {
           const hadActiveText =
             !!sessionRuntime.activeAssistantItemId ||
             !!sessionRuntime.activeThoughtItemId;
-          completeActiveStreamingTextItems(sessionRuntime);
+          completeAcpChatActiveStreamingTextItems(sessionRuntime);
           if (hadActiveText) {
             emitSessionRuntimeSnapshot(sessionRuntime, {
               uiReason: "critical",
@@ -598,6 +512,10 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
   );
   snapshot.sessionId = "";
   snapshot.remoteSessionId = String(snapshot.remoteSessionId || "").trim();
+  if (!snapshot.remoteSessionId) {
+    snapshot.hostBridgePluginSkillBundleIdentity =
+      getCurrentHostBridgePluginSkillBundleIdentity();
+  }
   snapshot.remoteSessionRestoreStatus =
     snapshot.remoteSessionRestoreStatus || "none";
   snapshot.status = normalizeAcpStatus(snapshot.status);
@@ -650,7 +568,7 @@ function resetSessionRuntimeTransientState(
   sessionRuntime.transcriptHydrateState = undefined;
   sessionRuntime.transcriptHydrateError = undefined;
   sessionRuntime.transcriptHydratePromise = undefined;
-  sessionRuntime.pendingPermissionResolver = null;
+  sessionRuntime.permissionQueue.cancelAll();
   sessionRuntime.suppressSessionLoadReplay = false;
 }
 
@@ -667,7 +585,7 @@ function rekeySessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   sessionRuntimes.set(nextKey, sessionRuntime);
 }
 
-function getOrCreateSessionRuntime(
+export function getOrCreateSessionRuntime(
   backendIdRaw?: string,
   conversationIdRaw?: string,
 ) {
@@ -709,7 +627,7 @@ function getOrCreateSessionRuntime(
     transcriptToolItemIds: new Map(),
     transcriptMirrorLoaded: true,
     transcriptWrites: new Set(),
-    pendingPermissionResolver: null,
+    permissionQueue: new AcpPermissionQueue(),
     suppressSessionLoadReplay: false,
     workspaceChangeTimer: null,
     persistTimer: null,
@@ -721,6 +639,21 @@ function getOrCreateSessionRuntime(
   resetSessionRuntimeTransientState(sessionRuntime);
   sessionRuntimes.set(key, sessionRuntime);
   return sessionRuntime;
+}
+
+// Registry/selection accessors for the workspace data plane (which imports
+// this domain core at runtime; the reverse emission path goes through
+// acpChatWorkspaceEmissionFacade).
+export function getAcpChatSessionRuntimeByKey(key: string) {
+  return sessionRuntimes.get(key);
+}
+
+export function getActiveAcpChatBackendId() {
+  return activeBackendId;
+}
+
+export function getCachedAcpBackends() {
+  return cachedAcpBackends;
 }
 
 function touchLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
@@ -772,27 +705,66 @@ async function enforceAcpChatLiveAdapterLimit(
   emitSessionRuntimeSnapshot(evicted);
 }
 
-function setSessionRuntimePendingPermissionRequest(
-  sessionRuntime: AcpChatSessionRuntime,
-  request: AcpPendingPermissionRequest & {
-    resolve: (outcome: RequestPermissionOutcome) => void;
-  },
-) {
-  sessionRuntime.pendingPermissionResolver = request.resolve;
-  sessionRuntime.snapshot.pendingPermissionRequest = {
+function projectSessionRuntimePermissionRequest(
+  request: AcpQueuedPermissionRequest,
+): AcpPendingPermissionRequest {
+  return {
     requestId: request.requestId,
     sessionId: request.sessionId,
     toolCallId: request.toolCallId,
     toolTitle: request.toolTitle,
+    approvalKind: request.approvalKind,
     source: request.source,
     summary: request.summary,
     detail: request.detail,
     requestedAt: request.requestedAt,
     options: request.options.map((entry) => ({ ...entry })),
   };
-  sessionRuntime.snapshot.status = "permission-required";
-  sessionRuntime.snapshot.busy = true;
-  emitSessionRuntimeSnapshot(sessionRuntime);
+}
+
+function syncSessionRuntimePermissionHead(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  const active = sessionRuntime.permissionQueue.active();
+  sessionRuntime.snapshot.pendingPermissionRequest = active
+    ? projectSessionRuntimePermissionRequest(active)
+    : null;
+  if (active) {
+    sessionRuntime.snapshot.status = "permission-required";
+    sessionRuntime.snapshot.busy = true;
+  }
+}
+
+function setSessionRuntimePendingPermissionRequest(
+  sessionRuntime: AcpChatSessionRuntime,
+  request: AcpQueuedPermissionRequest,
+) {
+  const activeRequestId =
+    sessionRuntime.permissionQueue.active()?.requestId || "";
+  if (!sessionRuntime.permissionQueue.enqueue(request)) {
+    return;
+  }
+  if (activeRequestId) {
+    return;
+  }
+  syncSessionRuntimePermissionHead(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime, {
+    changeKinds: ["permission"],
+  });
+}
+
+function cancelSessionRuntimePermissionRequests(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  const hadPending =
+    sessionRuntime.permissionQueue.size > 0 ||
+    !!sessionRuntime.snapshot.pendingPermissionRequest;
+  sessionRuntime.permissionQueue.cancelAll();
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  if (hadPending) {
+    sessionRuntime.pendingWorkspaceChangeKinds.add("permission");
+  }
+  return hadPending;
 }
 
 function autoApproveSessionRuntimePermissionRequest(
@@ -855,325 +827,6 @@ function getForegroundSessionRuntime() {
   return getOrCreateSessionRuntime(activeBackendId);
 }
 
-export function getActiveAcpChatOwner() {
-  ensureInitialized();
-  return {
-    backendId: normalizeBackendId(activeBackendId),
-    conversationId: normalizeConversationId(
-      resolveActiveConversationId(activeBackendId),
-    ),
-  };
-}
-
-export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
-  ensureInitialized();
-  const active = getActiveAcpChatOwner();
-  const foreground = getOrCreateSessionRuntime(active.backendId);
-  const foregroundBackend = foreground.snapshot.backend;
-  const backends: BackendInstance[] = [
-    ...(foregroundBackend &&
-    !cachedAcpBackends.some((entry) => entry.id === foregroundBackend.id)
-      ? [foregroundBackend]
-      : []),
-    ...cachedAcpBackends,
-  ];
-  const entries = backends.flatMap((backend) => {
-    const sessions =
-      backend.id === active.backendId
-        ? listAcpChatSessions(backend.id)
-        : listStoredVisibleAcpChatSessions(backend.id);
-    return sessions.map((session) => {
-      const summary = projectAcpChatSessionSummary(backend.id, session);
-      return {
-        owner: createAcpChatWorkspaceOwner(backend.id, summary.conversationId),
-        groupId: backend.id,
-        label: String(summary.title || "").trim() || summary.conversationId,
-        subtitle:
-          String(backend.displayName || backend.id).trim() || backend.id,
-        description: String(summary.lastError || "").trim() || null,
-        groupLabel:
-          String(backend.displayName || backend.id).trim() || backend.id,
-        status: String(summary.status || "idle"),
-        backendStatus: String(summary.status || "idle"),
-        applyState: null,
-        attention: String(summary.lastError || "").trim() || null,
-        updatedAt: String(summary.updatedAt || "").trim() || null,
-        messageCount: Math.max(0, Number(summary.messageCount) || 0),
-      };
-    });
-  });
-  const selectedOwner =
-    active.backendId && active.conversationId
-      ? createAcpChatWorkspaceOwner(active.backendId, active.conversationId)
-      : null;
-  return {
-    selectedOwner,
-    selectedGroupId: active.backendId || null,
-    groups: backends.map((backend) => ({
-      groupId: backend.id,
-      label: String(backend.displayName || backend.id).trim() || backend.id,
-      status: String(
-        backend.id === active.backendId
-          ? foreground.snapshot.status || "idle"
-          : "idle",
-      ),
-    })),
-    entries,
-    queuedEntries: [],
-    canCreateOwner: backends.length > 0,
-  };
-}
-
-export function getAcpChatWorkspaceReadModel(
-  backendIdRaw: string,
-  conversationIdRaw: string,
-): AcpChatWorkspaceReadModel {
-  ensureInitialized();
-  const sessionRuntime = getOrCreateSessionRuntime(
-    normalizeBackendId(backendIdRaw) || activeBackendId,
-    normalizeConversationId(conversationIdRaw),
-  );
-  const snapshot = sessionRuntime.snapshot;
-  const planItem = sessionRuntime.activePlanItemId
-    ? sessionRuntime.transcriptItemsById.get(sessionRuntime.activePlanItemId)
-    : undefined;
-  return Object.freeze({
-    backendId: sessionRuntime.backendId,
-    backendDisplayName:
-      String(
-        snapshot.backend?.displayName || sessionRuntime.backendId,
-      ).trim() || sessionRuntime.backendId,
-    conversationId: snapshot.conversationId,
-    conversationTitle: snapshot.conversationTitle,
-    sessionTitle: snapshot.sessionTitle,
-    sessionUpdatedAt: snapshot.sessionUpdatedAt,
-    status: snapshot.status,
-    busy: snapshot.busy,
-    connected: sessionRuntime.adapter !== null,
-    promptInterruptState: snapshot.promptInterruptState,
-    lastError: snapshot.lastError || snapshot.prerequisiteError,
-    prerequisiteError: snapshot.prerequisiteError,
-    sessionId: snapshot.sessionId,
-    remoteSessionId: snapshot.remoteSessionId,
-    remoteSessionRestoreStatus: snapshot.remoteSessionRestoreStatus,
-    remoteSessionRestoreMessage: snapshot.remoteSessionRestoreMessage,
-    agentLabel: snapshot.agentLabel,
-    agentVersion: snapshot.agentVersion,
-    autoApproveAcpPermissions: snapshot.autoApproveAcpPermissions === true,
-    authMethods: snapshot.authMethods.map((entry) => ({ ...entry })),
-    commandLine: snapshot.commandLine,
-    lastStopReason: snapshot.lastStopReason,
-    diagnostics: snapshot.diagnostics.slice(-12).map((entry) => ({ ...entry })),
-    stderrTail: snapshot.stderrTail,
-    lastHostContext: snapshot.lastHostContext
-      ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
-      : null,
-    usage: snapshot.usage ? { ...snapshot.usage } : null,
-    pendingPermissionRequest: snapshot.pendingPermissionRequest
-      ? {
-          ...snapshot.pendingPermissionRequest,
-          options: snapshot.pendingPermissionRequest.options.map((option) => ({
-            ...option,
-          })),
-        }
-      : null,
-    modeOptions: snapshot.modeOptions.map((option) => ({ ...option })),
-    currentMode: snapshot.currentMode ? { ...snapshot.currentMode } : undefined,
-    modelOptions: snapshot.modelOptions.map((option) => ({ ...option })),
-    currentModel: snapshot.currentModel
-      ? { ...snapshot.currentModel }
-      : undefined,
-    displayModelOptions: snapshot.displayModelOptions.map((option) => ({
-      ...option,
-    })),
-    currentDisplayModel: snapshot.currentDisplayModel
-      ? { ...snapshot.currentDisplayModel }
-      : undefined,
-    reasoningEffortOptions: snapshot.reasoningEffortOptions.map((option) => ({
-      ...option,
-    })),
-    currentReasoningEffort: snapshot.currentReasoningEffort
-      ? { ...snapshot.currentReasoningEffort }
-      : undefined,
-    planEntries:
-      planItem?.kind === "plan"
-        ? planItem.entries.map((entry) => ({ ...entry }))
-        : [],
-    agentWorkspaceDir: snapshot.agentWorkspaceDir,
-    sessionCwd: snapshot.sessionCwd,
-    workspaceDir: snapshot.workspaceDir,
-    runtimeDir: snapshot.runtimeDir,
-    updatedAt: snapshot.updatedAt,
-  });
-}
-
-function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
-  const activeConversationId = resolveActiveConversationId(activeBackendId);
-  return (
-    normalizeBackendId(sessionRuntime.backendId) ===
-      normalizeBackendId(activeBackendId) &&
-    normalizeConversationId(sessionRuntime.snapshot.conversationId) ===
-      normalizeConversationId(activeConversationId)
-  );
-}
-
-function buildAcpChatWorkspaceChange(
-  sessionRuntime: AcpChatSessionRuntime,
-  kinds: readonly AcpChatWorkspaceChangeKind[],
-  options: { global?: boolean } = {},
-): AcpChatWorkspaceChange {
-  const hasTranscript = kinds.some(
-    (kind) =>
-      kind === "transcript-append" ||
-      kind === "transcript-boundary" ||
-      kind === "transcript-progress",
-  );
-  const transcriptEvents = hasTranscript
-    ? sessionRuntime.workspaceTranscriptEvents.splice(0)
-    : [];
-  for (const event of transcriptEvents) {
-    Object.freeze(event.mutation);
-    Object.freeze(event);
-  }
-  return Object.freeze({
-    backendId: sessionRuntime.backendId,
-    conversationId: sessionRuntime.snapshot.conversationId,
-    active: isForegroundSessionRuntime(sessionRuntime),
-    global: options.global === true,
-    kinds: Object.freeze([...new Set(kinds)]),
-    ...(transcriptEvents.length > 0
-      ? {
-          transcriptEvents: Object.freeze(transcriptEvents),
-          transcriptEventSeq: sessionRuntime.transcriptEventSeq,
-          transcriptItemCount: sessionRuntime.transcriptItemCount,
-        }
-      : {}),
-  });
-}
-
-function notifyAcpChatWorkspaceListeners(
-  change: AcpChatWorkspaceChange | undefined,
-) {
-  if (!change) return;
-  for (const listener of acpChatWorkspaceListeners) {
-    listener(change);
-  }
-}
-
-function resolveAcpChatWorkspaceChangeKinds(
-  reason: AssistantWorkspacePublishReason,
-  sessionRuntime: AcpChatSessionRuntime,
-  explicitKinds: readonly AcpChatWorkspaceChangeKind[] = [],
-): AcpChatWorkspaceChangeKind[] {
-  const kinds = new Set(explicitKinds);
-  if (reason === "live") {
-    if (kinds.size === 0) kinds.add("transcript-append");
-    return Array.from(kinds);
-  }
-  if (sessionRuntime.workspaceTranscriptEvents.length > 0) {
-    kinds.add("transcript-boundary");
-  }
-  if (sessionRuntime.snapshot.pendingPermissionRequest) {
-    kinds.add("permission");
-  }
-  kinds.add("status");
-  return Array.from(kinds);
-}
-
-function isLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
-  const status = normalizeAcpStatus(sessionRuntime.snapshot.status);
-  return (
-    !!sessionRuntime.adapter ||
-    sessionRuntime.snapshot.busy === true ||
-    status === "checking-command" ||
-    status === "spawning" ||
-    status === "initializing" ||
-    status === "connected" ||
-    status === "prompting" ||
-    status === "permission-required" ||
-    status === "auth-required"
-  );
-}
-
-function acpChatTranscriptMirrorCacheKey(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  return acpChatSessionKey(
-    sessionRuntime.backendId,
-    sessionRuntime.snapshot.conversationId,
-  );
-}
-
-function isPinnedAcpChatTranscriptMirror(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  return (
-    isLiveAcpChatSessionRuntime(sessionRuntime) ||
-    isForegroundSessionRuntime(sessionRuntime)
-  );
-}
-
-function forceReleaseAcpChatTranscriptMirror(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  const key = acpChatTranscriptMirrorCacheKey(sessionRuntime);
-  coldAcpChatTranscriptMirrorLru.delete(key);
-  resetChatTranscriptMirror(sessionRuntime);
-  sessionRuntime.transcriptMirrorLoaded = false;
-  sessionRuntime.transcriptHydrateState = undefined;
-  sessionRuntime.transcriptHydrateError = undefined;
-  sessionRuntime.transcriptHydratePromise = undefined;
-}
-
-function pruneColdAcpChatTranscriptMirrorLru() {
-  for (const key of Array.from(coldAcpChatTranscriptMirrorLru.keys())) {
-    const sessionRuntime = sessionRuntimes.get(key);
-    if (!sessionRuntime) {
-      coldAcpChatTranscriptMirrorLru.delete(key);
-      continue;
-    }
-    if (isLiveAcpChatSessionRuntime(sessionRuntime)) {
-      coldAcpChatTranscriptMirrorLru.delete(key);
-    }
-  }
-  while (
-    coldAcpChatTranscriptMirrorLru.size >
-    ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT
-  ) {
-    const key = coldAcpChatTranscriptMirrorLru.keys().next().value;
-    if (!key) {
-      break;
-    }
-    const sessionRuntime = sessionRuntimes.get(key);
-    coldAcpChatTranscriptMirrorLru.delete(key);
-    if (sessionRuntime && !isPinnedAcpChatTranscriptMirror(sessionRuntime)) {
-      forceReleaseAcpChatTranscriptMirror(sessionRuntime);
-    }
-  }
-}
-
-function touchColdAcpChatTranscriptMirror(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  const key = acpChatTranscriptMirrorCacheKey(sessionRuntime);
-  if (!key || isLiveAcpChatSessionRuntime(sessionRuntime)) {
-    coldAcpChatTranscriptMirrorLru.delete(key);
-    return;
-  }
-  if (!sessionRuntime.transcriptMirrorLoaded) {
-    return;
-  }
-  coldAcpChatTranscriptMirrorLru.delete(key);
-  coldAcpChatTranscriptMirrorLru.set(key, true);
-  pruneColdAcpChatTranscriptMirrorLru();
-}
-
-function updateSnapshotTimestamp(sessionRuntime: AcpChatSessionRuntime) {
-  sessionRuntime.snapshot.authMethodIds =
-    sessionRuntime.snapshot.authMethods.map((entry) => entry.id);
-  sessionRuntime.snapshot.updatedAt = nowIso();
-}
-
 function persistSessionRuntimeSnapshotNow(
   sessionRuntime: AcpChatSessionRuntime,
 ) {
@@ -1203,7 +856,7 @@ function markSessionRuntimeConnectionIdle(
   sessionRuntime.snapshot.sessionId = "";
   sessionRuntime.snapshot.busy = false;
   sessionRuntime.snapshot.status = "idle";
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   if (options.clearErrors) {
     sessionRuntime.snapshot.lastError = "";
     sessionRuntime.snapshot.prerequisiteError = "";
@@ -1213,51 +866,6 @@ function markSessionRuntimeConnectionIdle(
   }
   if (options.lifecycleEvent) {
     sessionRuntime.snapshot.lastLifecycleEvent = options.lifecycleEvent;
-  }
-}
-
-function releaseIdleBackgroundTranscriptMirror(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  if (isLiveAcpChatSessionRuntime(sessionRuntime)) {
-    coldAcpChatTranscriptMirrorLru.delete(
-      acpChatTranscriptMirrorCacheKey(sessionRuntime),
-    );
-    return;
-  }
-  if (isForegroundSessionRuntime(sessionRuntime)) {
-    touchColdAcpChatTranscriptMirror(sessionRuntime);
-    return;
-  }
-  if (
-    coldAcpChatTranscriptMirrorLru.has(
-      acpChatTranscriptMirrorCacheKey(sessionRuntime),
-    )
-  ) {
-    return;
-  }
-  if (sessionRuntime.transcriptWrites.size > 0) {
-    if (!sessionRuntime.transcriptMirrorReleasePromise) {
-      const pending = Array.from(sessionRuntime.transcriptWrites);
-      sessionRuntime.transcriptMirrorReleasePromise = Promise.allSettled(
-        pending,
-      )
-        .then(() => {
-          sessionRuntime.transcriptMirrorReleasePromise = undefined;
-          releaseIdleBackgroundTranscriptMirror(sessionRuntime);
-        })
-        .catch(() => {
-          sessionRuntime.transcriptMirrorReleasePromise = undefined;
-        });
-    }
-    return;
-  }
-  forceReleaseAcpChatTranscriptMirror(sessionRuntime);
-}
-
-function pruneIdleBackgroundTranscriptMirrors() {
-  for (const sessionRuntime of sessionRuntimes.values()) {
-    releaseIdleBackgroundTranscriptMirror(sessionRuntime);
   }
 }
 
@@ -1290,7 +898,7 @@ function consumePendingAcpChatWorkspaceChangeKinds(
   return kinds;
 }
 
-function flushPendingPersistence(sessionRuntime: AcpChatSessionRuntime) {
+export function flushPendingPersistence(sessionRuntime: AcpChatSessionRuntime) {
   if (sessionRuntime.persistTimer) {
     clearTimeout(sessionRuntime.persistTimer);
     sessionRuntime.persistTimer = null;
@@ -1298,7 +906,7 @@ function flushPendingPersistence(sessionRuntime: AcpChatSessionRuntime) {
   persistSessionRuntimeSnapshotNow(sessionRuntime);
 }
 
-function flushPendingWorkspaceChange(
+export function flushPendingWorkspaceChange(
   sessionRuntime: AcpChatSessionRuntime,
   reason: AssistantWorkspacePublishReason = "critical",
   changeKinds: readonly AcpChatWorkspaceChangeKind[] = [],
@@ -1323,7 +931,9 @@ function flushPendingWorkspaceChange(
   );
 }
 
-function schedulePersistenceFlush(sessionRuntime: AcpChatSessionRuntime) {
+export function schedulePersistenceFlush(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
   if (sessionRuntime.persistTimer) {
     return;
   }
@@ -1333,7 +943,7 @@ function schedulePersistenceFlush(sessionRuntime: AcpChatSessionRuntime) {
   }, STREAMING_PERSIST_THROTTLE_MS);
 }
 
-function scheduleWorkspaceChange(
+export function scheduleWorkspaceChange(
   sessionRuntime: AcpChatSessionRuntime,
   reason: AssistantWorkspacePublishReason = "live",
   changeKinds: readonly AcpChatWorkspaceChangeKind[] = [],
@@ -1515,47 +1125,61 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
   return { timers, warnings: [] };
 }
 
-function publishSessionRuntimeWorkspaceChange(
-  sessionRuntime: AcpChatSessionRuntime,
-  reason: AssistantWorkspacePublishReason,
-  changeKinds: readonly AcpChatWorkspaceChangeKind[] = [],
-) {
-  if (reason === "background") return;
-  if (reason === "live") {
-    if (!canPublishAssistantWorkspaceLiveUpdates()) return;
-    scheduleWorkspaceChange(sessionRuntime, reason, changeKinds);
-    return;
+function requireAcpChatWorkspaceEmission(): AcpChatWorkspaceEmission {
+  const registered = getAcpChatWorkspaceEmission();
+  if (!registered) {
+    throw new Error("ACP Chat workspace data plane is not registered.");
   }
-  flushPendingWorkspaceChange(sessionRuntime, reason, changeKinds);
+  return registered;
 }
 
+// Emission delegates: the workspace data plane owns snapshot emission and
+// workspace-change build/notify; the domain core reaches them through the
+// emission facade so it never imports the data-plane module.
 function emitSessionRuntimeSnapshot(
   sessionRuntime: AcpChatSessionRuntime,
-  options: AcpEmitOptions = {},
+  options: AcpChatWorkspaceEmitOptions = {},
 ) {
-  if (options.touchUpdatedAt !== false) {
-    updateSnapshotTimestamp(sessionRuntime);
-  } else {
-    sessionRuntime.snapshot.authMethodIds =
-      sessionRuntime.snapshot.authMethods.map((entry) => entry.id);
-  }
-  const persist = options.persist !== false;
-  if (persist) {
-    if (options.throttlePersist) {
-      schedulePersistenceFlush(sessionRuntime);
-    } else {
-      flushPendingPersistence(sessionRuntime);
-    }
-  }
-  if (options.notifyUi !== false) {
-    const reason: AssistantWorkspacePublishReason =
-      options.uiReason || (options.throttleUi ? "live" : "critical");
-    publishSessionRuntimeWorkspaceChange(
-      sessionRuntime,
-      reason,
-      options.changeKinds,
-    );
-  }
+  requireAcpChatWorkspaceEmission().emitSessionRuntimeSnapshot(
+    sessionRuntime,
+    options,
+  );
+}
+
+function buildAcpChatWorkspaceChange(
+  sessionRuntime: AcpChatSessionRuntime,
+  kinds: readonly AcpChatWorkspaceChangeKind[],
+  options: { global?: boolean } = {},
+) {
+  return requireAcpChatWorkspaceEmission().buildAcpChatWorkspaceChange(
+    sessionRuntime,
+    kinds,
+    options,
+  );
+}
+
+function notifyAcpChatWorkspaceListeners(
+  change: AcpChatWorkspaceChange | undefined,
+) {
+  requireAcpChatWorkspaceEmission().notifyAcpChatWorkspaceListeners(change);
+}
+
+function resolveAcpChatWorkspaceChangeKinds(
+  reason: AssistantWorkspacePublishReason,
+  sessionRuntime: AcpChatSessionRuntime,
+  explicitKinds: readonly AcpChatWorkspaceChangeKind[] = [],
+) {
+  return requireAcpChatWorkspaceEmission().resolveAcpChatWorkspaceChangeKinds(
+    reason,
+    sessionRuntime,
+    explicitKinds,
+  );
+}
+
+function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  return requireAcpChatWorkspaceEmission().isForegroundSessionRuntime(
+    sessionRuntime,
+  );
 }
 
 async function refreshAcpBackends() {
@@ -1736,777 +1360,12 @@ function appendErrorDiagnostic(args: {
   });
 }
 
-function truncateAcpChatPreview(value: unknown) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "";
-  }
-  return text.length > 8 * 1024
-    ? `${text.slice(0, 8 * 1024)}...<truncated>`
-    : text;
-}
-
-function acpChatPreviewFromItem(item: AcpConversationItem) {
-  if (item.kind === "message" || item.kind === "thought") {
-    return truncateAcpChatPreview(item.text);
-  }
-  if (item.kind === "status") {
-    return truncateAcpChatPreview(item.text);
-  }
-  if (item.kind === "tool_call") {
-    return truncateAcpChatPreview(
-      item.summary || item.resultSummary || item.inputSummary || item.title,
-    );
-  }
-  if (item.kind === "plan") {
-    return truncateAcpChatPreview(
-      item.entries
-        .map((entry) => entry.content)
-        .filter(Boolean)
-        .join(" "),
-    );
-  }
-  return "";
-}
-
 function hasDurableAcpChatTranscript(sessionRuntime: AcpChatSessionRuntime) {
   return (
     (Number(sessionRuntime.snapshot.transcriptItemCount) || 0) > 0 ||
     (Number(sessionRuntime.snapshot.transcriptEventSeq) || 0) > 0 ||
     (Number(sessionRuntime.snapshot.transcriptRevision) || 0) > 0
   );
-}
-
-function rememberTranscriptItemId(
-  sessionRuntime: AcpChatSessionRuntime,
-  itemId: string,
-) {
-  if (!itemId || sessionRuntime.transcriptItemIds.includes(itemId)) {
-    return;
-  }
-  sessionRuntime.transcriptItemIds.push(itemId);
-}
-
-function forgetTranscriptItemId(
-  sessionRuntime: AcpChatSessionRuntime,
-  itemId: string,
-) {
-  sessionRuntime.transcriptItemIds = sessionRuntime.transcriptItemIds.filter(
-    (id) => id !== itemId,
-  );
-}
-
-function rememberTranscriptToolMapping(
-  sessionRuntime: AcpChatSessionRuntime,
-  item: AcpConversationItem,
-) {
-  if (item.kind === "tool_call" && item.toolCallId) {
-    sessionRuntime.transcriptToolItemIds.set(item.toolCallId, item.id);
-  }
-}
-
-function readSessionRuntimeTranscriptMirrorItems(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  return sessionRuntime.transcriptItemIds
-    .map((itemId) => sessionRuntime.transcriptItemsById.get(itemId))
-    .filter((item): item is AcpConversationItem => !!item)
-    .map((item) => cloneAcpConversationItem(item));
-}
-
-function applyChatTranscriptEventToMirror(
-  sessionRuntime: AcpChatSessionRuntime,
-  args: {
-    op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
-    itemId: string;
-    item?: AcpConversationItem;
-    text?: string;
-    patch?: Partial<AcpConversationItem>;
-  },
-) {
-  const itemId = normalizeString(args.itemId);
-  if (!itemId) {
-    return;
-  }
-  if (args.op === "upsert_item" && args.item) {
-    const cloned = cloneAcpConversationItem(args.item);
-    rememberTranscriptItemId(sessionRuntime, itemId);
-    sessionRuntime.transcriptItemsById.set(itemId, cloned);
-    rememberTranscriptToolMapping(sessionRuntime, cloned);
-    return;
-  }
-  if (args.op === "append_text") {
-    const current = sessionRuntime.transcriptItemsById.get(itemId);
-    if (current?.kind === "message" || current?.kind === "thought") {
-      sessionRuntime.transcriptItemsById.set(itemId, {
-        ...current,
-        text: `${current.text || ""}${String(args.text || "")}`,
-        updatedAt: nowIso(),
-      } as AcpConversationItem);
-    }
-    return;
-  }
-  if (args.op === "patch_item" && args.patch) {
-    const current = sessionRuntime.transcriptItemsById.get(itemId);
-    if (!current) {
-      return;
-    }
-    const next = {
-      ...current,
-      ...args.patch,
-      id: current.id,
-      kind: current.kind,
-    } as AcpConversationItem;
-    sessionRuntime.transcriptItemsById.set(itemId, next);
-    rememberTranscriptToolMapping(sessionRuntime, next);
-    return;
-  }
-  if (args.op === "delete_item") {
-    const current = sessionRuntime.transcriptItemsById.get(itemId);
-    if (current?.kind === "tool_call" && current.toolCallId) {
-      sessionRuntime.transcriptToolItemIds.delete(current.toolCallId);
-    }
-    sessionRuntime.transcriptItemsById.delete(itemId);
-    forgetTranscriptItemId(sessionRuntime, itemId);
-  }
-}
-
-function resetChatTranscriptMirror(sessionRuntime: AcpChatSessionRuntime) {
-  sessionRuntime.transcriptItemsById.clear();
-  sessionRuntime.transcriptItemIds = [];
-  sessionRuntime.transcriptToolItemIds.clear();
-  sessionRuntime.activeAssistantItemId = "";
-  sessionRuntime.activeThoughtItemId = "";
-  sessionRuntime.activePlanItemId = "";
-  sessionRuntime.workspaceTranscriptEvents = [];
-}
-
-function loadChatTranscriptMirrorFromItems(
-  sessionRuntime: AcpChatSessionRuntime,
-  args: { items: AcpConversationItem[]; eventSeq: number },
-) {
-  resetChatTranscriptMirror(sessionRuntime);
-  for (const item of args.items) {
-    const cloned = cloneAcpConversationItem(item);
-    rememberTranscriptItemId(sessionRuntime, cloned.id);
-    sessionRuntime.transcriptItemsById.set(cloned.id, cloned);
-    rememberTranscriptToolMapping(sessionRuntime, cloned);
-  }
-  sessionRuntime.transcriptItemCount = args.items.length;
-  sessionRuntime.transcriptEventSeq = Math.max(
-    Number(args.eventSeq) || 0,
-    Number(sessionRuntime.snapshot.transcriptEventSeq) || 0,
-  );
-  sessionRuntime.transcriptPreview =
-    args.items
-      .slice()
-      .reverse()
-      .map((item) => acpChatPreviewFromItem(item))
-      .find((text) => !!text) || "";
-  sessionRuntime.snapshot.transcriptItemCount =
-    sessionRuntime.transcriptItemCount;
-  sessionRuntime.snapshot.transcriptEventSeq =
-    sessionRuntime.transcriptEventSeq;
-  sessionRuntime.snapshot.transcriptRevision =
-    sessionRuntime.transcriptEventSeq;
-  sessionRuntime.snapshot.transcriptPreview =
-    sessionRuntime.transcriptPreview || undefined;
-  sessionRuntime.transcriptMirrorLoaded = true;
-  sessionRuntime.transcriptHydrateState = undefined;
-  sessionRuntime.transcriptHydrateError = undefined;
-}
-
-function applyChatTranscriptMetadata(
-  sessionRuntime: AcpChatSessionRuntime,
-  args: {
-    item?: AcpConversationItem;
-    text?: string;
-    newItem?: boolean;
-  },
-) {
-  const paths = resolveAcpChatTranscriptPaths(
-    sessionRuntime.snapshot.conversationStorageDir,
-  );
-  if (args.newItem) {
-    sessionRuntime.transcriptItemCount += 1;
-  }
-  sessionRuntime.transcriptEventSeq += 1;
-  sessionRuntime.snapshot.transcriptPath = paths.transcriptPath;
-  sessionRuntime.snapshot.transcriptIndexPath = paths.transcriptIndexPath;
-  sessionRuntime.snapshot.transcriptRevision =
-    sessionRuntime.transcriptEventSeq;
-  sessionRuntime.snapshot.transcriptEventSeq =
-    sessionRuntime.transcriptEventSeq;
-  sessionRuntime.snapshot.transcriptItemCount =
-    sessionRuntime.transcriptItemCount;
-  const preview = args.text
-    ? truncateAcpChatPreview(args.text)
-    : args.item
-      ? acpChatPreviewFromItem(args.item)
-      : "";
-  if (preview) {
-    sessionRuntime.transcriptPreview = preview;
-    sessionRuntime.snapshot.transcriptPreview = preview;
-  }
-}
-
-function queueChatTranscriptEvent(
-  sessionRuntime: AcpChatSessionRuntime,
-  args: {
-    op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
-    itemId: string;
-    item?: AcpConversationItem;
-    text?: string;
-    patch?: Partial<AcpConversationItem>;
-    createdAt: string;
-    newItem?: boolean;
-    boundary?: AssistantWorkspaceTranscriptBoundary;
-  },
-) {
-  const previousItem = sessionRuntime.transcriptItemsById.get(args.itemId);
-  applyChatTranscriptEventToMirror(sessionRuntime, args);
-  applyChatTranscriptMetadata(sessionRuntime, {
-    item: args.item,
-    text: args.text,
-    newItem: args.newItem,
-  });
-  const currentItem = sessionRuntime.transcriptItemsById.get(args.itemId);
-  const mutation = createAssistantWorkspaceTranscriptMutation({
-    op: args.op,
-    itemId: args.itemId,
-    beforeItem: previousItem as Record<string, unknown> | undefined,
-    afterItem: currentItem as unknown as Record<string, unknown> | undefined,
-    text: args.text,
-  });
-  if (mutation) {
-    sessionRuntime.workspaceTranscriptEvents.push({
-      boundary: args.boundary || "hard-boundary",
-      mutation,
-      cardinality:
-        !previousItem && currentItem
-          ? "insert"
-          : previousItem && !currentItem
-            ? "delete"
-            : "retain",
-    });
-  }
-  enqueueAcpChatTranscriptEvent({
-    conversationStorageDir: sessionRuntime.snapshot.conversationStorageDir,
-    op: args.op,
-    itemId: args.itemId,
-    item: args.item,
-    text: args.text,
-    patch: args.patch,
-    createdAt: args.createdAt,
-  });
-}
-
-function upsertTranscriptItem(
-  sessionRuntime: AcpChatSessionRuntime,
-  item: AcpConversationItem,
-  boundary?: AssistantWorkspaceTranscriptBoundary,
-) {
-  queueChatTranscriptEvent(sessionRuntime, {
-    op: "upsert_item",
-    itemId: item.id,
-    item,
-    createdAt: item.createdAt || nowIso(),
-    newItem: true,
-    boundary,
-  });
-}
-
-function patchTranscriptItem(
-  sessionRuntime: AcpChatSessionRuntime,
-  itemId: string,
-  patch: Partial<AcpConversationItem>,
-  boundary?: AssistantWorkspaceTranscriptBoundary,
-) {
-  queueChatTranscriptEvent(sessionRuntime, {
-    op: "patch_item",
-    itemId,
-    patch,
-    createdAt: nowIso(),
-    boundary,
-  });
-}
-
-function appendTranscriptText(
-  sessionRuntime: AcpChatSessionRuntime,
-  item: AcpConversationMessageItem | AcpConversationThoughtItem,
-  text: string,
-) {
-  queueChatTranscriptEvent(sessionRuntime, {
-    op: "append_text",
-    itemId: item.id,
-    text,
-    createdAt: nowIso(),
-    boundary: "text-continuation",
-  });
-}
-
-function appendStreamingTranscriptText(
-  sessionRuntime: AcpChatSessionRuntime,
-  args:
-    | {
-        kind: "message";
-        role: AcpConversationMessageItem["role"];
-        text: string;
-      }
-    | {
-        kind: "thought";
-        text: string;
-      },
-) {
-  if (args.kind === "message") {
-    completeActiveStreamingTextItems(sessionRuntime, {
-      except: sessionRuntime.activeAssistantItemId,
-    });
-    let target = getLatestActiveAssistantItem(sessionRuntime);
-    if (!target) {
-      const createdAt = nowIso();
-      target = {
-        id: nextOpaqueId("acp-msg-assistant"),
-        kind: "message",
-        role: args.role,
-        text: args.text,
-        createdAt,
-        updatedAt: createdAt,
-        state: "streaming",
-      };
-      sessionRuntime.activeAssistantItemId = target.id;
-      pushItem(sessionRuntime, target, "text-continuation");
-      return;
-    }
-    appendTranscriptText(sessionRuntime, target, args.text);
-    return;
-  }
-
-  completeActiveStreamingTextItems(sessionRuntime, {
-    except: sessionRuntime.activeThoughtItemId,
-  });
-  let target = getLatestActiveThoughtItem(sessionRuntime);
-  if (!target) {
-    const createdAt = nowIso();
-    target = {
-      id: nextOpaqueId("acp-thought"),
-      kind: "thought",
-      text: args.text,
-      createdAt,
-      updatedAt: createdAt,
-      state: "streaming",
-    };
-    sessionRuntime.activeThoughtItemId = target.id;
-    pushItem(sessionRuntime, target, "text-continuation");
-    return;
-  }
-  appendTranscriptText(sessionRuntime, target, args.text);
-}
-
-function upsertStatusItem(
-  sessionRuntime: AcpChatSessionRuntime,
-  args: {
-    level: "info" | "warn" | "error";
-    label: string;
-    text: string;
-  },
-) {
-  const item: AcpConversationStatusItem = {
-    id: nextOpaqueId("acp-status"),
-    kind: "status",
-    level: args.level,
-    label: args.label,
-    text: args.text,
-    createdAt: nowIso(),
-  };
-  upsertTranscriptItem(sessionRuntime, item);
-}
-
-function pushItem(
-  sessionRuntime: AcpChatSessionRuntime,
-  item: AcpConversationItem,
-  boundary?: AssistantWorkspaceTranscriptBoundary,
-) {
-  upsertTranscriptItem(sessionRuntime, item, boundary);
-}
-
-function getLatestConversationItem(sessionRuntime: AcpChatSessionRuntime) {
-  const activeId =
-    sessionRuntime.activeAssistantItemId ||
-    sessionRuntime.activeThoughtItemId ||
-    sessionRuntime.activePlanItemId;
-  return activeId
-    ? sessionRuntime.transcriptItemsById.get(activeId)
-    : undefined;
-}
-
-function getLatestActiveAssistantItem(sessionRuntime: AcpChatSessionRuntime) {
-  const latest = sessionRuntime.transcriptItemsById.get(
-    sessionRuntime.activeAssistantItemId,
-  );
-  return latest?.kind === "message" && latest.role === "assistant"
-    ? (latest as AcpConversationMessageItem)
-    : undefined;
-}
-
-function getLatestActiveThoughtItem(sessionRuntime: AcpChatSessionRuntime) {
-  const latest = sessionRuntime.transcriptItemsById.get(
-    sessionRuntime.activeThoughtItemId,
-  );
-  return latest?.kind === "thought"
-    ? (latest as AcpConversationThoughtItem)
-    : undefined;
-}
-
-function normalizeToolCallState(
-  status: unknown,
-): AcpConversationToolCallItem["state"] {
-  const value = String(status || "")
-    .trim()
-    .toLowerCase();
-  if (value === "pending" || value === "queued") {
-    return "pending";
-  }
-  if (value === "failed" || value === "error" || value === "cancelled") {
-    return "failed";
-  }
-  if (value === "in_progress" || value === "running") {
-    return "in_progress";
-  }
-  return "completed";
-}
-
-function toolCallStateRank(state: AcpConversationToolCallItem["state"]) {
-  switch (state) {
-    case "failed":
-      return 4;
-    case "completed":
-      return 3;
-    case "in_progress":
-      return 2;
-    case "pending":
-    default:
-      return 1;
-  }
-}
-
-function isTerminalPlanStatus(status: string) {
-  return [
-    "complete",
-    "completed",
-    "done",
-    "succeeded",
-    "success",
-    "skipped",
-    "cancelled",
-    "canceled",
-    "failed",
-    "error",
-  ].includes(
-    String(status || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, "_"),
-  );
-}
-
-function isGenericToolDisplayText(value: unknown) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, " ");
-  return (
-    !normalized ||
-    normalized === "tool" ||
-    normalized === "tool call" ||
-    normalized === "other" ||
-    normalized === "[]" ||
-    normalized === "{}" ||
-    /^call [a-z0-9]+$/i.test(normalized) ||
-    /^call_[a-z0-9_-]+$/i.test(String(value || "").trim()) ||
-    /^toolu_[a-z0-9_-]+$/i.test(String(value || "").trim())
-  );
-}
-
-function readRecordValue(value: unknown, key: string) {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
-}
-
-function isEmptyStructuredToolValue(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.length === 0;
-  }
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.keys(value as Record<string, unknown>).length === 0
-  );
-}
-
-function stringifyToolCallDetail(value: unknown): string {
-  if (value === undefined || value === null) {
-    return "";
-  }
-  if (isEmptyStructuredToolValue(value)) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (Array.isArray(value)) {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value || "").trim();
-    }
-  }
-  if (typeof value === "object") {
-    const preferredKeys = [
-      "description",
-      "title",
-      "command",
-      "query",
-      "path",
-      "filePath",
-      "file_path",
-      "name",
-      "text",
-    ];
-    for (const key of preferredKeys) {
-      const nested: string = stringifyToolCallDetail(
-        (value as Record<string, unknown>)[key],
-      );
-      if (nested && !isGenericToolDisplayText(nested)) {
-        return nested;
-      }
-    }
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value || "").trim();
-  }
-}
-
-function shortenToolCallSummary(value: string) {
-  const normalized = String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return normalized.length > 180
-    ? `${normalized.slice(0, 177)}...`
-    : normalized;
-}
-
-function firstNonGenericToolText(values: unknown[]) {
-  for (const value of values) {
-    const text = shortenToolCallSummary(stringifyToolCallDetail(value));
-    if (text && !isGenericToolDisplayText(text)) {
-      return text;
-    }
-  }
-  return "";
-}
-
-function extractToolName(
-  update: Record<string, unknown>,
-  fallbackTitle: string,
-  fallbackKind?: string,
-) {
-  return (
-    firstNonGenericToolText([
-      update.name,
-      update.tool,
-      update.functionName,
-      update.function_name,
-      update.toolName,
-      fallbackKind,
-      update.summary,
-      fallbackTitle,
-    ]) || "Tool"
-  );
-}
-
-function extractToolInputSummary(
-  update: Record<string, unknown>,
-  fallbackTitle: string,
-) {
-  const metadata = update.metadata;
-  return firstNonGenericToolText([
-    update.rawInput,
-    update.input,
-    update.arguments,
-    update.args,
-    update.parameters,
-    update.params,
-    readRecordValue(metadata, "description"),
-    readRecordValue(metadata, "title"),
-    update.description,
-    fallbackTitle,
-  ]);
-}
-
-function extractToolResultSummary(update: Record<string, unknown>) {
-  return firstNonGenericToolText([
-    update.rawOutput,
-    update.output,
-    update.result,
-    update.content,
-    update.message,
-    update.detail,
-    update.summary,
-  ]);
-}
-
-function upsertToolCallItem(
-  sessionRuntime: AcpChatSessionRuntime,
-  update: Record<string, unknown>,
-  boundary: AssistantWorkspaceTranscriptBoundary,
-) {
-  const toolCallId = String(update.toolCallId || "").trim();
-  const nextState = normalizeToolCallState(update.status);
-  const title = String(update.title || "Tool Call").trim() || "Tool Call";
-  const toolKind = String(update.kind || "").trim() || undefined;
-  const toolName = extractToolName(update, title, toolKind);
-  const inputSummary = extractToolInputSummary(update, title);
-  const resultSummary = extractToolResultSummary(update);
-  const now = nowIso();
-  const targetId = toolCallId
-    ? sessionRuntime.transcriptToolItemIds.get(toolCallId)
-    : "";
-  const target = targetId
-    ? (sessionRuntime.transcriptItemsById.get(targetId) as
-        | AcpConversationToolCallItem
-        | undefined)
-    : undefined;
-  if (!target) {
-    const frozenInputSummary = inputSummary || undefined;
-    pushItem(
-      sessionRuntime,
-      {
-        id: nextOpaqueId("acp-tool"),
-        kind: "tool_call",
-        toolCallId,
-        title,
-        toolKind,
-        toolName,
-        inputSummary: frozenInputSummary,
-        resultSummary: resultSummary || undefined,
-        state: nextState,
-        createdAt: now,
-        summary: frozenInputSummary || resultSummary || undefined,
-      },
-      boundary,
-    );
-    return;
-  }
-  const patch: Partial<AcpConversationToolCallItem> = {};
-  if (
-    !isGenericToolDisplayText(title) ||
-    isGenericToolDisplayText(target.title)
-  ) {
-    patch.title = title || target.title;
-  }
-  if (toolKind) {
-    patch.toolKind = toolKind;
-  }
-  if (
-    !isGenericToolDisplayText(toolName) ||
-    isGenericToolDisplayText(target.toolName)
-  ) {
-    patch.toolName = toolName || target.toolName;
-  }
-  if (inputSummary && !target.inputSummary) {
-    patch.inputSummary = inputSummary;
-  }
-  if (resultSummary) {
-    patch.resultSummary = resultSummary;
-  }
-  const nextInputSummary = patch.inputSummary || target.inputSummary;
-  if (nextInputSummary) {
-    patch.summary = nextInputSummary;
-  } else if (resultSummary && !target.summary) {
-    patch.summary = resultSummary;
-  }
-  if (toolCallStateRank(nextState) >= toolCallStateRank(target.state)) {
-    patch.state = nextState;
-  }
-  patch.updatedAt = now;
-  patchTranscriptItem(
-    sessionRuntime,
-    target.id,
-    patch as Partial<AcpConversationItem>,
-    boundary,
-  );
-}
-
-function finalizeStreamingItems(
-  sessionRuntime: AcpChatSessionRuntime,
-  finalState: "complete" | "error",
-  planTerminalStatus: "cancelled" | "skipped" = "skipped",
-) {
-  if (sessionRuntime.activeAssistantItemId) {
-    patchTranscriptItem(sessionRuntime, sessionRuntime.activeAssistantItemId, {
-      state: finalState,
-      updatedAt: nowIso(),
-    } as Partial<AcpConversationItem>);
-    sessionRuntime.activeAssistantItemId = "";
-  }
-  if (sessionRuntime.activeThoughtItemId) {
-    patchTranscriptItem(sessionRuntime, sessionRuntime.activeThoughtItemId, {
-      state: finalState,
-      updatedAt: nowIso(),
-    } as Partial<AcpConversationItem>);
-    sessionRuntime.activeThoughtItemId = "";
-  }
-  if (sessionRuntime.activePlanItemId) {
-    const target = sessionRuntime.transcriptItemsById.get(
-      sessionRuntime.activePlanItemId,
-    ) as AcpConversationPlanItem | undefined;
-    if (target) {
-      patchTranscriptItem(sessionRuntime, target.id, {
-        entries: target.entries.map((entry) =>
-          isTerminalPlanStatus(entry.status)
-            ? entry
-            : {
-                ...entry,
-                status: planTerminalStatus,
-              },
-        ),
-        updatedAt: nowIso(),
-      } as Partial<AcpConversationItem>);
-    }
-    sessionRuntime.activePlanItemId = "";
-  }
-}
-
-function completeActiveStreamingTextItems(
-  sessionRuntime: AcpChatSessionRuntime,
-  args?: { except?: string },
-) {
-  const updatedAt = nowIso();
-  if (
-    sessionRuntime.activeAssistantItemId &&
-    sessionRuntime.activeAssistantItemId !== args?.except
-  ) {
-    patchTranscriptItem(sessionRuntime, sessionRuntime.activeAssistantItemId, {
-      state: "complete",
-      updatedAt,
-    } as Partial<AcpConversationItem>);
-    sessionRuntime.activeAssistantItemId = "";
-  }
-  if (
-    sessionRuntime.activeThoughtItemId &&
-    sessionRuntime.activeThoughtItemId !== args?.except
-  ) {
-    patchTranscriptItem(sessionRuntime, sessionRuntime.activeThoughtItemId, {
-      state: "complete",
-      updatedAt,
-    } as Partial<AcpConversationItem>);
-    sessionRuntime.activeThoughtItemId = "";
-  }
 }
 
 function snapshotRuntimeOptionsCache(
@@ -2783,123 +1642,15 @@ function handleSessionUpdate(
       return;
     }
   }
+  if (
+    handleAcpChatTranscriptSessionUpdate(sessionRuntime, update, {
+      transcriptBoundary,
+      progressCountChanged: progressChange.countChanged,
+    })
+  ) {
+    return;
+  }
   switch (String(update.sessionUpdate || "").trim()) {
-    case "agent_message_chunk": {
-      sessionRuntime.snapshot.lastLifecycleEvent = "agent_message_chunk";
-      const content = update.content as
-        | { type?: string; text?: string }
-        | undefined;
-      if (String(content?.type || "").trim() !== "text") {
-        return;
-      }
-      const chunk = String(content?.text || "");
-      if (!chunk) {
-        return;
-      }
-      appendStreamingTranscriptText(sessionRuntime, {
-        kind: "message",
-        role: "assistant",
-        text: chunk,
-      });
-      emitSessionRuntimeSnapshot(sessionRuntime, {
-        throttlePersist: true,
-        touchUpdatedAt: false,
-        uiReason: "live",
-        changeKinds: progressChange.countChanged
-          ? ["message-counts", "transcript-append"]
-          : ["transcript-append"],
-      });
-      return;
-    }
-    case "agent_thought_chunk": {
-      sessionRuntime.snapshot.lastLifecycleEvent = "agent_thought_chunk";
-      const content = update.content as
-        | { type?: string; text?: string }
-        | undefined;
-      if (String(content?.type || "").trim() !== "text") {
-        return;
-      }
-      const chunk = String(content?.text || "");
-      if (!chunk) {
-        return;
-      }
-      appendStreamingTranscriptText(sessionRuntime, {
-        kind: "thought",
-        text: chunk,
-      });
-      emitSessionRuntimeSnapshot(sessionRuntime, {
-        throttlePersist: true,
-        touchUpdatedAt: false,
-        uiReason: "live",
-        changeKinds: progressChange.countChanged
-          ? ["message-counts", "transcript-append"]
-          : ["transcript-append"],
-      });
-      return;
-    }
-    case "tool_call": {
-      sessionRuntime.snapshot.lastLifecycleEvent = "tool_call";
-      if (isAcpTranscriptHardBoundaryUpdate(update.sessionUpdate)) {
-        completeActiveStreamingTextItems(sessionRuntime);
-      }
-      upsertToolCallItem(sessionRuntime, update, "hard-boundary");
-      emitSessionRuntimeSnapshot(sessionRuntime, {
-        uiReason: "boundary",
-        changeKinds: progressChange.countChanged
-          ? ["message-counts", "transcript-boundary"]
-          : ["transcript-boundary"],
-      });
-      return;
-    }
-    case "tool_call_update": {
-      sessionRuntime.snapshot.lastLifecycleEvent = "tool_call_update";
-      upsertToolCallItem(sessionRuntime, update, transcriptBoundary);
-      emitSessionRuntimeSnapshot(sessionRuntime, {
-        throttlePersist: transcriptBoundary === "soft-side-channel",
-        uiReason:
-          transcriptBoundary === "soft-side-channel" ? "live" : "boundary",
-        changeKinds: [
-          transcriptBoundary === "soft-side-channel"
-            ? "transcript-progress"
-            : "transcript-boundary",
-        ],
-      });
-      return;
-    }
-    case "plan": {
-      sessionRuntime.snapshot.lastLifecycleEvent = "plan";
-      completeActiveStreamingTextItems(sessionRuntime);
-      const entries = Array.isArray(update.entries)
-        ? update.entries.map((entry) => ({
-            content: String(entry?.content || ""),
-            priority: String(entry?.priority || ""),
-            status: String(entry?.status || ""),
-          }))
-        : [];
-      let target = sessionRuntime.transcriptItemsById.get(
-        sessionRuntime.activePlanItemId,
-      ) as AcpConversationPlanItem | undefined;
-      if (!target) {
-        target = {
-          id: nextOpaqueId("acp-plan"),
-          kind: "plan",
-          entries,
-          createdAt: nowIso(),
-        };
-        sessionRuntime.activePlanItemId = target.id;
-        pushItem(sessionRuntime, target);
-      } else {
-        patchTranscriptItem(sessionRuntime, target.id, {
-          entries,
-          updatedAt: nowIso(),
-        } as Partial<AcpConversationItem>);
-      }
-      emitSessionRuntimeSnapshot(sessionRuntime, {
-        uiReason: "boundary",
-        changeKinds: ["plan", "transcript-boundary"],
-      });
-      return;
-    }
     case "available_commands_update": {
       sessionRuntime.snapshot.lastLifecycleEvent = "available_commands_update";
       sessionRuntime.snapshot.availableCommands = Array.isArray(
@@ -2943,7 +1694,7 @@ function handleSessionUpdate(
         !applied.modelApplied &&
         !applied.reasoningApplied
       ) {
-        upsertStatusItem(sessionRuntime, {
+        upsertAcpChatStatusItem(sessionRuntime, {
           level: "info",
           label: "Config",
           text: "Session configuration options updated.",
@@ -3014,7 +1765,7 @@ function bindAdapter(
       return;
     }
     sessionRuntime.adapter = null;
-    sessionRuntime.pendingPermissionResolver = null;
+    cancelSessionRuntimePermissionRequests(sessionRuntime);
     const closeMessage = String(event?.message || "").trim();
     const stderrText = String(event?.stderrText || "").trim();
     const naturalIdleClose =
@@ -3024,7 +1775,6 @@ function bindAdapter(
       !closeMessage &&
       !stderrText;
     sessionRuntime.snapshot.busy = false;
-    sessionRuntime.snapshot.pendingPermissionRequest = null;
     if (naturalIdleClose) {
       markSessionRuntimeConnectionIdle(sessionRuntime, {
         lifecycleEvent: "closed",
@@ -3084,7 +1834,7 @@ async function disconnectSessionRuntimeAdapter(
   sessionRuntime: AcpChatSessionRuntime,
 ) {
   sessionRuntime.silentTerminalAssistantCollector.discard();
-  sessionRuntime.pendingPermissionResolver = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   const diagnosticOwner = acpChatDiagnosticOwnerForRuntime(sessionRuntime);
   if (!sessionRuntime.adapter) {
     await releaseAcpChatDiagnosticAudit(diagnosticOwner);
@@ -3167,7 +1917,7 @@ async function forceStopAcpChatPrompt(
     sessionRuntime.snapshot.messageCounts = snapshotAcpMessageCounts(
       acpChatExecutionProgressScope(sessionRuntime),
     );
-    finalizeStreamingItems(sessionRuntime, "error", "cancelled");
+    finalizeAcpChatStreamingItems(sessionRuntime, "error", "cancelled");
     emitSessionRuntimeSnapshot(sessionRuntime, {
       uiReason: "critical",
     });
@@ -3197,454 +1947,9 @@ async function forceStopAcpChatPrompt(
   sessionRuntime.snapshot.messageCounts = snapshotAcpMessageCounts(
     acpChatExecutionProgressScope(sessionRuntime),
   );
-  finalizeStreamingItems(sessionRuntime, "complete", "cancelled");
+  finalizeAcpChatStreamingItems(sessionRuntime, "complete", "cancelled");
   emitSessionRuntimeSnapshot(sessionRuntime, {
     uiReason: "critical",
-  });
-}
-
-function withAcpChatWorkspacePreparationLock<T>(
-  operation: () => Promise<T>,
-): Promise<T> {
-  const run = acpChatWorkspacePreparationTail
-    .catch(() => undefined)
-    .then(operation);
-  acpChatWorkspacePreparationTail = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
-
-function appendAcpChatPreparationDiagnostic(
-  sessionRuntime: AcpChatSessionRuntime,
-  entry: {
-    kind: string;
-    level: "info" | "warn" | "error";
-    message: string;
-    detail?: string;
-    raw?: unknown;
-  },
-) {
-  appendDiagnostic(sessionRuntime, {
-    id: nextOpaqueId("acp-diag"),
-    ts: nowIso(),
-    ...entry,
-    detail: entry.detail || "",
-  });
-}
-
-function managedAcpChatWorkspaceAgentsBlock(template: string) {
-  return [
-    ACP_CHAT_WORKSPACE_AGENTS_START,
-    template.trim(),
-    ACP_CHAT_WORKSPACE_AGENTS_END,
-  ].join("\n");
-}
-
-function countTextOccurrences(content: string, marker: string) {
-  return content.split(marker).length - 1;
-}
-
-async function materializeAcpChatWorkspaceInstructions(args: {
-  sessionRuntime: AcpChatSessionRuntime;
-  workspaceDir: string;
-}) {
-  const targetPath = joinPath(
-    args.workspaceDir,
-    ACP_CHAT_WORKSPACE_AGENTS_FILENAME,
-  );
-  try {
-    const template = await loadAcpRuntimePromptTemplate(
-      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.acp_chat_workspace_agents,
-    );
-    const managedBlock = managedAcpChatWorkspaceAgentsBlock(template);
-    const existing = (await runtimePathExists(targetPath))
-      ? await readRuntimeTextFile(targetPath)
-      : "";
-    const startCount = countTextOccurrences(
-      existing,
-      ACP_CHAT_WORKSPACE_AGENTS_START,
-    );
-    const endCount = countTextOccurrences(
-      existing,
-      ACP_CHAT_WORKSPACE_AGENTS_END,
-    );
-    let content = managedBlock;
-    if (startCount === 0 && endCount === 0) {
-      content = existing.trim()
-        ? `${managedBlock}\n\n${existing}`
-        : `${managedBlock}\n`;
-    } else if (startCount === 1 && endCount === 1) {
-      const start = existing.indexOf(ACP_CHAT_WORKSPACE_AGENTS_START);
-      const end = existing.indexOf(ACP_CHAT_WORKSPACE_AGENTS_END);
-      if (end < start) {
-        appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-          kind: "acp_chat_workspace_instructions_unavailable",
-          level: "warn",
-          message:
-            "ACP Chat workspace instructions were not updated because AGENTS.md contains malformed managed markers.",
-          detail: targetPath,
-        });
-        return;
-      }
-      content =
-        existing.slice(0, start) +
-        managedBlock +
-        existing.slice(end + ACP_CHAT_WORKSPACE_AGENTS_END.length);
-    } else {
-      appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-        kind: "acp_chat_workspace_instructions_unavailable",
-        level: "warn",
-        message:
-          "ACP Chat workspace instructions were not updated because AGENTS.md contains ambiguous managed markers.",
-        detail: targetPath,
-      });
-      return;
-    }
-    await replaceRuntimeTextFileAtomically({
-      targetPath,
-      fragments: [content],
-    });
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: "acp_chat_workspace_instructions_ready",
-      level: "info",
-      message: "ACP Chat workspace instructions materialized.",
-      detail: targetPath,
-    });
-  } catch (error) {
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: "acp_chat_workspace_instructions_unavailable",
-      level: "warn",
-      message: "ACP Chat workspace instruction materialization failed.",
-      detail: compactError(error),
-    });
-  }
-}
-
-function acpChatInjectedSkillTargetKey(target: AcpChatInjectedSkillTarget) {
-  return `${target.relativeRoot}\u0000${target.skillId}`;
-}
-
-function resolveManagedAcpChatInjectedSkillDir(args: {
-  workspaceDir: string;
-  relativeRoot: string;
-  skillId: string;
-}) {
-  const relativeRoot = normalizeAcpProjectSkillRoot(args.relativeRoot);
-  if (
-    !relativeRoot ||
-    !ACP_CHAT_INJECTED_SKILL_IDS.includes(
-      args.skillId as (typeof ACP_CHAT_INJECTED_SKILL_IDS)[number],
-    )
-  ) {
-    return "";
-  }
-  const workspaceDir = normalizeString(args.workspaceDir)
-    .replace(/\\/g, "/")
-    .replace(/\/+$/, "");
-  const targetDir = joinPath(
-    args.workspaceDir,
-    relativeRoot,
-    args.skillId,
-  ).replace(/\\/g, "/");
-  if (!workspaceDir || !targetDir.startsWith(`${workspaceDir}/`)) {
-    return "";
-  }
-  return targetDir;
-}
-
-function normalizeAcpChatInjectedSkillTargets(value: unknown) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const targets = new Map<string, AcpChatInjectedSkillTarget>();
-  for (const raw of value) {
-    if (!raw || typeof raw !== "object") {
-      return null;
-    }
-    const record = raw as Record<string, unknown>;
-    const relativeRoot = normalizeAcpProjectSkillRoot(record.relativeRoot);
-    const skillId = normalizeString(record.skillId);
-    if (
-      !relativeRoot ||
-      relativeRoot !== record.relativeRoot ||
-      !ACP_CHAT_INJECTED_SKILL_IDS.includes(
-        skillId as (typeof ACP_CHAT_INJECTED_SKILL_IDS)[number],
-      )
-    ) {
-      return null;
-    }
-    const target = { relativeRoot, skillId };
-    targets.set(acpChatInjectedSkillTargetKey(target), target);
-  }
-  return Array.from(targets.values());
-}
-
-async function bootstrapLegacyAcpChatInjectedSkillTargets(
-  workspaceDir: string,
-) {
-  const targets: AcpChatInjectedSkillTarget[] = [];
-  for (const relativeRoot of LEGACY_ACP_CHAT_SKILL_ROOTS) {
-    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
-      const targetDir = resolveManagedAcpChatInjectedSkillDir({
-        workspaceDir,
-        relativeRoot,
-        skillId,
-      });
-      if (targetDir && (await runtimePathExists(targetDir))) {
-        targets.push({ relativeRoot, skillId });
-      }
-    }
-  }
-  return targets;
-}
-
-async function readAcpChatInjectedSkillsManifest(args: {
-  sessionRuntime: AcpChatSessionRuntime;
-  workspaceDir: string;
-  manifestPath: string;
-}) {
-  if (!(await runtimePathExists(args.manifestPath))) {
-    return bootstrapLegacyAcpChatInjectedSkillTargets(args.workspaceDir);
-  }
-  try {
-    const parsed = JSON.parse(
-      await readRuntimeTextFile(args.manifestPath),
-    ) as Partial<AcpChatInjectedSkillsManifest>;
-    const targets = normalizeAcpChatInjectedSkillTargets(parsed.targets);
-    if (
-      parsed.schema !== ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA ||
-      targets === null
-    ) {
-      throw new Error("unsupported or invalid injected skills manifest");
-    }
-    return targets;
-  } catch (error) {
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: "acp_chat_injected_skills_manifest_invalid",
-      level: "warn",
-      message:
-        "ACP Chat ignored an invalid injected skills manifest and skipped stale cleanup.",
-      detail: compactError(error),
-    });
-    return [];
-  }
-}
-
-async function writeAcpChatInjectedSkillsManifest(args: {
-  sessionRuntime: AcpChatSessionRuntime;
-  manifestPath: string;
-  targets: AcpChatInjectedSkillTarget[];
-}) {
-  const manifest: AcpChatInjectedSkillsManifest = {
-    schema: ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA,
-    targets: [...args.targets].sort(
-      (left, right) =>
-        left.relativeRoot.localeCompare(right.relativeRoot) ||
-        left.skillId.localeCompare(right.skillId),
-    ),
-  };
-  try {
-    await replaceRuntimeTextFileAtomically({
-      targetPath: args.manifestPath,
-      fragments: [JSON.stringify(manifest, null, 2), "\n"],
-    });
-    return true;
-  } catch (error) {
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: "acp_chat_injected_skills_manifest_unavailable",
-      level: "warn",
-      message: "ACP Chat injected skills manifest could not be committed.",
-      detail: compactError(error),
-    });
-    return false;
-  }
-}
-
-async function materializeAcpChatInjectedSkills(args: {
-  sessionRuntime: AcpChatSessionRuntime;
-  backends: readonly BackendInstance[];
-  workspaceDir: string;
-}) {
-  const workspaceDir = normalizeString(args.workspaceDir);
-  if (!workspaceDir) {
-    return;
-  }
-  const injectionPlan = buildAcpChatSkillInjectionPlan({
-    backends: args.backends,
-    workspaceDir,
-  });
-  for (const diagnostic of injectionPlan.diagnostics) {
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: diagnostic.code,
-      level:
-        diagnostic.level === "error"
-          ? "error"
-          : diagnostic.level === "warning"
-            ? "warn"
-            : "info",
-      message: diagnostic.message,
-      detail: injectionPlan.families.join(", "),
-      raw: {
-        families: injectionPlan.families,
-        skillRoots: injectionPlan.skillRoots,
-      },
-    });
-  }
-
-  const manifestPath = joinPath(
-    getRuntimePersistencePaths().acpChatRoot,
-    ACP_CHAT_INJECTED_SKILLS_MANIFEST_FILENAME,
-  );
-  const previousTargets = await readAcpChatInjectedSkillsManifest({
-    sessionRuntime: args.sessionRuntime,
-    workspaceDir,
-    manifestPath,
-  });
-  const desiredRoots = new Set(injectionPlan.relativeSkillRoots);
-  const nextTargets = new Map<string, AcpChatInjectedSkillTarget>();
-  for (const target of previousTargets) {
-    nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
-  }
-  for (const relativeRoot of injectionPlan.relativeSkillRoots) {
-    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
-      const target = { relativeRoot, skillId };
-      nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
-    }
-  }
-  const ownershipCommitted = await writeAcpChatInjectedSkillsManifest({
-    sessionRuntime: args.sessionRuntime,
-    manifestPath,
-    targets: Array.from(nextTargets.values()),
-  });
-  if (!ownershipCommitted) {
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: "acp_chat_injected_skills_unavailable",
-      level: "warn",
-      message:
-        "ACP Chat skipped injected skill reconciliation because target ownership could not be committed.",
-      detail: manifestPath,
-    });
-    return;
-  }
-
-  let registry: Awaited<ReturnType<typeof scanPluginSkillRegistry>> | null =
-    null;
-  try {
-    registry = await scanPluginSkillRegistry();
-  } catch (error) {
-    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-      kind: "acp_chat_injected_skills_unavailable",
-      level: "warn",
-      message: "ACP Chat injected skill registry scan failed.",
-      detail: compactError(error),
-    });
-  }
-
-  const missingSkillIds: string[] = [];
-  const targetDirsBySkill: Record<string, string[]> = {};
-  if (registry) {
-    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
-      const entry = registry.entriesById[skillId];
-      if (!entry) {
-        missingSkillIds.push(skillId);
-        appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-          kind: "acp_chat_injected_skill_unavailable",
-          level: "warn",
-          message:
-            "ACP Chat injected skill was not found in the plugin skill registry.",
-          detail: skillId,
-          raw: {
-            skillId,
-            skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
-            diagnostics: registry.diagnostics,
-          },
-        });
-        continue;
-      }
-      const targetDirs: string[] = [];
-      for (const relativeRoot of injectionPlan.relativeSkillRoots) {
-        const target = { relativeRoot, skillId };
-        const targetDir = resolveManagedAcpChatInjectedSkillDir({
-          workspaceDir,
-          relativeRoot,
-          skillId,
-        });
-        if (!targetDir) {
-          continue;
-        }
-        try {
-          await copyRuntimeDirectory({
-            sourceDir: entry.sourceDir,
-            targetDir,
-          });
-          nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
-          targetDirs.push(targetDir);
-        } catch (error) {
-          appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-            kind: "acp_chat_injected_skill_unavailable",
-            level: "warn",
-            message: "ACP Chat injected skill materialization failed.",
-            detail: `${skillId}: ${compactError(error)}`,
-            raw: { relativeRoot, skillId },
-          });
-        }
-      }
-      targetDirsBySkill[skillId] = targetDirs;
-    }
-  }
-
-  for (const target of previousTargets) {
-    if (desiredRoots.has(target.relativeRoot)) {
-      continue;
-    }
-    const targetDir = resolveManagedAcpChatInjectedSkillDir({
-      workspaceDir,
-      relativeRoot: target.relativeRoot,
-      skillId: target.skillId,
-    });
-    if (!targetDir) {
-      continue;
-    }
-    try {
-      await removeRuntimePath(targetDir);
-      nextTargets.delete(acpChatInjectedSkillTargetKey(target));
-    } catch (error) {
-      nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
-      appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-        kind: "acp_chat_injected_skill_cleanup_unavailable",
-        level: "warn",
-        message: "ACP Chat could not clean up a stale injected skill.",
-        detail: `${targetDir}: ${compactError(error)}`,
-        raw: target,
-      });
-    }
-  }
-
-  await writeAcpChatInjectedSkillsManifest({
-    sessionRuntime: args.sessionRuntime,
-    manifestPath,
-    targets: Array.from(nextTargets.values()),
-  });
-  appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-    kind:
-      injectionPlan.skillRoots.length > 0
-        ? "acp_chat_injected_skills_ready"
-        : "acp_chat_injected_skills_unavailable",
-    level: injectionPlan.skillRoots.length > 0 ? "info" : "warn",
-    message:
-      injectionPlan.skillRoots.length > 0
-        ? "ACP Chat injected skills materialized."
-        : "ACP Chat injected skills were not materialized because no project skill roots were available.",
-    detail: Object.values(targetDirsBySkill).flat().join(", "),
-    raw: {
-      skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
-      missingSkillIds,
-      families: injectionPlan.families,
-      skillRoots: injectionPlan.skillRoots,
-      targetDirsBySkill,
-    },
   });
 }
 
@@ -3663,7 +1968,7 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
   sessionRuntime.snapshot.lastError = "";
   sessionRuntime.snapshot.prerequisiteError = "";
   sessionRuntime.snapshot.stderrTail = "";
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   sessionRuntime.snapshot.status = "checking-command";
   emitSessionRuntimeSnapshot(sessionRuntime);
   try {
@@ -3856,6 +2161,8 @@ function applyAttachedSessionResult(
   sessionRuntime.snapshot.remoteSessionId =
     sessionRuntime.snapshot.sessionId ||
     String(sessionRuntime.snapshot.remoteSessionId || "").trim();
+  sessionRuntime.snapshot.hostBridgePluginSkillBundleIdentity =
+    getCurrentHostBridgePluginSkillBundleIdentity();
   sessionRuntime.snapshot.sessionTitle = String(
     result.sessionTitle || "",
   ).trim();
@@ -3979,6 +2286,21 @@ async function ensureSession(
     sessionRuntime.snapshot.remoteSessionId || "",
   ).trim();
   if (remoteSessionId) {
+    try {
+      assertHostBridgePluginSkillBundleIdentityCurrent(
+        sessionRuntime.snapshot.hostBridgePluginSkillBundleIdentity,
+        getCurrentHostBridgePluginSkillBundleIdentity(),
+      );
+    } catch (error) {
+      if (error instanceof HostBridgePluginSkillBundleIdentityChangedError) {
+        sessionRuntime.snapshot.remoteSessionRestoreStatus = "failed";
+        sessionRuntime.snapshot.remoteSessionRestoreMessage = error.code;
+        sessionRuntime.snapshot.status = "error";
+        sessionRuntime.snapshot.lastError = error.code;
+        emitSessionRuntimeSnapshot(sessionRuntime);
+      }
+      throw error;
+    }
     if (sessionRuntime.snapshot.canResumeRemoteSession) {
       sessionRuntime.snapshot.sessionId = remoteSessionId;
       sessionRuntime.snapshot.remoteSessionRestoreStatus = "pending";
@@ -4079,7 +2401,7 @@ async function ensureSession(
           "Remote session could not be restored; continued with a new agent session.",
         detail: `previous=${previousRemoteSessionId} new=${sessionRuntime.snapshot.sessionId}`,
       });
-      upsertStatusItem(sessionRuntime, {
+      upsertAcpChatStatusItem(sessionRuntime, {
         level: "warn",
         label: "Remote session",
         text: sessionRuntime.snapshot.remoteSessionRestoreMessage,
@@ -4112,57 +2434,7 @@ async function ensureSession(
   }
 }
 
-function projectAcpChatSessionSummary(
-  backendId: string,
-  entry: AcpChatSessionSummary,
-): AcpChatSessionSummary {
-  const sessionRuntime = sessionRuntimes.get(
-    acpChatSessionKey(backendId, entry.conversationId),
-  );
-  if (!sessionRuntime) {
-    return {
-      ...entry,
-      status: "idle",
-      lastError: entry.lastError || "",
-    };
-  }
-  const lastError =
-    String(sessionRuntime.snapshot.prerequisiteError || "").trim() ||
-    String(sessionRuntime.snapshot.lastError || "").trim() ||
-    entry.lastError ||
-    "";
-  return {
-    ...entry,
-    title: sessionRuntime.snapshot.conversationTitle || entry.title,
-    messageCount:
-      sessionRuntime.snapshot.transcriptItemCount || entry.messageCount,
-    status: sessionRuntime.snapshot.status,
-    lastError,
-    updatedAt: sessionRuntime.snapshot.updatedAt || entry.updatedAt,
-  };
-}
-
-export function subscribeAcpChatWorkspaceChanges(
-  listener: AcpChatWorkspaceListener,
-) {
-  acpChatWorkspaceListeners.add(listener);
-  return () => {
-    acpChatWorkspaceListeners.delete(listener);
-  };
-}
-
-export function getAcpConversationSnapshot(
-  backendId?: string,
-  conversationId?: string,
-) {
-  ensureInitialized();
-  return cloneSnapshotValue(
-    getOrCreateSessionRuntime(backendId || activeBackendId, conversationId)
-      .snapshot,
-  );
-}
-
-async function flushPendingChatTranscriptWrites(
+export async function flushPendingChatTranscriptWrites(
   sessionRuntime?: AcpChatSessionRuntime,
 ) {
   if (sessionRuntime) {
@@ -4176,265 +2448,6 @@ async function flushPendingChatTranscriptWrites(
       flushAcpChatTranscriptWrites(runtime.snapshot.conversationStorageDir),
     ),
   );
-}
-
-async function readFullAcpChatTranscriptFromStore(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  const transcript = await readFullAcpChatTranscript({
-    conversationStorageDir: sessionRuntime.snapshot.conversationStorageDir,
-  });
-  return {
-    items: transcript.items.map((item) => cloneAcpConversationItem(item)),
-    eventSeq: transcript.eventSeq,
-  };
-}
-
-async function hydrateAcpChatTranscriptMirror(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  if (sessionRuntime.transcriptMirrorLoaded) {
-    return;
-  }
-  if (sessionRuntime.transcriptHydratePromise) {
-    await sessionRuntime.transcriptHydratePromise;
-    return;
-  }
-  sessionRuntime.transcriptHydrateState = "loading";
-  sessionRuntime.transcriptHydrateError = undefined;
-  const hydrate = (async () => {
-    if (sessionRuntime.transcriptWrites.size > 0) {
-      appendDiagnostic(sessionRuntime, {
-        id: nextOpaqueId("acp-diag"),
-        ts: nowIso(),
-        kind: "transcript_hydrate_waiting_for_writes",
-        level: "warn",
-        message:
-          "ACP Chat transcript hydrate is waiting for pending writes for this session.",
-        detail: `pending=${sessionRuntime.transcriptWrites.size}`,
-      });
-      await flushPendingChatTranscriptWrites(sessionRuntime);
-    }
-    const { items, eventSeq } =
-      await readFullAcpChatTranscriptFromStore(sessionRuntime);
-    loadChatTranscriptMirrorFromItems(sessionRuntime, { items, eventSeq });
-    touchColdAcpChatTranscriptMirror(sessionRuntime);
-  })();
-  sessionRuntime.transcriptHydratePromise = hydrate;
-  try {
-    await hydrate;
-  } catch (error) {
-    sessionRuntime.transcriptHydrateState = "failed";
-    sessionRuntime.transcriptHydrateError = compactError(error);
-    throw error;
-  } finally {
-    sessionRuntime.transcriptHydratePromise = undefined;
-  }
-}
-
-function scheduleAcpChatTranscriptHydrate(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  if (
-    sessionRuntime.transcriptMirrorLoaded ||
-    sessionRuntime.transcriptHydratePromise ||
-    !normalizeString(sessionRuntime.snapshot.conversationId)
-  ) {
-    return;
-  }
-  sessionRuntime.transcriptHydrateState = "loading";
-  void hydrateAcpChatTranscriptMirror(sessionRuntime)
-    .catch(() => undefined)
-    .finally(() => {
-      emitSessionRuntimeSnapshot(sessionRuntime, {
-        persist: false,
-        touchUpdatedAt: false,
-        uiReason: "critical",
-      });
-    });
-}
-
-export function scheduleAcpChatTranscriptHydrateForOwner(args?: {
-  backendId?: string;
-  conversationId?: string;
-}) {
-  ensureInitialized();
-  const backendId = normalizeBackendId(args?.backendId || activeBackendId);
-  const conversationId = normalizeConversationId(args?.conversationId);
-  if (!backendId || !conversationId) {
-    return;
-  }
-  scheduleAcpChatTranscriptHydrate(
-    getOrCreateSessionRuntime(backendId, conversationId),
-  );
-}
-
-const ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT = 80;
-const ACP_CHAT_TRANSCRIPT_PAGE_MAX_LIMIT = 200;
-
-function normalizeAcpChatTranscriptPageLimit(value: unknown) {
-  return Math.max(
-    1,
-    Math.min(
-      ACP_CHAT_TRANSCRIPT_PAGE_MAX_LIMIT,
-      Math.floor(Number(value || ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT)),
-    ),
-  );
-}
-
-export type AcpConversationTranscriptPage = {
-  backendId: string;
-  conversationId: string;
-  requestId: string;
-  items: AcpConversationItem[];
-  cursor: number;
-  prevCursor?: number;
-  nextCursor?: number;
-  total: number;
-  eventSeq: number;
-  transcriptRevision: number;
-  limit: number;
-};
-
-export function readAcpConversationTranscriptMirrorPage(args: {
-  backendId?: string;
-  conversationId?: string;
-  cursor?: number;
-  limit?: number;
-  executionDisplayMode?: "live" | "boundary" | "silent";
-}): AcpConversationTranscriptPage | undefined {
-  ensureInitialized();
-  const backendId = normalizeBackendId(args.backendId || activeBackendId);
-  const conversationId =
-    normalizeConversationId(args.conversationId) ||
-    normalizeConversationId(
-      getOrCreateSessionRuntime(backendId).snapshot.conversationId,
-    );
-  if (!backendId || !conversationId) {
-    return undefined;
-  }
-  const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
-  if (!sessionRuntime.transcriptMirrorLoaded) {
-    return undefined;
-  }
-  touchColdAcpChatTranscriptMirror(sessionRuntime);
-  const page = readUiVisibleTranscriptPage<AcpConversationItem>({
-    itemIds: sessionRuntime.transcriptItemIds,
-    getItem: (itemId) => sessionRuntime.transcriptItemsById.get(itemId),
-    cloneItem: cloneAcpConversationItem,
-    executionDisplayMode: args.executionDisplayMode || "live",
-    cursor: args.cursor,
-    limit: args.limit,
-    defaultLimit: ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
-    maxLimit: ACP_CHAT_TRANSCRIPT_PAGE_MAX_LIMIT,
-  });
-  return {
-    backendId,
-    conversationId,
-    requestId: `${backendId}\n${conversationId}`,
-    items: page.items,
-    cursor: page.cursor,
-    prevCursor: page.prevCursor,
-    nextCursor: page.nextCursor,
-    total: page.total,
-    eventSeq: sessionRuntime.transcriptEventSeq,
-    transcriptRevision: Math.max(
-      Number(sessionRuntime.transcriptEventSeq) || 0,
-      Number(sessionRuntime.snapshot.transcriptRevision) || 0,
-    ),
-    limit: page.limit,
-  };
-}
-
-export async function readAcpConversationTranscriptPage(args: {
-  backendId?: string;
-  conversationId?: string;
-  cursor?: number;
-  limit?: number;
-}): Promise<AcpConversationTranscriptPage> {
-  ensureInitialized();
-  const backendId = normalizeBackendId(args.backendId || activeBackendId);
-  const conversationId =
-    normalizeConversationId(args.conversationId) ||
-    normalizeConversationId(
-      getOrCreateSessionRuntime(backendId).snapshot.conversationId,
-    );
-  if (!backendId || !conversationId) {
-    return {
-      backendId,
-      conversationId,
-      requestId: `${backendId}\n${conversationId}`,
-      items: [],
-      cursor: 0,
-      total: 0,
-      eventSeq: 0,
-      transcriptRevision: 0,
-      limit: normalizeAcpChatTranscriptPageLimit(args.limit),
-    };
-  }
-  const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
-  await flushPendingChatTranscriptWrites(sessionRuntime);
-  const paths = resolveAcpChatRuntimePaths(backendId, conversationId);
-  const page = await readAcpChatTranscriptPage({
-    conversationStorageDir:
-      sessionRuntime.snapshot.conversationStorageDir ||
-      paths.conversationStorageDir,
-    cursor: args.cursor,
-    limit: args.limit,
-  });
-  return {
-    backendId,
-    conversationId,
-    requestId: `${backendId}\n${conversationId}`,
-    items: page.items.map((item) => cloneAcpConversationItem(item)),
-    cursor: page.cursor,
-    prevCursor: page.prevCursor,
-    nextCursor: page.nextCursor,
-    total: page.total,
-    eventSeq: page.eventSeq,
-    transcriptRevision: Math.max(
-      Number(page.eventSeq) || 0,
-      Number(sessionRuntime.snapshot.transcriptRevision) || 0,
-    ),
-    limit: normalizeAcpChatTranscriptPageLimit(args.limit),
-  };
-}
-
-export function getAcpChatTranscriptMirrorDiagnosticsForTests(args?: {
-  backendId?: string;
-  conversationId?: string;
-}) {
-  ensureInitialized();
-  const backendId = normalizeBackendId(args?.backendId || activeBackendId);
-  const conversationId =
-    normalizeConversationId(args?.conversationId) ||
-    normalizeConversationId(
-      backendId
-        ? getOrCreateSessionRuntime(backendId).snapshot.conversationId
-        : "",
-    );
-  const key = acpChatSessionKey(backendId, conversationId);
-  const sessionRuntime = sessionRuntimes.get(key);
-  if (!sessionRuntime) {
-    return {
-      mirrorLoaded: false,
-      itemCount: 0,
-      eventSeq: 0,
-      hydrateState: "idle",
-      hydrateInFlight: false,
-      coldMirrorCached: coldAcpChatTranscriptMirrorLru.has(key),
-      coldMirrorCacheSize: coldAcpChatTranscriptMirrorLru.size,
-    };
-  }
-  return {
-    mirrorLoaded: sessionRuntime.transcriptMirrorLoaded,
-    itemCount: sessionRuntime.transcriptItemIds.length,
-    eventSeq: sessionRuntime.transcriptEventSeq,
-    hydrateState: sessionRuntime.transcriptHydrateState,
-    hydrateInFlight: !!sessionRuntime.transcriptHydratePromise,
-    coldMirrorCached: coldAcpChatTranscriptMirrorLru.has(key),
-    coldMirrorCacheSize: coldAcpChatTranscriptMirrorLru.size,
-  };
 }
 
 export async function setActiveAcpBackend(args: { backendId: string }) {
@@ -4476,7 +2489,7 @@ export async function setActiveAcpBackend(args: { backendId: string }) {
   saveAcpFrontendState({ activeBackendId });
   emitSessionRuntimeSnapshot(sessionRuntime, { notifyUi: false });
   saveActiveAcpConversationSelection(backendId, activeConversationId);
-  pruneIdleBackgroundTranscriptMirrors();
+  pruneIdleAcpChatBackgroundTranscriptMirrors();
   notifyAcpChatWorkspaceListeners(
     buildAcpChatWorkspaceChange(sessionRuntime, [
       "active-scope",
@@ -4667,7 +2680,7 @@ export async function setActiveAcpConversation(args: {
   }
   saveActiveAcpConversationSelection(backendId, conversationId);
   const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
-  pruneIdleBackgroundTranscriptMirrors();
+  pruneIdleAcpChatBackgroundTranscriptMirrors();
   notifyAcpChatWorkspaceListeners(
     buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope"]),
   );
@@ -4802,7 +2815,7 @@ export async function disconnectAcpConversation(args?: {
   );
   markSessionRuntimeConnectionIdle(sessionRuntime, { clearErrors: true });
   await flushPendingChatTranscriptWrites(sessionRuntime);
-  releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+  releaseIdleAcpChatBackgroundTranscriptMirror(sessionRuntime);
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
@@ -4865,7 +2878,7 @@ export async function sendAcpConversationPrompt(args: {
     sessionRuntime.snapshot.conversationTitle =
       message.length > 48 ? `${message.slice(0, 48)}...` : message;
   }
-  pushItem(sessionRuntime, {
+  pushAcpChatTranscriptItem(sessionRuntime, {
     id: nextOpaqueId("acp-msg-user"),
     kind: "message",
     role: "user",
@@ -4889,7 +2902,7 @@ export async function sendAcpConversationPrompt(args: {
   sessionRuntime.snapshot.lastError = "";
   sessionRuntime.snapshot.prerequisiteError = "";
   sessionRuntime.snapshot.lastStopReason = "";
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   sessionRuntime.snapshot.lastHostContext = args.hostContext
     ? JSON.parse(JSON.stringify(args.hostContext))
     : null;
@@ -4946,8 +2959,11 @@ export async function sendAcpConversationPrompt(args: {
     }
     const activePrompt = sessionRuntime.activePrompt;
     clearActiveAcpChatPrompt(sessionRuntime);
-    sessionRuntime.snapshot.busy = false;
-    sessionRuntime.snapshot.status = "connected";
+    const pendingPermission = sessionRuntime.permissionQueue.active();
+    sessionRuntime.snapshot.busy = !!pendingPermission;
+    sessionRuntime.snapshot.status = pendingPermission
+      ? "permission-required"
+      : "connected";
     sessionRuntime.snapshot.lastStopReason = String(
       response.stopReason || "",
     ).trim();
@@ -4967,7 +2983,7 @@ export async function sendAcpConversationPrompt(args: {
     if (isAssistantSilentExecutionMode()) {
       const candidate = sessionRuntime.silentTerminalAssistantCollector.take();
       if (candidate) {
-        pushItem(sessionRuntime, {
+        pushAcpChatTranscriptItem(sessionRuntime, {
           id: nextOpaqueId("acp-msg-assistant"),
           kind: "message",
           role: "assistant",
@@ -4978,7 +2994,7 @@ export async function sendAcpConversationPrompt(args: {
       }
     } else {
       sessionRuntime.silentTerminalAssistantCollector.discard();
-      finalizeStreamingItems(sessionRuntime, "complete", "skipped");
+      finalizeAcpChatStreamingItems(sessionRuntime, "complete", "skipped");
     }
     emitSessionRuntimeSnapshot(sessionRuntime, {
       uiReason: "critical",
@@ -5006,6 +3022,7 @@ export async function sendAcpConversationPrompt(args: {
       ) === "requested";
     const activePrompt = sessionRuntime.activePrompt;
     clearActiveAcpChatPrompt(sessionRuntime);
+    cancelSessionRuntimePermissionRequests(sessionRuntime);
     sessionRuntime.snapshot.busy = false;
     if (interruptionRequested) {
       sessionRuntime.snapshot.promptInterruptState = "unconfirmed";
@@ -5017,7 +3034,7 @@ export async function sendAcpConversationPrompt(args: {
     if (isAssistantSilentExecutionMode()) {
       const candidate = sessionRuntime.silentTerminalAssistantCollector.take();
       if (candidate) {
-        pushItem(sessionRuntime, {
+        pushAcpChatTranscriptItem(sessionRuntime, {
           id: nextOpaqueId("acp-msg-assistant"),
           kind: "message",
           role: "assistant",
@@ -5028,7 +3045,7 @@ export async function sendAcpConversationPrompt(args: {
       }
     } else {
       sessionRuntime.silentTerminalAssistantCollector.discard();
-      finalizeStreamingItems(sessionRuntime, "error", "cancelled");
+      finalizeAcpChatStreamingItems(sessionRuntime, "error", "cancelled");
     }
     if (error instanceof AcpAuthRequiredError) {
       sessionRuntime.snapshot.status = "auth-required";
@@ -5083,10 +3100,7 @@ export async function cancelAcpConversationPrompt(args?: {
   if (sessionRuntime.snapshot.promptInterruptState === "requested") {
     return;
   }
-  const pendingPermissionResolver = sessionRuntime.pendingPermissionResolver;
-  sessionRuntime.pendingPermissionResolver = null;
-  pendingPermissionResolver?.({ outcome: "cancelled" });
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   sessionRuntime.snapshot.status = "prompting";
   sessionRuntime.snapshot.busy = true;
   sessionRuntime.snapshot.promptInterruptState = "requested";
@@ -5129,7 +3143,7 @@ export async function startNewAcpConversation(args?: { backendId?: string }) {
     backendId,
     sessionRuntime.snapshot.conversationId,
   );
-  pruneIdleBackgroundTranscriptMirrors();
+  pruneIdleAcpChatBackgroundTranscriptMirrors();
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
@@ -5218,7 +3232,7 @@ export async function archiveAcpConversation(args: {
       activeConversationId: resolveActiveConversationId(backendId),
       sessions: updatedSessions,
     });
-    releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+    releaseIdleAcpChatBackgroundTranscriptMirror(sessionRuntime);
     notifyAcpChatWorkspaceListeners(
       buildAcpChatWorkspaceChange(sessionRuntime, ["session-list"]),
     );
@@ -5232,7 +3246,7 @@ export async function archiveAcpConversation(args: {
       activeConversationId: visibleSessions[0].conversationId,
       sessions: updatedSessions,
     });
-    releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+    releaseIdleAcpChatBackgroundTranscriptMirror(sessionRuntime);
     const nextSessionRuntime = getOrCreateSessionRuntime(
       backendId,
       visibleSessions[0].conversationId,
@@ -5256,7 +3270,7 @@ export async function archiveAcpConversation(args: {
     activeConversationId: "",
     sessions: updatedSessions,
   });
-  releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+  releaseIdleAcpChatBackgroundTranscriptMirror(sessionRuntime);
   const emptySessionRuntime = getOrCreateSessionRuntime(preservedBackendId, "");
   const paths = resolveAcpChatRuntimePaths(preservedBackendId);
   emptySessionRuntime.snapshot = {
@@ -5440,6 +3454,7 @@ export async function authenticateAcpConversation(args: {
 
 export async function resolveAcpConversationPermission(args: {
   outcome: "selected" | "cancelled";
+  permissionRequestId?: string;
   optionId?: string;
   backendId?: string;
   conversationId?: string;
@@ -5449,24 +3464,30 @@ export async function resolveAcpConversationPermission(args: {
     args.backendId || activeBackendId,
     args.conversationId,
   );
-  if (!sessionRuntime.pendingPermissionResolver) {
-    return;
+  const active = sessionRuntime.permissionQueue.active();
+  if (!active) {
+    return false;
   }
-  const resolver = sessionRuntime.pendingPermissionResolver;
-  sessionRuntime.pendingPermissionResolver = null;
   const optionId =
-    String(args.optionId || "").trim() ||
-    sessionRuntime.snapshot.pendingPermissionRequest?.options[0]?.optionId ||
-    "";
-  if (args.outcome === "selected" && optionId) {
-    resolver({ outcome: "selected", optionId });
-  } else {
-    resolver({ outcome: "cancelled" });
+    String(args.optionId || "").trim() || active.options[0]?.optionId || "";
+  const resolved = sessionRuntime.permissionQueue.resolveActive(
+    args.permissionRequestId,
+    args.outcome === "selected" && optionId
+      ? { outcome: "selected", optionId }
+      : { outcome: "cancelled" },
+  );
+  if (!resolved) {
+    return false;
   }
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
-  sessionRuntime.snapshot.status = "prompting";
+  syncSessionRuntimePermissionHead(sessionRuntime);
+  if (!sessionRuntime.snapshot.pendingPermissionRequest) {
+    sessionRuntime.snapshot.status = "prompting";
+  }
   sessionRuntime.snapshot.busy = true;
-  emitSessionRuntimeSnapshot(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime, {
+    changeKinds: ["permission"],
+  });
+  return true;
 }
 
 export async function setAcpConversationMode(args: {
@@ -5839,13 +3860,13 @@ export async function shutdownAcpSessionManager() {
     releaseAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime));
   }
   sessionRuntimes.clear();
-  coldAcpChatTranscriptMirrorLru.clear();
-  acpChatWorkspaceListeners.clear();
+  clearAcpChatTranscriptMirrorLru();
+  getAcpChatWorkspaceEmission()?.clearAcpChatWorkspaceListeners();
   cachedAcpBackends = [];
   activeBackendId = "";
   activeConversationId = "";
   activeSyntheticAcpChatReplayActivation = undefined;
-  acpChatWorkspacePreparationTail = Promise.resolve();
+  resetAcpChatWorkspacePreparationState();
   initialized = false;
   resetZoteroMcpServerForTests();
 }
@@ -5877,7 +3898,7 @@ export function prepareSyntheticAcpChatReplay(args: {
   sessionRuntime.snapshot.sessionId = String(args.sessionId || "").trim();
   sessionRuntime.snapshot.status = "connected";
   sessionRuntime.snapshot.busy = false;
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   touchLiveAcpChatSessionRuntime(sessionRuntime);
   return {
     backendId: args.backendId,
@@ -5966,7 +3987,7 @@ export async function activateSyntheticAcpChatReplay(args: {
   activeBackendId = backendId;
   activeConversationId = conversationId;
   try {
-    pruneIdleBackgroundTranscriptMirrors();
+    pruneIdleAcpChatBackgroundTranscriptMirrors();
     publishAcpChatForegroundSelection(sessionRuntime);
   } catch (error) {
     if (activeSyntheticAcpChatReplayActivation?.token === state.token) {
@@ -6034,7 +4055,7 @@ export function applySyntheticAcpChatReplayPrompt(args: {
     args.backendId,
     args.conversationId,
   );
-  pushItem(sessionRuntime, {
+  pushAcpChatTranscriptItem(sessionRuntime, {
     id: nextOpaqueId("acp-replay-user"),
     kind: "message",
     role: "user",
@@ -6105,6 +4126,7 @@ export function resetAcpSessionManagerForTests() {
   for (const sessionRuntime of sessionRuntimes.values()) {
     releaseAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime));
     sessionRuntime.silentTerminalAssistantCollector.discard();
+    sessionRuntime.permissionQueue.cancelAll();
     if (sessionRuntime.workspaceChangeTimer) {
       clearTimeout(sessionRuntime.workspaceChangeTimer);
     }
@@ -6121,14 +4143,14 @@ export function resetAcpSessionManagerForTests() {
   resetAcpConversationHostBridgePermissionHandlersForTests();
   discardAllAcpChatDiagnosticAuditsForTests();
   sessionRuntimes.clear();
-  coldAcpChatTranscriptMirrorLru.clear();
-  acpChatWorkspaceListeners.clear();
+  clearAcpChatTranscriptMirrorLru();
+  getAcpChatWorkspaceEmission()?.clearAcpChatWorkspaceListeners();
   cachedAcpBackends = [];
   activeBackendId = "";
   activeConversationId = "";
   activeSyntheticAcpChatReplayActivation = undefined;
   syntheticAcpChatReplayActivationNonce = 0;
-  acpChatWorkspacePreparationTail = Promise.resolve();
+  resetAcpChatWorkspacePreparationState();
   initialized = false;
   acpChatPromptInterruptGraceMs = DEFAULT_ACP_CHAT_PROMPT_INTERRUPT_GRACE_MS;
 }

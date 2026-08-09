@@ -16,6 +16,11 @@ may add a request fallback or share live roots.
 - **THEN** every retained/deleted implementation area is assigned exactly once
 - **AND** production routes contain no legacy fallback throughout the sequence
 
+#### Scenario: R9a deletion inventory is reviewed
+- **WHEN** R9a is ready for verification
+- **THEN** production routes contain no legacy fallback
+- **AND** retained oracle source is listed for R9b rather than deleted opportunistically
+
 #### Scenario: First R9b deletion change completes
 - **WHEN** the plugin legacy owner is absent but the external Node oracle remains
 - **THEN** the repository remains an unreleased migration state

@@ -446,6 +446,7 @@ export function createWorkflowSynthesisHostApi(
         digest: raw.digest,
         references: raw.references,
         citationAnalysis: raw.citationAnalysis,
+        literatureScore: raw.literatureScore,
         literatureMatchingMetadata: raw.literatureMatchingMetadata,
         matchedReferences: raw.matchedReferences,
         source: raw.source,

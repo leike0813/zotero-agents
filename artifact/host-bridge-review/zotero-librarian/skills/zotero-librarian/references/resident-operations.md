@@ -6,6 +6,13 @@
 
 正常 JSON 形状为 `zotero-librarian.operation-receipt.v1`，包含 `operation`、`status`、`generatedAt`，以及可选 `summary` 或 `data`。失败 pass 会加入 `error.code`、`error.message` 和可选 `error.details`，打印 JSON 并以非零状态退出。`--quiet` 仅把 `unchanged` receipt 渲染为 `[SILENT]`；changed、attention 和 failed 结果仍然可见。
 
+## Profile workspace 选择
+
+service 在有边界 pass 开始前解析一个 profile workspace。Agent 和 cron 无需提供 workspace 路径：`--profile` 优先于 `ZOTERO_BRIDGE_PROFILE`，未指定 profile 时使用平台 well-known connection profile 及默认 `$HERMES_HOME/zotero-librarian/state.sqlite`。显式 profile 路径会被规范化并分配到 `workspaces/` 下的 SHA-256 workspace；service 会把相同显式 profile 传给每次 bridge 调用，并优先使用该 workspace 的 `.zotero-bridge/bin` executable。
+
+`--db` 只有在路径位于当前 workspace 内时才允许。profile 查找、路径规范化、workspace 根、连接或 containment 失败时必须 fail closed，返回 failed receipt；不得回退到其他 profile 的 database。profile identity 不读取 profile JSON 或 credentials。切换 profile 会整体切换 catalog、index、watched-run、notification 和本地 CLI 状态。
+
+
 ## 操作契约矩阵
 
 | 命令 | 读取 | 本地 effect | Receipt 数据及含义 |

@@ -1,4 +1,5 @@
 import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
+import type { WorkflowSubmissionDisplayIdentity } from "../jobQueue/workflowSubmissionQueueContracts";
 import type {
   AssistantWorkspaceTranscriptDelta,
   AssistantWorkspaceTranscriptPage,
@@ -52,6 +53,7 @@ import type {
 import type {
   AcpChatAction,
   AcpSkillsAction,
+  SkillrunnerAction,
   AssistantWorkspaceActionPayloadMap,
 } from "../shared/assistantActionContract";
 
@@ -86,52 +88,52 @@ export type AssistantWorkspaceActionScope =
 export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   "open-context-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "close-context-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-details-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "close-details-drawer": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "request-owner-details": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-permission-request": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "close-permission-request": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "toggle-drawer-section": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["sectionId"],
   },
   "toggle-drawer-group": {
     scope: "local",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["groupKey"],
   },
   "set-chat-display-mode": {
     scope: "local",
-    sources: ["acp-chat"],
+    sources: ["acp-chat", "skillrunner"],
     payloadKeys: ["mode"],
   },
   "set-active-conversation": {
@@ -149,14 +151,19 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-skills"],
     payloadKeys: [],
   },
+  "select-task": {
+    scope: "target-owner",
+    sources: ["skillrunner"],
+    payloadKeys: [],
+  },
   "archive-run": {
     scope: "target-owner",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "cancel-queued-workflow-unit": {
     scope: "global",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: ["queueId"],
   },
   "set-active-backend": {
@@ -171,8 +178,13 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   },
   "open-backend-manager": {
     scope: "global",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
+  },
+  "open-auth-url": {
+    scope: "global",
+    sources: ["skillrunner"],
+    payloadKeys: ["url"],
   },
   "close-sidebar": {
     scope: "global",
@@ -181,18 +193,18 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   },
   "set-execution-display-mode": {
     scope: "global",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["mode"],
   },
   "load-transcript-page": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["request"],
   },
   connect: {
-    scope: "selected-owner",
+    scope: "navigation-group",
     sources: ["acp-chat"],
-    payloadKeys: [],
+    payloadKeys: ["groupId"],
   },
   disconnect: {
     scope: "selected-owner",
@@ -236,27 +248,32 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   },
   "cancel-run": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "reply-run": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: ["message"],
   },
   "select-interaction-option": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: ["responseValue", "responseLabel"],
   },
   "submit-interaction-files": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
+  },
+  "auth-import-run": {
+    scope: "selected-owner",
+    sources: ["skillrunner"],
+    payloadKeys: ["providerId", "files", "error"],
   },
   "resolve-permission": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: ["permissionRequestId", "outcome", "optionId"],
   },
   "set-mode": {
@@ -276,17 +293,17 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   },
   "copy-request-id": {
     scope: "selected-owner",
-    sources: ["acp-skills"],
+    sources: ["acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "copy-diagnostics": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
   "open-workspace": {
     scope: "selected-owner",
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
     payloadKeys: [],
   },
 } as const satisfies Record<
@@ -367,6 +384,14 @@ export type _AssistantWorkspaceAcpSkillsActionSubsetGuard =
     >
   >;
 
+export type _AssistantWorkspaceSkillrunnerActionSubsetGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      SkillrunnerAction,
+      AssistantWorkspaceRegistryActionsForSource<"skillrunner">
+    >
+  >;
+
 export type AssistantWorkspacePublicationKind =
   | "owner-navigation"
   | "service-status"
@@ -409,6 +434,27 @@ export type AssistantWorkspaceServiceStatus = {
   }>;
 };
 
+/**
+ * Read-only banner badges projected host-side (currently SkillRunner only;
+ * ACP sources publish `null`). `control` carries the eight-state interaction
+ * badge (approval/auth/input/preparing/submitting/read-only/streaming/
+ * unavailable); `autoReply` carries the auto-reply observer badge with the
+ * countdown seconds and progress. Value/label localization stays a sidebar
+ * concern: only the state token, tone, and raw title text cross the wire.
+ */
+export type AssistantWorkspaceOwnerBadges = {
+  control: {
+    state: string;
+    tone: string;
+    title: string | null;
+  } | null;
+  autoReply: {
+    active: boolean;
+    remainingSeconds: number | null;
+    progressPercent: number | null;
+  } | null;
+};
+
 export type AssistantWorkspaceOwnerControl = {
   status: string;
   busy: boolean;
@@ -447,6 +493,7 @@ export type AssistantWorkspaceOwnerControl = {
     autoApprove: boolean;
     canSetAutoApprove: boolean;
   };
+  badges: AssistantWorkspaceOwnerBadges | null;
 };
 
 export type AssistantWorkspaceMessageCounts = {
@@ -461,6 +508,8 @@ export type AssistantWorkspaceQueuedNavigationEntry = {
   groupLabel: string | null;
   updatedAt: string | null;
   canCancel: boolean;
+  submission: WorkflowSubmissionDisplayIdentity | null;
+  resumptionPending: boolean;
 };
 
 export type AssistantWorkspaceOwnerNavigation = {
@@ -470,6 +519,12 @@ export type AssistantWorkspaceOwnerNavigation = {
     groupId: string;
     label: string;
     status: string;
+    /**
+     * Localized reason shown inside a disabled (backend-unreachable) drawer
+     * group; null for reachable groups. Resolved host-side because it
+     * interpolates the backend display name.
+     */
+    disabledReason: string | null;
   }>;
   entries: Array<{
     owner: AssistantWorkspaceOwner;
@@ -484,9 +539,17 @@ export type AssistantWorkspaceOwnerNavigation = {
     attention: string | null;
     updatedAt: string | null;
     messageCount: number;
+    canArchive: boolean;
+    submission: WorkflowSubmissionDisplayIdentity | null;
+    resumptionPending: boolean;
   }>;
   queuedEntries: AssistantWorkspaceQueuedNavigationEntry[];
   canCreateOwner: boolean;
+  /**
+   * Drawer-level notice (e.g. the SkillRunner panel history truncation
+   * hint), resolved host-side; null when there is nothing to show.
+   */
+  notice: string | null;
 };
 
 export type AssistantWorkspacePlanEntry = {
@@ -537,8 +600,11 @@ export function projectAssistantWorkspacePermissionRequest(
   const source = value as Record<string, unknown>;
   const requestId = boundedPermissionText(source.requestId, 512);
   if (!requestId) return null;
+  const sourceId = String(source.source || "").trim();
   const approvalKind =
-    String(source.source || "").trim() === "zotero-mcp-write"
+    source.approvalKind === "zotero-write" ||
+    (typeof source.approvalKind === "undefined" &&
+      ["zotero-mcp-write", "host-bridge-cli", "host-bridge"].includes(sourceId))
       ? ("zotero-write" as const)
       : ("acp-tool" as const);
   let command: string | null = null;
@@ -600,11 +666,16 @@ export type AssistantWorkspaceComposer = {
   reply: {
     status: "enabled" | "disabled" | "busy" | "cancelling";
   };
+  /**
+   * Mode/model/reasoning selectors. Null for sources whose composer has no
+   * runtime option groups (SkillRunner), so the child renders no disabled
+   * placeholder dropdowns.
+   */
   runtimeOptions: {
     mode: AssistantWorkspaceOptionGroup;
     model: AssistantWorkspaceOptionGroup;
     reasoningEffort: AssistantWorkspaceOptionGroup;
-  };
+  } | null;
 };
 
 export type AssistantWorkspaceOption = {
@@ -671,6 +742,11 @@ export const ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY = {
   "output-revisions": { labelPath: "details.outputRevisions" },
   "runtime-logs": { labelPath: "details.runtimeLogs" },
   "result-json": { labelPath: "details.resultJson" },
+  run: { labelPath: "details.run" },
+  "deferred-apply": { labelPath: "fields.deferredApply" },
+  pending: { labelPath: "details.pending" },
+  "conversation-summary": { labelPath: "details.conversationSummary" },
+  "revision-summary": { labelPath: "details.revisionSummary" },
 } as const;
 
 export type AssistantWorkspaceDetailsSectionId =
@@ -719,6 +795,36 @@ export const ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY = {
   "candidate-preview": { labelPath: "fields.candidatePreview" },
   logs: { labelPath: "fields.logs" },
   "result-json": { labelPath: "details.resultJson" },
+  title: { labelPath: "fields.title" },
+  "request-id": { labelPath: "fields.requestId" },
+  "task-key": { labelPath: "fields.taskKey" },
+  status: { labelPath: "fields.status" },
+  terminal: { labelPath: "fields.terminal" },
+  waiting: { labelPath: "fields.waiting" },
+  engine: { labelPath: "fields.engine" },
+  updated: { labelPath: "fields.updated" },
+  loading: { labelPath: "fields.loading" },
+  error: { labelPath: "fields.error" },
+  "apply-attempt": { labelPath: "fields.applyAttempt" },
+  "apply-max-attempt": { labelPath: "fields.applyMaxAttempt" },
+  "apply-next-retry": { labelPath: "fields.applyNextRetry" },
+  messages: { labelPath: "fields.messages" },
+  "latest-timestamp": { labelPath: "fields.latestTimestamp" },
+  "latest-kind": { labelPath: "fields.latestKind" },
+  count: { labelPath: "fields.count" },
+  latest: { labelPath: "fields.latest" },
+  "pending-interaction": { labelPath: "fields.pendingInteraction" },
+  "pending-kind": { labelPath: "fields.pendingKind" },
+  "pending-prompt": { labelPath: "fields.pendingPrompt" },
+  "pending-options": { labelPath: "fields.pendingOptions" },
+  "pending-required-fields": { labelPath: "fields.pendingRequiredFields" },
+  "auth-session": { labelPath: "fields.authSession" },
+  "auth-provider": { labelPath: "fields.authProvider" },
+  "auth-phase": { labelPath: "fields.authPhase" },
+  "auth-engine": { labelPath: "fields.authEngine" },
+  "auth-methods": { labelPath: "fields.authMethods" },
+  "auth-challenge": { labelPath: "fields.authChallenge" },
+  "auth-error": { labelPath: "fields.authError" },
 } as const;
 
 export type AssistantWorkspaceDetailsFieldId =
@@ -790,7 +896,7 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     form: "region",
     browserStateKey: "navigation",
     managedRegions: ["navigation", "banner", "context-drawer"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   "service-status": {
     scope: "source",
@@ -804,21 +910,21 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     form: "region",
     browserStateKey: "control",
     managedRegions: ["toolbar", "banner", "hint", "composer"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   "message-counts": {
     scope: "owner",
     form: "region",
     browserStateKey: "messageCounts",
     managedRegions: ["message-counts"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   transcript: {
     scope: "owner",
     form: "transcript",
     browserStateKey: "transcript",
     managedRegions: ["transcript"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   plan: {
     scope: "owner",
@@ -832,28 +938,28 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     form: "region",
     browserStateKey: "permission",
     managedRegions: ["hint", "permission", "composer"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   composer: {
     scope: "owner",
     form: "region",
     browserStateKey: "composer",
     managedRegions: ["composer"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   "owner-presentation": {
     scope: "owner",
     form: "region",
     browserStateKey: "presentation",
     managedRegions: ["banner"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
   "owner-details": {
     scope: "owner",
     form: "region",
     browserStateKey: "details",
     managedRegions: ["details-drawer"],
-    sources: ["acp-chat", "acp-skills"],
+    sources: ["acp-chat", "acp-skills", "skillrunner"],
   },
 } as const satisfies Record<
   AssistantWorkspacePublicationKind,
@@ -965,7 +1071,7 @@ export type AssistantWorkspaceDomainChange =
   | {
       owner: AssistantWorkspaceOwner;
       kind: "transcript";
-      cause: Exclude<AssistantWorkspacePublicationCause, "steady-state">;
+      cause: AssistantWorkspacePublicationCause;
       transcript: {
         form: "snapshot";
         region: AssistantWorkspaceTranscriptRegion;
@@ -1028,6 +1134,22 @@ export const ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING = {
   "owner-details": "owner-details",
 } satisfies AssistantWorkspaceDomainMapping;
 
+// SkillRunner has no plan surface and reports backend health through the
+// banner rather than service-status (design Decision 3 of
+// openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence).
+export const SKILLRUNNER_WORKSPACE_DOMAIN_MAPPING = {
+  "owner-navigation": "owner-navigation",
+  "service-status": "not-applicable",
+  "owner-control": "owner-control",
+  "message-counts": "message-counts",
+  transcript: "transcript",
+  plan: "not-applicable",
+  permission: "permission",
+  composer: "composer",
+  "owner-presentation": "owner-presentation",
+  "owner-details": "owner-details",
+} satisfies AssistantWorkspaceDomainMapping;
+
 export function createAcpChatWorkspaceOwner(
   backendIdRaw: unknown,
   conversationIdRaw: unknown,
@@ -1053,6 +1175,30 @@ export function createAcpSkillsWorkspaceOwner(
     throw new Error("assistant-workspace-skills-owner-required");
   }
   return { source: "acp-skills", ownerKey: requestId, requestId };
+}
+
+/**
+ * SkillRunner owner identity is request-scoped (design Decision 1 of
+ * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence):
+ * the owner key is the assigned request id and falls back to the run key for
+ * unassigned local runs. A late request-id assignment therefore surfaces as
+ * an owner switch. The run key is always known locally and is required.
+ */
+export function createSkillRunnerWorkspaceOwner(args: {
+  requestId?: unknown;
+  runKey?: unknown;
+}): Extract<AssistantWorkspaceOwner, { source: "skillrunner" }> {
+  const requestId = String(args.requestId || "").trim() || null;
+  const runKey = String(args.runKey || "").trim();
+  if (!runKey) {
+    throw new Error("assistant-workspace-skillrunner-owner-required");
+  }
+  return {
+    source: "skillrunner",
+    ownerKey: requestId || runKey,
+    requestId,
+    runKey,
+  };
 }
 
 export function createAssistantWorkspaceUnownedScope(
@@ -1126,7 +1272,11 @@ export function assertAssistantWorkspacePublication(
     throw new Error("assistant-workspace-publication-owner");
   }
   const owner = publication.owner;
-  if (owner.source !== "acp-chat" && owner.source !== "acp-skills") {
+  if (
+    owner.source !== "acp-chat" &&
+    owner.source !== "acp-skills" &&
+    owner.source !== "skillrunner"
+  ) {
     throw new Error("assistant-workspace-publication-owner-source");
   }
   const unowned = owner.ownerKey === null;
@@ -1145,12 +1295,27 @@ export function assertAssistantWorkspacePublication(
     ) {
       throw new Error("assistant-workspace-publication-owner-invariant");
     }
-  } else if (
-    !("requestId" in owner) ||
-    !owner.requestId ||
-    owner.ownerKey !== owner.requestId
-  ) {
-    throw new Error("assistant-workspace-publication-owner-invariant");
+  } else if (owner.source === "acp-skills") {
+    if (
+      !("requestId" in owner) ||
+      !owner.requestId ||
+      owner.ownerKey !== owner.requestId
+    ) {
+      throw new Error("assistant-workspace-publication-owner-invariant");
+    }
+  } else {
+    assertExactObjectKeys(
+      owner,
+      ["source", "ownerKey", "requestId", "runKey"],
+      "assistant-workspace-publication-owner-invariant",
+    );
+    if (
+      !owner.runKey ||
+      (owner.requestId !== null && !owner.requestId) ||
+      owner.ownerKey !== (owner.requestId || owner.runKey)
+    ) {
+      throw new Error("assistant-workspace-publication-owner-invariant");
+    }
   }
   if (
     !publication.publicationKind ||
@@ -1320,13 +1485,34 @@ function assertPublicationPayloadInvariant(
       ["autoApprove", "canSetAutoApprove"],
       "assistant-workspace-owner-control-permission-policy",
     );
+    if (baseline.badges !== null) {
+      assertExactObjectKeys(
+        baseline.badges,
+        ["control", "autoReply"],
+        "assistant-workspace-owner-control-badges",
+      );
+      if (baseline.badges.control !== null) {
+        assertExactObjectKeys(
+          baseline.badges.control,
+          ["state", "tone", "title"],
+          "assistant-workspace-owner-control-badge-control",
+        );
+      }
+      if (baseline.badges.autoReply !== null) {
+        assertExactObjectKeys(
+          baseline.badges.autoReply,
+          ["active", "remainingSeconds", "progressPercent"],
+          "assistant-workspace-owner-control-badge-auto-reply",
+        );
+      }
+    }
   }
   if (kind === "owner-navigation") {
     const navigation = payload as AssistantWorkspaceOwnerNavigation;
     for (const group of navigation.groups) {
       assertExactObjectKeys(
         group,
-        ["groupId", "label", "status"],
+        ["groupId", "label", "status", "disabledReason"],
         "assistant-workspace-owner-navigation-group",
       );
     }
@@ -1346,6 +1532,9 @@ function assertPublicationPayloadInvariant(
           "attention",
           "updatedAt",
           "messageCount",
+          "canArchive",
+          "submission",
+          "resumptionPending",
         ],
         "assistant-workspace-owner-navigation-entry",
       );
@@ -1416,27 +1605,29 @@ function assertPublicationPayloadInvariant(
     ) {
       throw new Error("assistant-workspace-composer-reply-status");
     }
-    assertExactObjectKeys(
-      composer.runtimeOptions,
-      ["mode", "model", "reasoningEffort"],
-      "assistant-workspace-composer-options",
-    );
-    for (const group of [
-      composer.runtimeOptions.mode,
-      composer.runtimeOptions.model,
-      composer.runtimeOptions.reasoningEffort,
-    ]) {
+    if (composer.runtimeOptions !== null) {
       assertExactObjectKeys(
-        group,
-        ["selectedOptionId", "options", "enabled"],
-        "assistant-workspace-option-group",
+        composer.runtimeOptions,
+        ["mode", "model", "reasoningEffort"],
+        "assistant-workspace-composer-options",
       );
-      for (const option of group.options) {
+      for (const group of [
+        composer.runtimeOptions.mode,
+        composer.runtimeOptions.model,
+        composer.runtimeOptions.reasoningEffort,
+      ]) {
         assertExactObjectKeys(
-          option,
-          ["optionId", "label", "description"],
-          "assistant-workspace-option",
+          group,
+          ["selectedOptionId", "options", "enabled"],
+          "assistant-workspace-option-group",
         );
+        for (const option of group.options) {
+          assertExactObjectKeys(
+            option,
+            ["optionId", "label", "description"],
+            "assistant-workspace-option",
+          );
+        }
       }
     }
   }

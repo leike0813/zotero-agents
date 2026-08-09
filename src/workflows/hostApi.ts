@@ -428,6 +428,8 @@ function normalizeImageOptions(options?: WorkflowImagePreparationOptions) {
     ),
     minQuality: Math.min(1, Math.max(0.01, Number(merged.minQuality) || 0.7)),
     background: String(merged.background || "#ffffff").trim() || "#ffffff",
+    outputMimeType:
+      merged.outputMimeType === "image/png" ? "image/png" : "image/jpeg",
   };
 }
 
@@ -614,18 +616,19 @@ function createCanvas(width: number, height: number) {
   return canvas;
 }
 
-async function canvasToJpegBlob(
+async function canvasToBlob(
   canvas: HTMLCanvasElement | OffscreenCanvas,
-  quality: number,
+  mimeType: "image/jpeg" | "image/png",
+  quality?: number,
 ) {
   const anyCanvas = canvas as HTMLCanvasElement & {
     convertToBlob?: (options: {
       type: string;
-      quality: number;
+      quality?: number;
     }) => Promise<Blob>;
   };
   if (typeof anyCanvas.convertToBlob === "function") {
-    return anyCanvas.convertToBlob({ type: "image/jpeg", quality });
+    return anyCanvas.convertToBlob({ type: mimeType, quality });
   }
   if (typeof anyCanvas.toBlob === "function") {
     return new Promise<Blob>((resolve, reject) => {
@@ -637,12 +640,12 @@ async function canvasToJpegBlob(
             reject(new Error("Canvas JPEG encoding failed"));
           }
         },
-        "image/jpeg",
+        mimeType,
         quality,
       );
     });
   }
-  throw new Error("Canvas JPEG encoder is unavailable");
+  throw new Error("Canvas image encoder is unavailable");
 }
 
 function computeBoundedSize(
@@ -720,17 +723,22 @@ async function prepareForNoteEmbedding(
 
     let selectedBlob: Blob | null = null;
     let selectedQuality = qualities[qualities.length - 1];
-    for (const quality of qualities) {
-      const candidate = await canvasToJpegBlob(canvas, quality);
-      selectedBlob = candidate;
-      selectedQuality = quality;
-      if (candidate.size <= normalizedOptions.targetBytes) {
-        break;
+    if (normalizedOptions.outputMimeType === "image/png") {
+      selectedBlob = await canvasToBlob(canvas, "image/png");
+      selectedQuality = 1;
+    } else {
+      for (const quality of qualities) {
+        const candidate = await canvasToBlob(canvas, "image/jpeg", quality);
+        selectedBlob = candidate;
+        selectedQuality = quality;
+        if (candidate.size <= normalizedOptions.targetBytes) {
+          break;
+        }
       }
     }
 
     if (!selectedBlob) {
-      throw new Error("JPEG encoding produced no image");
+      throw new Error("Image encoding produced no image");
     }
     if (selectedBlob.size > normalizedOptions.hardMaxBytes) {
       throw new Error(
@@ -740,7 +748,7 @@ async function prepareForNoteEmbedding(
 
     return {
       blob: selectedBlob,
-      mimeType: "image/jpeg",
+      mimeType: normalizedOptions.outputMimeType,
       width: target.width,
       height: target.height,
       originalBytes: normalizedSource.originalBytes,

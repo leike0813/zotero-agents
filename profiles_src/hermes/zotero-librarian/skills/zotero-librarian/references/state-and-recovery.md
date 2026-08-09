@@ -14,6 +14,12 @@ No Skill, cron file, shell snippet, external helper, or manual SQL session may c
 
 The database is a rebuildable cache and journal. Live Zotero remains authoritative for UI context, library contents, workflow definitions, execution modes, runs, permissions, notifications, Products, files, operations, and writes.
 
+## Profile-local state boundary
+
+The active connection profile is selected by service `--profile`, `ZOTERO_BRIDGE_PROFILE`, or the platform well-known profile. The well-known profile is the default owner of the existing state path. Each explicit normalized profile path owns a separate `workspaces/<sha256>/` root, including its SQLite database, workflow catalog, watched runs, notifications, and `.zotero-bridge/bin`; no profile content or token contributes to the identity. Agents never need to hand-calculate this root.
+
+`--db` may name a diagnostic database only when its resolved path is inside the selected root. Profile/path/root/connection errors and `workspace_path_outside_profile` stop the pass before any database is created, with no shared-directory fallback. This routing changes neither the `state.v3` schema nor the rules that require live Zotero facts, current approval, native queue ownership, and durable receipts.
+
 ## Freshness and atomic updates
 
 Every cached conclusion carries the relevant refresh or update time. Use the cache for discovery and change detection; use a live read for externally visible current facts and every decision that can lead to a write or interaction.

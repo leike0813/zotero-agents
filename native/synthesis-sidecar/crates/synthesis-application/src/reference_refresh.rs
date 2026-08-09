@@ -96,6 +96,7 @@ pub enum ReferenceArtifactType {
     Digest,
     References,
     CitationAnalysis,
+    LiteratureScore,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +112,8 @@ pub struct ReferenceArtifactDescriptor {
     pub estimated_size: Option<usize>,
     #[serde(default)]
     pub diagnostics: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub literature_quality: Option<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1490,7 +1493,7 @@ fn validate_prepare(request: &ReferenceRefreshPrepareRequest) -> Result<(), Stri
         .map(|item| item.paper_ref.as_str())
         .collect::<HashSet<_>>();
     if descriptor_keys.len() != request.artifacts.len()
-        || request.artifacts.len() != source_refs.len() * 3
+        || request.artifacts.len() != source_refs.len() * 4
         || item_ref_set != source_ref_set
         || request.artifacts.iter().any(|row| {
             !source_ref_set.contains(row.paper_ref.as_str())
@@ -1504,6 +1507,7 @@ fn validate_prepare(request: &ReferenceRefreshPrepareRequest) -> Result<(), Stri
                 ReferenceArtifactType::Digest,
                 ReferenceArtifactType::References,
                 ReferenceArtifactType::CitationAnalysis,
+                ReferenceArtifactType::LiteratureScore,
             ]
             .iter()
             .any(|kind| !descriptor_keys.contains(&(source.as_str(), artifact_type_name(kind))))
@@ -1554,6 +1558,7 @@ fn artifact_type_name(value: &ReferenceArtifactType) -> &'static str {
         ReferenceArtifactType::Digest => "digest",
         ReferenceArtifactType::References => "references",
         ReferenceArtifactType::CitationAnalysis => "citation_analysis",
+        ReferenceArtifactType::LiteratureScore => "literature_score",
     }
 }
 
@@ -1672,14 +1677,19 @@ fn changed_source_refs_for_snapshot(
                             || current.metadata_hash != next.metadata_hash
                             || current.summary_json != next.summary_json
                     })
-                || ["digest", "references", "citation_analysis"]
-                    .iter()
-                    .any(|artifact_type| {
-                        let key = (item.paper_ref.as_str(), *artifact_type);
-                        next_artifacts.get(&key).is_some_and(|next| {
-                            artifact_record_changed(current_artifacts.get(&key).copied(), next)
-                        })
+                || [
+                    "digest",
+                    "references",
+                    "citation_analysis",
+                    "literature_score",
+                ]
+                .iter()
+                .any(|artifact_type| {
+                    let key = (item.paper_ref.as_str(), *artifact_type);
+                    next_artifacts.get(&key).is_some_and(|next| {
+                        artifact_record_changed(current_artifacts.get(&key).copied(), next)
                     })
+                })
         })
         .map(|item| item.paper_ref.clone())
         .collect::<Vec<_>>();
@@ -1961,6 +1971,11 @@ mod tests {
                 "citation-analysis-json",
                 "c",
             ),
+            (
+                ReferenceArtifactType::LiteratureScore,
+                "literature_score.v1",
+                "d",
+            ),
         ]
         .into_iter()
         .map(
@@ -1973,6 +1988,7 @@ mod tests {
                 status: "available".into(),
                 estimated_size: None,
                 diagnostics: Vec::new(),
+                literature_quality: None,
             },
         )
         .collect();
@@ -2008,7 +2024,9 @@ mod tests {
                     ReferenceArtifactType::CitationAnalysis => {
                         json!({"citations":[{"reference_index":0,"role":"background"}]})
                     }
-                    ReferenceArtifactType::Digest => json!({}),
+                    ReferenceArtifactType::Digest | ReferenceArtifactType::LiteratureScore => {
+                        json!({})
+                    }
                 },
                 diagnostics: Vec::new(),
             })

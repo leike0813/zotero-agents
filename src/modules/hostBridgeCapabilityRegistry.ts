@@ -36,7 +36,6 @@ import {
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
 import type {
   HostBridgeApprovalRequirement,
-  HostBridgeCapabilityCategory,
   HostBridgeCapabilityManifestEntry,
   HostBridgeConnectionMode,
   HostBridgeErrorCategory,
@@ -59,6 +58,13 @@ import type {
   SynthesisTopicReportRequest,
 } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import {
+  getHostBridgeCapabilityContract,
+  listHostBridgeCapabilityContractEntries,
+  validateHostBridgeCapabilityInput,
+  validateHostBridgeCapabilityOutput,
+  type HostBridgeContractViolation,
+} from "./hostBridgeCapabilityContract";
 
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
@@ -296,20 +302,22 @@ async function toBridgeAttachmentDescriptorsWithContext(
 
 function capability(
   name: string,
-  category: HostBridgeCapabilityCategory,
-  summary: string,
-  input: HostBridgeCapabilityManifestEntry["input"],
   handler: HostBridgeCapabilityHandler,
-  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
+  const contract = getHostBridgeCapabilityContract(name);
+  if (!contract) {
+    throw new Error(`Missing executable Host Bridge contract for ${name}`);
+  }
   const approval = getHostBridgeApprovalRequirement(name);
   return {
     name,
-    category,
-    summary,
+    category: contract.category,
+    summary: contract.summary,
     approval,
-    requestEffect,
-    input,
+    requestEffect: contract.effect,
+    inputSchema: contract.inputSchema,
+    outputSchema: contract.outputSchema,
+    exposure: contract.exposure,
     handler: async (rawInput, context) =>
       (await handler(rawInput, context)) ?? null,
   };
@@ -323,21 +331,12 @@ function assertDebugModeEnabled() {
 
 function debugCapability(
   name: string,
-  summary: string,
   handler: HostBridgeCapabilityHandler,
-  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
-  return capability(
-    name,
-    "debug",
-    summary,
-    { type: "object", required: false },
-    async (input, context) => {
-      assertDebugModeEnabled();
-      return handler(input, context);
-    },
-    requestEffect,
-  );
+  return capability(name, async (input, context) => {
+    assertDebugModeEnabled();
+    return handler(input, context);
+  });
 }
 
 function debugLimit(input: Record<string, unknown>, fallback = 25) {
@@ -1203,99 +1202,52 @@ async function debugTasksSnapshot(input: unknown) {
 }
 
 async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
-  const object = asObject(input);
-  const { getSkillRunnerConnectionGovernorSnapshot } =
-    await import("./skillRunnerConnectionAudit");
-  return debugEnvelope(
-    "host_bridge.debug.skillrunner.connections.snapshot.v1",
-    object,
-    {
-      skillRunnerConnections: getSkillRunnerConnectionGovernorSnapshot(),
-      truncated: false,
-    },
-  );
-}
-
-function synthesisCapability(
-  name: string,
-  category: HostBridgeCapabilityCategory,
-  summary: string,
-  invoke: (
-    client: SynthesisClient,
-    input: SynthesisJsonObject,
-    delivery: SynthesisDeliveryContext,
-  ) => unknown | Promise<unknown>,
-  input: HostBridgeCapabilityManifestEntry["input"] = {
-    type: "object",
-    required: false,
-  },
-  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
-): HostBridgeCapabilityDefinition {
-  return capability(
-    name,
-    category,
-    summary,
-    input,
-    async (input, context) => {
-      const client = await (context.resolveSynthesisClient?.() ||
-        getDefaultSynthesisClient());
-      const normalizedInput = normalizeSynthesisCapabilityInput(
-        name,
-        asObject(input),
-      ) as SynthesisJsonObject;
-      const result = await invoke(client, normalizedInput, {
-        mode: context.connectionMode,
-      });
-      return applySynthesisOutputBoundary(name, normalizedInput, result);
-    },
-    requestEffect,
-  );
-}
-
-async function callSynthesisDebugClient(
-  context: HostBridgeCapabilityContext,
-  capabilityName: string,
-  input: unknown,
-  invoke: (client: SynthesisClient) => Promise<SynthesisJsonObject>,
-) {
-  const client = await (context.resolveSynthesisClient?.() ||
-    getDefaultSynthesisClient());
-  const result = await invoke(client);
-  const object = asObject(input);
-  const includeFull =
-    object.includeFull === true || object.include_full === true;
-  const requiresFileDelivery =
-    (capabilityName === "debug.synthesis.snapshot" &&
-      (includeFull ||
-        object.includeUiSnapshot === true ||
-        object.include_ui_snapshot === true)) ||
-    (includeFull &&
-      [
-        "debug.synthesis.profiler.list",
-        "debug.synthesis.paper.inspect",
-        "debug.synthesis.topic.inspect",
-      ].includes(capabilityName));
-  if (!requiresFileDelivery) {
-    return result;
+  if (
+    typeof __debug_mode__ === "undefined" ||
+    (__debug_mode__ && __skillrunner_connection_audit_enabled__)
+  ) {
+    const object = asObject(input);
+    const { getSkillRunnerConnectionGovernorSnapshot } =
+      await import("./skillRunnerConnectionAudit");
+    return debugEnvelope(
+      "host_bridge.debug.skillrunner.connections.snapshot.v1",
+      object,
+      {
+        skillRunnerConnections: getSkillRunnerConnectionGovernorSnapshot(),
+        truncated: false,
+      },
+    );
   }
-  const displayName = `${capabilityName.replace(/[^A-Za-z0-9._-]+/g, "-")}.json`;
-  const file = await registerBoundedOutputFile({
-    capability: capabilityName,
-    displayName,
-    contentType: "application/json",
-    content: `${JSON.stringify(result, null, 2)}\n`,
-  });
-  return {
-    schema: "host_bridge.debug.file_delivery.v1",
-    diagnostic: capabilityName,
-    delivery: {
-      mode: "bridge-download",
-      bundle: file,
-      downloadCommand: `zotero-bridge file download ${file.fileId} --output ${displayName}`,
-    },
-    truncated: false,
-  };
+  throw new Error("SkillRunner connection audit is unavailable");
 }
+
+type SynthesisClientCapabilityMethod =
+  | "listTopics"
+  | "findTopicsByPaperRef"
+  | "getTopicContext"
+  | "getTopicReport"
+  | "getSchemas"
+  | "queryConceptKb"
+  | "queryCitationGraphCluster"
+  | "getLibraryIndex"
+  | "resolveResolver"
+  | "getReferenceSidecarIndex"
+  | "startReferenceSidecarRefresh"
+  | "getPublicMaintenanceOperation"
+  | "queryCitationGraph"
+  | "getCitationGraphSlice"
+  | "getCitationGraphLayout"
+  | "getCitationGraphMetrics"
+  | "rankExternalReferences"
+  | "rankLibraryPapers"
+  | "refreshCitationGraphMetricsNow"
+  | "startCitationGraphUpdate"
+  | "getPaperArtifactManifest"
+  | "readPaperArtifacts"
+  | "exportFilteredPaperArtifacts"
+  | "resolveTopicPaperDigest"
+  | "getReviewInput"
+  | "getAttentionQueue";
 
 function topicReportRequest(
   input: SynthesisJsonObject,
@@ -1330,955 +1282,522 @@ function paperArtifactsRequest(
   };
 }
 
-const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
-  capability(
-    "context.get_current_view",
-    "context",
-    "Return the active Zotero target, library id, selection state, and current item metadata.",
-    { type: "none", required: false },
-    (_input, context) =>
-      resolveHostBridgeApis(context).context.getCurrentView(),
-  ),
-  capability(
-    "context.get_selected_items",
-    "context",
-    "Return JSON-safe summaries for the currently selected Zotero items.",
-    { type: "none", required: false },
-    (_input, context) =>
-      resolveHostBridgeApis(context).context.getSelectedItems(),
-  ),
-  capability(
-    "library.search_items",
-    "library",
-    "Search regular Zotero library items by bounded text query.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        query: { type: "string", minLength: 1, maxLength: 500 },
-        limit: { type: ["number", "string"], minimum: 1 },
-        libraryId: { type: ["number", "string"] },
-      },
-      requiredProperties: ["query"],
-    },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.searchItems(
-        asObject(input) as {
-          query: string;
-          limit?: number | string;
-          libraryId?: number | string;
-        },
-      ),
-  ),
-  capability(
-    "library.list_items",
-    "library",
-    "List compact parent Zotero library item summaries with bounded pagination and filters.",
-    {
-      type: "object",
-      required: false,
-      properties: {
-        libraryId: { type: ["number", "string"] },
-        collection: {},
-        collectionId: { type: ["number", "string"] },
-        collectionKey: { type: "string" },
-        collectionLibraryId: { type: ["number", "string"] },
-        tag: { type: "string" },
-        itemType: { type: "string" },
-        query: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: "string" },
-      },
-    },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.listItems(
-        libraryListArgsFromInput(input),
-      ),
-  ),
-  capability(
-    "library.sync_snapshot",
-    "library",
-    "Return a paginated Zotero library metadata snapshot for local librarian indexes.",
-    {
-      type: "object",
-      required: false,
-      properties: {
-        libraryId: { type: ["number", "string"] },
-        collection: {},
-        collectionId: { type: ["number", "string"] },
-        collectionKey: { type: "string" },
-        collectionLibraryId: { type: ["number", "string"] },
-        tag: { type: "string" },
-        itemType: { type: "string" },
-        query: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: "string" },
-      },
-    },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.syncSnapshot(
-        libraryListArgsFromInput(input),
-      ),
-  ),
-  capability(
-    "library.readiness_audit",
-    "library",
-    "Return paginated read-only library readiness for missing PDF, source Markdown, and literature-analysis artifacts.",
-    {
-      type: "object",
-      required: false,
-      properties: {
-        libraryId: { type: ["number", "string"] },
-        collection: {},
-        collectionId: { type: ["number", "string"] },
-        collectionKey: { type: "string" },
-        collectionLibraryId: { type: ["number", "string"] },
-        tag: { type: "string" },
-        itemType: { type: "string" },
-        query: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: "string" },
-        checks: {},
-        missingOnly: { type: ["boolean", "string", "number"] },
-        missing_only: { type: ["boolean", "string", "number"] },
-      },
-    },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.readinessAudit(
-        libraryListArgsFromInput(input),
-      ),
-  ),
-  capability(
-    "library.get_item_detail",
-    "library",
-    "Return detailed JSON-safe metadata for one Zotero item.",
-    { type: "item-ref", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.getItemDetail(
-        itemRefFromInput(input),
-      ),
-  ),
-  capability(
-    "library.get_item_notes",
-    "library",
-    "Return bounded child note summaries for one Zotero item.",
-    { type: "object", required: true },
-    async (input, context) => {
-      const object = asObject(input);
-      const notes = [];
-      const sourceLimit = 100;
-      for (let cursor = 0; ; cursor += sourceLimit) {
-        const batch = await resolveHostBridgeApis(context).library.getItemNotes(
-          itemRefFromInput(input),
-          {
-            ...object,
-            cursor,
-            limit: sourceLimit,
-          },
-        );
-        notes.push(...batch);
-        if (batch.length < sourceLimit) break;
-      }
-      return paginateCapabilityRows({
-        scope: "library item notes",
-        section: "items",
-        input: object,
-        rows: notes,
-      });
-    },
-  ),
-  capability(
-    "library.get_note_detail",
-    "library",
-    "Read one Zotero note body in bounded chunks.",
-    { type: "object", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.getNoteDetail(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNoteDetailArgs,
-      ),
-  ),
-  capability(
-    "library.list_note_payloads",
-    "library",
-    "List workflow note payloads from embedded attachments and note payload blocks.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        key: { type: "string" },
-        id: { type: ["number", "string"] },
-        libraryId: { type: ["number", "string"] },
-        cursor: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-      },
-    },
-    async (input, context) =>
-      paginateCapabilityRows({
-        scope: "library note payloads",
-        section: "payloads",
-        input: asObject(input),
-        rows: await resolveHostBridgeApis(context).library.listNotePayloads(
-          itemRefFromInput(input),
-        ),
-      }),
-  ),
-  capability(
-    "library.get_note_payload",
-    "library",
-    "Decode one workflow payload from one Zotero note.",
-    { type: "object", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.getNotePayload(
-        itemRefFromInput(input),
-        asObject(input) as ZoteroHostNotePayloadDetailArgs,
-      ),
-  ),
-  capability(
-    "library.get_item_attachments",
-    "library",
-    "Return child attachment metadata with broker-issued download handles when available.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        key: { type: "string" },
-        id: { type: ["number", "string"] },
-        libraryId: { type: ["number", "string"] },
-        cursor: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-      },
-    },
-    async (input, context) =>
-      paginateCapabilityRows({
-        scope: "library item attachments",
-        section: "attachments",
-        input: asObject(input),
-        rows: await toBridgeAttachmentDescriptorsWithContext(input, context),
-      }),
-  ),
-  capability(
-    "library.list_annotations",
-    "library",
-    "List reader annotations for one Zotero item when the Zotero runtime exposes them.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        key: { type: "string" },
-        id: { type: ["number", "string"] },
-        libraryId: { type: ["number", "string"] },
-        cursor: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-      },
-    },
-    async (input, context) =>
-      paginateCapabilityRows({
-        scope: "library annotation list",
-        section: "annotations",
-        input: asObject(input),
-        rows: await resolveHostBridgeApis(context).library.listAnnotations(
-          itemRefFromInput(input),
-        ),
-      }),
-  ),
-  capability(
-    "library.export_annotations",
-    "library",
-    "Export reader annotations for one Zotero item as markdown or JSON.",
-    { type: "object", required: true },
-    async (input, context) => {
-      const object = asObject(input);
-      const exported = await resolveHostBridgeApis(
-        context,
-      ).library.exportAnnotations(
-        itemRefFromInput(input),
-        object as { format?: string },
-      );
-      const format = String(exported.format || "markdown");
-      const content =
-        format === "json"
-          ? `${JSON.stringify(exported.annotations || [], null, 2)}\n`
-          : String(exported.markdown || "");
-      const file = await registerBoundedOutputFile({
-        capability: "library.export_annotations",
-        displayName: `zotero-annotations.${format === "json" ? "json" : "md"}`,
-        contentType: format === "json" ? "application/json" : "text/markdown",
-        content,
-      });
-      return {
-        format,
-        count: Array.isArray(exported.annotations)
-          ? exported.annotations.length
-          : 0,
-        delivery: { mode: "bridge-download", file },
-      };
-    },
-  ),
-  capability(
-    "workflow_products.list",
-    "workflow_products",
-    "List normal Dashboard Products with bounded filters and pagination.",
-    {
-      type: "object",
-      required: false,
-      properties: {
-        workflowId: { type: "string" },
-        backendId: { type: "string" },
-        requestId: { type: "string" },
-        cursor: { type: ["number", "string"], minimum: 0 },
-        limit: { type: ["number", "string"], minimum: 1 },
-      },
-    },
-    (input) => selectWorkflowProducts(input),
-  ),
-  capability(
-    "workflow_products.get",
-    "workflow_products",
-    "Return public metadata for one normal Dashboard Product.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        productId: { type: "string" },
-        cursor: { type: "string" },
-        limit: { type: ["number", "string"], minimum: 1 },
-      },
-      requiredProperties: ["productId"],
-    },
-    (input) => {
-      const object = asObject(input);
-      const product = publicWorkflowProduct(
-        workflowProductOrThrow(object.productId),
-      );
-      const page = paginateHostBridgeRows({
-        scope: "product get",
-        criteria: capabilityPageCriteria(object),
-        rows: product.assets,
-        key: capabilityPageRowKey,
-        cursor: object.cursor,
-        limit: object.limit,
-      });
-      return {
-        product: { ...product, assets: page.page },
-        pagination: {
-          assets: {
-            nextCursor: page.nextCursor,
-            hasMore: page.hasMore,
-            returned: page.returned,
-            total: page.total,
-            limit: page.limit,
-          },
-        },
-      };
-    },
-  ),
-  capability(
-    "workflow_products.read_asset",
-    "workflow_products",
-    "Register one normal Dashboard Product asset for opaque file download.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        productId: { type: "string" },
-        assetId: { type: "string" },
-        relativePath: { type: "string" },
-      },
-      requiredProperties: ["productId"],
-    },
-    async (input) => {
-      const object = asObject(input);
-      const resolved = await managedWorkflowProductAssetOrThrow(
-        object.productId,
-        { assetId: object.assetId, relativePath: object.relativePath },
-      );
-      const file = await registerHostBridgeWorkflowArtifactFile({
-        localPath: resolved.localPath,
-        displayName: resolved.asset.label || resolved.asset.relativePath,
-        contentType: resolved.asset.contentType,
-        size: resolved.asset.size,
-        workflowId: resolved.product.workflowId,
-        requestId: resolved.product.requestId,
-        runId: resolved.product.runId,
-        owner: {
-          capability: "workflow_products.read_asset",
-          requestId: resolved.product.requestId,
-        },
-      });
-      return { asset: publicWorkflowProductAsset(resolved.asset), file };
-    },
-  ),
-  capability(
-    "workflow_products.export",
-    "workflow_products",
-    "Export one or all normal Dashboard Product assets with local or remote delivery.",
-    {
-      type: "object",
-      required: true,
-      properties: {
-        productId: { type: "string" },
-        assetId: { type: "string" },
-        outputDir: { type: "string" },
-        overwrite: { type: "boolean" },
-      },
-      requiredProperties: ["productId"],
-    },
-    exportWorkflowProduct,
-  ),
-  capability(
-    "workflow_products.remove",
-    "mutation",
-    "Remove one normal Dashboard Product record while retaining managed assets for persistence cleanup.",
-    {
-      type: "object",
-      required: true,
-      properties: { productId: { type: "string" } },
-      requiredProperties: ["productId"],
-    },
-    (input) => {
-      const product = workflowProductOrThrow(asObject(input).productId);
-      if (!removeWorkflowProduct(product.productId)) {
-        throw new HostBridgeWorkflowProductError(
-          "workflow_product_not_found",
-          "Workflow product was not found",
-        );
-      }
-      return { productId: product.productId, removed: true };
-    },
-    "state-change",
-  ),
-  capability(
-    "mutation.preview",
-    "mutation",
-    "Preview a supported Zotero mutation without executing it.",
-    { type: "mutation-preview", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).mutations.preview(
-        asObject(input) as ZoteroHostMutationRequest,
-      ),
-  ),
-  capability(
-    "mutation.execute",
-    "mutation",
-    "Execute a supported Zotero mutation after Zotero-side approval.",
-    { type: "mutation-preview", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).mutations.execute(
-        asObject(input) as ZoteroHostMutationRequest,
-      ),
-    "state-change",
-  ),
-  capability(
-    "diagnostic.get_status",
-    "diagnostic",
-    "Return a redacted Host Bridge service status snapshot.",
-    { type: "none", required: false },
-    (_input, context) => context.getStatus(),
-  ),
-  debugCapability(
-    "debug.status",
-    "Return a debug-only Host Bridge and runtime status snapshot.",
-    debugStatus,
-  ),
-  debugCapability(
-    "debug.persistence.snapshot",
-    "Return a debug-only runtime persistence usage and integrity snapshot.",
-    debugPersistenceSnapshot,
-  ),
-  debugCapability(
-    "debug.tasks.snapshot",
-    "Return debug-only workflow task and ACP run diagnostics.",
-    debugTasksSnapshot,
-  ),
-  ...(typeof __debug_mode__ === "undefined" ||
-  (__debug_mode__ && __skillrunner_connection_audit_enabled__)
-    ? [
-        debugCapability(
-          "debug.skillrunner.connections.snapshot",
-          "Return debug-only SkillRunner connection governor diagnostics.",
-          debugSkillRunnerConnectionsSnapshot,
-        ),
-      ]
-    : []),
-  debugCapability(
-    "debug.acpSkillRun.reapplyResult",
-    "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
-    async (input) => {
-      const object = asObject(input);
-      const { reapplyAcpSkillRunResult } =
-        await import("./acpSkillRunnerOrchestrator");
-      return reapplyAcpSkillRunResult({
-        requestId: object.requestId as string | undefined,
-        runId: object.runId as string | undefined,
-        force: object.force === true,
-        persistResult: Object.prototype.hasOwnProperty.call(
-          object,
-          "persistResult",
-        )
-          ? object.persistResult !== false
-          : undefined,
-        resultJsonOverride: isPlainObject(object.resultJsonOverride)
-          ? object.resultJsonOverride
-          : undefined,
-        overrideMode:
-          object.overrideMode === "replace" || object.overrideMode === "merge"
-            ? object.overrideMode
-            : undefined,
-      });
-    },
-    "state-change",
-  ),
-  debugCapability(
-    "debug.zotero.eval",
-    "Debug-only operation: execute approved JavaScript in the Zotero host context.",
-    (input) => debugZoteroEval(input),
-    "state-change",
-  ),
-  debugCapability(
-    "debug.synthesis.snapshot",
-    "Return a debug-only Synthesis operation, cache, table-count, and UI snapshot.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.snapshot",
-        input,
-        (client) =>
-          client.debug.snapshot(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.operations.list",
-    "List debug-only Synthesis explicit operations and background job rows.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.operations.list",
-        input,
-        (client) =>
-          client.debug.listOperations(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.profiler.list",
-    "List debug-only Synthesis profiler runs and phase timings.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.profiler.list",
-        input,
-        (client) =>
-          client.debug.listProfiler(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.paper.inspect",
-    "Inspect one paper across Zotero payloads and Synthesis repository caches.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.paper.inspect",
-        input,
-        (client) =>
-          client.debug.inspectPaper(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.topic.inspect",
-    "Inspect one topic across artifacts, graph, freshness, and discovery state.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.topic.inspect",
-        input,
-        (client) =>
-          client.debug.inspectTopic(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.diff",
-    "Compare Zotero payload availability against Synthesis repository caches.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.diff",
-        input,
-        (client) => client.debug.diff(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.cache.list",
-    "List debug-only Synthesis sidecar cache basis rows.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.cache.list",
-        input,
-        (client) =>
-          client.debug.listCache(asObject(input) as SynthesisJsonObject),
-      ),
-  ),
-  debugCapability(
-    "debug.synthesis.cleanInstallReset",
-    "Dangerous debug operation: reset Synthesis DB state and delete data/synthesis.",
-    (input, context) =>
-      callSynthesisDebugClient(
-        context,
-        "debug.synthesis.cleanInstallReset",
-        input,
-        (client) =>
-          client.debug.cleanInstallReset(
-            asObject(input) as SynthesisJsonObject,
-          ),
-      ),
-    "state-change",
-  ),
-  synthesisCapability(
-    "topics.list",
-    "topics",
-    "List paged Zotero Synthesis Layer topics for duplicate checks and topic selection.",
-    (client, input) => client.topics.list(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        cursor: { type: ["number", "string"] },
-        limit: { type: ["number", "string"], minimum: 1 },
-      },
-    },
-    "state-change",
-  ),
-  synthesisCapability(
-    "topics.find_by_paper_ref",
-    "topics",
-    "Return active Synthesis topics associated with selected paper references from artifact dependency state.",
-    (client, input) => client.topics.findByPaperRef(input),
-  ),
-  synthesisCapability(
-    "topics.get_context",
-    "topics",
-    "Return one topic context as digest, semantic, audit, or full view; large view results may be written to outputPath.",
-    (client, input, delivery) => client.topics.getContext(input, delivery),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        topicId: { type: "string" },
-        topic_id: { type: "string" },
-        view: {
-          type: "string",
-          enum: ["digest", "semantic", "audit", "full"],
-        },
-        mode: { type: "string", enum: ["create", "update"] },
-        language: { type: "string" },
-        updateScope: { type: "string" },
-        update_scope: { type: "string" },
-        updateMode: { type: "string" },
-        update_mode: { type: "string" },
-        updateReason: { type: "string" },
-        update_reason: { type: "string" },
-        includeFull: { type: "boolean" },
-        include_full: { type: "boolean" },
-        includeMarkdown: { type: "boolean" },
-        include_markdown: { type: "boolean" },
-        includeArtifact: { type: "boolean" },
-        include_artifact: { type: "boolean" },
-        includeManifest: { type: "boolean" },
-        include_manifest: { type: "boolean" },
-        outputPath: { type: "string" },
-        output_path: { type: "string" },
-        overwrite: { type: "boolean" },
-      },
-    },
-  ),
-  synthesisCapability(
-    "topics.get_report",
-    "topics",
-    "Return one topic synthesis report markdown body from runtime synthesis_report.body.",
-    (client, input) => client.topics.getTopicReport(topicReportRequest(input)),
-  ),
-  synthesisCapability(
-    "schemas.get",
-    "schemas",
-    "Return Synthesis Layer schema metadata for diagnostic and validation workflows.",
-    (client, input) => client.maintenance.getSchemas(input),
-  ),
-  synthesisCapability(
-    "concepts.query",
-    "concepts",
-    "Return bounded read-only Concept KB and alias-index candidates for topic synthesis KG enrichment.",
-    (client, input) => client.concepts.query(input),
-  ),
-  synthesisCapability(
-    "citation_graph.query_cluster",
-    "citation_graph",
-    "Return bounded read-only topic-scoped citation graph cluster data for synthesis statistics.",
-    (client, input) => client.graph.queryCluster(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        source_paper_refs: { type: "array" },
-        sourcePaperRefs: { type: "array" },
-        paper_refs: { type: "array" },
-        paperRefs: { type: "array" },
-        paper_ref: { type: "string" },
-        paperRef: { type: "string" },
-        max_external_nodes: { type: ["number", "string"], minimum: 0 },
-        maxExternalNodes: { type: ["number", "string"], minimum: 0 },
-        max_nodes: { type: ["number", "string"], minimum: 1 },
-        maxNodes: { type: ["number", "string"], minimum: 1 },
-        max_edges: { type: ["number", "string"], minimum: 0 },
-        maxEdges: { type: ["number", "string"], minimum: 0 },
-        cluster_policy: { type: "string" },
-        clusterPolicy: { type: "string" },
-      },
-    },
-  ),
-  synthesisCapability(
-    "library_index.get",
-    "library_index",
-    "Return paginated compact Synthesis library index pages derived from Zotero library facts.",
-    (client, input) => client.libraryIndex.getPage(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        libraryId: { type: ["number", "string"] },
-        cursor: { type: ["number", "string"] },
-        limit: { type: ["number", "string"], minimum: 1 },
-        includeTags: { type: "boolean" },
-        includeCollections: { type: "boolean" },
-        includeItems: { type: "boolean" },
-        tagCursor: { type: ["number", "string"] },
-        tagLimit: { type: ["number", "string"], minimum: 1 },
-        collectionCursor: { type: ["number", "string"] },
-        collectionLimit: { type: ["number", "string"], minimum: 1 },
-        topicCursor: { type: ["number", "string"] },
-        topicLimit: { type: ["number", "string"], minimum: 1 },
-        registryCursor: { type: ["number", "string"] },
-        registryLimit: { type: ["number", "string"], minimum: 1 },
-      },
-    },
-  ),
-  synthesisCapability(
-    "resolvers.resolve",
-    "resolvers",
-    "Resolve a topic resolver into a deterministic paper workset and diagnostics.",
-    (client, input) => client.topics.resolveResolver(input),
-  ),
-  synthesisCapability(
-    "reference_index.get",
-    "reference_index",
-    "Return bounded read-only reference index metadata and diagnostics for selected source references.",
-    (client, input) => client.references.getSidecarIndex(input),
-  ),
-  synthesisCapability(
-    "reference_sidecar.refresh",
-    "reference_index",
-    "Start an independently approved reference-sidecar refresh for one library or a bounded same-library paper-ref scope and return a persistent operation handle.",
-    (client, input) => client.references.startRefresh(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        scope: { type: "string", enum: ["library", "papers"] },
-        library_id: { type: ["number", "string"] },
-        libraryId: { type: ["number", "string"] },
-        paper_refs: { type: "array" },
-        paperRefs: { type: "array" },
-        idempotency_key: { type: "string" },
-        idempotencyKey: { type: "string" },
-      },
-    },
-    "state-change",
-  ),
-  synthesisCapability(
-    "synthesis.operation.get",
-    "diagnostic",
-    "Read one persistent public Synthesis maintenance operation and its terminal receipt without mutating operation state.",
-    (client, input) =>
-      client.maintenance.getOperation(
+function invokeSynthesisClientCapability(
+  client: SynthesisClient,
+  methodName: SynthesisClientCapabilityMethod,
+  input: SynthesisJsonObject,
+  delivery: SynthesisDeliveryContext,
+) {
+  switch (methodName) {
+    case "listTopics":
+      return client.topics.list(input);
+    case "findTopicsByPaperRef":
+      return client.topics.findByPaperRef(input);
+    case "getTopicContext":
+      return client.topics.getContext(input, delivery);
+    case "getTopicReport":
+      return client.topics.getTopicReport(topicReportRequest(input));
+    case "getSchemas":
+      return client.maintenance.getSchemas(input);
+    case "queryConceptKb":
+      return client.concepts.query(input);
+    case "queryCitationGraphCluster":
+      return client.graph.queryCluster(input);
+    case "getLibraryIndex":
+      return client.libraryIndex.getPage(input);
+    case "resolveResolver":
+      return client.topics.resolveResolver(input);
+    case "getReferenceSidecarIndex":
+      return client.references.getSidecarIndex(input);
+    case "startReferenceSidecarRefresh":
+      return client.references.startRefresh(input);
+    case "getPublicMaintenanceOperation":
+      return client.maintenance.getOperation(
         input as unknown as
           | { operation_id: string; operationId?: never }
           | { operationId: string; operation_id?: never },
+      );
+    case "queryCitationGraph":
+      return client.graph.getOverview(input);
+    case "getCitationGraphSlice":
+      return client.graph.getSlice(input);
+    case "getCitationGraphLayout":
+      return client.graph.getPersistedLayout(input);
+    case "getCitationGraphMetrics":
+      return client.graph.getMetrics(input);
+    case "rankExternalReferences":
+      return client.references.rankExternalReferences(input);
+    case "rankLibraryPapers":
+      return client.graph.rankLibraryPapers(input);
+    case "refreshCitationGraphMetricsNow":
+      return client.graph.refreshMetricsNow(input);
+    case "startCitationGraphUpdate":
+      return client.graph.startUpdate(input);
+    case "getPaperArtifactManifest":
+      return client.artifacts.getManifest(input);
+    case "readPaperArtifacts":
+      return client.artifacts.readPaperArtifacts(paperArtifactsRequest(input));
+    case "exportFilteredPaperArtifacts":
+      return client.artifacts.exportFiltered(input, delivery);
+    case "resolveTopicPaperDigest":
+      return client.artifacts.resolveTopicPaperDigest(input);
+    case "getReviewInput":
+      return client.workflowReview.getInput(input);
+    case "getAttentionQueue":
+      return client.references.getAttentionQueue(input);
+  }
+}
+
+function synthesisCapability(
+  name: string,
+  methodName: SynthesisClientCapabilityMethod,
+): HostBridgeCapabilityDefinition {
+  return capability(name, async (input, context) => {
+    const client = await (context.resolveSynthesisClient?.() ||
+      getDefaultSynthesisClient());
+    const normalizedInput = normalizeSynthesisCapabilityInput(
+      name,
+      asObject(input),
+    ) as SynthesisJsonObject;
+    const result = await invokeSynthesisClientCapability(
+      client,
+      methodName,
+      normalizedInput,
+      { mode: context.connectionMode },
+    );
+    return applySynthesisOutputBoundary(name, normalizedInput, result);
+  });
+}
+
+async function callSynthesisDebugClient(
+  context: HostBridgeCapabilityContext,
+  methodName: string,
+  input: unknown,
+) {
+  const object = asObject(input);
+  const client = await (context.resolveSynthesisClient?.() ||
+    getDefaultSynthesisClient());
+  let result: SynthesisJsonObject;
+  switch (methodName) {
+    case "debugSynthesisSnapshot":
+      result = await client.debug.snapshot(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisOperationsList":
+      result = await client.debug.listOperations(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisProfilerList":
+      result = await client.debug.listProfiler(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisPaperInspect":
+      result = await client.debug.inspectPaper(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisTopicInspect":
+      result = await client.debug.inspectTopic(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisDiff":
+      result = await client.debug.diff(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisCacheList":
+      result = await client.debug.listCache(object as SynthesisJsonObject);
+      break;
+    case "debugSynthesisCleanInstallReset":
+      result = await client.debug.cleanInstallReset(
+        object as SynthesisJsonObject,
+      );
+      break;
+    default:
+      throw new Error(`Synthesis debug method is unavailable: ${methodName}`);
+  }
+  const includeFull =
+    object.includeFull === true || object.include_full === true;
+  const requiresFileDelivery =
+    (methodName === "debugSynthesisSnapshot" &&
+      (includeFull ||
+        object.includeUiSnapshot === true ||
+        object.include_ui_snapshot === true)) ||
+    (includeFull &&
+      [
+        "debugSynthesisProfilerList",
+        "debugSynthesisPaperInspect",
+        "debugSynthesisTopicInspect",
+      ].includes(methodName));
+  if (!requiresFileDelivery) {
+    return result;
+  }
+  const capability =
+    (
+      {
+        debugSynthesisSnapshot: "debug.synthesis.snapshot",
+        debugSynthesisProfilerList: "debug.synthesis.profiler.list",
+        debugSynthesisPaperInspect: "debug.synthesis.paper.inspect",
+        debugSynthesisTopicInspect: "debug.synthesis.topic.inspect",
+      } as Record<string, string>
+    )[methodName] || "debug.synthesis";
+  const displayName = `${capability.replace(/[^A-Za-z0-9._-]+/g, "-")}.json`;
+  const file = await registerBoundedOutputFile({
+    capability,
+    displayName,
+    contentType: "application/json",
+    content: `${JSON.stringify(result, null, 2)}\n`,
+  });
+  return {
+    schema: "host_bridge.debug.file_delivery.v1",
+    diagnostic: capability,
+    delivery: {
+      mode: "bridge-download",
+      bundle: file,
+      downloadCommand: `zotero-bridge file download ${file.fileId} --output ${displayName}`,
+    },
+    truncated: false,
+  };
+}
+
+const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
+  capability("context.get_current_view", (_input, context) =>
+    resolveHostBridgeApis(context).context.getCurrentView(),
+  ),
+  capability("context.get_selected_items", (_input, context) => {
+    const items = resolveHostBridgeApis(context).context.getSelectedItems();
+    return {
+      items,
+      nextCursor: null,
+      hasMore: false,
+      returned: items.length,
+      total: items.length,
+      limit: items.length,
+    };
+  }),
+  capability("library.search_items", async (input, context) => {
+    const page = await resolveHostBridgeApis(context).library.listItems(
+      asObject(input) as {
+        query: string;
+        limit?: number | string;
+        libraryId?: number | string;
+      },
+    );
+    return {
+      items: page.items,
+      truncated: page.hasMore,
+    };
+  }),
+  capability("library.list_items", (input, context) =>
+    resolveHostBridgeApis(context).library.listItems(
+      libraryListArgsFromInput(input),
+    ),
+  ),
+  capability("library.sync_snapshot", (input, context) =>
+    resolveHostBridgeApis(context).library.syncSnapshot(
+      libraryListArgsFromInput(input),
+    ),
+  ),
+  capability("library.readiness_audit", (input, context) =>
+    resolveHostBridgeApis(context).library.readinessAudit(
+      libraryListArgsFromInput(input),
+    ),
+  ),
+  capability("library.get_item_detail", (input, context) =>
+    resolveHostBridgeApis(context).library.getItemDetail(
+      itemRefFromInput(input),
+    ),
+  ),
+  capability("library.get_item_notes", async (input, context) => {
+    const object = asObject(input);
+    const notes = [];
+    const sourceLimit = 100;
+    for (let cursor = 0; ; cursor += sourceLimit) {
+      const batch = await resolveHostBridgeApis(context).library.getItemNotes(
+        itemRefFromInput(input),
+        {
+          ...object,
+          cursor,
+          limit: sourceLimit,
+        },
+      );
+      notes.push(...batch);
+      if (batch.length < sourceLimit) break;
+    }
+    return paginateCapabilityRows({
+      scope: "library item notes",
+      section: "items",
+      input: object,
+      rows: notes,
+    });
+  }),
+  capability("library.get_note_detail", (input, context) =>
+    resolveHostBridgeApis(context).library.getNoteDetail(
+      itemRefFromInput(input),
+      asObject(input) as ZoteroHostNoteDetailArgs,
+    ),
+  ),
+  capability("library.list_note_payloads", async (input, context) =>
+    paginateCapabilityRows({
+      scope: "library note payloads",
+      section: "payloads",
+      input: asObject(input),
+      rows: await resolveHostBridgeApis(context).library.listNotePayloads(
+        itemRefFromInput(input),
       ),
-    {
-      type: "object",
-      required: true,
-      properties: {
-        operation_id: { type: "string" },
-        operationId: { type: "string" },
+    }),
+  ),
+  capability("library.get_note_payload", (input, context) =>
+    resolveHostBridgeApis(context).library.getNotePayload(
+      itemRefFromInput(input),
+      asObject(input) as ZoteroHostNotePayloadDetailArgs,
+    ),
+  ),
+  capability("library.get_item_attachments", async (input, context) =>
+    paginateCapabilityRows({
+      scope: "library item attachments",
+      section: "attachments",
+      input: asObject(input),
+      rows: await toBridgeAttachmentDescriptorsWithContext(input, context),
+    }),
+  ),
+  capability("library.list_annotations", async (input, context) =>
+    paginateCapabilityRows({
+      scope: "library annotation list",
+      section: "annotations",
+      input: asObject(input),
+      rows: await resolveHostBridgeApis(context).library.listAnnotations(
+        itemRefFromInput(input),
+      ),
+    }),
+  ),
+  capability("library.export_annotations", async (input, context) => {
+    const object = asObject(input);
+    const exported = await resolveHostBridgeApis(
+      context,
+    ).library.exportAnnotations(
+      itemRefFromInput(input),
+      object as { format?: string },
+    );
+    const format = String(exported.format || "markdown");
+    const content =
+      format === "json"
+        ? `${JSON.stringify(exported.annotations || [], null, 2)}\n`
+        : String(exported.markdown || "");
+    const file = await registerBoundedOutputFile({
+      capability: "library.export_annotations",
+      displayName: `zotero-annotations.${format === "json" ? "json" : "md"}`,
+      contentType: format === "json" ? "application/json" : "text/markdown",
+      content,
+    });
+    return {
+      format,
+      count: Array.isArray(exported.annotations)
+        ? exported.annotations.length
+        : 0,
+      delivery: { mode: "bridge-download", file },
+    };
+  }),
+  capability("workflow_products.list", (input) =>
+    selectWorkflowProducts(input),
+  ),
+  capability("workflow_products.get", (input) => {
+    const object = asObject(input);
+    const product = publicWorkflowProduct(
+      workflowProductOrThrow(object.productId),
+    );
+    const page = paginateHostBridgeRows({
+      scope: "product get",
+      criteria: capabilityPageCriteria(object),
+      rows: product.assets,
+      key: capabilityPageRowKey,
+      cursor: object.cursor,
+      limit: object.limit,
+    });
+    return {
+      product: { ...product, assets: page.page },
+      pagination: {
+        assets: {
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          returned: page.returned,
+          total: page.total,
+          limit: page.limit,
+        },
       },
-    },
-  ),
-  synthesisCapability(
-    "citation_graph.get_overview",
-    "citation_graph",
-    "Return paged read-only Synthesis citation graph overview arrays with summary counts.",
-    (client, input) => client.graph.getOverview(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        cursor: { type: ["number", "string"] },
-        limit: { type: ["number", "string"], minimum: 1 },
-        nodeCursor: { type: ["number", "string"] },
-        node_cursor: { type: ["number", "string"] },
-        nodeLimit: { type: ["number", "string"], minimum: 1 },
-        node_limit: { type: ["number", "string"], minimum: 1 },
-        edgeCursor: { type: ["number", "string"] },
-        edge_cursor: { type: ["number", "string"] },
-        edgeLimit: { type: ["number", "string"], minimum: 1 },
-        edge_limit: { type: ["number", "string"], minimum: 1 },
-        hoverNodeCursor: { type: ["number", "string"] },
-        hover_node_cursor: { type: ["number", "string"] },
-        hoverNodeLimit: { type: ["number", "string"], minimum: 1 },
-        hover_node_limit: { type: ["number", "string"], minimum: 1 },
-        hoverEdgeCursor: { type: ["number", "string"] },
-        hover_edge_cursor: { type: ["number", "string"] },
-        hoverEdgeLimit: { type: ["number", "string"], minimum: 1 },
-        hover_edge_limit: { type: ["number", "string"], minimum: 1 },
+    };
+  }),
+  capability("workflow_products.read_asset", async (input) => {
+    const object = asObject(input);
+    const resolved = await managedWorkflowProductAssetOrThrow(
+      object.productId,
+      { assetId: object.assetId, relativePath: object.relativePath },
+    );
+    const file = await registerHostBridgeWorkflowArtifactFile({
+      localPath: resolved.localPath,
+      displayName: resolved.asset.label || resolved.asset.relativePath,
+      contentType: resolved.asset.contentType,
+      size: resolved.asset.size,
+      workflowId: resolved.product.workflowId,
+      requestId: resolved.product.requestId,
+      runId: resolved.product.runId,
+      owner: {
+        capability: "workflow_products.read_asset",
+        requestId: resolved.product.requestId,
       },
-    },
+    });
+    return { asset: publicWorkflowProductAsset(resolved.asset), file };
+  }),
+  capability("workflow_products.export", exportWorkflowProduct),
+  capability("workflow_products.remove", (input) => {
+    const product = workflowProductOrThrow(asObject(input).productId);
+    if (!removeWorkflowProduct(product.productId)) {
+      throw new HostBridgeWorkflowProductError(
+        "workflow_product_not_found",
+        "Workflow product was not found",
+      );
+    }
+    return { productId: product.productId, removed: true };
+  }),
+  capability("mutation.preview", (input, context) =>
+    resolveHostBridgeApis(context).mutations.preview(
+      asObject(input) as ZoteroHostMutationRequest,
+    ),
+  ),
+  capability("mutation.execute", (input, context) =>
+    resolveHostBridgeApis(context).mutations.execute(
+      asObject(input) as ZoteroHostMutationRequest,
+    ),
+  ),
+  capability("diagnostic.get_status", (_input, context) => context.getStatus()),
+  debugCapability("debug.status", debugStatus),
+  debugCapability("debug.persistence.snapshot", debugPersistenceSnapshot),
+  debugCapability("debug.tasks.snapshot", debugTasksSnapshot),
+  debugCapability(
+    "debug.skillrunner.connections.snapshot",
+    debugSkillRunnerConnectionsSnapshot,
+  ),
+  debugCapability("debug.acpSkillRun.reapplyResult", async (input) => {
+    const object = asObject(input);
+    const { reapplyAcpSkillRunResult } =
+      await import("./acpSkillRunnerOrchestrator");
+    return reapplyAcpSkillRunResult({
+      requestId: object.requestId as string | undefined,
+      runId: object.runId as string | undefined,
+      force: object.force === true,
+      persistResult: Object.prototype.hasOwnProperty.call(
+        object,
+        "persistResult",
+      )
+        ? object.persistResult !== false
+        : undefined,
+      resultJsonOverride: isPlainObject(object.resultJsonOverride)
+        ? object.resultJsonOverride
+        : undefined,
+      overrideMode:
+        object.overrideMode === "replace" || object.overrideMode === "merge"
+          ? object.overrideMode
+          : undefined,
+    });
+  }),
+  debugCapability("debug.zotero.eval", (input) => debugZoteroEval(input)),
+  debugCapability("debug.synthesis.snapshot", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisSnapshot", input),
+  ),
+  debugCapability("debug.synthesis.operations.list", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisOperationsList", input),
+  ),
+  debugCapability("debug.synthesis.profiler.list", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisProfilerList", input),
+  ),
+  debugCapability("debug.synthesis.paper.inspect", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisPaperInspect", input),
+  ),
+  debugCapability("debug.synthesis.topic.inspect", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisTopicInspect", input),
+  ),
+  debugCapability("debug.synthesis.diff", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisDiff", input),
+  ),
+  debugCapability("debug.synthesis.cache.list", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisCacheList", input),
+  ),
+  debugCapability("debug.synthesis.cleanInstallReset", (input, context) =>
+    callSynthesisDebugClient(context, "debugSynthesisCleanInstallReset", input),
+  ),
+  synthesisCapability("topics.list", "listTopics"),
+  synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
+  synthesisCapability("topics.get_context", "getTopicContext"),
+  synthesisCapability("topics.get_report", "getTopicReport"),
+  synthesisCapability("schemas.get", "getSchemas"),
+  synthesisCapability("concepts.query", "queryConceptKb"),
+  synthesisCapability(
+    "citation_graph.query_cluster",
+    "queryCitationGraphCluster",
+  ),
+  synthesisCapability("library_index.get", "getLibraryIndex"),
+  synthesisCapability("resolvers.resolve", "resolveResolver"),
+  synthesisCapability("reference_index.get", "getReferenceSidecarIndex"),
+  synthesisCapability(
+    "reference_sidecar.refresh",
+    "startReferenceSidecarRefresh",
   ),
   synthesisCapability(
-    "citation_graph.get_slice",
-    "citation_graph",
-    "Return a bounded read-only citation graph slice with freshness diagnostics for selected paper references.",
-    (client, input) => client.graph.getSlice(input),
+    "synthesis.operation.get",
+    "getPublicMaintenanceOperation",
   ),
-  synthesisCapability(
-    "citation_graph.get_layout",
-    "citation_graph",
-    "Return persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query without recomputing layout.",
-    (client, input) => client.graph.getPersistedLayout(input),
-  ),
-  synthesisCapability(
-    "citation_graph.get_metrics",
-    "citation_graph",
-    "Return bounded read-only citation graph metrics, freshness diagnostics, and recommended maintenance commands for selected paper references.",
-    (client, input) => client.graph.getMetrics(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        paperRefs: { type: "array" },
-        paper_refs: { type: "array" },
-        cursor: { type: ["number", "string"] },
-        limit: { type: ["number", "string"], minimum: 1 },
-        sortBy: { type: "string" },
-        sort_by: { type: "string" },
-      },
-    },
-  ),
+  synthesisCapability("citation_graph.get_overview", "queryCitationGraph"),
+  synthesisCapability("citation_graph.get_slice", "getCitationGraphSlice"),
+  synthesisCapability("citation_graph.get_layout", "getCitationGraphLayout"),
+  synthesisCapability("citation_graph.get_metrics", "getCitationGraphMetrics"),
   synthesisCapability(
     "citation_graph.rank_external_references",
-    "citation_graph",
-    "Return ranked external references from the persisted citation graph without refreshing graph state.",
-    (client, input) => client.references.rankExternalReferences(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        cursor: { type: ["number", "string"] },
-        limit: { type: ["number", "string"], minimum: 1 },
-        sortBy: { type: "string" },
-        sort_by: { type: "string" },
-      },
-    },
+    "rankExternalReferences",
   ),
   synthesisCapability(
     "citation_graph.rank_library_papers",
-    "citation_graph",
-    "Return ranked library papers from persisted citation graph metrics without refreshing graph state.",
-    (client, input) => client.graph.rankLibraryPapers(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        paperRefs: { type: "array" },
-        paper_refs: { type: "array" },
-        cursor: { type: ["number", "string"] },
-        limit: { type: ["number", "string"], minimum: 1 },
-        sortBy: { type: "string" },
-        sort_by: { type: "string" },
-      },
-    },
+    "rankLibraryPapers",
   ),
   synthesisCapability(
     "citation_graph.refresh_metrics",
-    "citation_graph",
-    "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
-    (client, input) => client.graph.refreshMetricsNow(input),
-    { type: "object", required: false },
-    "state-change",
+    "refreshCitationGraphMetricsNow",
   ),
-  synthesisCapability(
-    "citation_graph.update",
-    "citation_graph",
-    "Start an independently approved atomic citation-graph update for one library or a bounded paper closure and return a persistent operation handle.",
-    (client, input) => client.graph.startUpdate(input),
-    {
-      type: "object",
-      required: false,
-      properties: {
-        scope: { type: "string", enum: ["library", "papers"] },
-        library_id: { type: ["number", "string"] },
-        libraryId: { type: ["number", "string"] },
-        paper_refs: { type: "array" },
-        paperRefs: { type: "array" },
-        expected_reference_basis_hash: { type: "string" },
-        expectedReferenceBasisHash: { type: "string" },
-        idempotency_key: { type: "string" },
-        idempotencyKey: { type: "string" },
-      },
-    },
-    "state-change",
-  ),
+  synthesisCapability("citation_graph.update", "startCitationGraphUpdate"),
   synthesisCapability(
     "paper_artifacts.get_manifest",
-    "paper_artifacts",
-    "Return available Synthesis paper artifact descriptors for selected paper references.",
-    (client, input) => client.artifacts.getManifest(input),
+    "getPaperArtifactManifest",
   ),
-  synthesisCapability(
-    "paper_artifacts.read",
-    "paper_artifacts",
-    "Read bounded Synthesis paper artifacts for selected paper references.",
-    (client, input) =>
-      client.artifacts.readPaperArtifacts(paperArtifactsRequest(input)),
-  ),
+  synthesisCapability("paper_artifacts.read", "readPaperArtifacts"),
   synthesisCapability(
     "paper_artifacts.export_filtered",
-    "paper_artifacts",
-    "Export bounded filtered paper artifacts into the ACP run workspace.",
-    (client, input, delivery) =>
-      client.artifacts.exportFiltered(input, delivery),
+    "exportFilteredPaperArtifacts",
   ),
   synthesisCapability(
     "paper_artifacts.resolve_topic_digest",
-    "paper_artifacts",
-    "Resolve one topic paper digest artifact for reading or diagnostics.",
-    (client, input) => client.artifacts.resolveTopicPaperDigest(input),
+    "resolveTopicPaperDigest",
   ),
-  synthesisCapability(
-    "topics.get_review_input",
-    "topics",
-    "Return structured Synthesis review workflow input.",
-    (client, input) => client.workflowReview.getInput(input),
-  ),
-  synthesisCapability(
-    "insights.get_attention_queue",
-    "insights",
-    "Return read-only attention items for graph metrics, reference index, and paper artifact readiness.",
-    (client, input) => client.references.getAttentionQueue(input),
-  ),
+  synthesisCapability("topics.get_review_input", "getReviewInput"),
+  synthesisCapability("insights.get_attention_queue", "getAttentionQueue"),
 ];
 
-const CAPABILITY_BY_NAME = new Map(
+const CAPABILITY_BY_NAME = new Map<string, HostBridgeCapabilityDefinition>(
   CAPABILITIES.map((entry) => [entry.name, entry]),
 );
+const REGISTERED_CAPABILITY_NAMES = CAPABILITIES.map((entry) => entry.name);
+const CONTRACT_CAPABILITY_NAMES = listHostBridgeCapabilityContractEntries().map(
+  (entry) => entry.name,
+);
+if (
+  new Set(REGISTERED_CAPABILITY_NAMES).size !==
+    REGISTERED_CAPABILITY_NAMES.length ||
+  [...REGISTERED_CAPABILITY_NAMES].sort().join("\n") !==
+    [...CONTRACT_CAPABILITY_NAMES].sort().join("\n")
+) {
+  const registered = new Set(REGISTERED_CAPABILITY_NAMES);
+  const contracted = new Set(CONTRACT_CAPABILITY_NAMES);
+  throw new Error(
+    [
+      "Host Bridge capability handler/contract mismatch",
+      `missing handlers: ${CONTRACT_CAPABILITY_NAMES.filter((name) => !registered.has(name)).join(", ")}`,
+      `orphan handlers: ${REGISTERED_CAPABILITY_NAMES.filter((name) => !contracted.has(name)).join(", ")}`,
+      `duplicate handlers: ${REGISTERED_CAPABILITY_NAMES.filter(
+        (name, index) => REGISTERED_CAPABILITY_NAMES.indexOf(name) !== index,
+      ).join(", ")}`,
+    ].join("; "),
+  );
+}
 
 function withCurrentApproval<T extends HostBridgeCapabilityManifestEntry>(
   entry: T,
@@ -2302,7 +1821,7 @@ export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[
 
 export function getHostBridgeCapability(
   name: string,
-): HostBridgeCapabilityDefinition | null {
+): HostBridgeCapabilityManifestEntry | null {
   const capability = CAPABILITY_BY_NAME.get(name) || null;
   if (!capability) {
     return null;
@@ -2316,11 +1835,68 @@ export function getHostBridgeCapability(
   ) {
     return null;
   }
-  return withCurrentApproval(capability);
+  const { handler: _handler, ...manifest } = withCurrentApproval(capability);
+  return manifest;
 }
 
 export function getHostBridgeCapabilityApproval(
   name: string,
 ): HostBridgeApprovalRequirement {
   return getHostBridgeCapability(name)?.approval || "zotero-ui-required";
+}
+
+export class HostBridgeCapabilityContractError extends Error {
+  readonly code:
+    | "invalid_capability_input"
+    | "capability_output_contract_violation";
+  readonly violations: HostBridgeContractViolation[];
+
+  constructor(
+    code: "invalid_capability_input" | "capability_output_contract_violation",
+    capability: string,
+    violations: HostBridgeContractViolation[],
+  ) {
+    super(
+      code === "invalid_capability_input"
+        ? `Input for ${capability} does not satisfy its executable contract`
+        : `Output from ${capability} does not satisfy its executable contract`,
+    );
+    this.name = "HostBridgeCapabilityContractError";
+    this.code = code;
+    this.violations = violations;
+  }
+}
+
+export async function executeHostBridgeCapability(
+  name: string,
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const definition = CAPABILITY_BY_NAME.get(name);
+  const manifest = getHostBridgeCapability(name);
+  if (!definition || !manifest) {
+    return null;
+  }
+  const normalizedInput = input ?? {};
+  const inputViolations = validateHostBridgeCapabilityInput(
+    name,
+    normalizedInput,
+  );
+  if (inputViolations.length) {
+    throw new HostBridgeCapabilityContractError(
+      "invalid_capability_input",
+      name,
+      inputViolations,
+    );
+  }
+  const data = await definition.handler(normalizedInput, context);
+  const outputViolations = validateHostBridgeCapabilityOutput(name, data);
+  if (outputViolations.length) {
+    throw new HostBridgeCapabilityContractError(
+      "capability_output_contract_violation",
+      name,
+      outputViolations,
+    );
+  }
+  return data;
 }

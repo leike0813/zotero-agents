@@ -214,3 +214,28 @@ backend tab to rebuild.
 - **THEN** Dashboard SHALL update the stored backend snapshot or dirty marker
 - **AND** it SHALL NOT rebuild the visible unrelated tab
 
+### Requirement: ACP Skills unfinished rows SHALL expose submission identity
+
+ACP Skills queued, running, waiting, and resumption-pending task rows owned by a Host submission SHALL display that submission's stable symbol immediately before the task title. Terminal rows SHALL omit it. The symbol SHALL have a localized tooltip and equivalent `aria-label` containing the symbol, frozen provider, and frozen model, while the subtitle SHALL retain only its existing skill/workflow and sequence semantics.
+
+#### Scenario: Related ACP tasks share lineage
+
+- **WHEN** unfinished ACP task rows belong to the same submission
+- **THEN** they SHALL display the same symbol and frozen tooltip metadata
+- **AND** a row from a different submission SHALL display a different symbol
+
+#### Scenario: ACP task completes
+
+- **WHEN** an ACP task becomes terminal
+- **THEN** its row SHALL no longer display a submission symbol
+
+### Requirement: Submission decoration SHALL be task-row scoped
+
+Submission symbol, tooltip, provider/model display metadata, and resumption-pending state SHALL enter only the affected task row and necessary task-drawer parent signatures. They MUST NOT enter transcript, toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, or whole-runner signatures.
+
+#### Scenario: Submission decoration changes
+
+- **WHEN** an unfinished row gains or changes resumption-pending or submission display fields
+- **THEN** the affected drawer row SHALL update
+- **AND** transcript, Runner pane, and every non-drawer managed region SHALL retain DOM identity
+

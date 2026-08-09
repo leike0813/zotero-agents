@@ -1,6 +1,6 @@
 # `zotero-bridge synthesis graph refresh-metrics`
 
-刷新已持久化的 citation graph 复杂指标
+Refresh persisted citation graph complex metrics
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge synthesis graph refresh-metrics [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--input <JSON_OR_FILE>]
 ```
 
-全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
+全局选项可位于叶命令之前或之后。 使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
 
 ## 全局参数
 
@@ -29,15 +29,15 @@ zotero-bridge synthesis graph refresh-metrics [--endpoint <ENDPOINT>] [--operati
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -49,54 +49,54 @@ zotero-bridge synthesis graph refresh-metrics [--endpoint <ENDPOINT>] [--operati
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
+  "additionalProperties": true,
   "type": "object",
-  "properties": {
-    "input": {
-      "type": "string",
-      "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "citation_graph.refresh_metrics"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by citation_graph.refresh_metrics.",
       "additionalProperties": true,
+      "description": "Result data owned by citation_graph.refresh_metrics.",
+      "type": "object",
       "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
@@ -104,7 +104,7 @@ zotero-bridge synthesis graph refresh-metrics [--endpoint <ENDPOINT>] [--operati
 
 ### input: shape-only
 
-最小 JSON 结构： --input.
+用于 --input 的最小 JSON 形状。
 
 ```console
 zotero-bridge synthesis graph refresh-metrics --input '{}'
@@ -112,155 +112,104 @@ zotero-bridge synthesis graph refresh-metrics --input '{}'
 
 前置条件：
 
-- 执行前，请将示例标识符和值替换为对所选 Zotero 文献库、workflow、provider 或 capability 有效的输入。
+- 执行前，请将示例标识符和值替换为对所选 Zotero library、workflow、provider 或 capability 有效的输入。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "synthesis graph refresh-metrics",
+  "approvalContract": {
+    "kind": "zotero-ui-required",
+    "scope": "Zotero UI approval for the described Zotero-managed effect.",
+    "timing": "before-command"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+      "id": "input",
+      "kind": "option",
+      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--input",
+      "valueNames": [
+        "JSON_OR_FILE"
+      ]
+    }
+  ],
   "argv": [
     "synthesis",
     "graph",
     "refresh-metrics"
   ],
-  "summary": "Refresh persisted citation graph complex metrics",
-  "category": "maintenance",
-  "danger": "high",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "input": {
-        "type": "string",
-        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-      }
-    },
-    "required": [],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "input",
-      "kind": "option",
-      "token": "--input",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
-      "longHelp": "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}.",
-      "valueNames": [
-        "JSON_OR_FILE"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
   "argvBindings": [
     {
-      "property": "input",
       "kind": "option",
-      "token": "--input",
-      "takesValue": true,
+      "property": "input",
       "required": false,
+      "takesValue": true,
+      "token": "--input",
       "valueNames": [
         "JSON_OR_FILE"
       ]
     }
   ],
+  "binding": "passthrough",
+  "category": "maintenance",
+  "command": "synthesis graph refresh-metrics",
+  "composition": null,
+  "danger": "high",
+  "effects": [
+    {
+      "description": "May change graph metrics maintenance state.",
+      "kind": "graph-metrics-maintenance",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
   "inputSchemas": {
     "input": {
-      "token": "--input",
-      "required": false,
-      "requiredWhen": [],
-      "schema": {
-        "type": "object",
-        "properties": {
-          "input": {
-            "type": "string",
-            "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
-          }
-        },
-        "required": [],
-        "additionalProperties": false
-      },
       "examples": [
         {
+          "description": "Minimal JSON shape for --input.",
           "kind": "shape-only",
-          "value": {},
           "prerequisites": [
             "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
           ],
-          "description": "Minimal JSON shape for --input."
+          "value": {}
         }
-      ]
+      ],
+      "required": false,
+      "requiredWhen": [],
+      "schema": {
+        "additionalProperties": true,
+        "type": "object",
+        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+      },
+      "schemaSource": "target-capability",
+      "token": "--input"
     }
   },
-  "payloadSchema": {
-    "type": "object",
+  "invocationSchema": {
+    "additionalProperties": false,
     "properties": {
       "input": {
-        "type": "string",
-        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin"
+        "description": "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by citation_graph.refresh_metrics.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "graph-metrics-maintenance",
-      "stateChanged": true,
-      "description": "May change graph metrics maintenance state."
-    }
-  ],
-  "approvalContract": {
-    "kind": "zotero-ui-required",
-    "timing": "before-command",
-    "scope": "Zotero UI approval for the described Zotero-managed effect."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The operation fails or completion is uncertain.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "citation_graph.refresh_metrics"
-    }
-  ],
   "operationalAliases": [
     "synthesis graph refresh-metrics",
     "synthesis",
@@ -269,26 +218,88 @@ zotero-bridge synthesis graph refresh-metrics --input '{}'
     "input",
     "JSON_OR_FILE"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
+  "payloadSchema": {
+    "additionalProperties": true,
+    "type": "object",
+    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  },
+  "recovery": [
+    {
+      "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The operation fails or completion is uncertain."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "citation_graph.refresh_metrics"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by citation_graph.refresh_metrics.",
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "Refresh persisted citation graph complex metrics",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "citation_graph.refresh_metrics"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- `command_input` 表示结构化输入违反 schema。检查有界的 `violations`，然后对这个准确的叶命令运行 `--schema`，修正已声明的字段或类型；不得自行发明别名。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `synthesis` `graph` `refresh-metrics`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `maintenance`; danger: `high`.
-- 意图可见性： `visible`.
+- 类别： `maintenance`；危险等级： `high`.
+- 结构化 binding 模式： `passthrough`.
+- intent 可见性： `visible`.
 - 操作别名： `synthesis graph refresh-metrics`, `synthesis`, `graph`, `refresh-metrics`, `input`, `JSON_OR_FILE`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "May change graph metrics maintenance state.",
     "kind": "graph-metrics-maintenance",
-    "stateChanged": true,
-    "description": "May change graph metrics maintenance state."
+    "stateChanged": true
   }
 ]
 ```
@@ -298,12 +309,12 @@ zotero-bridge synthesis graph refresh-metrics --input '{}'
 ```json
 {
   "kind": "zotero-ui-required",
-  "timing": "before-command",
-  "scope": "Zotero UI approval for the described Zotero-managed effect."
+  "scope": "Zotero UI approval for the described Zotero-managed effect.",
+  "timing": "before-command"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -315,16 +326,16 @@ zotero-bridge synthesis graph refresh-metrics --input '{}'
 ```json
 [
   {
-    "when": "The operation fails or completion is uncertain.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect stateChange and handleConsumption before repeating the operation.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The operation fails or completion is uncertain."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

@@ -108,7 +108,7 @@ function requestBytes(args: {
       ? [`Content-Length: ${body.byteLength}`]
       : [...args.headers];
   const head = [
-    `${args.method || "POST"} ${args.path || "/bridge/v1/call"} HTTP/1.1`,
+    `${args.method || "POST"} ${args.path || "/bridge/v2/call"} HTTP/1.1`,
     ...headers,
     "",
     "",

@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "literature-analysis",
   "label": "Literature Analysis",
-  "description": "Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.",
+  "description": "Analyze one literature source and apply its digest, structured references, citation analysis, literature score, and optional normalized tags to Zotero.",
   "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
@@ -35,12 +35,42 @@
     },
     "filters": [
       {
-        "kind": "generated-note-kinds-absent",
+        "kind": "generated-note-readiness",
         "phase": "availability",
-        "noteKinds": [
-          "digest",
-          "references",
-          "citation-analysis"
+        "artifacts": [
+          { "id": "digest", "noteKinds": ["digest"] },
+          { "id": "references", "noteKinds": ["references"] },
+          { "id": "citation-analysis", "noteKinds": ["citation-analysis"] },
+          {
+            "id": "score",
+            "noteKinds": ["literature-score"],
+            "payload": {
+              "type": "literature-score-json",
+              "requirements": [
+                { "pointer": "/literature_score/schema", "const": "literature_score.v1" },
+                { "pointer": "/literature_score/overall_score", "type": "number", "minimum": 0, "maximum": 100 },
+                { "pointer": "/literature_score/confidence", "type": "number", "minimum": 0, "maximum": 1 },
+                { "pointer": "/literature_score/confidence_adjusted_score", "type": "number", "minimum": 0, "maximum": 100 },
+                { "pointer": "/literature_score/dimensions", "type": "array", "length": 6 }
+              ]
+            }
+          }
+        ],
+        "modes": [
+          {
+            "id": "unavailable",
+            "allAvailable": ["digest", "references", "citation-analysis", "score"]
+          },
+          {
+            "id": "score-only",
+            "allAvailable": ["digest", "references", "citation-analysis"],
+            "allUnavailable": ["score"]
+          },
+          { "id": "full", "default": true }
+        ],
+        "acceptModes": [
+          "full",
+          "score-only"
         ]
       }
     ]
@@ -132,7 +162,8 @@
       "artifacts": [
         "artifacts/digest.md",
         "artifacts/references.json",
-        "artifacts/citation_analysis.json"
+        "artifacts/citation_analysis.json",
+        "artifacts/literature_score.json"
       ]
     }
   },

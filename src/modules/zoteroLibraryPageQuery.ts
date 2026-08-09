@@ -107,6 +107,28 @@ function resolveZotero() {
   return zotero;
 }
 
+export async function hydrateZoteroItemsByIds(
+  ids: number[],
+  zotero: Pick<typeof Zotero, "Items"> = resolveZotero(),
+) {
+  if (typeof (zotero.Items as any).getAsync !== "function") {
+    throw new Error("Zotero.Items.getAsync(ids) is unavailable");
+  }
+  const loaded = await (zotero.Items as any).getAsync(ids);
+  if (!Array.isArray(loaded)) {
+    throw new Error("Zotero.Items.getAsync(ids) did not return an array");
+  }
+  const byId = new Map(
+    (loaded as Zotero.Item[]).map((item) => [
+      positiveInteger((item as any).id),
+      item,
+    ]),
+  );
+  return ids
+    .map((id) => byId.get(positiveInteger(id)))
+    .filter((item): item is Zotero.Item => Boolean(item));
+}
+
 function resolveDefaultLibraryId(explicit?: number) {
   return (
     positiveInteger(explicit) ||
@@ -321,19 +343,12 @@ function defaultAdapter(): ZoteroLibraryPageQueryAdapter {
   if (typeof zotero.DB?.queryAsync !== "function") {
     throw new Error("Zotero.DB.queryAsync() is unavailable");
   }
-  if (typeof (zotero.Items as any).getAsync !== "function") {
-    throw new Error("Zotero.Items.getAsync(ids) is unavailable");
-  }
   return {
     queryAsync(sql, params) {
       return zotero.DB!.queryAsync!(sql, params);
     },
     async hydrateItems(ids) {
-      const loaded = await (zotero.Items as any).getAsync(ids);
-      if (!Array.isArray(loaded)) {
-        throw new Error("Zotero.Items.getAsync(ids) did not return an array");
-      }
-      return loaded as Zotero.Item[];
+      return hydrateZoteroItemsByIds(ids, zotero);
     },
   };
 }

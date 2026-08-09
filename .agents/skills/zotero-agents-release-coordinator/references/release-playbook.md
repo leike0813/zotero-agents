@@ -65,6 +65,10 @@ Then verify:
 npm run check:content-package-release
 ```
 
+Content Package publication is independent of the Host Bridge complete receipt.
+The matching receipt is enforced by the plugin tag-release workflow because the
+seven Host Bridge Skills are XPI assets.
+
 Rerun the gate with content package evidence only when verification passes:
 
 ```powershell
@@ -111,7 +115,7 @@ Rerun the gate after pushing.
 When the gate returns `ready_to_release`, ask for explicit approval to run:
 
 ```powershell
-npm run release -- vX.Y.Z
+npm run release -- vX.Y.Z --yes
 ```
 
 This command is allowed only after the gate confirms:

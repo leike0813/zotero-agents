@@ -1861,19 +1861,64 @@ def copy_exported_target_artifacts(run_root: Path, target_paper_ref: str, export
 
 
 def reference_index_rows(index_data: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = index_data.get("rows")
+    rows = index_data.get("entries")
     if isinstance(rows, list):
         return [row for row in rows if isinstance(row, dict)]
     return []
 
 
-def reference_index_request_payload(paper_ref: str) -> dict[str, Any]:
-    return {
+def reference_index_request_payload(paper_ref: str, cursor: str = "") -> dict[str, Any]:
+    payload = {
         "sourceRefs": [paper_ref],
         "referenceSourceRefs": [paper_ref],
         "includeReferences": True,
-        "limit": 250,
+        "limit": 100,
         "artifactCoverage": "all",
+    }
+    if cursor:
+        payload["cursor"] = cursor
+    return payload
+
+
+def collect_reference_index(run_root: Path, paper_ref: str, input_prefix: str) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    cursor = ""
+    page = 0
+    last_page: dict[str, Any] = {}
+    while len(entries) < 250:
+        page += 1
+        output = run_bridge_json(
+            run_root,
+            ["synthesis", "index", "reference", "get"],
+            reference_index_request_payload(paper_ref, cursor),
+            f"{input_prefix}-page-{page}.json",
+        )
+        page_data = unwrap_bridge_data(output)
+        if not isinstance(page_data, dict):
+            raise RuntimeError("reference index returned a non-object page")
+        last_page = page_data
+        for row in reference_index_rows(page_data):
+            key = json.dumps(row, ensure_ascii=False, sort_keys=True)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(row)
+            if len(entries) >= 250:
+                break
+        if page_data.get("hasMore") is not True or len(entries) >= 250:
+            break
+        next_cursor = clean_text(page_data.get("nextCursor"))
+        if not next_cursor or next_cursor == cursor:
+            raise RuntimeError("reference index declared hasMore without a new nextCursor")
+        cursor = next_cursor
+    return {
+        **last_page,
+        "entries": entries,
+        "returned": len(entries),
+        "limit": 250,
+        "hasMore": bool(last_page.get("hasMore")) and len(entries) >= 250,
+        "nextCursor": clean_text(last_page.get("nextCursor")) if len(entries) >= 250 else "",
     }
 
 
@@ -2032,13 +2077,11 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
         write_json(VIEWS_DIR / "topic-candidates-view.json", build_topic_candidates_view(target, {}, [diagnostic]))
         return result
     try:
-        reference_output = run_bridge_json(
+        reference_data = collect_reference_index(
             run_root,
-            ["synthesis", "index", "reference", "get"],
-            reference_index_request_payload(target["paper_ref"]),
-            "bootstrap-reference-index-input.json",
+            target["paper_ref"],
+            "bootstrap-reference-index-input",
         )
-        reference_data = unwrap_bridge_data(reference_output)
         target_row = find_target_reference_index_row(reference_data, target)
         result["reference_index"] = reference_data
         result["target_reference_index_row"] = target_row
@@ -2949,13 +2992,11 @@ def build_reference_bindings(context: dict[str, Any], run_root: Path, diagnostic
         item_references = merge_index_reference_items(item_references, preflight_index, target_refs)
     if target_refs["paper_ref"]:
         try:
-            output = run_bridge_json(
+            index_data = collect_reference_index(
                 run_root,
-                ["synthesis", "index", "reference", "get"],
-                reference_index_request_payload(target_refs["paper_ref"]),
-                "reference-index-input.json",
+                target_refs["paper_ref"],
+                "reference-index-input",
             )
-            index_data = unwrap_bridge_data(output)
             if bindings:
                 bindings = merge_reference_index_bindings(bindings, index_data)
             item_references = merge_index_reference_items(item_references, index_data, target_refs)
@@ -3060,9 +3101,14 @@ def digest_ref_from_artifact(paper_ref: str, artifact: dict[str, Any]) -> dict[s
     return digest_ref
 
 
-def resolve_reference_digest_result(run_root: Path, paper_ref: str, artifact: dict[str, Any], fallback_markdown: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
-    digest_ref = digest_ref_from_artifact(paper_ref, artifact)
-    try:
+def resolve_topic_digest_pages(run_root: Path, paper_ref: str, digest_ref: dict[str, Any]) -> dict[str, Any]:
+    chunks: list[str] = []
+    offset = 0
+    page = 0
+    result: dict[str, Any] = {}
+    safe_ref = re.sub(r"[^A-Za-z0-9_.-]+", "_", paper_ref)
+    while True:
+        page += 1
         output = run_bridge_json(
             run_root,
             ["synthesis", "artifact", "resolve-topic-digest"],
@@ -3071,14 +3117,43 @@ def resolve_reference_digest_result(run_root: Path, paper_ref: str, artifact: di
                 "digest_ref": digest_ref,
                 "include_representative_image": True,
                 "includeRepresentativeImage": True,
+                "offset": offset,
+                "maxChars": 16000,
             },
-            f"paper-artifacts-resolve-topic-digest-{re.sub(r'[^A-Za-z0-9_.-]+', '_', paper_ref)}-input.json",
+            f"paper-artifacts-resolve-topic-digest-{safe_ref}-page-{page}.json",
         )
-        result = unwrap_bridge_data(output)
-        if isinstance(result, dict):
-            if fallback_markdown and not clean_text(result.get("digest_markdown")):
-                result = {**result, "digest_markdown": fallback_markdown}
-            return result
+        page_data = unwrap_bridge_data(output)
+        if not isinstance(page_data, dict):
+            raise RuntimeError("topic digest resolver returned a non-object page")
+        result = {**result, **page_data}
+        chunks.append(clean_text(page_data.get("text")))
+        if page_data.get("hasMore") is not True:
+            break
+        next_offset = safe_int(page_data.get("nextOffset"), -1)
+        if next_offset <= offset:
+            raise RuntimeError("topic digest resolver declared hasMore without a larger nextOffset")
+        offset = next_offset
+    digest_markdown = "".join(chunks)
+    return {
+        **result,
+        "text": digest_markdown,
+        "digest_markdown": digest_markdown,
+        "hasMore": False,
+        "nextOffset": len(digest_markdown),
+    }
+
+
+def resolve_reference_digest_result(run_root: Path, paper_ref: str, artifact: dict[str, Any], fallback_markdown: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    digest_ref = digest_ref_from_artifact(paper_ref, artifact)
+    try:
+        result = resolve_topic_digest_pages(
+            run_root,
+            paper_ref,
+            digest_ref,
+        )
+        if fallback_markdown and not clean_text(result.get("digest_markdown")):
+            result = {**result, "digest_markdown": fallback_markdown}
+        return result
     except Exception as exc:  # noqa: BLE001
         diagnostics.append(
             {

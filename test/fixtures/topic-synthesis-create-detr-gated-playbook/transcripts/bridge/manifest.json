@@ -375,7 +375,7 @@
       "schema": "zotero-bridge.cli.v1",
       "supported": true
     },
-    "protocol": "host-bridge.v1"
+    "protocol": "host-bridge.v2"
   },
   "meta": {
     "cli": "zotero-bridge",

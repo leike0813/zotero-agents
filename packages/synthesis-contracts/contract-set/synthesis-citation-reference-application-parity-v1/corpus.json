@@ -93,6 +93,27 @@
           "locator": "1:A/citation-analysis/1",
           "payloadHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "diagnostics": []
+        },
+        {
+          "paperRef": "1:A",
+          "artifactType": "literature_score",
+          "payloadType": "literature_score.v1",
+          "status": "available",
+          "locator": "1:A/literature-score/1",
+          "payloadHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "diagnostics": [],
+          "literatureQuality": {
+            "status": "available",
+            "schema": "literature_score.v1",
+            "rubric_id": "literature-quality.v1",
+            "paper_type": "empirical",
+            "overall_score": 80,
+            "confidence": 0.8,
+            "confidence_adjusted_score": 74,
+            "quality_prior": 0.74,
+            "payload_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "diagnostics": []
+          }
         }
       ],
       "references": {

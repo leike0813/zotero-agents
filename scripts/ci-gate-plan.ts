@@ -15,6 +15,10 @@ const SHARED_GATE_STAGES: readonly CiGateStage[] = [
     script: "check:ssot-invariants",
   },
   {
+    id: "check-host-bridge-content",
+    script: "check:host-bridge-content",
+  },
+  {
     id: "test-node-synthesis-sidecar-stage1",
     script: "test:node:synthesis-sidecar:stage1",
   },

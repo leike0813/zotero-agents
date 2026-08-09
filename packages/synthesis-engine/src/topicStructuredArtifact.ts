@@ -705,6 +705,9 @@ export function validateTopicSynthesisArtifact(
       "artifact schema_id must be synthesis.topic_synthesis_artifact",
     );
   }
+  if (cleanString(input.schema_version) !== "4.0.0") {
+    errors.push("artifact schema_version must be 4.0.0");
+  }
   if (
     options.expectedLanguage &&
     cleanString(input.language) !== options.expectedLanguage
@@ -1173,7 +1176,7 @@ export function assembleTopicArtifact(args: {
 }) {
   const artifact = {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "3.0.0",
+    schema_version: "4.0.0",
     language: cleanString(args.manifest.language) || "auto",
     ...args.sections,
   };
@@ -1531,7 +1534,7 @@ export function rebuildSynthesisTopicArtifactAssemblyResult(
   };
   const expectedArtifact = {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "3.0.0",
+    schema_version: "4.0.0",
     language: cleanString(request.manifest.language) || "auto",
     ...request.sections,
   };

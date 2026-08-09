@@ -13,6 +13,7 @@ const REQUIRED_FILES = [
   "config.yaml",
   "assets/agent-helper-surface.json",
   "scripts/install_zotero_bridge_cli.py",
+  "scripts/zotero_librarian_workspace.py",
   "scripts/zotero_librarian_service.py",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/resident-operations.md",
@@ -137,12 +138,16 @@ describe("zotero-librarian hosted source profile", function () {
 
   it("keeps resident automation one-pass, receipt-based, and unable to submit from cron", async function () {
     const service = await read("scripts/zotero_librarian_service.py");
+    const workspace = await read("scripts/zotero_librarian_workspace.py");
     assert.include(
       service,
       'RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"',
     );
     assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v3"');
-    assert.include(service, '"state.sqlite"');
+    assert.include(service, "state.sqlite");
+    assert.include(service, '"--profile"');
+    assert.include(workspace, "workspace_path_outside_profile");
+    assert.include(service, "ZOTERO_BRIDGE_PROFILE");
     assert.notInclude(service, '"--allow-submit"');
     assert.notInclude(service, "workflow_plans");
     assert.notInclude(service, "workflow_plan_entries");
@@ -172,6 +177,8 @@ describe("zotero-librarian hosted source profile", function () {
     assert.include(readme, "without changing `HOME`");
     assert.notInclude(soul, "zotero-bridge");
     assert.include(config, "scripts/zotero_librarian_service.py");
+    assert.include(config, "connection-profile-v1");
+    assert.include(config, "workspaceRoot");
     assert.strictEqual(helpers.schema, "agent-helper-surface.v2");
     assert.deepEqual(
       helpers.helpers.map((helper: { id: string }) => helper.id),
@@ -185,5 +192,21 @@ describe("zotero-librarian hosted source profile", function () {
       helpers.helpers[1].constraints,
       "native workflow queue stays owned by Zotero",
     );
+  });
+
+  it("declares profile-local workspace guidance without removing resident rules", async function () {
+    const readme = await read("README.md");
+    const skill = await read("skills/zotero-librarian/SKILL.md");
+    const operations = await read(
+      "skills/zotero-librarian/references/resident-operations.md",
+    );
+    const recovery = await read(
+      "skills/zotero-librarian/references/state-and-recovery.md",
+    );
+    for (const text of [readme, skill, operations, recovery]) {
+      assert.include(text, "workspace");
+      assert.include(text, "well-known");
+      assert.match(text, /fail[- ]closed/);
+    }
   });
 });

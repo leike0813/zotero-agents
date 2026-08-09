@@ -34,8 +34,14 @@ prompt. Defaults are `capability` and `auto`.
    profile `connectionMode` is remote.
 5. If `expectedConnectionMode` is `remote`, fail when the resolved endpoint is
    loopback, wildcard, empty, or profile `connectionMode` is local.
-6. Always run `status` when `probeDepth` is `basic`, `auth`, or `capability`.
-7. Run `manifest` when `probeDepth` is `auth` or `capability`.
+6. Always run `surface identity` and `bridge status` when `probeDepth` is
+   `basic`, `auth`, or `capability`.
+   - Record the CLI `protocol`, `cliSchema`, `version`, `buildFingerprint`, and
+     `commandCatalogChecksum`.
+   - Require `protocol` to equal `host-bridge.v2`. If an active release
+     envelope is available, require all five identity fields to match it.
+   - Stop before authenticated or capability calls on an identity mismatch.
+7. Run `bridge manifest` when `probeDepth` is `auth` or `capability`.
 8. Run `call diagnostic.get_status --input '{}'` when `probeDepth` is
    `capability`.
 9. Output the probe result as one JSON object.
@@ -47,6 +53,15 @@ use `null` in the output. Do not include raw stdout when it may contain
 host-specific data; extract only bounded protocol metadata such as protocol,
 capability count, and whether a remote endpoint is present.
 
+Every CLI failure is one JSON envelope. For parameter failures, record the
+structured `error.code`, `error.details.phase`, and bounded violations without
+copying the submitted JSON. Correct only a named `argv`, `json_source`,
+`json_syntax`, `command_input`, `payload_composition`, `payload_contract`, or
+`command_result` failure from `surface describe` or `--schema`. Do not retry a
+capability call after an argument failure by guessing a renamed field. A
+`payload_composition` or `payload_contract` failure is a local contract defect;
+classify the probe as failed and preserve the CLI identity for diagnosis.
+
 ## Failure Codes
 
 Use these stable failure codes:
@@ -57,6 +72,8 @@ Use these stable failure codes:
 - `token_missing`
 - `endpoint_unreachable`
 - `auth_failed`
+- `protocol_mismatch`
+- `command_argument_invalid`
 - `manifest_invalid`
 - `capability_call_failed`
 - `expected_local_but_remote`
@@ -76,7 +93,7 @@ Example:
   "connection": {
     "cli_entry": ".zotero-bridge/bin/zotero-bridge",
     "endpoint_source": "env",
-    "endpoint": "http://192.0.2.25:27655/bridge/v1",
+    "endpoint": "http://192.0.2.25:27655/bridge/v2",
     "connection_mode": "remote",
     "token_present": true
   },
@@ -87,7 +104,7 @@ Example:
     { "id": "bridge.capability_call", "status": "passed", "duration_ms": 21 }
   ],
   "diagnostics": {
-    "protocol": "host-bridge.v1",
+    "protocol": "host-bridge.v2",
     "capability_count": 42,
     "remote_endpoint_detected": true
   },

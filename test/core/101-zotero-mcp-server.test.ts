@@ -431,6 +431,10 @@ describe("embedded Zotero MCP server protocol", function () {
       "Execute a supported Zotero mutation",
     );
     assert.include(executeMutation.description, "verify state");
+    assert.strictEqual(executeMutation.inputSchema.type, "object");
+    assert.isObject(executeMutation.inputSchema.$defs);
+    assert.isArray(executeMutation.inputSchema.oneOf);
+    assert.isAbove(executeMutation.inputSchema.oneOf.length, 1);
     const listItems = (response as any).result.tools.find(
       (tool: { name: string }) =>
         tool.name === ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
@@ -759,9 +763,16 @@ describe("embedded Zotero MCP server protocol", function () {
     );
 
     assert.strictEqual(
-      (response as any).result.structuredContent.data[0].key,
+      (response as any).result.structuredContent.data.items[0].key,
       "READTOOL1",
     );
+    assert.deepInclude((response as any).result.structuredContent.data, {
+      nextCursor: null,
+      hasMore: false,
+      returned: 1,
+      total: 1,
+      limit: 1,
+    });
     const text = toolText(response);
     assert.include(text, "READTOOL1");
     assert.include(text, "libraryId=1");
@@ -1055,7 +1066,7 @@ describe("embedded Zotero MCP server protocol", function () {
         resolveHostApi: () =>
           ({
             library: {
-              searchItems: async () => {
+              listItems: async () => {
                 throw new TypeError("backend exploded");
               },
             },
@@ -1891,8 +1902,15 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Denied Paper Ingest",
-              doi: "10.5555/zs.mcp.ingest.denied",
+              itemType: "journalArticle",
+              fields: {
+                title: "Denied Paper Ingest",
+                DOI: "10.5555/zs.mcp.ingest.denied",
+              },
+              creators: [],
+              identifiers: {
+                doi: "10.5555/zs.mcp.ingest.denied",
+              },
             },
           },
         },
@@ -1962,7 +1980,16 @@ describe("embedded Zotero MCP server protocol", function () {
 
     assert.strictEqual(permissionCalls, 0);
     assert.strictEqual((response as any).error.code, -32602);
-    assert.include((response as any).error.message, "papers");
+    assert.deepInclude((response as any).error.data.details, {
+      schema: "host-bridge.argument-error.v1",
+      phase: "capability_input",
+      capability: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+    });
+    assert.isTrue(
+      (response as any).error.data.details.violations.some(
+        (violation: { property?: string }) => violation.property === "papers",
+      ),
+    );
   });
 
   it("creates markdown-backed notes through permission-gated mutation flow", async function () {
@@ -1980,7 +2007,6 @@ describe("embedded Zotero MCP server protocol", function () {
               key: "PARENT1",
               libraryId: 1,
             },
-            title: "Agent Note",
             content:
               '<div data-zs-note-kind="custom" data-zs-payload="custom-markdown">Agent Note</div>',
           },
@@ -2080,7 +2106,6 @@ describe("embedded Zotero MCP server protocol", function () {
               key: "NOTE1",
               libraryId: 1,
             },
-            title: "Conversation Note",
             content:
               '<div data-zs-payload="conversation-note-markdown">Updated</div>',
           },

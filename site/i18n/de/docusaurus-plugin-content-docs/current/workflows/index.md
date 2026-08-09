@@ -21,8 +21,12 @@ workflow.json (Manifestdatei)
 |------|------|
 | `attachment` | Anhangsdateien eines Eintrags |
 | `parent` | Übergeordneter Eintrag des ausgewählten Eintrags |
+| `child` | Untergeordneter Eintrag |
+| `selection` | Direkt ausgewählter Eintrag |
 | `note` | Notizeintrag |
-| `workflow` | Batch-Umfang |
+| `generated-note` | Von einem Workflow generierte Notiz |
+| `digest-image-target` | Bildziel für die Digest-Darstellung |
+| `workflow` | Batch-Umfang (keine Auswahl erforderlich) |
 
 ### Hook-System
 
@@ -34,15 +38,16 @@ Workflows können in verschiedenen Ausführungsphasen benutzerdefinierte JavaScr
 - **normalizeSettings**: Benutzereinstellungen normalisieren
 - **applyResult**: Die vom Backend zurückgegebenen Ergebnisse auf Zotero anwenden
 
-## Drei Ausführungs-Backends
+## Vier Ausführungs-Backends
 
-Workflows können über drei Backend-Typen ausgeführt werden:
+Workflows können über vier Backend-Typen ausgeführt werden:
 
 | Backend | Anfragetyp | Anwendungsfall |
 |---------|-------------|---------|
-| **Skill-Runner** | `skill.run.v1` | Allgemeine Skill-Ausführung, unterstützt interaktiven Modus |
-| **ACP** | `acp.skill.run.v1` | Skill-Ausführung über ACP-Backend |
-| **Generic HTTP** | `generic-http.request.v1` | HTTP-API-Aufrufe |
+| **Skill-Runner** | `skillrunner.job.v1` / `skillrunner.sequence.v1` | Allgemeine Skill-Ausführung, unterstützt interaktiven Modus |
+| **ACP** | `acp.prompt.v1` / `acp.skill.run.v1` / `skillrunner.sequence.v1` | Konversation oder Skill-Ausführung über ACP-Backend |
+| **Generic HTTP** | `generic-http.request.v1` / `generic-http.steps.v1` | HTTP-API-Aufrufe |
+| **Pass-through** | `pass-through.run.v1` | Rein lokale Vorgänge, kein Remote-Backend erforderlich |
 
 ## Offizielles Workflow-Paket
 
@@ -68,12 +73,13 @@ Das Plugin enthält eine Reihe offizieller Workflows, nach Funktion gruppiert:
 | **Deep Reading** | Strukturierte Deep-Reading-HTML-Ansicht mit Übersetzungsunterstützung erstellen | Anhang | ACP | [Details](literature-deep-reading) |
 | **Literature Search & Ingest** | Die KI akademische Literatur suchen und direkt in Zotero importieren lassen | Workflow | ACP | [Details](literature-search-ingest) |
 | **Collection Collector** | Vorhandene Literatur aus der Bibliothek für eine bestehende Collection nach angegebenem Umfang auswählen | Workflow | ACP | [Details](collection-collector) |
-| **Export/Import Literature Bundle** | Portable ZIP-Bundles von Zotero-Einträgen mit Metadaten, Anhängen und Notizen exportieren/importieren | Übergeordneter Eintrag / Workflow | Kein Backend erforderlich | [Details](export-import-literature-bundle) |
+| **Export/Import Literature Bundle** | Portable ZIP-Bundles von Zotero-Einträgen mit Metadaten, Anhängen und Notizen exportieren/importieren | Übergeordneter Eintrag / Workflow | Pass-through | [Details](export-import-literature-bundle) |
 | **Export Research Bundle** | Automatisches Zusammenstellen eines schreibgeschützten Research Bundles für ein Papierprojekt aus Bibliothek und Synthesis-Kontext | Workflow | Skill-Runner | [Details](export-research-bundle) |
-| **Tag Auditor** | Alle Bibliothekseinträge gegen das kontrollierte Tag-Vokabular scannen und Konformität melden | Workflow | Kein Backend erforderlich | [Details](tag-auditor) |
+| **Tag Auditor** | Alle Bibliothekseinträge gegen das kontrollierte Tag-Vokabular scannen und Konformität melden | Workflow | Pass-through | [Details](tag-auditor) |
 | **Tag Bootstrapper** | Interaktiv ein kontrolliertes Tag-Vokabular für ein Forschungsgebiet erstellen | Workflow | Skill-Runner | [Details](tag-bootstrapper) |
 | **Tag Regulator** | Tags basierend auf einem kontrollierten Vokabular normalisieren und neue Tags inferieren | Übergeordneter Eintrag | Skill-Runner | [Details](tag-regulator) |
-| **Export/Import Notes** | Analyse-Notizen exportieren oder importieren, mit Unterstützung für Bearbeitung und Reimport | Übergeordneter Eintrag | Kein Backend erforderlich | [Details](export-import-notes) |
+| **Export/Import Notes** | Analyse-Notizen exportieren oder importieren, mit Unterstützung für Bearbeitung und Reimport | Übergeordneter Eintrag | Pass-through | [Details](export-import-notes) |
+| **Add Digest Representative Image** | Ein repräsentatives Bild zu einem Literatur-Digest hinzufügen | Übergeordneter Eintrag | ACP | — |
 
 ### 🛠️ Dienstprogramme
 

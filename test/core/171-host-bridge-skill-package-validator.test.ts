@@ -201,4 +201,39 @@ describe("host bridge skill package validator", function () {
       "baseline direct reference missing",
     );
   });
+
+  it("compares a relocated package through an explicit baseline root map", function () {
+    const repository = mkdtempSync(
+      join(tmpdir(), "host-bridge-depth-relocation-"),
+    );
+    const baselineRoot = join(repository, "skills_builtin", "example-skill");
+    write(baselineRoot, completeSkill("example-skill"));
+    execFileSync("git", ["init", "-q"], { cwd: repository });
+    execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+      cwd: repository,
+    });
+    execFileSync("git", ["config", "user.name", "Host Bridge Test"], {
+      cwd: repository,
+    });
+    execFileSync("git", ["add", "."], { cwd: repository });
+    execFileSync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+
+    const relocatedRoot = join(
+      repository,
+      "addon/content/host-bridge-skills/example-skill",
+    );
+    write(relocatedRoot, completeSkill("example-skill"));
+    assert.deepEqual(
+      inspectHostBridgeSkillPackages([relocatedRoot], {
+        baselineRef: "HEAD",
+        baselineRootMaps: [
+          {
+            currentRoot: "addon/content/host-bridge-skills",
+            baselineRoot: "skills_builtin",
+          },
+        ],
+      }).errors,
+      [],
+    );
+  });
 });

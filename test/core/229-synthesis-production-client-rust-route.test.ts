@@ -1310,7 +1310,7 @@ describe("Synthesis Rust production client route", function () {
       assert.lengthOf(initialIndexSurface.body.data.registry.rows, 3);
       assert.equal(
         initialIndexSurface.body.data.registry.rows[0].artifactCoverage,
-        "missing",
+        "partial",
       );
       reverseHostCalls.length = 0;
       activeArtifactReads = 0;
@@ -1518,7 +1518,7 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.deepEqual(
         workbenchIndex.body.data.registry.rows[0].missing_artifacts,
-        ["digest", "citation_analysis"],
+        ["digest", "citation_analysis", "literature_score"],
       );
       assert.deepEqual(
         workbenchIndex.body.data.registry.rows[0].references,

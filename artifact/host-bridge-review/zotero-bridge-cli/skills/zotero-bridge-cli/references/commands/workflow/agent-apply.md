@@ -1,6 +1,6 @@
 # `zotero-bridge workflow agent-apply`
 
-应用已定稿的 agent 自有 workflow result bundle
+Apply finalized self-owned agent workflow result bundles
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] AGENT_RUN_ID <AGENT_RUN_ID> --result <AGENT_REQUEST_ID=BUNDLE_PATH>
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -30,26 +30,26 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agent_run_id": {
-      "type": "string",
       "description": "Agent run id returned by workflow agent-run",
-      "position": 1
+      "position": 1,
+      "type": "string"
     },
     "result": {
-      "type": "array",
+      "description": "Apply-back result mapping. Repeat for multiple request bundles.",
       "items": {
         "type": "string"
       },
-      "description": "Apply-back result mapping. Repeat for multiple request bundles."
+      "type": "array"
     }
   },
   "required": [
     "agent_run_id",
     "result"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
@@ -57,66 +57,52 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agent_run_id": {
-      "type": "string",
-      "description": "Agent run id returned by workflow agent-run"
+      "description": "Agent run id returned by workflow agent-run",
+      "type": "string"
     },
     "result": {
-      "type": "string",
-      "description": "Apply-back result mapping. Repeat for multiple request bundles."
+      "description": "Apply-back result mapping. Repeat for multiple request bundles.",
+      "type": "string"
     }
   },
   "required": [],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
+
+## Payload 组合
+
+这个命令没有单独的 field-mapping program。它的 binding mode 可以直接执行：passthrough 使用唯一的结构化来源，而 `none` 与 `raw` 保持各自声明的闭合行为。
+
+`composition`: `null`.
 
 ## 结果 schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
     "agentRunId": {
-      "type": "string"
-    },
-    "workflowId": {
       "type": "string"
     },
     "appliedAt": {
       "type": "string"
     },
+    "handleConsumption": {
+      "const": "consumed"
+    },
     "permission": {
       "type": "object"
     },
-    "summary": {
-      "type": "object",
-      "properties": {
-        "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "succeeded": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "failed": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "total",
-        "succeeded",
-        "failed"
-      ],
-      "additionalProperties": false
+    "receiptUrl": {
+      "type": "string"
     },
     "stateChange": {
       "enum": [
@@ -124,10 +110,30 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
         "changed"
       ]
     },
-    "handleConsumption": {
-      "const": "consumed"
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "succeeded": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "succeeded",
+        "failed"
+      ],
+      "type": "object"
     },
-    "receiptUrl": {
+    "workflowId": {
       "type": "string"
     }
   },
@@ -141,164 +147,211 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
     "handleConsumption",
     "receiptUrl"
   ],
-  "additionalProperties": false
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "workflow agent-apply",
+  "approvalContract": {
+    "kind": "conditional",
+    "scope": "Each result request is preflighted before any approval or handle consumption.",
+    "timing": "apply-back"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Agent run id returned by workflow agent-run",
+      "id": "agent_run_id",
+      "kind": "positional",
+      "position": 1,
+      "possibleValues": [],
+      "repeatable": false,
+      "required": true,
+      "takesValue": true,
+      "token": "AGENT_RUN_ID",
+      "valueNames": [
+        "AGENT_RUN_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Apply-back result mapping. Repeat for multiple request bundles.",
+      "id": "results",
+      "kind": "option",
+      "numArgs": "1",
+      "possibleValues": [],
+      "repeatable": true,
+      "required": true,
+      "takesValue": true,
+      "token": "--result",
+      "valueNames": [
+        "AGENT_REQUEST_ID=BUNDLE_PATH"
+      ]
+    }
+  ],
   "argv": [
     "workflow",
     "agent-apply"
   ],
-  "summary": "Apply finalized self-owned agent workflow result bundles",
+  "argvBindings": [
+    {
+      "kind": "positional",
+      "position": 1,
+      "property": "agent_run_id",
+      "required": true,
+      "takesValue": true,
+      "token": "AGENT_RUN_ID",
+      "valueNames": [
+        "AGENT_RUN_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "result",
+      "required": true,
+      "takesValue": true,
+      "token": "--result",
+      "valueNames": [
+        "AGENT_REQUEST_ID=BUNDLE_PATH"
+      ]
+    }
+  ],
+  "binding": "object",
   "category": "write",
+  "command": "workflow agent-apply",
+  "composition": null,
   "danger": "review",
+  "effects": [
+    {
+      "description": "May change workflow control state.",
+      "kind": "workflow-control",
+      "stateChanged": true
+    },
+    {
+      "description": "May apply finalized Agent results to the Zotero library.",
+      "kind": "zotero-library",
+      "stateChanged": true
+    }
+  ],
+  "handleTransitions": [
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "agentRunId",
+      "lifetime": "one-shot",
+      "required": true
+    },
+    {
+      "condition": "Required by the command invocation.",
+      "direction": "consume",
+      "handle": "agentRequestId",
+      "lifetime": "caller-owned",
+      "required": true
+    },
+    {
+      "condition": "Returned when the corresponding operation succeeds.",
+      "direction": "produce",
+      "handle": "applyReceipt",
+      "lifetime": "response",
+      "required": false
+    }
+  ],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
   "invocationSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "agent_run_id": {
-        "type": "string",
         "description": "Agent run id returned by workflow agent-run",
-        "position": 1
+        "position": 1,
+        "type": "string"
       },
       "result": {
-        "type": "array",
+        "description": "Apply-back result mapping. Repeat for multiple request bundles.",
         "items": {
           "type": "string"
         },
-        "description": "Apply-back result mapping. Repeat for multiple request bundles."
+        "type": "array"
       }
     },
     "required": [
       "agent_run_id",
       "result"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "arguments": [
-    {
-      "id": "agent_run_id",
-      "kind": "positional",
-      "token": "AGENT_RUN_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Agent run id returned by workflow agent-run",
-      "valueNames": [
-        "AGENT_RUN_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "results",
-      "kind": "option",
-      "token": "--result",
-      "takesValue": true,
-      "required": true,
-      "global": false,
-      "help": "Apply-back result mapping. Repeat for multiple request bundles.",
-      "valueNames": [
-        "AGENT_REQUEST_ID=BUNDLE_PATH"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": true,
-      "numArgs": "1",
-      "aliases": [],
-      "defaultValues": []
-    }
+  "operationalAliases": [
+    "workflow agent-apply",
+    "workflow",
+    "agent-apply",
+    "agent_run_id",
+    "AGENT_RUN_ID",
+    "results",
+    "result",
+    "AGENT_REQUEST_ID=BUNDLE_PATH"
   ],
-  "argvBindings": [
-    {
-      "property": "agent_run_id",
-      "kind": "positional",
-      "token": "AGENT_RUN_ID",
-      "position": 1,
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "AGENT_RUN_ID"
-      ]
-    },
-    {
-      "property": "result",
-      "kind": "option",
-      "token": "--result",
-      "takesValue": true,
-      "required": true,
-      "valueNames": [
-        "AGENT_REQUEST_ID=BUNDLE_PATH"
-      ]
-    }
-  ],
-  "inputSchemas": {},
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
   "payloadSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "agent_run_id": {
-        "type": "string",
-        "description": "Agent run id returned by workflow agent-run"
+        "description": "Agent run id returned by workflow agent-run",
+        "type": "string"
       },
       "result": {
-        "type": "string",
-        "description": "Apply-back result mapping. Repeat for multiple request bundles."
+        "description": "Apply-back result mapping. Repeat for multiple request bundles.",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
+  "recovery": [
+    {
+      "action": "Read the persisted per-request apply receipt before retrying any result.",
+      "nextCommand": "workflow agent-apply-status",
+      "requiresHandles": [
+        "agentRunId"
+      ],
+      "stateCheck": "caller-held-handle",
+      "when": "Apply-back fails after preflight or may have partially written results."
+    }
+  ],
   "resultSchema": {
-    "type": "object",
+    "additionalProperties": false,
     "properties": {
       "agentRunId": {
-        "type": "string"
-      },
-      "workflowId": {
         "type": "string"
       },
       "appliedAt": {
         "type": "string"
       },
+      "handleConsumption": {
+        "const": "consumed"
+      },
       "permission": {
         "type": "object"
       },
-      "summary": {
-        "type": "object",
-        "properties": {
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "succeeded": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "failed": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": [
-          "total",
-          "succeeded",
-          "failed"
-        ],
-        "additionalProperties": false
+      "receiptUrl": {
+        "type": "string"
       },
       "stateChange": {
         "enum": [
@@ -306,10 +359,30 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
           "changed"
         ]
       },
-      "handleConsumption": {
-        "const": "consumed"
+      "summary": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "succeeded": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "type": "object"
       },
-      "receiptUrl": {
+      "workflowId": {
         "type": "string"
       }
     },
@@ -323,104 +396,53 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
       "handleConsumption",
       "receiptUrl"
     ],
-    "additionalProperties": false
+    "type": "object"
   },
-  "outputBoundary": {
-    "strategy": "fixed"
-  },
-  "pagination": "none",
-  "effects": [
-    {
-      "kind": "workflow-control",
-      "stateChanged": true,
-      "description": "May change workflow control state."
-    },
-    {
-      "kind": "zotero-library",
-      "stateChanged": true,
-      "description": "May apply finalized Agent results to the Zotero library."
-    }
-  ],
-  "approvalContract": {
-    "kind": "conditional",
-    "timing": "apply-back",
-    "scope": "Each result request is preflighted before any approval or handle consumption."
-  },
-  "handleTransitions": [
-    {
-      "handle": "agentRunId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "one-shot"
-    },
-    {
-      "handle": "agentRequestId",
-      "direction": "consume",
-      "required": true,
-      "condition": "Required by the command invocation.",
-      "lifetime": "caller-owned"
-    },
-    {
-      "handle": "applyReceipt",
-      "direction": "produce",
-      "required": false,
-      "condition": "Returned when the corresponding operation succeeds.",
-      "lifetime": "response"
-    }
-  ],
-  "recovery": [
-    {
-      "when": "Apply-back fails after preflight or may have partially written results.",
-      "stateCheck": "caller-held-handle",
-      "requiresHandles": [
-        "agentRunId"
-      ],
-      "action": "Read the persisted per-request apply receipt before retrying any result.",
-      "nextCommand": "workflow agent-apply-status"
-    }
-  ],
+  "summary": "Apply finalized self-owned agent workflow result bundles",
   "targets": [
     {
       "kind": "endpoint",
-      "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply"
+      "target": "POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply"
     }
-  ],
-  "operationalAliases": [
-    "workflow agent-apply",
-    "workflow",
-    "agent-apply",
-    "agent_run_id",
-    "AGENT_RUN_ID",
-    "results",
-    "result",
-    "AGENT_REQUEST_ID=BUNDLE_PATH"
-  ],
-  "hiddenFromIntentSearch": false
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `workflow` `agent-apply`.
-- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 输出边界： `fixed`；受管详情： {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; danger: `review`.
-- 意图可见性： `visible`.
+- 类别： `write`；危险等级： `review`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `workflow agent-apply`, `workflow`, `agent-apply`, `agent_run_id`, `AGENT_RUN_ID`, `results`, `result`, `AGENT_REQUEST_ID=BUNDLE_PATH`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "May change workflow control state.",
     "kind": "workflow-control",
-    "stateChanged": true,
-    "description": "May change workflow control state."
+    "stateChanged": true
   },
   {
+    "description": "May apply finalized Agent results to the Zotero library.",
     "kind": "zotero-library",
-    "stateChanged": true,
-    "description": "May apply finalized Agent results to the Zotero library."
+    "stateChanged": true
   }
 ]
 ```
@@ -430,35 +452,35 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
 ```json
 {
   "kind": "conditional",
-  "timing": "apply-back",
-  "scope": "Each result request is preflighted before any approval or handle consumption."
+  "scope": "Each result request is preflighted before any approval or handle consumption.",
+  "timing": "apply-back"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
   {
+    "condition": "Required by the command invocation.",
+    "direction": "consume",
     "handle": "agentRunId",
-    "direction": "consume",
-    "required": true,
-    "condition": "Required by the command invocation.",
-    "lifetime": "one-shot"
+    "lifetime": "one-shot",
+    "required": true
   },
   {
+    "condition": "Required by the command invocation.",
+    "direction": "consume",
     "handle": "agentRequestId",
-    "direction": "consume",
-    "required": true,
-    "condition": "Required by the command invocation.",
-    "lifetime": "caller-owned"
+    "lifetime": "caller-owned",
+    "required": true
   },
   {
-    "handle": "applyReceipt",
-    "direction": "produce",
-    "required": false,
     "condition": "Returned when the corresponding operation succeeds.",
-    "lifetime": "response"
+    "direction": "produce",
+    "handle": "applyReceipt",
+    "lifetime": "response",
+    "required": false
   }
 ]
 ```
@@ -468,24 +490,24 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
 ```json
 [
   {
-    "when": "Apply-back fails after preflight or may have partially written results.",
-    "stateCheck": "caller-held-handle",
+    "action": "Read the persisted per-request apply receipt before retrying any result.",
+    "nextCommand": "workflow agent-apply-status",
     "requiresHandles": [
       "agentRunId"
     ],
-    "action": "Read the persisted per-request apply receipt before retrying any result.",
-    "nextCommand": "workflow agent-apply-status"
+    "stateCheck": "caller-held-handle",
+    "when": "Apply-back fails after preflight or may have partially written results."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [
   {
     "kind": "endpoint",
-    "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply"
+    "target": "POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply"
   }
 ]
 ```

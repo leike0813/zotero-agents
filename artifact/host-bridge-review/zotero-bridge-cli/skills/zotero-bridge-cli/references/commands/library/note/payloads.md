@@ -1,6 +1,6 @@
 # `zotero-bridge library note payloads`
 
-列出一条 Zotero note 中的嵌入式 workflow payload
+List embedded workflow payloads in one Zotero note
 
 ## 用法
 
@@ -8,7 +8,7 @@
 zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
-全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
+全局选项可位于叶命令之前或之后。 此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令 help 或 `surface describe` 检查调用合同。
 
 ## 全局参数
 
@@ -26,41 +26,20 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
 | --key | key | option | no | — | KEY | no | — | id | Zotero item key |
 | --id | id | option | no | — | ID | no | — | key | Zotero item numeric id |
 | --library-id | library_id | option | no | — | LIBRARY_ID | no | — | — | Zotero library id for key lookup |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
 
 ## 调用 schema
 
 ```json
 {
-  "type": "object",
-  "properties": {
-    "key": {
-      "type": "string",
-      "description": "Zotero item key"
-    },
-    "id": {
-      "type": "string",
-      "description": "Zotero item numeric id"
-    },
-    "library-id": {
-      "type": "string",
-      "description": "Zotero library id for key lookup"
-    },
-    "cursor": {
-      "type": "string",
-      "description": "Opaque continuation cursor"
-    },
-    "limit": {
-      "type": "string",
-      "description": "Maximum number of entries (1-100)"
-    }
-  },
-  "required": [],
+  "additionalProperties": false,
   "allOf": [
     {
       "not": {
         "required": [
-          "key",
-          "id"
+          "id",
+          "key"
         ]
       }
     },
@@ -79,7 +58,30 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
       ]
     }
   ],
-  "additionalProperties": false
+  "properties": {
+    "cursor": {
+      "description": "Opaque continuation cursor",
+      "type": "string"
+    },
+    "id": {
+      "description": "Zotero item numeric id",
+      "type": "string"
+    },
+    "key": {
+      "description": "Zotero item key",
+      "type": "string"
+    },
+    "library-id": {
+      "description": "Zotero library id for key lookup",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Maximum number of entries (1-100)",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
 }
 ```
 
@@ -87,27 +89,81 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
 
 此命令没有结构化 JSON 输入参数。
 
-## 合成 payload schema
+## 组合 payload schema
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "key": {
-      "type": "string",
-      "description": "Zotero item key"
+    "cursor": {
+      "type": "string"
     },
     "id": {
-      "type": "string",
-      "description": "Zotero item numeric id"
+      "type": [
+        "number",
+        "string"
+      ]
     },
-    "library_id": {
-      "type": "string",
-      "description": "Zotero library id for key lookup"
+    "key": {
+      "type": "string"
+    },
+    "libraryId": {
+      "type": [
+        "number",
+        "string"
+      ]
+    },
+    "limit": {
+      "minimum": 1,
+      "type": [
+        "number",
+        "string"
+      ]
     }
   },
-  "required": [],
-  "additionalProperties": false
+  "type": "object"
+}
+```
+
+## Payload 组合
+
+以下内容由可执行命令契约定义 base source、fixed value、field mapping 与 closed transform。命令 handler 只向所引用的 Clap argument ID 提供值。
+
+```json
+{
+  "constants": {},
+  "mappings": [
+    {
+      "argument": "key",
+      "field": "key",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "id",
+      "field": "id",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "library_id",
+      "field": "libraryId",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "cursor",
+      "field": "cursor",
+      "required": false,
+      "transform": "identity"
+    },
+    {
+      "argument": "limit",
+      "field": "limit",
+      "required": false,
+      "transform": "identity"
+    }
+  ]
 }
 ```
 
@@ -115,22 +171,25 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
 
 ```json
 {
-  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "capability": {
+    "approval": {
+      "minLength": 1,
       "type": "string"
     },
-    "approval": {
-      "type": "object"
+    "capability": {
+      "const": "library.list_note_payloads"
     },
     "data": {
-      "type": "object",
-      "description": "Result data owned by library.list_note_payloads.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "description": "Result data owned by library.list_note_payloads.",
       "properties": {
-        "payloads": {
-          "type": "array"
+        "hasMore": {
+          "type": "boolean"
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
         },
         "nextCursor": {
           "type": [
@@ -138,78 +197,251 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
             "null"
           ]
         },
-        "hasMore": {
-          "type": "boolean"
+        "payloads": {
+          "type": "array"
         },
         "returned": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         },
         "total": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "type": "integer"
         }
-      }
+      },
+      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
-  "additionalProperties": false
+  "required": [
+    "capability",
+    "approval",
+    "data"
+  ],
+  "type": "object"
 }
 ```
 
 ## 示例
 
-此命令没有适用的结构化输入示例。请根据参数表构造 argv，并在执行前通过 `surface describe` 确认命令。
+此命令没有适用的结构化输入示例。请依据参数表构造 argv，并在执行前使用 `surface describe` 确认命令。
 
 ## 完整命令 descriptor
 
-此封闭 descriptor 是 `surface describe` 返回的机器可读命令契约；将其收录于此，使本命令卡无需加载其他命令参考即可独立审计。
+这个闭合 descriptor 是 `surface describe` 返回的机器可读命令合同；将它完整列在此处，使本卡片无需加载其他命令引用也能独立审计。
 
 ```json
 {
-  "command": "library note payloads",
+  "approvalContract": {
+    "kind": "none",
+    "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+    "timing": "none"
+  },
+  "arguments": [
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "id"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item key",
+      "id": "key",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--key",
+      "valueNames": [
+        "KEY"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [
+        "key"
+      ],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero item numeric id",
+      "id": "id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Zotero library id for key lookup",
+      "id": "library_id",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--library-id",
+      "valueNames": [
+        "LIBRARY_ID"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "id": "cursor",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "aliases": [],
+      "conflictsWith": [],
+      "defaultValues": [],
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "id": "limit",
+      "kind": "option",
+      "possibleValues": [],
+      "repeatable": false,
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "argv": [
     "library",
     "note",
     "payloads"
   ],
-  "summary": "List embedded workflow payloads in one Zotero note",
-  "category": "read",
-  "danger": "none",
-  "invocationSchema": {
-    "type": "object",
-    "properties": {
-      "key": {
-        "type": "string",
-        "description": "Zotero item key"
-      },
-      "id": {
-        "type": "string",
-        "description": "Zotero item numeric id"
-      },
-      "library-id": {
-        "type": "string",
-        "description": "Zotero library id for key lookup"
-      },
-      "cursor": {
-        "type": "string",
-        "description": "Opaque continuation cursor"
-      },
-      "limit": {
-        "type": "string",
-        "description": "Maximum number of entries (1-100)"
-      }
+  "argvBindings": [
+    {
+      "kind": "option",
+      "property": "key",
+      "required": false,
+      "takesValue": true,
+      "token": "--key",
+      "valueNames": [
+        "KEY"
+      ]
     },
-    "required": [],
+    {
+      "kind": "option",
+      "property": "id",
+      "required": false,
+      "takesValue": true,
+      "token": "--id",
+      "valueNames": [
+        "ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "library-id",
+      "required": false,
+      "takesValue": true,
+      "token": "--library-id",
+      "valueNames": [
+        "LIBRARY_ID"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "cursor",
+      "required": false,
+      "takesValue": true,
+      "token": "--cursor",
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "kind": "option",
+      "property": "limit",
+      "required": false,
+      "takesValue": true,
+      "token": "--limit",
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
+  "binding": "object",
+  "category": "read",
+  "command": "library note payloads",
+  "composition": {
+    "constants": {},
+    "mappings": [
+      {
+        "argument": "key",
+        "field": "key",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "id",
+        "field": "id",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "library_id",
+        "field": "libraryId",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "cursor",
+        "field": "cursor",
+        "required": false,
+        "transform": "identity"
+      },
+      {
+        "argument": "limit",
+        "field": "limit",
+        "required": false,
+        "transform": "identity"
+      }
+    ]
+  },
+  "danger": "none",
+  "effects": [
+    {
+      "description": "Reads state without changing Zotero-managed data.",
+      "kind": "none",
+      "stateChanged": false
+    }
+  ],
+  "handleTransitions": [],
+  "hiddenFromIntentSearch": false,
+  "inputSchemas": {},
+  "invocationSchema": {
+    "additionalProperties": false,
     "allOf": [
       {
         "not": {
           "required": [
-            "key",
-            "id"
+            "id",
+            "key"
           ]
         }
       },
@@ -228,258 +460,31 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
         ]
       }
     ],
-    "additionalProperties": false
-  },
-  "arguments": [
-    {
-      "id": "key",
-      "kind": "option",
-      "token": "--key",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero item key",
-      "valueNames": [
-        "KEY"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "id"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero item numeric id",
-      "valueNames": [
-        "ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [
-        "key"
-      ],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "library_id",
-      "kind": "option",
-      "token": "--library-id",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Zotero library id for key lookup",
-      "valueNames": [
-        "LIBRARY_ID"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Opaque continuation cursor",
-      "valueNames": [
-        "CURSOR"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    },
-    {
-      "id": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "global": false,
-      "help": "Maximum number of entries (1-100)",
-      "valueNames": [
-        "LIMIT"
-      ],
-      "possibleValues": [],
-      "conflictsWith": [],
-      "repeatable": false,
-      "aliases": [],
-      "defaultValues": []
-    }
-  ],
-  "argvBindings": [
-    {
-      "property": "key",
-      "kind": "option",
-      "token": "--key",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "KEY"
-      ]
-    },
-    {
-      "property": "id",
-      "kind": "option",
-      "token": "--id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "ID"
-      ]
-    },
-    {
-      "property": "library-id",
-      "kind": "option",
-      "token": "--library-id",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIBRARY_ID"
-      ]
-    },
-    {
-      "property": "cursor",
-      "kind": "option",
-      "token": "--cursor",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "CURSOR"
-      ]
-    },
-    {
-      "property": "limit",
-      "kind": "option",
-      "token": "--limit",
-      "takesValue": true,
-      "required": false,
-      "valueNames": [
-        "LIMIT"
-      ]
-    }
-  ],
-  "inputSchemas": {},
-  "payloadSchema": {
-    "type": "object",
     "properties": {
-      "key": {
-        "type": "string",
-        "description": "Zotero item key"
+      "cursor": {
+        "description": "Opaque continuation cursor",
+        "type": "string"
       },
       "id": {
-        "type": "string",
-        "description": "Zotero item numeric id"
+        "description": "Zotero item numeric id",
+        "type": "string"
       },
-      "library_id": {
-        "type": "string",
-        "description": "Zotero library id for key lookup"
+      "key": {
+        "description": "Zotero item key",
+        "type": "string"
+      },
+      "library-id": {
+        "description": "Zotero library id for key lookup",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of entries (1-100)",
+        "type": "string"
       }
     },
     "required": [],
-    "additionalProperties": false
+    "type": "object"
   },
-  "resultSchema": {
-    "type": "object",
-    "properties": {
-      "capability": {
-        "type": "string"
-      },
-      "approval": {
-        "type": "object"
-      },
-      "data": {
-        "type": "object",
-        "description": "Result data owned by library.list_note_payloads.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
-        "properties": {
-          "payloads": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "returned": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      }
-    },
-    "additionalProperties": false
-  },
-  "outputBoundary": {
-    "strategy": "cursor",
-    "section": "data.payloads",
-    "defaultLimit": 25,
-    "maxLimit": 100,
-    "cursorInput": "cursor",
-    "continuation": [
-      "data.nextCursor",
-      "data.hasMore",
-      "data.returned",
-      "data.total",
-      "data.limit"
-    ]
-  },
-  "pagination": "cursor",
-  "effects": [
-    {
-      "kind": "none",
-      "stateChanged": false,
-      "description": "Reads state without changing Zotero-managed data."
-    }
-  ],
-  "approvalContract": {
-    "kind": "none",
-    "timing": "none",
-    "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
-  },
-  "handleTransitions": [],
-  "recovery": [
-    {
-      "when": "The read fails or returns incomplete evidence.",
-      "stateCheck": "none",
-      "requiresHandles": [],
-      "action": "Inspect the error and retry only when retryable is true.",
-      "nextCommand": "surface describe"
-    }
-  ],
-  "targets": [
-    {
-      "kind": "capability",
-      "target": "library.list_note_payloads"
-    }
-  ],
   "operationalAliases": [
     "library note payloads",
     "library",
@@ -497,26 +502,151 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
     "limit",
     "LIMIT"
   ],
-  "hiddenFromIntentSearch": false
+  "outputBoundary": {
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ],
+    "cursorInput": "cursor",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "section": "data.payloads",
+    "strategy": "cursor"
+  },
+  "pagination": "cursor",
+  "payloadSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "type": "string"
+      },
+      "id": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "key": {
+        "type": "string"
+      },
+      "libraryId": {
+        "type": [
+          "number",
+          "string"
+        ]
+      },
+      "limit": {
+        "minimum": 1,
+        "type": [
+          "number",
+          "string"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "recovery": [
+    {
+      "action": "Inspect the error and retry only when retryable is true.",
+      "nextCommand": "surface describe",
+      "requiresHandles": [],
+      "stateCheck": "none",
+      "when": "The read fails or returns incomplete evidence."
+    }
+  ],
+  "resultSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "capability": {
+        "const": "library.list_note_payloads"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Result data owned by library.list_note_payloads.",
+        "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "limit": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payloads": {
+            "type": "array"
+          },
+          "returned": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      }
+    },
+    "required": [
+      "capability",
+      "approval",
+      "data"
+    ],
+    "type": "object"
+  },
+  "summary": "List embedded workflow payloads in one Zotero note",
+  "targets": [
+    {
+      "kind": "capability",
+      "target": "library.list_note_payloads"
+    }
+  ]
 }
 ```
 
-## 操作契约
+## 参数失败与恢复合同
+
+参数失败以单个 JSON 错误 envelope 返回。先检查 `error.code`，再确认 `error.details.schema` 为 `host-bridge.argument-error.v1`，之后才能使用结构化边界字段。保留规范命令、已脱敏输入和任何已经返回的 typed handle；证据中绝不能包含完整原始 payload。
+
+- `argv` 表示 CLI 参数缺失、未知、冲突或无效。依据本卡片的参数表或当前命令 help 重新构造 argv。
+- `json_source` 表示 stdin 或文件源不可读。修正该输入源，不要把值移到另一种 binding。
+- `json_syntax` 表示 JSON 无效，并提供安全的行列位置。先修复语法，再解释领域字段。
+- 该叶命令没有结构化 JSON 输入，因此 `command_input` 不是预期的调用边界。使用 `surface describe` 查看其标量与位置参数合同。
+- `payload_contract` 表示 CLI 组合出的 capability payload 在网络 I/O 前就违反了可执行合同。将其视为实现错误；不得用原始 transport 绕过语义命令。
+- `command_result` 表示 Host 响应或本地结果未通过可执行结果 schema。不得接受它，也不得把它报告为成功证据。
+- violation 数组已经脱敏、按确定顺序排列，并限制为八项。当 `truncated` 为 true 时，先修正已报告的问题并重新验证，不得要求披露 secret 或完整 payload。
+
+## 操作合同
 
 - 规范 argv 路径： `library` `note` `payloads`.
-- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.payloads","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
+- 输出边界： `cursor`；受管详情： {"continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"],"cursorInput":"cursor","defaultLimit":25,"maxLimit":100,"section":"data.payloads","strategy":"cursor"}.
 - 分页： `cursor`.
-- 类别： `read`; danger: `none`.
-- 意图可见性： `visible`.
+- 类别： `read`；危险等级： `none`.
+- 结构化 binding 模式： `object`.
+- intent 可见性： `visible`.
 - 操作别名： `library note payloads`, `library`, `note`, `payloads`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
-### Effects
+
+### 效果
 
 ```json
 [
   {
+    "description": "Reads state without changing Zotero-managed data.",
     "kind": "none",
-    "stateChanged": false,
-    "description": "Reads state without changing Zotero-managed data."
+    "stateChanged": false
   }
 ]
 ```
@@ -526,12 +656,12 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
 ```json
 {
   "kind": "none",
-  "timing": "none",
-  "scope": "No Zotero UI approval; provider runtimes may still request their own permission."
+  "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+  "timing": "none"
 }
 ```
 
-### Handle 转移
+### Handle 转换
 
 ```json
 [
@@ -543,16 +673,16 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
 ```json
 [
   {
-    "when": "The read fails or returns incomplete evidence.",
-    "stateCheck": "none",
-    "requiresHandles": [],
     "action": "Inspect the error and retry only when retryable is true.",
-    "nextCommand": "surface describe"
+    "nextCommand": "surface describe",
+    "requiresHandles": [],
+    "stateCheck": "none",
+    "when": "The read fails or returns incomplete evidence."
   }
 ]
 ```
 
-### 目标
+### Targets
 
 ```json
 [

@@ -11,15 +11,6 @@ async function readProjectFile(relativePath: string) {
 }
 
 describe("skillrunner run workspace singleton", function () {
-  it("routes openSkillRunnerRunDialog to one global workspace window", async function () {
-    const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-    assert.include(ts, "isRunWorkspaceHostAlive()");
-    assert.include(ts, "runWorkspaceState.focusHost?.()");
-    assert.include(ts, 'runWorkspaceState.hostMode === "dialog"');
-    assert.notInclude(ts, "latestOpenTarget");
-    assert.include(ts, "refreshWorkspaceSnapshot({");
-  });
-
   it("builds workspace groups with active/finished buckets and title fallback", async function () {
     const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
     assert.include(
@@ -36,14 +27,6 @@ describe("skillrunner run workspace singleton", function () {
     assert.include(ts, "selectable: true");
     assert.include(ts, "backendInteractive:");
     assert.include(ts, "canOpenStream:");
-  });
-
-  it("extends host snapshot with workspace plus selected session", async function () {
-    const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-    assert.include(ts, "buildRunWorkspaceSnapshot");
-    assert.include(ts, "workspace: {");
-    assert.include(ts, "selectedTaskKey: runWorkspaceState.selectedTaskKey");
-    assert.include(ts, "session,");
   });
 
   it("does not synthesize temporary SkillRunner task rows or auto-pick fallback tasks", async function () {
@@ -79,7 +62,7 @@ describe("skillrunner run workspace singleton", function () {
       "export async function focusSkillRunnerWorkspace",
     );
     const focusEnd = ts.indexOf(
-      "export async function openSkillRunnerRunDialog",
+      "export async function resetSkillRunnerRunDialogForTests",
       focusStart,
     );
     const focusBody = ts.slice(focusStart, focusEnd);

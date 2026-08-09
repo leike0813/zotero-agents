@@ -100,10 +100,14 @@ def build_gate(state_path: str) -> dict:
             action="persist_material_plan",
             payload="material-plan",
             note=(
-                "Call topics.list, optionally inspect Zotero coverage, then write a material "
+                "Call synthesis topic list, optionally inspect Zotero coverage, then write a material "
                 "collection plan with 1-5 topic recommendations and rationale."
             ),
-            required_reads=["topics.list", "list_library_items", "search_items"],
+            required_reads=[
+                "synthesis topic list",
+                "library items list",
+                "library item search",
+            ],
         )
     if not state.get("material_scope_confirmed"):
         return next_step(
@@ -121,17 +125,19 @@ def build_gate(state_path: str) -> dict:
             action="persist_evidence_inventory",
             payload="evidence-inventory",
             note=(
-                "For confirmed topics call topics.get_review_input. Use registry, graph, digest, "
-                "and Zotero item tools only to fill citekeys, inspect core evidence, or resolve ambiguity."
+                "For confirmed topics call synthesis topic get-review-input. Use canonical registry, "
+                "graph, digest, and Zotero library commands only to fill citekeys, inspect core evidence, "
+                "or resolve ambiguity."
             ),
             required_reads=[
-                "topics.get_review_input",
-                "reference_index.get",
-                "citation_graph.get_metrics",
-                "citation_graph.get_slice",
-                "paper_artifacts.resolve_topic_digest",
-                "get_item_detail",
-                "prepare_paper_reading_context",
+                "synthesis topic get-review-input",
+                "synthesis index reference get",
+                "synthesis graph get-metrics",
+                "synthesis graph get-slice",
+                "synthesis artifact resolve-topic-digest",
+                "library item get",
+                "library item attachments",
+                "file download",
             ],
         )
     if not state.get("domain_route_analysis"):

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { createSynthesisService } from "../../src/modules/synthesis/service";
 
 type AnyModule = Record<string, any> & { __loadError?: unknown };
 
@@ -139,7 +140,7 @@ function sectionPatchManifest(overrides: Record<string, unknown> = {}) {
 function structuredArtifact(overrides: Record<string, unknown> = {}) {
   return {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "3.0.0",
+    schema_version: "4.0.0",
     language: "zh-CN",
     topic: {
       id: "object-detection",
@@ -334,6 +335,23 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Topic synthesis structured artifact contract", function () {
+  it("uses frozen literature quality instead of subjective paper quality", async function () {
+    const service = createSynthesisService({
+      libraryId: 1,
+      root: "/tmp/zotero-agents-topic-schema-contract",
+    });
+    const schemas = (await service.getSchemas()) as any;
+    const contractText = JSON.stringify(schemas);
+    assert.notInclude(contractText, "paper_quality");
+    assert.deepEqual(schemas.enum_definitions.topic_relevance, [
+      "core",
+      "related",
+      "external",
+      "irrelevant",
+      "unknown",
+    ]);
+  });
+
   it("accepts complete section manifests without run-workspace markdown preview inputs [inv.topics.manifest_sidecars]", async function () {
     const module = await importOptional(
       "../../packages/synthesis-engine/src/topicStructuredArtifact",

@@ -1300,12 +1300,29 @@ Structured content:
 ```json
 {
   "result": {
-    "artifacts": [
+    "papers": [
       {
-        "paperRef": "...",
-        "kind": "digest",
-        "label": "...",
-        "updatedAt": "..."
+        "paper_ref": "1:ABCD1234",
+        "artifacts": [
+          { "artifact_type": "digest", "status": "available" },
+          { "artifact_type": "references", "status": "available" },
+          { "artifact_type": "citation_analysis", "status": "available" },
+          {
+            "artifact_type": "literature_score",
+            "status": "available",
+            "literature_quality": {
+              "status": "available",
+              "schema": "literature_score.v1",
+              "rubric_id": "...",
+              "paper_type": "...",
+              "overall_score": 82,
+              "confidence": 0.8,
+              "confidence_adjusted_score": 76,
+              "quality_prior": 0.756,
+              "payload_hash": "sha256:..."
+            }
+          }
+        ]
       }
     ],
     "diagnostics": [...],
@@ -1317,6 +1334,11 @@ Structured content:
 Behavior notes:
 
 - Returns manifest metadata only (no payload text or markdown bodies).
+- The default set is `digest`, `references`, `citation_analysis`, and
+  `literature_score`; all four must be available for complete artifact coverage.
+- Missing scores produce a neutral `quality_prior` of `0.5` and
+  `literature_score_missing`; invalid scores produce
+  `literature_score_invalid` and remain unavailable.
 - Use `paper_artifacts.read` to retrieve artifact content.
 
 ### `paper_artifacts.read`
@@ -1329,7 +1351,7 @@ Input:
 ```json
 {
   "paper_refs": ["DOI:10.1000/xyz123"],
-  "artifact_types": ["digest", "note"]
+  "artifact_types": ["digest", "literature_score"]
 }
 ```
 
@@ -1365,6 +1387,8 @@ Behavior notes:
 
 - Returns artifact payload bodies. For large artifacts, content may be
   truncated; check diagnostics for truncation notes.
+- Omitting `artifact_types` reads the complete four-artifact set. Explicit
+  filtering remains supported.
 - Read-only — does not modify artifact state.
 
 ### `paper_artifacts.export_filtered`
@@ -1377,7 +1401,7 @@ Input:
 {
   "run_root": "/path/to/workspace",
   "paper_refs": ["DOI:10.1000/xyz123"],
-  "artifact_types": ["digest", "note"]
+  "artifact_types": ["digest", "references", "citation_analysis", "literature_score"]
 }
 ```
 
@@ -1407,6 +1431,9 @@ Behavior notes:
 - `run_root` is required — this is the workspace directory where artifacts will
   be written.
 - Writes artifact files to the run workspace rather than returning content inline.
+- Omitting `artifact_types` exports the complete four-artifact set. The decoded
+  literature-score payload is written in full; the manifest carries only its
+  compact `literature_quality` snapshot.
 
 ### `paper_artifacts.resolve_topic_digest`
 

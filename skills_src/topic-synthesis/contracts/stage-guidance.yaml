@@ -77,9 +77,9 @@ stages:
       - "区分 current_linked_papers、saved_triage、source_materials 和后续 resolver diff：旧关联文献是已持久化 topic 的来源集合，saved_triage 是已有单篇判断覆盖，source_materials 只说明 digest/references/citation-analysis 等 source artifacts 可读。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":100}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。"
-        notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
+        notes: "读取 CLI stdout 的 data.data.pagination.papers；若 hasMore=true，保持筛选条件不变并将 nextCursor 回传为 cursor，直到 hasMore=false。需要用缺失作为证据时必须读完对应 section；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
       - "`runtime/payloads/update-audit-report.json` 是本 stage 的当前状态真源。"
       - "library index 用于设计增量 resolver proposal，不要从中手写 resolver result。"
@@ -122,9 +122,9 @@ stages:
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
       - "远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode=\"bridge-download\"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。"
     host_read_commands:
-      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":100}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。"
-        notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
+        notes: "读取 CLI stdout 的 data.data.pagination.papers；若 hasMore=true，保持筛选条件不变并将 nextCursor 回传为 cursor，直到 hasMore=false。需要用缺失作为证据时必须读完对应 section；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
       - "library index 用于设计 resolver，不要从中手写 resolver result。"
     field_guidance:
@@ -150,7 +150,7 @@ stages:
     semantic_goal: "为 resolver workset 中每篇文献写 paper-local triage，给后续 runtime context selection 提供可靠输入。"
     hard_constraints:
       - "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。"
-      - "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。"
+      - "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 `literature_quality`。"
     subagent_delegation:
       recommendation: "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 `assessments[]` payload。"
       constraints:
@@ -176,13 +176,11 @@ stages:
         - paper_ref：必须使用分配给你的 paper_ref。
         - relevance_level：core / related / external / irrelevant / unknown。
         - relevance_reason：说明该 paper 与 topic 边界的关系。
-        - paper_quality_level：high / medium / low / unknown。
-        - paper_quality_reason：说明证据质量。
         - core_digest：一到三句 paper-local 贡献摘要。
         - caveats：数组，记录证据限制或适用边界。
     execution_steps:
       - "先读取 `runtime/payloads/paper-artifacts-manifest-batch-1.json`。"
-      - "按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。"
+      - "按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；文献评分使用同一 paper row 中的 `literature_quality`快照；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。"
       - "逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。"
       - "如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。"
       - "按 gate 指令和 runtime audit 判断需要 triage 的 paper refs；create 通常覆盖所有 resolved papers，update 使用 gate 暴露的 `triage_required_refs`。"
@@ -190,10 +188,10 @@ stages:
       - "如果 update 没有可复用 triage，gate 会要求对 updated resolve 中全部 papers 写 assessment。"
       - "每条 assessment 判断只限该 paper 与 topic 的关系。"
       - "用 `core_digest` 提炼该 paper 对 topic window 的贡献。"
-      - "提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。"
+      - "提交后由 runtime 根据 triage、四件套 artifact manifest、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。"
     required_read_notes:
       - "`runtime/payloads/paper-artifacts-manifest-batch-1.json` 是 artifact 索引真源；具体文件以每条 artifact 的 `content_file` 为准。"
-      - "`runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。"
+      - "`runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是 relevance、core_digest 和 caveats 的判断依据；文献内在质量只使用 manifest 固化的 `literature_quality`；不要依赖大段附件路径。"
       - "LLM 不手写 cross-paper context 或 external-literature context；这些 view 必须由 runtime 从已校验输入生成。"
     runtime_reads:
       - path: "runtime/payloads/paper-artifacts-manifest-batch-1.json"
@@ -206,8 +204,6 @@ stages:
       assessments: "一篇 resolved paper 一条 assessment，`paper_ref` 必须来自当前 workset。"
       relevance_level: "`core` 是主题核心证据；`related` 是相关背景或变体；`external` 主要用于覆盖/补充判断；`irrelevant` 是误召回；`unknown` 是材料不足。"
       relevance_reason: "说明该 paper 与 topic 边界的关系。"
-      paper_quality_level: "评价可用证据质量，不等于引用量排序。"
-      paper_quality_reason: "说明实验、方法、综述、benchmark 或证据完整性。"
       core_digest: "一到三句说明该 paper 对 topic 的贡献，保持 paper-local。"
       caveats: "记录训练效率、实验范围、artifact 缺失、适用边界等限制。"
     quality_checks:
@@ -221,8 +217,6 @@ stages:
         - paper_ref: "1:DETR2020"
           relevance_level: "core"
           relevance_reason: "该论文把 object-query set prediction 建立为本 topic 的基线公式。"
-          paper_quality_level: "high"
-          paper_quality_reason: "该论文给出模型公式，并提供支撑该路线的 benchmark evidence。"
           core_digest: "提出面向目标检测的 transformer-based set prediction，使 object queries 与 bipartite matching 成为后续 DETR-family 工作的核心概念。"
           caveats: ["训练效率限制会影响后续改进工作的解释方式。"]
 

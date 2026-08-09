@@ -1828,6 +1828,7 @@
       if (emitChange && (changed || rawValue !== lastCommittedRaw)) {
         args.onChange({
           changedKey: args.entry.key,
+          changedOrigin: "text",
         });
       }
       lastCommittedRaw = rawValue;
@@ -1867,6 +1868,10 @@
               changedKey:
                 changeMeta && typeof changeMeta.changedKey === "string"
                   ? changeMeta.changedKey
+                  : "",
+              changedOrigin:
+                changeMeta && typeof changeMeta.changedOrigin === "string"
+                  ? changeMeta.changedOrigin
                   : "",
             });
           },
@@ -1949,6 +1954,8 @@
         changedSection:
           typeof meta.changedSection === "string" ? meta.changedSection : "",
         changedKey: typeof meta.changedKey === "string" ? meta.changedKey : "",
+        changedOrigin:
+          typeof meta.changedOrigin === "string" ? meta.changedOrigin : "",
       });
     };
 
@@ -2191,11 +2198,7 @@
     copyButton.addEventListener("click", function () {
       copyTextToClipboard(source).then(
         function () {
-          copyButton.textContent = labelText(
-            labels,
-            "productsViewerCopied",
-            "Copied",
-          );
+          copyButton.textContent = labelText(labels, "productsViewerCopied");
           window.setTimeout(function () {
             copyButton.textContent = labelText(
               labels,
@@ -2208,7 +2211,6 @@
           copyButton.textContent = labelText(
             labels,
             "productsViewerCopyFailed",
-            "Copy failed",
           );
         },
       );
@@ -4181,12 +4183,15 @@
         copy.addEventListener("click", function () {
           copyTextToClipboard(JSON.stringify(selected, null, 2)).then(
             function () {
-              copy.textContent = "Copied";
+              copy.textContent = labelText(labels, "productsViewerCopied");
               showToast("Trace copied");
             },
             function () {
-              copy.textContent = "Copy failed";
-              showToast("Copy failed");
+              copy.textContent = labelText(
+                labels,
+                "productsViewerCopyFailed",
+              );
+              showToast(labelText(labels, "productsViewerCopyFailed"));
             },
           );
         });
@@ -4339,7 +4344,10 @@
     correlationLabel.appendChild(el("span", "card-label", "Correlation"));
     const correlationInput = document.createElement("input");
     correlationInput.className = "workflow-settings-field-control mono";
-    correlationInput.placeholder = "correlation / request / operation / attempt";
+    correlationInput.placeholder = labelText(
+      labels,
+      "synthesisSidecarCorrelationPlaceholder",
+    );
     correlationInput.value = state.synthesisCorrelationFilter;
     correlationInput.addEventListener("change", function () {
       state.synthesisCorrelationFilter = correlationInput.value.trim();
@@ -4493,23 +4501,36 @@
         ),
       );
       detailHeader.appendChild(detailHeading);
-      const copy = el("button", "btn", "Copy JSON");
+      const copy = el(
+        "button",
+        "btn",
+        labelText(labels, "skillRunnerConnectionAuditCopyJson"),
+      );
       copy.type = "button";
       copy.addEventListener("click", function () {
         const text = JSON.stringify({ selected, related }, null, 2);
         copyTextToClipboard(text).then(
           function () {
-            copy.textContent = "Copied";
+            copy.textContent = labelText(labels, "productsViewerCopied");
             showToast("JSON copied");
             window.setTimeout(function () {
-              copy.textContent = "Copy JSON";
+              copy.textContent = labelText(
+                labels,
+                "skillRunnerConnectionAuditCopyJson",
+              );
             }, 1200);
           },
           function () {
-            copy.textContent = "Copy failed";
-            showToast("Copy failed");
+            copy.textContent = labelText(
+              labels,
+              "productsViewerCopyFailed",
+            );
+            showToast(labelText(labels, "productsViewerCopyFailed"));
             window.setTimeout(function () {
-              copy.textContent = "Copy JSON";
+              copy.textContent = labelText(
+                labels,
+                "skillRunnerConnectionAuditCopyJson",
+              );
             }, 1200);
           },
         );

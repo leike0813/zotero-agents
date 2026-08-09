@@ -255,7 +255,10 @@ workflow result content.
 
 ### Requirement: SkillRunner managed runtime
 
-SkillRunner SHALL continue to load `run-dialog.html`, but the visible layout and controls SHALL be rendered through the managed Assistant runtime.
+SkillRunner SHALL load the shared assistant child page (`skillrunner.html`
+with `data-source="skillrunner"`) and SHALL be refreshed only through the v1
+publication plane; the visible layout and controls SHALL be rendered through
+the managed Assistant runtime.
 
 SkillRunner SHALL preserve backend protocol, output convergence, run history, waiting_user/auth/cancel semantics, and assistant revision/replacement audit semantics.
 
@@ -272,10 +275,11 @@ related task states, disabled task states, and the Completed-section collapse
 action. It SHALL NOT flatten SkillRunner tasks into a generic context-entry
 list.
 
-SkillRunner `assistant_process` items with `processType` or
+SkillRunner `assistant_process` entries with `processType` or
 `correlation.process_type` equal to `tool_call` or `command_execution` SHALL be
-projected as shared `tool` transcript rows. Reasoning-like or unknown
-`assistant_process` items SHALL remain shared `process` rows.
+projected as canonical `tool-call` transcript items. Reasoning-like or unknown
+`assistant_process` entries SHALL be projected as canonical `thought`
+transcript items.
 
 #### Scenario: SkillRunner native semantics remain intact
 
@@ -283,22 +287,6 @@ projected as shared `tool` transcript rows. Reasoning-like or unknown
 - **When** the SkillRunner tab renders inside the Assistant shell
 - **Then** the SkillRunner adapter preserves it as SkillRunner-owned revision metadata and details diagnostics
 - **And** ACP Chat does not inherit SkillRunner-specific revision semantics.
-
-#### Scenario: SkillRunner Sessions drawer keeps workspace/task grouping
-
-- **Given** SkillRunner receives a workspace snapshot with drawer sections and backend groups
-- **When** the Sessions drawer is opened in the Assistant shell
-- **Then** Running and Completed sections are rendered with backend groups and task cards
-- **And** selecting a task emits `select-task` with the task key
-- **And** toggling the Completed section emits `toggle-drawer-section` with `sectionId=completed`.
-
-#### Scenario: SkillRunner tool-like process rows use shared tool styling
-
-- **Given** SkillRunner emits `assistant_process` data with `processType=tool_call`
-- **Or** SkillRunner emits `assistant_process` data with `processType=command_execution`
-- **When** the SkillRunner transcript is projected into `AssistantConversationView`
-- **Then** those rows are rendered as shared `tool` rows
-- **And** they are not concatenated into the reasoning/process text block.
 
 ### Requirement: Managed drawer run lifecycle actions
 
@@ -979,13 +967,26 @@ region.
 
 ### Requirement: Assistant panels preserve empty-state chrome
 
-ACP Chat、ACP Skills 与 SkillRunner 在没有选中 conversation、run 或 task 时 SHALL 保持与非空态相同的 banner、transcript、reply 和 toolbar managed regions。固定信息槽位 SHALL 保持可见并以渲染层 `-` 表示缺失值；owner-scoped badge、LED、selectors 和 actions SHALL 保持可见但显示 unavailable、muted 或 disabled。全局 Host Bridge 状态与 shell navigation SHALL 保持真实且可用。
+ACP Chat、ACP Skills 与 SkillRunner 在没有选中 conversation、run 或 task 时 SHALL 保持与非空态相同的 banner、transcript、reply 和 toolbar managed regions。固定信息槽位 SHALL 保持可见并以渲染层 `-` 表示缺失值；owner-scoped badge、LED、selectors 和 actions SHALL 根据 owner 可用性显示 unavailable、muted 或 disabled。全局 Host Bridge 状态与 shell navigation SHALL 保持真实且可用。ACP Chat SHALL 进一步区分无后端与已有后端但无 conversation 的状态。
 
-#### Scenario: ACP Chat has no selected conversation
+#### Scenario: ACP Chat has no configured backend
 
-- **WHEN** ACP Chat 没有 selected owner
-- **THEN** banner SHALL 显示"无会话"副标题、不可用 badge、backend/conversation/workspace 空槽位和 muted Connection LED
-- **AND** Chat banner selectors/actions 与 reply controls SHALL 保持可见且禁用
+- **WHEN** ACP Chat 没有 selected owner 且 backend navigation groups 为空
+- **THEN** banner SHALL 显示"无会话"副标题、不可用 badge、backend、
+  conversation 与 workspace 空槽位和 muted Connection LED
+- **AND** Chat backend/conversation selectors、actions 与 reply controls
+  SHALL 保持可见且禁用
+- **AND** Host Bridge 与 shell navigation SHALL 保持真实状态和可用性。
+
+#### Scenario: ACP Chat has a backend without a conversation
+
+- **WHEN** ACP Chat 没有 selected owner 但有 selected backend navigation
+  group
+- **THEN** backend selector SHALL 显示并允许选择 backend navigation groups
+- **AND** conversation selector SHALL 保持空且禁用
+- **AND** New Conversation 与 Connect SHALL 对 selected backend 可用
+- **AND** transcript、reply、runtime option、permission 与其他
+  owner-scoped controls SHALL 保持不可用
 - **AND** Host Bridge 与 shell navigation SHALL 保持真实状态和可用性。
 
 #### Scenario: ACP Skills has no selected run
@@ -1230,3 +1231,55 @@ After an incremental transcript effect restores the viewport anchor or the prese
 - **WHEN** an incremental effect restores the viewport
 - **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
 - **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.
+
+### Requirement: Terminal ACP Skills controls preserve terminal navigation
+
+Assistant Workspace SHALL show Connect for an eligible detached terminal ACP
+Skills run and enable the composer only after explicit connection. Prompting
+SHALL show turn activity and Interrupt while the run remains in its completed or
+failed navigation group.
+
+#### Scenario: Connected succeeded run remains completed
+
+- **GIVEN** a succeeded ACP Skills run is explicitly connected for conversation
+- **WHEN** the user sends and settles a prompt
+- **THEN** the run SHALL remain in the completed/history group
+- **AND** the composer and activity controls SHALL reflect only conversation
+  state without projecting an active workflow task.
+
+### Requirement: Owner navigation explicitly projects archive availability
+
+Every Assistant Workspace owner-navigation entry SHALL include a required
+`canArchive` boolean supplied by its source. ACP Chat, ACP Skills, and
+SkillRunner sources SHALL project the field explicitly.
+
+#### Scenario: Busy terminal conversation cannot be archived
+
+- **GIVEN** a terminal ACP Skills conversation is connecting, connected, or has
+  an active prompt
+- **WHEN** navigation actions are rendered
+- **THEN** Archive SHALL remain visible but disabled with `canArchive=false`
+- **AND** Disconnect SHALL be required before archive can become available.
+
+#### Scenario: Detached terminal run can be archived
+
+- **GIVEN** a terminal run is disconnected and has no active prompt
+- **WHEN** navigation actions are rendered
+- **THEN** its entry SHALL project `canArchive=true` subject to the source's
+  existing archive rules.
+
+### Requirement: Terminal transcript streaming preserves managed region identity
+
+Terminal conversation transcript and loading updates SHALL be scoped to the
+selected transcript owner and SHALL update only `TranscriptRegion`. Toolbar,
+banner, plan, hint, reply, context drawer, details drawer, and permission drawer
+SHALL remain isolated by their own visible-content signatures.
+
+#### Scenario: Terminal stream updates transcript only
+
+- **GIVEN** an eligible terminal ACP Skills conversation is selected and its
+  non-transcript managed regions are mounted
+- **WHEN** transcript chunks arrive without changing any region-owned visible
+  state
+- **THEN** transcript rows SHALL update
+- **AND** every non-transcript managed region SHALL preserve DOM identity.

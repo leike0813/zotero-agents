@@ -183,7 +183,7 @@ describe("Synthesis Topic Structured Artifact engine", function () {
       assembled.artifact.schema_id,
       "synthesis.topic_synthesis_artifact",
     );
-    assert.equal(assembled.artifact.schema_version, "3.0.0");
+    assert.equal(assembled.artifact.schema_version, "4.0.0");
     assert.equal(assembled.artifact.language, "zh-CN");
     assert.deepEqual(assembled.artifact.topic, request.sections.topic);
 

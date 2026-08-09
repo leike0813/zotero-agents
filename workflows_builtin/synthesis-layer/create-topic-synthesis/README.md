@@ -15,6 +15,8 @@
 3. **在 Synthesis Workbench 的 Index 页面执行 Advance Matching**：确保引文匹配和去重完成
 4. **在 Review 页面处理好审批项**：所有 pending 的引用绑定和概念审批都已处理
 
+每篇文献的完整材料由 digest、references、citation analysis 和 literature score 四件套组成。评分缺失不会阻止运行，但会使用中性质量先验，并降低材料完整度分量；文献相关性仍由 Topic 语义判断决定，质量高低不会让无关文献进入核心上下文。
+
 准确的引文图谱关系直接影响 PageRank、foundation score 等文献重要度指标的计算质量，进而决定 Topic 综合的整体质量。
 
 ## 怎么输入？

@@ -6,7 +6,7 @@ Define the mechanism-only Host Bridge CLI contract, including agent-surface meta
 
 ## Requirements
 
-### Requirement: CLI SHALL publish a mechanism-only Agent Surface v4
+### Requirement: CLI SHALL publish a mechanism-only Agent Surface v5
 The offline `surface` command family SHALL publish `host-bridge.agent-surface.v5` under CLI identity `zotero-bridge.cli.v4`, with global options and exact command argv, complete parser argument metadata, raw structured-input schemas, classified examples, composed payload schemas, strict result schemas, effects, approval requirements, typed handles, recovery rules, targets, operational summaries, and operational aliases. It SHALL NOT contain research-task guidance or a built-in workflow catalog.
 
 #### Scenario: Generic prose does not change CLI identity
@@ -100,3 +100,79 @@ match reasons. It SHALL default to 10 matches and reject or clamp limits above 2
 - **WHEN** a search matches a command
 - **THEN** the result does not embed the complete command descriptor
 - **AND** directs full contract inspection to `surface describe`.
+
+### Requirement: CLI SHALL execute remote commands through one canonical contract
+Zotero Bridge CLI 0.5.0 SHALL derive every remote target, structured payload binding, capability input Schema, command result Schema, effect, approval fact, handle transition, and recovery rule from the executable capability and command contracts.
+
+#### Scenario: Remote command executes
+- **WHEN** a canonical remote leaf command is invoked
+- **THEN** the CLI SHALL resolve its target and binding from the command contract
+- **AND** compose constants, field mappings, and closed transforms from that contract rather than a command handler
+- **AND** validate the composed payload against the target capability before network I/O
+- **AND** validate the returned capability and command results before stdout.
+
+#### Scenario: Command implementation bypasses the executor
+- **WHEN** a command implementation calls low-level remote transport or declares a capability target outside the contract executor
+- **THEN** architecture validation SHALL fail.
+
+#### Scenario: Composition references parser input
+- **WHEN** a fixed capability command declares a base source or field mapping
+- **THEN** every referenced source SHALL resolve to an argument ID in the real Clap leaf
+- **AND** unknown sources, duplicate target fields, undeclared transforms, and missing required values SHALL fail before network I/O.
+
+#### Scenario: Semantic command specializes a generic capability
+- **WHEN** a mutation or readiness command fixes an operation discriminator, check set, or field mapping
+- **THEN** the specialization SHALL exist in executable command-contract composition
+- **AND** `--schema`, `surface describe`, generated command cards, and runtime payload construction SHALL project that same specialization.
+
+#### Scenario: Item search uses the canonical selector
+- **WHEN** `library item search --query` receives `{"query":"graph"}`
+- **THEN** the payload SHALL validate and pass through without field translation
+- **AND** `{"text":"graph"}` SHALL fail as an undeclared field.
+
+### Requirement: CLI SHALL return structured parameter failures
+The CLI SHALL distinguish argv, JSON source, JSON syntax, command input, capability input, payload composition, remote result, and local result failures with stable error codes and redacted violation details.
+
+#### Scenario: Argument parser rejects an invocation
+- **WHEN** the invocation has a missing argument, unknown argument, conflict, invalid value, or missing subcommand
+- **THEN** the CLI SHALL return the corresponding stable usage code rather than only `cli_usage_error`
+- **AND** include the command and safe argument context when available.
+
+#### Scenario: Structured input violates a Schema
+- **WHEN** parsed JSON has missing, mistyped, or undeclared properties
+- **THEN** the CLI SHALL return sorted structured violations with JSON paths and expected constraints
+- **AND** SHALL NOT expose secrets or the complete raw payload.
+
+### Requirement: Broker file routes SHALL use the Host Bridge v2 namespace
+Broker-issued file upload and download operations SHALL use `/bridge/v2` and retain their opaque-handle, authorization, integrity, and path-redaction requirements.
+
+#### Scenario: Authenticated v2 client downloads a file
+- **WHEN** a v2 client downloads a valid broker-issued file handle
+- **THEN** Host Bridge SHALL return the authorized bytes under the existing integrity and redaction rules.
+
+#### Scenario: Client uses the removed v1 route
+- **WHEN** a client requests the corresponding `/bridge/v1/files` route
+- **THEN** Host Bridge SHALL NOT serve it as a supported v2 file operation.
+
+### Requirement: CLI workflow commands expose resource bindings
+The canonical `workflow validate` and `workflow submit` commands SHALL expose repeatable input-resource bindings in the form `<slot>=<fileId>` and output-resource delivery bindings in the form `<slot>=bridge-download`. Their offline schemas, help, command cards, payload composition, and result schemas SHALL use the same field names and SHALL not expose file-picker or client-path parameters.
+
+#### Scenario: CLI binds an uploaded input
+- **WHEN** an agent invokes `workflow submit --input-resource source=file-123`
+- **THEN** the CLI SHALL send `resourceBindings.inputs.source.fileIds = ["file-123"]`
+- **AND** it SHALL not send the local path used by the preceding upload command
+
+#### Scenario: Multiple files bind to one slot
+- **WHEN** an agent repeats `--input-resource notes=file-1 --input-resource notes=file-2`
+- **THEN** the CLI SHALL preserve both opaque handles in binding order
+
+### Requirement: CLI exposes resource delivery results
+The CLI workflow result contract SHALL expose resource output descriptors and safe continuation guidance through the existing `file download` command. It SHALL not print Host-local paths or silently open GUI interaction.
+
+#### Scenario: Workflow returns a downloadable output
+- **WHEN** a remote workflow completes with an output resource
+- **THEN** the CLI SHALL return its `fileId`, integrity metadata, expiry, and download command in the structured result
+
+#### Scenario: Workflow requires interaction
+- **WHEN** a non-interactive workflow would require a picker, editor, or confirmation dialog
+- **THEN** the CLI SHALL return a stable interaction-required error and a safe next action

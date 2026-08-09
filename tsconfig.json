@@ -4,5 +4,12 @@
     "allowImportingTsExtensions": true
   },
   "include": ["src", "typings", "packages/*/src"],
-  "exclude": ["build", "addon", "src/**/*-safeBackup-*", ".agents"]
+  "exclude": [
+    "build",
+    "addon",
+    "src/**/*-safeBackup-*",
+    ".agents",
+    "src/sidebar/components",
+    "src/sidebar/**/*.tsx"
+  ]
 }

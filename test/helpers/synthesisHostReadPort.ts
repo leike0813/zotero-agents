@@ -13,6 +13,7 @@ import {
   type ReferenceSidecarInput,
 } from "../../src/modules/synthesis/registry";
 import { hashCanonicalJson } from "../../src/modules/synthesis/foundation";
+import { buildLiteratureQualitySnapshot } from "../../src/shared/literatureScore";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -64,9 +65,8 @@ export function createTestSynthesisHostReadPort(
     if (artifact.status === "available" && hash) {
       locators.set(locator, artifact);
     }
-    return {
+    const common = {
       paperRef: artifact.paper_ref,
-      artifactType: artifact.artifact_type,
       payloadType: artifact.payload_type,
       status: artifact.status,
       ...(artifact.status === "available" && hash
@@ -74,6 +74,18 @@ export function createTestSynthesisHostReadPort(
         : {}),
       diagnostics: [...artifact.diagnostics],
     };
+    return artifact.artifact_type === "literature_score"
+      ? {
+          ...common,
+          artifactType: "literature_score",
+          literatureQuality: buildLiteratureQualitySnapshot({
+            payload:
+              artifact.status === "available" ? artifact.payload : undefined,
+            payloadHash: hash,
+            missing: artifact.status === "missing",
+          }),
+        }
+      : { ...common, artifactType: artifact.artifact_type };
   };
   return {
     library: {

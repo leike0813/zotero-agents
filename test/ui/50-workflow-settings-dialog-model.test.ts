@@ -5,6 +5,8 @@ import {
   buildWorkflowSettingsDialogRenderModel,
   buildWorkflowHostOptionsDraft,
   collectSchemaValues,
+  isWorkflowSettingsStructuralRefreshChange,
+  normalizeWorkflowSettingsDraftChangeOrigin,
   resolveWorkflowSettingsDialogLayout,
   resolveProviderSchemaEntries,
 } from "../../src/modules/workflowSettingsDialogModel";
@@ -44,6 +46,42 @@ function makeContainer(controls: FakeControl[]): HTMLElement {
 }
 
 describe("workflow Host settings dialog model", function () {
+  it("preserves editable text controls while keeping choice-driven structural refreshes", function () {
+    assert.equal(normalizeWorkflowSettingsDraftChangeOrigin("text"), "text");
+    assert.equal(
+      normalizeWorkflowSettingsDraftChangeOrigin("unknown"),
+      "choice",
+    );
+    assert.isFalse(
+      isWorkflowSettingsStructuralRefreshChange({
+        changedSection: "providerOptions",
+        changedKey: "model",
+        origin: "text",
+      }),
+    );
+    assert.isTrue(
+      isWorkflowSettingsStructuralRefreshChange({
+        changedSection: "providerOptions",
+        changedKey: "model",
+        origin: "choice",
+      }),
+    );
+    assert.isTrue(
+      isWorkflowSettingsStructuralRefreshChange({
+        changedSection: "backend",
+        changedKey: "backendId",
+        origin: "choice",
+      }),
+    );
+    assert.isFalse(
+      isWorkflowSettingsStructuralRefreshChange({
+        changedSection: "providerOptions",
+        changedKey: "temperature",
+        origin: "choice",
+      }),
+    );
+  });
+
   it("validates maximum concurrency without treating invalid text as blank", function () {
     assert.deepEqual(buildWorkflowHostOptionsDraft(""), {
       status: "valid",

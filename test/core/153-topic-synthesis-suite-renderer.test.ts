@@ -862,7 +862,12 @@ describe("Topic synthesis suite renderer", function () {
       assert.include(skillText, "硬性约束");
       assert.include(skillText, "逐篇阅读 runtime 导出的 paper artifacts");
       assert.include(skillText, "不得编写或运行脚本");
-      assert.include(skillText, "relevance、quality、core_digest 和 caveats");
+      assert.include(skillText, "relevance、core_digest 和 caveats");
+      assert.match(
+        skillText,
+        /文献内在质量只(?:读取|使用) manifest 固化的 `?literature_quality`?/,
+      );
+      assert.notInclude(skillText, "paper_quality_level");
       assert.include(skillText, "Subagent 委派建议");
       assert.include(skillText, "推荐把 paper triage 按 paper_ref 分批委派");
       assert.include(skillText, "委派 prompt 模板");
@@ -909,12 +914,12 @@ describe("Topic synthesis suite renderer", function () {
     );
     assert.include(
       createSkill,
-      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":100}\'',
     );
     assert.include(updateSkill, "runtime/payloads/update-audit-report.json");
     assert.include(
       updateSkill,
-      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":100}\'',
     );
   });
 

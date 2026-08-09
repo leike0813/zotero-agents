@@ -209,6 +209,23 @@ Gitee mirror；如果 primary 和 mirror 都可用但语义不一致，插件选
 并将 mirror mismatch 记录为 degraded fallback，而不是阻断更新。发布 gate 默认
 只强校验 GitHub feed 与 GitHub release asset；Gitee mirror 校验是显式维护操作。
 
+### 正式发布频道选择
+
+正式发布必须显式指定频道，不存在隐式全频道默认值：
+
+```shell
+npm run release:content-package -- --dispatch --watch --channels stable,beta,dev
+```
+
+`--channels` 接受 `stable`、`beta`、`dev` 的任意非空组合；单频道与分批发布只
+构建、上传、更新和验证所选频道。发布端只替换 `content-feed/<channel>/feed.json`，
+不会清空分支、删除未选频道的 feed 或触发 Gitee 同步。要执行全频道发布，显式写出
+`stable,beta,dev`。
+
+Host Bridge 七个保留 Skill 随插件 XPI 发布，不属于 Content Package。内容包构建
+只扫描剩余的 `skills_builtin/` 与 `workflows_builtin/`；Host Bridge complete
+receipt 是插件发布门禁，不阻塞独立的内容包发布。
+
 ## Manifest（当前实现）
 
 Manifest 契约由以下 schema 唯一定义（SSOT）：
@@ -391,7 +408,8 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 ### Agent-facing 内建 Workflow Catalog
 
 Generic Zotero research surface 在
-`zotero-library-agent/references/workflow-catalog.md` 中发布内建 workflow
+`addon/content/host-bridge-skills/zotero-library-agent/references/workflow-catalog.md`
+中发布内建 workflow
 目录，帮助 agent 在执行实时发现之前缩小候选范围。目录不是独立维护的
 workflow 清单：`scripts/host-bridge-workflow-catalog.ts` 从
 `workflows_builtin/manifest.json`、各 package manifest 及其 `workflow.json`

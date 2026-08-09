@@ -39,6 +39,8 @@ Buscar literatura académica con IA e incorporar los resultados aprobados direct
 |------|------|------|------|
 | `query` | string | Tema de búsqueda, identificador de artículo, semilla o valor vacío para planificación guiada. | Vacío |
 | `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion` o `targeted_ingest`. | `auto` |
+| `searchBreadth` | string | Elija descubrimiento amplio por varias vías, cobertura equilibrada o una primera pasada rápida. | `broad` |
+| `languageHints` | string[] | Sugerencias opcionales de idioma BCP 47, como `en`, `zh-CN`, `ja` o `de`; amplían las consultas y fuentes, pero no filtran otros idiomas. | `[]` |
 | `targetCollection` | string | Colección destino opcional. | Vacío |
 
 ## Salidas

@@ -19,7 +19,7 @@ MCP server/protocol 作为面向第三方 Agent 的另一种 Host capability bro
 默认 host access 路径仍是 Host Bridge CLI；CLI 不可用时，默认记录诊断并
 继续当前 run 流程，不自动切换到显式 MCP 兼容路径。
 
-Minimum 通过 `host-bridge.agent-surface.v5` 发布命令路径、完整参数元数据、结构化输入 schema、示例与命令级输出
+Minimum 通过 `host-bridge.agent-surface.v6` 发布命令路径、完整参数元数据、结构化输入 schema、示例与命令级输出
 schema、副作用、审批、handle、恢复、目标和操作别名。研究任务选择属于
 Generic 层，常驻自动化属于 Hermes 层；两者不进入 CLI 的机制描述符或构建
 身份。
@@ -27,7 +27,7 @@ Generic 层，常驻自动化属于 Hermes 层；两者不进入 CLI 的机制�
 ### 1.1 Generated Host Bridge Surface
 
 <!-- host-bridge-surface:doc-surface:start -->
-This section is generated from the Host Bridge capability registry and Rust CLI mappings. It is the mechanism-only v4 command surface. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.
+This section is generated from the executable Host Bridge capability and CLI command contracts plus the Rust CLI runtime descriptor. Edit those sources, then run `npm run render:host-bridge-content`.
 
 #### Public capabilities
 
@@ -37,17 +37,17 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `workflow_products.get` | workflow_products | `none` | `object required` | `product get` | response:selector-bounded, mcp-mirror |
 | `workflow_products.list` | workflow_products | `none` | `object` | `product list` | response:paged, mcp-mirror |
 | `workflow_products.read_asset` | workflow_products | `none` | `object required` | `raw call only` | raw-only, response:file-output, mcp-mirror |
-| `context.get_current_view` | context | `none` | `none` | `context current` | mcp-mirror |
-| `context.get_selected_items` | context | `none` | `none` | `context selection get` | mcp-mirror |
-| `library.export_annotations` | library | `none` | `object required` | `library annotation export` | response:selector-bounded, mcp-mirror |
-| `library.get_item_attachments` | library | `none` | `item-ref required` | `library item attachments` | response:selector-bounded, mcp-mirror |
-| `library.get_item_detail` | library | `none` | `item-ref required` | `library item get` | response:selector-bounded, mcp-mirror |
-| `library.get_item_notes` | library | `none` | `object required` | `library item notes` | response:paged, mcp-mirror |
-| `library.get_note_detail` | library | `none` | `object required` | `library note get` | response:paged, mcp-mirror |
-| `library.get_note_payload` | library | `none` | `object required` | `library note payload` | response:paged, mcp-mirror |
-| `library.list_annotations` | library | `none` | `item-ref required` | `library annotation list` | response:selector-bounded, mcp-mirror |
+| `context.get_current_view` | context | `none` | `object` |  | mcp-mirror |
+| `context.get_selected_items` | context | `none` | `object` |  | mcp-mirror |
+| `library.export_annotations` | library | `none` | `object` | `library annotation export` | response:selector-bounded, mcp-mirror |
+| `library.get_item_attachments` | library | `none` | `object` | `library item attachments` | response:selector-bounded, mcp-mirror |
+| `library.get_item_detail` | library | `none` | `object` | `library item get` | response:selector-bounded, mcp-mirror |
+| `library.get_item_notes` | library | `none` | `object` | `library item notes` | response:paged, mcp-mirror |
+| `library.get_note_detail` | library | `none` | `object` | `library note get` | response:paged, mcp-mirror |
+| `library.get_note_payload` | library | `none` | `object` | `library note payload` | response:paged, mcp-mirror |
+| `library.list_annotations` | library | `none` | `object` | `library annotation list` | response:selector-bounded, mcp-mirror |
 | `library.list_items` | library | `none` | `object` | `library items list` | response:paged, mcp-mirror |
-| `library.list_note_payloads` | library | `none` | `item-ref required` | `library note payloads` | response:selector-bounded, mcp-mirror |
+| `library.list_note_payloads` | library | `none` | `object` | `library note payloads` | response:selector-bounded, mcp-mirror |
 | `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | response:paged, mcp-mirror |
@@ -76,22 +76,22 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | response:selector-bounded, mcp-mirror |
 | `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `synthesis artifact resolve-topic-digest` | response:selector-bounded, mcp-mirror |
 | `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | response:limit-bounded, mcp-mirror |
-| `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
-| `mutation.preview` | mutation | `none` | `mutation-preview required` | `mutation preview` | mcp-mirror |
+| `mutation.execute` | mutation | `zotero-ui-required` | `object` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
+| `mutation.preview` | mutation | `none` | `object` | `mutation preview` | mcp-mirror |
 | `workflow_products.remove` | mutation | `zotero-ui-required` | `object required` | `product remove` | mcp-mirror |
-| `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `synthesis.operation.get` | diagnostic | `none` | `object required` | `synthesis cache status` | mcp-mirror |
+| `diagnostic.get_status` | diagnostic | `none` | `object` | `raw call only` | raw-only, mcp-mirror |
+| `synthesis.operation.get` | diagnostic | `none` | `object` |  | mcp-mirror |
 
 #### CLI mappings
 
 | CLI command | Target | Kind | Flags |
 | --- | --- | --- | --- |
-| `bridge backend list` | `GET /bridge/v1/diagnostics/backends` | endpoint | - |
-| `bridge backend status` | `GET /bridge/v1/diagnostics/backends/{backendId}` | endpoint | - |
-| `bridge manifest` | `GET /bridge/v1/manifest` | endpoint | - |
-| `bridge profile diagnose` | `GET /bridge/v1/diagnostics/profile/diagnose` | endpoint | - |
-| `bridge profile inspect` | `GET /bridge/v1/diagnostics/profile` | endpoint | - |
-| `bridge status` | `GET /bridge/v1/health` | endpoint | - |
+| `bridge backend list` | `GET /bridge/v2/diagnostics/backends` | endpoint | - |
+| `bridge backend status` | `GET /bridge/v2/diagnostics/backends/{backendId}` | endpoint | - |
+| `bridge manifest` | `GET /bridge/v2/manifest` | endpoint | - |
+| `bridge profile diagnose` | `GET /bridge/v2/diagnostics/profile/diagnose` | endpoint | - |
+| `bridge profile inspect` | `GET /bridge/v2/diagnostics/profile` | endpoint | - |
+| `bridge status` | `GET /bridge/v2/health` | endpoint | - |
 | `library annotation export` | `library.export_annotations` | capability | - |
 | `library annotation list` | `library.list_annotations` | capability | - |
 | `library item attachments` | `library.get_item_attachments` | capability | - |
@@ -111,10 +111,9 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
 | `synthesis artifact read` | `paper_artifacts.read` | capability | - |
 | `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
-| `synthesis cache invalidate` | `POST /bridge/v1/synthesis/cache/invalidate` | endpoint | - |
+| `synthesis cache invalidate` | `POST /bridge/v2/synthesis/cache/invalidate` | endpoint | - |
 | `synthesis cache refresh-reference-sidecar` | `reference_sidecar.refresh` | capability | dangerous |
-| `synthesis cache status` | `GET /bridge/v1/synthesis/cache/status` | endpoint | - |
-| `synthesis cache status` | `synthesis.operation.get` | capability | - |
+| `synthesis cache status` | `GET /bridge/v2/synthesis/cache/status` | endpoint | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
@@ -127,7 +126,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis graph update` | `citation_graph.update` | capability | dangerous |
 | `synthesis index library get` | `library_index.get` | capability | cache-view |
 | `synthesis index reference get` | `reference_index.get` | capability | cache-view |
-| `synthesis index status` | `GET /bridge/v1/synthesis/index/status` | endpoint | - |
+| `synthesis index status` | `GET /bridge/v2/synthesis/index/status` | endpoint | - |
 | `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
 | `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
 | `synthesis schema get` | `schemas.get` | capability | - |
@@ -136,35 +135,41 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
-| `workflow agent-abandon` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
-| `workflow agent-apply` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
-| `workflow agent-apply-status` | `GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
-| `workflow agent-renew` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
-| `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
-| `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
-| `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
-| `workflow profile describe` | `POST /bridge/v1/workflows/provider-profiles/describe` | endpoint | - |
-| `workflow profile list` | `GET /bridge/v1/workflows/provider-profiles` | endpoint | - |
-| `workflow profile validate` | `POST /bridge/v1/workflows/provider-profiles/validate` | endpoint | - |
-| `workflow requirements` | `POST /bridge/v1/workflows/requirements` | endpoint | - |
-| `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
-| `workflow validate` | `POST /bridge/v1/workflows/validate` | endpoint | - |
-| `run active` | `GET /bridge/v1/tasks/active` | endpoint | - |
-| `run cancel` | `POST /bridge/v1/workflows/runs/{workflowRunId}/cancel` | endpoint | - |
-| `run get` | `GET /bridge/v1/workflows/runs/{workflowRunId}` | endpoint | - |
-| `run list` | `GET /bridge/v1/tasks` | endpoint | - |
-| `run notification ack` | `POST /bridge/v1/notifications/ack` | endpoint | - |
-| `run notification list` | `GET /bridge/v1/notifications` | endpoint | - |
-| `run notification wait` | `GET /bridge/v1/notifications` | endpoint | - |
-| `run permission get` | `GET /bridge/v1/permissions/{permissionRequestId}` | endpoint | - |
-| `run permission pending` | `GET /bridge/v1/permissions/pending` | endpoint | - |
-| `run recent` | `GET /bridge/v1/tasks/recent` | endpoint | - |
-| `run skill connect` | `POST /bridge/v1/skill-runs/{skillRunId}/connect` | endpoint | - |
-| `run skill events` | `GET /bridge/v1/skill-runs/{skillRunId}/events` | endpoint | - |
-| `run skill get` | `GET /bridge/v1/skill-runs/{skillRunId}` | endpoint | - |
-| `run skill recent` | `GET /bridge/v1/skill-runs/recent` | endpoint | - |
-| `run skill reply` | `POST /bridge/v1/skill-runs/{skillRunId}/reply` | endpoint | - |
-| `run workflow recent` | `GET /bridge/v1/workflows/runs` | endpoint | - |
+| `workflow agent-abandon` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
+| `workflow agent-apply` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-apply-status` | `GET /bridge/v2/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-renew` | `POST /bridge/v2/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
+| `workflow agent-run` | `POST /bridge/v2/workflows/agent-run` | endpoint | - |
+| `workflow agent-run` | `GET /bridge/v2/files/{fileId}` | endpoint | - |
+| `workflow defaults` | `POST /bridge/v2/workflows/defaults` | endpoint | - |
+| `workflow describe` | `POST /bridge/v2/workflows/describe` | endpoint | - |
+| `workflow list` | `GET /bridge/v2/workflows` | endpoint | - |
+| `workflow profile describe` | `POST /bridge/v2/workflows/provider-profiles/describe` | endpoint | - |
+| `workflow profile list` | `GET /bridge/v2/workflows/provider-profiles` | endpoint | - |
+| `workflow profile refresh` | `POST /bridge/v2/workflows/provider-profiles/refresh` | endpoint | - |
+| `workflow profile validate` | `POST /bridge/v2/workflows/provider-profiles/validate` | endpoint | - |
+| `workflow queue cancel` | `POST /bridge/v2/workflows/queue/{queueId}/cancel` | endpoint | - |
+| `workflow queue list` | `GET /bridge/v2/workflows/queue` | endpoint | - |
+| `workflow requirements` | `POST /bridge/v2/workflows/requirements` | endpoint | - |
+| `workflow submission get` | `GET /bridge/v2/workflows/submissions/{submissionId}` | endpoint | - |
+| `workflow submit` | `POST /bridge/v2/workflows/submit` | endpoint | - |
+| `workflow validate` | `POST /bridge/v2/workflows/validate` | endpoint | - |
+| `run active` | `GET /bridge/v2/tasks/active` | endpoint | - |
+| `run cancel` | `POST /bridge/v2/workflows/runs/{workflowRunId}/cancel` | endpoint | - |
+| `run get` | `GET /bridge/v2/workflows/runs/{workflowRunId}` | endpoint | - |
+| `run list` | `GET /bridge/v2/tasks` | endpoint | - |
+| `run notification ack` | `POST /bridge/v2/notifications/ack` | endpoint | - |
+| `run notification list` | `GET /bridge/v2/notifications` | endpoint | - |
+| `run notification wait` | `GET /bridge/v2/notifications` | endpoint | - |
+| `run permission get` | `GET /bridge/v2/permissions/{permissionRequestId}` | endpoint | - |
+| `run permission pending` | `GET /bridge/v2/permissions/pending` | endpoint | - |
+| `run recent` | `GET /bridge/v2/tasks/recent` | endpoint | - |
+| `run skill connect` | `POST /bridge/v2/skill-runs/{skillRunId}/connect` | endpoint | - |
+| `run skill events` | `GET /bridge/v2/skill-runs/{skillRunId}/events` | endpoint | - |
+| `run skill get` | `GET /bridge/v2/skill-runs/{skillRunId}` | endpoint | - |
+| `run skill recent` | `GET /bridge/v2/skill-runs/recent` | endpoint | - |
+| `run skill reply` | `POST /bridge/v2/skill-runs/{skillRunId}/reply` | endpoint | - |
+| `run workflow recent` | `GET /bridge/v2/workflows/runs` | endpoint | - |
 | `mutation apply` | `mutation.execute` | capability | - |
 | `mutation collection add-items` | `mutation.execute` | capability | - |
 | `mutation collection create` | `mutation.execute` | capability | - |
@@ -178,8 +183,13 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `mutation preview` | `mutation.preview` | capability | - |
 | `mutation tag add` | `mutation.execute` | capability | - |
 | `mutation tag remove` | `mutation.execute` | capability | - |
-| `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
-| `file upload` | `POST /bridge/v1/files/upload` | endpoint | - |
+| `file download` | `GET /bridge/v2/files/{fileId}` | endpoint | - |
+| `file upload` | `POST /bridge/v2/files/upload` | endpoint | - |
+| `product download` | `workflow_products.export` | capability | - |
+| `product get` | `workflow_products.get` | capability | - |
+| `product list` | `workflow_products.list` | capability | - |
+| `product remove` | `workflow_products.remove` | capability | - |
+| `operation get` | `GET /bridge/v2/operations/{operationId}` | endpoint | - |
 | `debug acp-skill-run reapply-result` | `debug.acpSkillRun.reapplyResult` | capability | - |
 | `debug persistence` | `debug.persistence.snapshot` | capability | - |
 | `debug status` | `debug.status` | capability | - |
@@ -192,31 +202,25 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug synthesis profiler` | `debug.synthesis.profiler.list` | capability | - |
 | `debug synthesis snapshot` | `debug.synthesis.snapshot` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
-| `call` | `POST /bridge/v1/call` | service | - |
-| `context collection open` | `POST /bridge/v1/context/collections/open` | endpoint | - |
-| `context current` | `GET /bridge/v1/context/current` | endpoint | - |
-| `context current` | `context.get_current_view` | capability | - |
-| `context item open` | `POST /bridge/v1/context/items/open` | endpoint | - |
-| `context note open` | `POST /bridge/v1/context/notes/open` | endpoint | - |
-| `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
-| `context selection get` | `context.get_selected_items` | capability | - |
-| `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
-| `operation get` | `GET /bridge/v1/operations/{operationId}` | endpoint | - |
-| `product download` | `workflow_products.export` | capability | - |
-| `product get` | `workflow_products.get` | capability | - |
-| `product list` | `workflow_products.list` | capability | - |
-| `product remove` | `workflow_products.remove` | capability | - |
+| `call` | `POST /bridge/v2/call` | service | - |
+| `context collection open` | `POST /bridge/v2/context/collections/open` | endpoint | - |
+| `context current` | `GET /bridge/v2/context/current` | endpoint | - |
+| `context item open` | `POST /bridge/v2/context/items/open` | endpoint | - |
+| `context note open` | `POST /bridge/v2/context/notes/open` | endpoint | - |
+| `context selection get` | `GET /bridge/v2/context/selection` | endpoint | - |
+| `context selection open` | `POST /bridge/v2/context/selection/open` | endpoint | - |
 
 #### Library guidance
 
 - Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.
-- Use `zotero-bridge library item search --query '{"text":"graph","limit":10}'` for finite candidate discovery.
+- Use `zotero-bridge library item search --query '{"query":"graph","limit":10}'` for finite candidate discovery.
 - Use `zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'` for bounded library inventory pages.
 - Use `zotero-bridge library snapshot --query '{"limit":200}'` for the first local metadata index page.
 - Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
-- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
-- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
-- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
+- `library item search` accepts `query`, `limit`, `libraryId` in `--query`.
+- `library items list` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
+- `library snapshot` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor` in `--query`.
+- `library readiness audit` accepts `libraryId`, `collection`, `collectionId`, `collectionKey`, `collectionLibraryId`, `tag`, `itemType`, `query`, `limit`, `cursor`, `checks`, `missingOnly`, `missing_only` in `--query`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.
 
 #### Large response pagination
@@ -273,7 +277,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug.tasks.snapshot` | debug | `none` | `object` | `debug tasks` | debug-only, mcp-mirror |
 | `debug.zotero.eval` | debug | `zotero-ui-required` | `object` | `raw call only` | debug-only, dangerous, raw-only, mcp-mirror |
 
-MCP tools mirror Host Bridge capability names from the runtime registry and return structured content containing `{ capability, approval, data }`.
+MCP tools mirror Host Bridge capability names from the executable contract and return structured content containing `{ capability, approval, data }`.
 <!-- host-bridge-surface:doc-surface:end -->
 
 ## 2. 通信模型
@@ -283,23 +287,23 @@ CLI 通过本机 HTTP JSON 调用 Host Bridge：
 ```text
 zotero-bridge
   -> HTTP JSON + Bearer token
-  -> Host Bridge /bridge/v1
+  -> Host Bridge /bridge/v2
   -> Host capability broker / workflow control / file registry
 ```
 
 Host Bridge 协议版本为：
 
 ```text
-host-bridge.v1
+host-bridge.v2
 ```
 
 CLI 输出 schema 为：
 
 ```text
-zotero-bridge.cli.v1
+zotero-bridge.cli.v5
 ```
 
-除 `GET /bridge/v1/health` 以外，Host Bridge endpoint 都要求 bearer
+除 `GET /bridge/v2/health` 以外，Host Bridge endpoint 都要求 bearer
 token。token 由插件生成，不应写入 prompt、普通日志或 agent 可提交的
 产物。
 
@@ -327,7 +331,7 @@ Token：
 - profile 顶层字段：`token`
 - profile 字段：`auth.token`
 
-Endpoint 必须是 `http://`，并且路径必须包含 `/bridge/v1`。当前 CLI 不会
+Endpoint 必须是 `http://`，并且路径必须包含 `/bridge/v2`。当前 CLI 不会
 猜测随机端口；缺少 endpoint 时返回 `config_missing_endpoint`。
 
 Scope：
@@ -348,8 +352,8 @@ token 明文，而是通过 `auth.tokenEnv` 引用 `ZOTERO_BRIDGE_TOKEN`：
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "protocol": "host-bridge.v2",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": {
     "type": "bearer",
@@ -391,8 +395,8 @@ well-known profile 可直接保存 `auth.token`：
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
-  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "protocol": "host-bridge.v2",
+  "endpoint": "http://127.0.0.1:26570/bridge/v2",
   "connectionMode": "local",
   "auth": {
     "type": "bearer",
@@ -415,8 +419,8 @@ well-known profile 可直接保存 `auth.token`：
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
-  "endpoint": "http://<zotero-host-ip>:26570/bridge/v1",
+  "protocol": "host-bridge.v2",
+  "endpoint": "http://<zotero-host-ip>:26570/bridge/v2",
   "connectionMode": "remote",
   "auth": {
     "type": "bearer",
@@ -453,7 +457,7 @@ SkillRunner backend 的 `GET /v1/runtime/network/client-address`，使用 backen
 
 ```json
 {
-  "ZOTERO_BRIDGE_ENDPOINT": "http://<advertisedHost>:<pinnedPort>/bridge/v1",
+  "ZOTERO_BRIDGE_ENDPOINT": "http://<advertisedHost>:<pinnedPort>/bridge/v2",
   "ZOTERO_BRIDGE_TOKEN": "<current-host-bridge-token>",
   "ZOTERO_BRIDGE_SCOPE": "{\"kind\":\"skillrunner-run\",\"requestId\":\"<request-id>\",\"runId\":\"<request-id>\"}"
 }
@@ -471,8 +475,8 @@ CLI endpoint 解析顺序保持为 `--endpoint` > `ZOTERO_BRIDGE_ENDPOINT` >
 ```json
 {
   "schema": "zotero-bridge.profile.v1",
-  "protocol": "host-bridge.v1",
-  "endpoint": "http://127.0.0.1:0/bridge/v1",
+  "protocol": "host-bridge.v2",
+  "endpoint": "http://127.0.0.1:0/bridge/v2",
   "connectionMode": "local",
   "auth": {
     "type": "bearer",
@@ -543,7 +547,7 @@ zotero-bridge bridge manifest
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
 zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'
 zotero-bridge library snapshot --query '{"limit":200,"cursor":"0"}'
-zotero-bridge library item search --query '{"text":"...","limit":10,"libraryId":1}'
+zotero-bridge library item search --query '{"query":"...","limit":10,"libraryId":1}'
 zotero-bridge library item get (--key <key> | --id <id>) [--library-id <id>]
 zotero-bridge library item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
 zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>]
@@ -556,7 +560,9 @@ zotero-bridge synthesis artifact <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge synthesis insight <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge mutation literature-ingest --input <JSON_OR_FILE>
 zotero-bridge workflow list
-zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>]
+zotero-bridge workflow defaults --workflow <id>
+zotero-bridge workflow profile refresh --backend <id>
 zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 zotero-bridge run get <workflowRunId>
@@ -577,10 +583,10 @@ zotero-bridge file download <fileId> --output <path> [--force]
 
 ### 5.1 状态与 manifest
 
-`bridge status` 调用 `GET /bridge/v1/health`，不需要 token。它用于确认 bridge 是否
+`bridge status` 调用 `GET /bridge/v2/health`，不需要 token。它用于确认 bridge 是否
 可达，以及协议版本是否兼容。
 
-`bridge manifest` 调用 `GET /bridge/v1/manifest`，需要 token。manifest 包含：
+`bridge manifest` 调用 `GET /bridge/v2/manifest`，需要 token。manifest 包含：
 
 - `protocol`
 - endpoint bind metadata
@@ -595,7 +601,7 @@ zotero-bridge file download <fileId> --output <path> [--force]
 ```json
 {
   "supported": true,
-  "schema": "zotero-bridge.cli.v1"
+  "schema": "zotero-bridge.cli.v5"
 }
 ```
 
@@ -648,7 +654,7 @@ sidecar cache 视图，可能滞后或为空。需要当前 Zotero 条目、笔�
 
 ### 5.3 Raw capability call
 
-`call <capability>` 是高级诊断接口，用于直接调用 `POST /bridge/v1/call`。
+`call <capability>` 是高级诊断接口，用于直接调用 `POST /bridge/v2/call`。
 常规读取场景应优先使用 `item`、`note`、`topics`、`citation-graph`、
 `library-index`、`reference-index`、`paper-artifacts`、`resolvers`、
 `schemas`、`concepts` 和 `insights` 语义命令，而不是手写 raw capability
@@ -785,7 +791,7 @@ CLI stdout 始终只输出一个最终 JSON 对象。成功格式：
   "data": {},
   "meta": {
     "cli": "zotero-bridge",
-    "schema": "zotero-bridge.cli.v1"
+    "schema": "zotero-bridge.cli.v5"
   }
 }
 ```
@@ -802,7 +808,7 @@ CLI stdout 始终只输出一个最终 JSON 对象。成功格式：
   },
   "meta": {
     "cli": "zotero-bridge",
-    "schema": "zotero-bridge.cli.v1"
+    "schema": "zotero-bridge.cli.v5"
   }
 }
 ```
@@ -871,19 +877,19 @@ Zotero approval UI。用户拒绝、等待超时或目标 UI 不可用时，CLI 
 
 ## 9. HTTP API reference
 
-所有 endpoint 都位于 `/bridge/v1` 下。
+所有 endpoint 都位于 `/bridge/v2` 下。
 
-### `GET /bridge/v1/health`
+### `GET /bridge/v2/health`
 
 免鉴权。返回 Host Bridge service status、protocol、bind mode、LAN 状态和
 `authRequired`。
 
-### `GET /bridge/v1/manifest`
+### `GET /bridge/v2/manifest`
 
 需要鉴权。返回 bridge protocol、endpoint metadata、masked auth metadata、
 capabilities、workflow control、file download 和 CLI metadata。
 
-### `POST /bridge/v1/call`
+### `POST /bridge/v2/call`
 
 需要鉴权。请求体：
 
@@ -910,11 +916,11 @@ capabilities、workflow control、file download 和 CLI metadata。
 }
 ```
 
-### `GET /bridge/v1/workflows`
+### `GET /bridge/v2/workflows`
 
 需要鉴权。返回 `{ "workflows": [...] }`。
 
-### `POST /bridge/v1/workflows/submit`
+### `POST /bridge/v2/workflows/submit`
 
 需要鉴权和 Zotero UI 审批。请求体：
 
@@ -930,15 +936,14 @@ capabilities、workflow control、file download 和 CLI metadata。
       }
     ]
   },
-  "workflowOptions": {},
-  "providerProfile": {}
+  "workflowOptions": {}
 }
 ```
 
 Host Bridge 要求显式 selection。缺少 selection、空 items、无效 item ref 或
 不允许 no-selection 的 workflow 使用 `kind=none` 都会失败。
 
-### `POST /bridge/v1/workflows/agent-run`
+### `POST /bridge/v2/workflows/agent-run`
 
 需要鉴权，不需要 Zotero UI 审批。请求体：
 
@@ -1004,11 +1009,11 @@ bundle 中 `workflow/workflow.json` 是唯一 canonical workflow manifest。
 workflow 包内其它资源复制到 `workflow/resources/`；不会再额外复制
 `workflow/package/workflow.json`。
 
-### `GET /bridge/v1/workflows/runs/{workflowRunId}`
+### `GET /bridge/v2/workflows/runs/{workflowRunId}`
 
 需要鉴权。返回 run 是否存在、run summary 和 task state。
 
-### `GET /bridge/v1/tasks`
+### `GET /bridge/v2/tasks`
 
 需要鉴权。返回 active 与 recent task summaries。支持 query filters：
 
@@ -1020,7 +1025,7 @@ workflow 包内其它资源复制到 `workflow/resources/`；不会再额外复�
 - `state`
 - `includeHistory=false`
 
-### `GET /bridge/v1/files/{fileId}`
+### `GET /bridge/v2/files/{fileId}`
 
 需要鉴权。成功时返回文件 bytes，不使用 JSON envelope。失败时返回结构化
 Host Bridge JSON error。当前不支持任意 path 下载，也不支持由 client 注册
@@ -1100,7 +1105,7 @@ PATH 已经可用。
   "data": {},
   "meta": {
     "cli": "zotero-bridge",
-    "schema": "zotero-bridge.cli.v1"
+    "schema": "zotero-bridge.cli.v5"
   }
 }
 ```
@@ -1118,7 +1123,7 @@ PATH 已经可用。
   },
   "meta": {
     "cli": "zotero-bridge",
-    "schema": "zotero-bridge.cli.v1"
+    "schema": "zotero-bridge.cli.v5"
   }
 }
 ```
@@ -1135,7 +1140,6 @@ PATH 已经可用。
 - `mutation literature-ingest --input`
 - `call --input`
 - `workflow describe --workflow-options`
-- `workflow describe --provider-profile`
 - `workflow submit --selection`
 - `workflow submit --workflow-options`
 - `workflow submit --provider-profile`
@@ -1255,21 +1259,21 @@ GET <endpoint>/health
 ```json
 {
   "status": "running",
-  "protocol": "host-bridge.v1",
+  "protocol": "host-bridge.v2",
   "bindMode": "loopback",
   "lanEnabled": false,
   "authRequired": true
 }
 ```
 
-CLI 会检查 `data.protocol === "host-bridge.v1"`。不匹配时返回：
+CLI 会检查 `data.protocol === "host-bridge.v2"`。不匹配时返回：
 
 ```json
 {
   "code": "incompatible_bridge_protocol",
   "category": "protocol",
   "details": {
-    "expected": "host-bridge.v1",
+    "expected": "host-bridge.v2",
     "actual": "<protocol>"
   }
 }
@@ -1311,9 +1315,9 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "protocol": "host-bridge.v1",
+  "protocol": "host-bridge.v2",
   "endpoint": {
-    "url": "http://127.0.0.1:<port>/bridge/v1",
+    "url": "http://127.0.0.1:<port>/bridge/v2",
     "bindMode": "loopback",
     "lanEnabled": false
   },
@@ -1336,30 +1340,30 @@ Authorization: Bearer <token>
   "workflowControl": {
     "supported": true,
     "endpoints": [
-      "GET /bridge/v1/workflows",
-      "POST /bridge/v1/workflows/describe",
-      "POST /bridge/v1/workflows/submit",
-      "POST /bridge/v1/workflows/agent-run",
-      "GET /bridge/v1/workflows/runs/{workflowRunId}",
-      "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel",
-      "GET /bridge/v1/tasks",
-      "GET /bridge/v1/tasks/active",
-      "GET /bridge/v1/skill-runs/{skillRunId}",
-      "POST /bridge/v1/skill-runs/{skillRunId}/reply",
-      "POST /bridge/v1/skill-runs/{skillRunId}/connect"
+      "GET /bridge/v2/workflows",
+      "POST /bridge/v2/workflows/describe",
+      "POST /bridge/v2/workflows/submit",
+      "POST /bridge/v2/workflows/agent-run",
+      "GET /bridge/v2/workflows/runs/{workflowRunId}",
+      "POST /bridge/v2/workflows/runs/{workflowRunId}/cancel",
+      "GET /bridge/v2/tasks",
+      "GET /bridge/v2/tasks/active",
+      "GET /bridge/v2/skill-runs/{skillRunId}",
+      "POST /bridge/v2/skill-runs/{skillRunId}/reply",
+      "POST /bridge/v2/skill-runs/{skillRunId}/connect"
     ],
     "explicitInputRequired": true,
     "submitRequiresApproval": true
   },
   "fileDownloads": {
     "supported": true,
-    "endpoint": "GET /bridge/v1/files/{fileId}",
+    "endpoint": "GET /bridge/v2/files/{fileId}",
     "arbitraryPathAllowed": false,
     "approvalRequired": false
   },
   "cli": {
     "supported": true,
-    "schema": "zotero-bridge.cli.v1"
+    "schema": "zotero-bridge.cli.v5"
   }
 }
 ```
@@ -1698,7 +1702,7 @@ best-effort：附件失败不会自动把已创建或已复用的 bibliographic 
 调用格式：
 
 ```text
-zotero-bridge library item search --query <text> [--limit <n>] [--library-id <id>]
+zotero-bridge library item search --query <JSON_OR_FILE>
 ```
 
 Capability 映射：
@@ -1723,26 +1727,31 @@ Capability input：
 {
   "capability": "library.search_items",
   "approval": "none",
-  "data": [
-    {
-      "id": 123,
-      "key": "ABCD1234",
-      "libraryId": 1,
-      "itemType": "journalArticle",
-      "title": "Paper title",
-      "creators": ["Author One"],
-      "year": "2026",
-      "date": "2026-05-21",
-      "publicationTitle": "Journal",
-      "tags": ["tag"],
-      "collections": [1]
-    }
-  ]
+  "data": {
+    "items": [
+      {
+        "id": 123,
+        "key": "ABCD1234",
+        "libraryId": 1,
+        "itemType": "journalArticle",
+        "title": "Paper title",
+        "creators": ["Author One"],
+        "year": "2026",
+        "date": "2026-05-21",
+        "publicationTitle": "Journal",
+        "tags": ["tag"],
+        "collections": [1]
+      }
+    ],
+    "truncated": false
+  }
 }
 ```
 
-`query` 不能为空。空 query 会由 Host Bridge capability 返回
-`capability_failed`。
+`--query` 必须解码为只含 `query`、`limit`、`libraryId` 的 JSON object，
+其中 `query` 是非空字符串。`text`、裸文本和额外字段会在连接 Host Bridge
+之前返回 `command_input_invalid`；错误详情中的 `phase` 为
+`command_input`，并包含命令名、参数 ID 和具体 schema violations。
 
 ### 12.9 `library item get`
 
@@ -2048,7 +2057,7 @@ GET <endpoint>/workflows
 调用格式：
 
 ```text
-zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>]
 zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 ```
@@ -2062,8 +2071,7 @@ Content-Type: application/json
 
 {
   "workflowId": "<id>",
-  "workflowOptions": {},
-  "providerProfile": {}
+  "workflowOptions": {}
 }
 
 POST <endpoint>/workflows/submit
@@ -2158,6 +2166,14 @@ requirements 允许空选择的 workflow。`workflow agent-run --none` 使用同
 ```
 
 profile 文件不得保存 bearer token、backend auth、baseUrl 或本地路径。
+
+提交时 profile 优先级为显式 `--provider-profile`、环境变量
+`ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`、Host 保存的 workflow 默认候选，
+最后才是无 profile。环境变量 profile 已代表用户配置的默认授权路径，CLI
+会直接验证并使用；没有环境变量时，先运行 `workflow defaults --workflow`
+披露候选并取得用户确认，再独立运行 profile validate 和 workflow submit。
+Host 默认候选不会自动注入 submit，显式 `{}` 会覆盖环境默认。ACP catalog
+缺失、过期或关系不一致时，先运行 `workflow profile refresh --backend`。
 
 成功 `data`：
 

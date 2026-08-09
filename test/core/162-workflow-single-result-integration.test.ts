@@ -8,6 +8,7 @@ import { SkillRunnerManagementClient } from "../../src/providers/skillrunner/man
 import { resetSkillRunnerHandshakeCacheForTests } from "../../src/modules/skillRunnerHandshake";
 import { continueSkillRunnerForegroundRun } from "../../src/modules/skillRunnerForegroundContinuation";
 import { clearRuntimeLogs } from "../../src/modules/runtimeLogManager";
+import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -53,6 +54,7 @@ import { joinPath, workflowsPath } from "./workflow-test-utils";
 
 const SINGLE_RESULT_WORKFLOW_ID = "debug-apply-single-result";
 const SINGLE_BUNDLE_WORKFLOW_ID = "debug-apply-single-bundle";
+const EXISTING_PARENT_BUNDLE_WORKFLOW_ID = "debug-apply-existing-parent-bundle";
 const MANIFEST_BUNDLE_WORKFLOW_ID = "debug-apply-manifest-bundle";
 const SEQUENCE_RESULT_WORKFLOW_ID = "debug-apply-sequence-result";
 const SEQUENCE_BUNDLE_WORKFLOW_ID = "debug-apply-sequence-bundle";
@@ -93,10 +95,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function createFakeWindow() {
+function createFakeWindow(selectedItems: Zotero.Item[] = []) {
   return {
     ZoteroPane: {
-      getSelectedItems: () => [],
+      getSelectedItems: () => selectedItems,
     },
     alert: () => undefined,
   } as unknown as _ZoteroTypes.MainWindow;
@@ -333,6 +335,8 @@ async function prepareDebugApplyWorkflow(args: {
   workflowId?: string;
   requestKind?: string;
   workflow?: LoadedWorkflow;
+  selectionContext?: unknown;
+  selectedItems?: Zotero.Item[];
 }) {
   const workflow =
     args.workflow ||
@@ -344,17 +348,18 @@ async function prepareDebugApplyWorkflow(args: {
   });
   const preparation = await runWorkflowPreparationSeam(
     {
-      win: createFakeWindow(),
+      win: createFakeWindow(args.selectedItems),
       workflow,
       messageFormatter,
       suppressUiFeedback: true,
     },
     {
       resolveWorkflowExecutionContext: async () => executionContext,
-      buildSelectionContext: async () => ({
-        selectionType: "empty",
-        items: { parents: [], attachments: [] },
-      }),
+      buildSelectionContext: async () =>
+        args.selectionContext || {
+          selectionType: "empty",
+          items: { parents: [], attachments: [] },
+        },
       executeBuildRequests,
       alertWindow: () => undefined,
     },
@@ -393,11 +398,15 @@ async function runDebugApplyWorkflow(args: {
   requestKind?: string;
   scenario: ProviderScenario;
   applyDeps?: Parameters<typeof runWorkflowApplySeam>[1];
+  selectionContext?: unknown;
+  selectedItems?: Zotero.Item[];
 }) {
   const prepared = await prepareDebugApplyWorkflow({
     provider: args.provider,
     workflowId: args.workflowId,
     requestKind: args.requestKind,
+    selectionContext: args.selectionContext,
+    selectedItems: args.selectedItems,
   });
   const taskUpdates: Array<Record<string, any>> = [];
   const historyUpdates: Array<Record<string, any>> = [];
@@ -819,6 +828,45 @@ describe("workflow single-result behavior integration", function () {
     assert.equal(stored?.status, "succeeded");
     assert.equal(stored?.apply.state, "succeeded");
     assert.equal(stored?.submitPhase, "request_ready");
+  });
+
+  it("keeps existing-parent bundle apply ownership across SkillRunner and ACP", async function () {
+    for (const provider of ["skillrunner", "acp"] as const) {
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: `Existing Parent Bundle ${provider}` },
+      });
+      const requestId = `${provider}-existing-parent-bundle`;
+      const run = await runDebugApplyWorkflow({
+        provider,
+        workflowId: EXISTING_PARENT_BUNDLE_WORKFLOW_ID,
+        selectionContext: await buildSelectionContext([parent]),
+        selectedItems: [parent],
+        scenario: async ({ request, requestKind, onProgress }) => {
+          assert.equal(
+            requestKind,
+            provider === "acp"
+              ? ACP_SKILL_RUN_REQUEST_KIND
+              : "skillrunner.job.v1",
+          );
+          onProgress?.({ type: "request-created", requestId });
+          onProgress?.({ type: "request-ready", requestId });
+          return makeTerminalSuccess({
+            request,
+            requestId,
+            provider,
+            fetchType: "bundle",
+          });
+        },
+      });
+
+      assert.equal(Number(run.request.targetParentID), parent.id);
+      assert.equal(run.applySummary.succeeded, 1);
+      assert.equal(run.applySummary.failed, 0);
+      assertParentHasAttachmentTitles(run.request, [
+        "bundle debug bundle artifact",
+      ]);
+    }
   });
 
   it("runs the SkillRunner manifest-bundle workflow and applies the manifest-listed artifact", async function () {

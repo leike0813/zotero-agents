@@ -138,6 +138,7 @@ export type SynthesisUiRegistryRow = {
   title: string;
   year?: string;
   artifactCoverage: SynthesisUiCoverage;
+  ratingScore?: number;
   missing_artifacts: string[];
   index_scope?: "library" | "referenced";
   literature_item_id?: string;
@@ -2037,6 +2038,13 @@ function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
         title: cleanString(row.title) || cleanString(row.paper_ref),
         year: cleanString(row.year) || undefined,
         artifactCoverage: normalizeCoverage(row.artifactCoverage),
+        ratingScore:
+          typeof row.ratingScore === "number" &&
+          Number.isFinite(row.ratingScore) &&
+          row.ratingScore >= 0 &&
+          row.ratingScore <= 100
+            ? row.ratingScore
+            : undefined,
         missing_artifacts: missing,
         index_scope: indexScope as "library" | "referenced",
         literature_item_id: cleanString(row.literature_item_id) || undefined,

@@ -38,7 +38,7 @@ const engine: SynthesisTopicStructuredArtifactEngine = {
       algorithmVersion: request.algorithmVersion,
       artifact: {
         schema_id: "synthesis.topic_synthesis_artifact",
-        schema_version: "3.0.0",
+        schema_version: "4.0.0",
         language: String(request.manifest.language || "en"),
         ...request.sections,
       },

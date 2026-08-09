@@ -5,7 +5,7 @@ use crate::surface;
 use crate::{client, error::CliError};
 
 fn current_cli_schema() -> String {
-    surface::cli_schema().unwrap_or_else(|_| "zotero-bridge.cli.v4".to_string())
+    surface::cli_schema().unwrap_or_else(|_| "zotero-bridge.cli.v5".to_string())
 }
 
 #[derive(Debug, Serialize)]

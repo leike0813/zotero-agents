@@ -28,6 +28,7 @@ export type SynthesisLiteratureDigestApplyRequest =
     digest?: SynthesisJsonObject;
     references?: SynthesisJsonObject;
     citationAnalysis?: SynthesisJsonObject;
+    literatureScore?: SynthesisJsonObject;
     literatureMatchingMetadata?: SynthesisJsonValue;
     matchedReferences?: SynthesisJsonValue;
     source?: SynthesisJsonValue;

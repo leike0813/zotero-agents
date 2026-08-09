@@ -6,7 +6,7 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function randomRunKey() {
+export function randomRunKey() {
   return Math.random().toString(36).slice(2, 8);
 }
 
@@ -45,7 +45,7 @@ function buildStepParameter({ workflowId, stepId, runKey, applyMode }) {
   };
 }
 
-function buildSingleRequest({
+export function buildSingleRequest({
   workflowId,
   parent,
   parentTitle,

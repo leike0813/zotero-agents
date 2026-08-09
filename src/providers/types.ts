@@ -59,6 +59,8 @@ export type ProviderOrchestrationContext = {
   parentWorkflowRunId?: string;
   semanticTraceContext?: AcpRuntimeSemanticTraceContext;
   jobId?: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
   skillId?: string;

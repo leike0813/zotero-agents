@@ -107,21 +107,28 @@ function extractPrefixedIdentifier(value, label, normalizer) {
   return match ? normalizer(trimIdentifierTail(match[1])) : "";
 }
 
-export function selectIdentifierFromExtra(value) {
+function allowsIdentifierType(type, options = {}) {
+  const allowedTypes = Array.isArray(options.allowedTypes)
+    ? options.allowedTypes
+    : [];
+  return allowedTypes.length === 0 || allowedTypes.includes(type);
+}
+
+export function selectIdentifierFromExtra(value, options = {}) {
   const raw = normalizeString(value);
   if (!raw) {
     return null;
   }
   const doi = extractPrefixedIdentifier(raw, "DOI", normalizeDoi);
-  if (doi) {
+  if (doi && allowsIdentifierType("DOI", options)) {
     return { type: "DOI", value: doi, normalized: doi, source: "extra" };
   }
   const isbn = extractPrefixedIdentifier(raw, "ISBN(?:-1[03])?", normalizeIsbn);
-  if (isbn) {
+  if (isbn && allowsIdentifierType("ISBN", options)) {
     return { type: "ISBN", value: isbn, normalized: isbn, source: "extra" };
   }
   const arxiv = extractPrefixedIdentifier(raw, "arXiv", normalizeArxiv);
-  if (arxiv) {
+  if (arxiv && allowsIdentifierType("arXiv", options)) {
     return {
       type: "arXiv",
       value: arxiv,
@@ -130,19 +137,19 @@ export function selectIdentifierFromExtra(value) {
     };
   }
   const pmid = extractPrefixedIdentifier(raw, "PMID", normalizePmid);
-  if (pmid) {
+  if (pmid && allowsIdentifierType("PMID", options)) {
     return { type: "PMID", value: pmid, normalized: pmid, source: "extra" };
   }
   return null;
 }
 
-export function selectIdentifierFromUrl(value) {
+export function selectIdentifierFromUrl(value, options = {}) {
   const raw = normalizeString(value);
   if (!raw) {
     return null;
   }
   const doi = extractDoiFromText(raw);
-  if (doi) {
+  if (doi && allowsIdentifierType("DOI", options)) {
     return {
       type: "DOI",
       value: doi,
@@ -163,7 +170,7 @@ export function selectIdentifierFromUrl(value) {
     const namespace = pathParts[0].toLowerCase();
     if (namespace === "abs" || namespace === "pdf") {
       const arxiv = normalizeArxiv(pathParts[1]);
-      if (arxiv) {
+      if (arxiv && allowsIdentifierType("arXiv", options)) {
         return {
           type: "arXiv",
           value: arxiv,
@@ -175,7 +182,7 @@ export function selectIdentifierFromUrl(value) {
   }
   if (hostname === "pubmed.ncbi.nlm.nih.gov" && pathParts.length >= 1) {
     const pmid = normalizePmid(pathParts[0]);
-    if (pmid) {
+    if (pmid && allowsIdentifierType("PMID", options)) {
       return {
         type: "PMID",
         value: pmid,
@@ -283,9 +290,9 @@ export function buildParentSnapshot(parent) {
   };
 }
 
-export function selectIdentifier(snapshot) {
+export function selectIdentifier(snapshot, options = {}) {
   const doi = normalizeDoi(snapshot?.DOI || snapshot?.fields?.DOI);
-  if (doi) {
+  if (doi && allowsIdentifierType("DOI", options)) {
     return {
       type: "DOI",
       value: snapshot?.DOI || snapshot?.fields?.DOI,
@@ -293,19 +300,23 @@ export function selectIdentifier(snapshot) {
     };
   }
   const isbn = normalizeIsbn(snapshot?.ISBN || snapshot?.fields?.ISBN);
-  if (isbn) {
+  if (isbn && allowsIdentifierType("ISBN", options)) {
     return {
       type: "ISBN",
       value: snapshot?.ISBN || snapshot?.fields?.ISBN,
       normalized: isbn,
     };
   }
-  const extraIdentifier = selectIdentifierFromExtra(snapshot?.fields?.extra);
+  const extraIdentifier = selectIdentifierFromExtra(
+    snapshot?.fields?.extra,
+    options,
+  );
   if (extraIdentifier) {
     return extraIdentifier;
   }
   const urlIdentifier = selectIdentifierFromUrl(
     snapshot?.url || snapshot?.fields?.url,
+    options,
   );
   if (urlIdentifier) {
     return urlIdentifier;

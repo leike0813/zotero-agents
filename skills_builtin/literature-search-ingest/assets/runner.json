@@ -21,7 +21,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "执行 literature-search-ingest。输入：query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。从 runtime/input.json 读取完整参数，遵循 SKILL.md 及其 references 中的阶段完成条件；完成或取消时，只返回 SKILL.md 和 assets/output.schema.json 定义的最终 JSON。"
+      "common": "执行 literature-search-ingest。输入：query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，searchBreadth={{ parameter.searchBreadth }}，languageHints={{ parameter.languageHints }}，targetCollection={{ parameter.targetCollection }}。从 runtime/input.json 读取完整参数，遵循 SKILL.md 及其 references 中的阶段完成条件；完成或取消时，只返回 SKILL.md 和 assets/output.schema.json 定义的最终 JSON。"
     }
   }
 }

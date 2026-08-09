@@ -121,7 +121,7 @@ function rawRequest(args: {
   const body = args.body || new Uint8Array();
   const headers = args.headers || [`Content-Length: ${body.byteLength}`];
   const head = [
-    `${args.method || "GET"} ${args.path || "/bridge/v1/health"} HTTP/1.1`,
+    `${args.method || "GET"} ${args.path || "/bridge/v2/health"} HTTP/1.1`,
     ...headers,
     "",
     "",
@@ -299,7 +299,7 @@ describe("host bridge socket lifecycle", function () {
     const transport = new FakeTransport();
     const expected = await handleHostBridgeHttpRequestForTests({
       method: "GET",
-      path: "/bridge/v1/health",
+      path: "/bridge/v2/health",
     });
 
     const runtime = globalThis as any;
@@ -402,7 +402,7 @@ describe("host bridge socket lifecycle", function () {
     transport.input.push(
       rawRequest({
         method: "POST",
-        path: "/bridge/v1/files/upload",
+        path: "/bridge/v2/files/upload",
         body: new TextEncoder().encode("ab"),
         headers: [
           "Content-Length: 4",
@@ -452,7 +452,7 @@ describe("host bridge socket lifecycle", function () {
       listeners[0].onSocketAccepted(null, transport);
       transport.input.push(
         rawRequest({
-          path: `/bridge/v1/files/${descriptor.fileId}`,
+          path: `/bridge/v2/files/${descriptor.fileId}`,
           headers: [
             "Content-Length: 0",
             "Authorization: Bearer file-copy-token",
@@ -709,13 +709,13 @@ describe("host bridge socket integration in Zotero runtime", function () {
         (entry) => entry.name.toLowerCase() === "authorization",
       )?.value || "",
     ).replace(/^Bearer\s+/i, "");
-    const bridgeUrl = descriptor.url.replace(/\/mcp$/, "/bridge/v1");
+    const bridgeUrl = descriptor.url.replace(/\/mcp$/, "/bridge/v2");
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const health = await fragmentedRealSocketRequest({
       url: `${bridgeUrl}/health`,
       head: [
-        "GET /bridge/v1/health HTTP/1.1",
+        "GET /bridge/v2/health HTTP/1.1",
         `Host: ${new URL(bridgeUrl).host}`,
         "Connection: close",
         "",
@@ -733,7 +733,7 @@ describe("host bridge socket integration in Zotero runtime", function () {
     const upload = await fragmentedRealSocketRequest({
       url: `${bridgeUrl}/files/upload`,
       head: [
-        "POST /bridge/v1/files/upload HTTP/1.1",
+        "POST /bridge/v2/files/upload HTTP/1.1",
         `Host: ${new URL(bridgeUrl).host}`,
         `Authorization: Bearer ${token}`,
         "Content-Type: application/octet-stream",

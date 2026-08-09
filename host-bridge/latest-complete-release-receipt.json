@@ -1,15 +1,15 @@
 {
   "schema": "host-bridge.release-receipt.v2",
   "status": "complete",
-  "releaseSetId": "hbrs-f9f28ddce98be3008e13bbdb",
-  "sourceCommit": "de4bcf12a3589776f79c985d13a8500b1eea59ce",
-  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/30183842529",
+  "releaseSetId": "hbrs-8c6de08010d459a0e87e74f2",
+  "sourceCommit": "a0fe8e324834e2fcfd1b513552f9013e9be4b491",
+  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/30361889018",
   "pipelineRevision": "c9254d988b314726801e526d2905ea92947f0bad",
-  "updatedAt": "2026-07-26T02:04:42.206Z",
-  "payloadDigest": "sha256:f9f28ddce98be3008e13bbdb41ce77cca015c4082be798f1aa293390497bd015",
+  "updatedAt": "2026-07-28T13:11:02.348Z",
+  "payloadDigest": "sha256:8c6de08010d459a0e87e74f22e242479404f2725c999f89497b8e2042640f49c",
   "prebuild": {
     "branch": "host-bridge-cli-prebuilds",
-    "commit": "04196e37c16b750fcdcff404d917ac11f290cc14",
+    "commit": "73055a0949e8ea5252a9617261f162c65e69c275",
     "verified": true
   },
   "steps": {
@@ -24,18 +24,18 @@
   "surfaces": {
     "cliBundle": {
       "status": "verified",
-      "commit": "f78e9ff4299cebf25e790a179579242bf2e1d3fc",
-      "contentDigest": "89eb1c1eacda3df449a71bcedc1f6140f457fdb22d389ad8b07734075870e00d"
+      "commit": "1242d335c37c1adefff49c3b6588c0eaafec2187",
+      "contentDigest": "014cb89a1493762094e5cc6d221ffe270d7a9df1c5ac269b612e19ad7db5f2b7"
     },
     "libraryAgent": {
       "status": "verified",
-      "commit": "cec8fcddd8a3ef134bf6bdd80fcb2324c15707de",
-      "contentDigest": "a0816a753429a68bafe9bf3cefda6637f22987b326948928cdeda6f269204454"
+      "commit": "ff1475eea7d3fb6cb07dbdd872e3c7603e7f1a19",
+      "contentDigest": "c94d8c084a3de308e970ba65fbfd78a7ffbf25858c5c2cc9a870bdb4a8a6881c"
     },
     "librarianProfile": {
       "status": "verified",
-      "commit": "d69f78d3c6bf6df12dcd1c557064c6a9d33cadfc",
-      "contentDigest": "c7e8592c82d46a24ea43c1f22f3e4fb5d60a68be8cd46152210dd84de23d8d67"
+      "commit": "9a6f9207a6f543d78e98b371dde41ed452768245",
+      "contentDigest": "1e6817288b37011ed98cf1b6e26a7b39bb2aee993739daaf879b93e2fe04cbe5"
     }
   }
 }

@@ -21,11 +21,20 @@ import { isDebugModeEnabled } from "./debugMode";
 import { getOfficialSkillDir } from "./contentPackageSubscription";
 import { getDevLocalSkillDir, getEffectiveSkillDir } from "./workflowRuntime";
 import { createSha256Accumulator } from "../utils/sha256";
+import {
+  getLatestHostBridgePluginSkillBundleMaterialization,
+  getReservedHostBridgePluginSkillIds,
+} from "./hostBridgePluginSkillBundle";
+import type { HostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
 export const PLUGIN_SKILL_BUILTIN_ROOT = "skills_builtin";
 
-export type PluginSkillSourceKind = "user" | "dev-local" | "official";
+export type PluginSkillSourceKind =
+  | "user"
+  | "dev-local"
+  | "official"
+  | "xpi-bundled";
 
 export type PluginSkillRegistryDiagnostic = {
   level: "info" | "warning" | "error";
@@ -36,6 +45,7 @@ export type PluginSkillRegistryDiagnostic = {
     | "skill_schema_invalid"
     | "skill_runner_json_invalid"
     | "skill_shadowed"
+    | "skill_reserved_source_rejected"
     | "skill_scan_error";
   message: string;
   sourceKind?: PluginSkillSourceKind;
@@ -62,12 +72,19 @@ export type PluginSkillRegistrySnapshot = {
   entries: PluginSkillRegistryEntry[];
   entriesById: Record<string, PluginSkillRegistryEntry>;
   diagnostics: PluginSkillRegistryDiagnostic[];
+  hostBridgePluginSkillBundle?: {
+    identity: HostBridgePluginSkillBundleIdentity;
+    reservedSkillIds: string[];
+  };
 };
 
 export type PluginSkillRegistryScanOptions = {
   userRoot?: string;
   devLocalRoot?: string;
   builtinRoot?: string;
+  xpiBundledRoot?: string;
+  reservedSkillIds?: string[];
+  hostBridgePluginSkillBundleIdentity?: HostBridgePluginSkillBundleIdentity;
   cwd?: string;
 };
 
@@ -78,11 +95,6 @@ type Candidate = {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
-}
-
-export function setPluginSkillRegistryRuntimeRootURI(_rootURI?: string) {
-  // Kept as a compatibility hook for older startup paths; official content no
-  // longer resolves from packaged addon resources.
 }
 
 function getRuntimeCwd() {
@@ -107,6 +119,7 @@ export function resolvePluginSkillRoots(
   options: PluginSkillRegistryScanOptions = {},
 ) {
   const cwd = normalizeString(options.cwd);
+  const materialization = getLatestHostBridgePluginSkillBundleMaterialization();
   return {
     userRoot:
       normalizeString(options.userRoot) ||
@@ -117,17 +130,23 @@ export function resolvePluginSkillRoots(
         ? joinPath(cwd, PLUGIN_SKILL_BUILTIN_ROOT)
         : getDefaultOfficialSkillRoot()),
     devLocalRoot: normalizeString(options.devLocalRoot),
+    xpiBundledRoot:
+      normalizeString(options.xpiBundledRoot) ||
+      (materialization?.ok ? materialization.root : ""),
   };
 }
 
 function sourcePriority(sourceKind: PluginSkillSourceKind) {
-  if (sourceKind === "official") {
+  if (sourceKind === "xpi-bundled") {
     return 0;
   }
-  if (sourceKind === "dev-local") {
+  if (sourceKind === "official") {
     return 1;
   }
-  return 2;
+  if (sourceKind === "dev-local") {
+    return 2;
+  }
+  return 3;
 }
 
 async function pathExists(targetPath: string) {
@@ -468,6 +487,16 @@ async function scanPluginSkillRegistryImpl(
     roots.devLocalRoot ||
     (usesExplicitScanRoots ? "" : await getDevLocalSkillDir());
   const diagnostics: PluginSkillRegistryDiagnostic[] = [];
+  const materialization = getLatestHostBridgePluginSkillBundleMaterialization();
+  const reservedSkillIds = new Set(
+    options.reservedSkillIds || getReservedHostBridgePluginSkillIds(),
+  );
+  const xpi = roots.xpiBundledRoot
+    ? await collectCandidates({
+        root: roots.xpiBundledRoot,
+        sourceKind: "xpi-bundled",
+      })
+    : { candidates: [] as Candidate[], diagnostics: [] };
   const builtin = await collectCandidates({
     root: roots.builtinRoot,
     sourceKind: "official",
@@ -483,6 +512,7 @@ async function scanPluginSkillRegistryImpl(
     sourceKind: "user",
   });
   diagnostics.push(
+    ...xpi.diagnostics,
     ...builtin.diagnostics,
     ...devLocal.diagnostics,
     ...user.diagnostics,
@@ -490,6 +520,7 @@ async function scanPluginSkillRegistryImpl(
 
   const validEntries: PluginSkillRegistryEntry[] = [];
   for (const candidate of [
+    ...xpi.candidates,
     ...builtin.candidates,
     ...devLocal.candidates,
     ...user.candidates,
@@ -497,6 +528,31 @@ async function scanPluginSkillRegistryImpl(
     const inspected = await inspectCandidate(candidate);
     if ("category" in inspected) {
       diagnostics.push(inspected);
+      continue;
+    }
+    if (reservedSkillIds.has(inspected.skillId)) {
+      if (inspected.sourceKind !== "xpi-bundled") {
+        diagnostics.push({
+          level: "warning",
+          category: "skill_reserved_source_rejected",
+          message: `${inspected.sourceKind} source cannot provide reserved Host Bridge Skill: ${inspected.skillId}`,
+          skillId: inspected.skillId,
+          sourceKind: inspected.sourceKind,
+          path: inspected.sourceDir,
+          reason: "reserved_for_xpi_bundle",
+        });
+        continue;
+      }
+    } else if (inspected.sourceKind === "xpi-bundled") {
+      diagnostics.push({
+        level: "error",
+        category: "skill_candidate_invalid",
+        message: `XPI Host Bridge bundle contains an unreserved Skill: ${inspected.skillId}`,
+        skillId: inspected.skillId,
+        sourceKind: inspected.sourceKind,
+        path: inspected.sourceDir,
+        reason: "xpi_bundle_skill_not_reserved",
+      });
       continue;
     }
     if (inspected.debugOnly && !isDebugModeEnabled()) {
@@ -549,6 +605,18 @@ async function scanPluginSkillRegistryImpl(
     entries,
     entriesById,
     diagnostics,
+    ...((options.hostBridgePluginSkillBundleIdentity ||
+      (materialization?.ok ? materialization.identity : undefined)) &&
+    roots.xpiBundledRoot
+      ? {
+          hostBridgePluginSkillBundle: {
+            identity:
+              options.hostBridgePluginSkillBundleIdentity ||
+              (materialization?.ok ? materialization.identity : undefined)!,
+            reservedSkillIds: [...reservedSkillIds],
+          },
+        }
+      : {}),
   };
 }
 
@@ -559,6 +627,10 @@ export function scanPluginSkillRegistry(
     builtinRoot: normalizeString(options.builtinRoot),
     userRoot: normalizeString(options.userRoot),
     devLocalRoot: normalizeString(options.devLocalRoot),
+    xpiBundledRoot: normalizeString(options.xpiBundledRoot),
+    reservedSkillIds: options.reservedSkillIds || [],
+    hostBridgePluginSkillBundleIdentity:
+      options.hostBridgePluginSkillBundleIdentity,
     cwd: normalizeString(options.cwd),
     debug: isDebugModeEnabled(),
   });

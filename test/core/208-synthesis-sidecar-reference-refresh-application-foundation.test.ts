@@ -50,8 +50,24 @@ function descriptors(paperRef: string, version = "1") {
     references: "b",
     citation_analysis: "c",
   } as const;
-  return (["digest", "references", "citation_analysis"] as const).map(
-    (artifactType) => ({
+  return (
+    ["digest", "references", "citation_analysis", "literature_score"] as const
+  ).map((artifactType) => {
+    if (artifactType === "literature_score") {
+      return {
+        paperRef,
+        artifactType,
+        payloadType: "literature-score-json",
+        status: "missing" as const,
+        diagnostics: [],
+        literatureQuality: {
+          status: "missing" as const,
+          quality_prior: 0.5,
+          diagnostics: ["literature_score_missing" as const],
+        },
+      };
+    }
+    return {
       paperRef,
       artifactType,
       payloadType:
@@ -66,8 +82,8 @@ function descriptors(paperRef: string, version = "1") {
         .repeat(64)
         .slice(0, 64)}`,
       diagnostics: [],
-    }),
-  );
+    };
+  });
 }
 
 function prepareInput(args: {
@@ -153,7 +169,7 @@ describe("Synthesis sidecar Reference Refresh application foundation", function 
       prepareInput({ expectedReferenceHash: null }),
     );
     assert.equal(rebuilt.items.length, 2);
-    assert.equal(rebuilt.artifacts.length, 6);
+    assert.equal(rebuilt.artifacts.length, 8);
     assert.deepEqual(rebuildSynthesisReferenceRefreshPageRequest({}), {
       cursor: "",
       limit: 50,

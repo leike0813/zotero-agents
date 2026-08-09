@@ -841,6 +841,9 @@ fn artifact_errors(value: &Value, expected_language: &str) -> Vec<String> {
     if text(artifact.get("schema_id")) != "synthesis.topic_synthesis_artifact" {
         errors.push("artifact schema_id must be synthesis.topic_synthesis_artifact".into());
     }
+    if text(artifact.get("schema_version")) != "4.0.0" {
+        errors.push("artifact schema_version must be 4.0.0".into());
+    }
     if !expected_language.is_empty() && text(artifact.get("language")) != expected_language {
         errors.push(format!("artifact language must be {expected_language}"));
     }
@@ -1040,7 +1043,7 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
                 "schema_id".into(),
                 json!("synthesis.topic_synthesis_artifact"),
             );
-            artifact.insert("schema_version".into(), json!("3.0.0"));
+            artifact.insert("schema_version".into(), json!("4.0.0"));
             let language = text(manifest.get("language"));
             artifact.insert(
                 "language".into(),

@@ -23,7 +23,10 @@ import {
   writeUtf8,
 } from "../zotero/workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
-import { resolveRepresentativeImageMarkdownImportCandidate } from "../../workflows_builtin/literature-workbench-package/lib/representativeImage.mjs";
+import {
+  extractExistingRepresentativeImageKeys,
+  resolveRepresentativeImageMarkdownImportCandidate,
+} from "../../workflows_builtin/literature-workbench-package/lib/representativeImage.mjs";
 import {
   analyzeNoteHtmlForDebug,
   parsePseudoEmbeddedPayloadBytesForDebug,
@@ -164,6 +167,46 @@ function buildCitationNoteContent() {
   ].join("\n");
 }
 
+function buildNativeLiteratureScoreArtifact() {
+  return {
+    schema: "literature_score.v1",
+    rubric_id: "default.v1",
+    paper_type: "empirical",
+    paper_type_reason: "Empirical evaluation.",
+    overall_score: 60,
+    confidence: 0.8,
+    confidence_adjusted_score: 58,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimension_key) => ({
+      dimension_key,
+      name: dimension_key.replaceAll("_", " "),
+      score: 60,
+      confidence: 0.8,
+      summary: `${dimension_key} summary`,
+    })),
+  };
+}
+
+function buildLiteratureScoreNoteContent() {
+  return [
+    '<div data-zs-note-kind="literature-score">',
+    "<h1>Literature Score</h1>",
+    renderPayloadBlock("literature-score-json", {
+      version: 1,
+      entry: "artifacts/literature_score.json",
+      format: "json",
+      literature_score: buildNativeLiteratureScoreArtifact(),
+    }),
+    "</div>",
+  ].join("\n");
+}
+
 function buildConversationNoteContent(
   markdown: string,
   entry = "artifacts/conversation-note.md",
@@ -285,6 +328,9 @@ describe("workflow: literature-workbench import/export notes", function () {
       const citationAnalysis = {
         sourcePath: "D:/imports/citation_analysis.json",
       };
+      const literatureScore = {
+        sourcePath: "D:/imports/literature_score.json",
+      };
       assert.equal(
         getSelectedImportCandidateForKind(
           { digest, references, citationAnalysis },
@@ -305,6 +351,13 @@ describe("workflow: literature-workbench import/export notes", function () {
           "citation-analysis",
         ),
         citationAnalysis,
+      );
+      assert.equal(
+        getSelectedImportCandidateForKind(
+          { digest, references, citationAnalysis, literatureScore },
+          "literature-score",
+        ),
+        literatureScore,
       );
     },
   );
@@ -908,6 +961,20 @@ describe("workflow: literature-workbench import/export notes", function () {
     assert.equal(parsed?.contentLength, 24);
   });
 
+  it("scopes representative-image cleanup away from score and payload images", function () {
+    const html = [
+      '<div data-zs-block="representative-image"><img data-attachment-key="IMGREP"></div>',
+      '<img data-attachment-key="IMGREP2" data-zs-representative-image="v1">',
+      '<img data-attachment-key="IMGSCORE" data-zs-score-radar="v1">',
+      '<img data-attachment-key="IMGPAYLOAD" alt="Zotero Skills artifact payload">',
+    ].join("\n");
+
+    assert.deepEqual(extractExistingRepresentativeImageKeys(html), [
+      "IMGREP2",
+      "IMGREP",
+    ]);
+  });
+
   itNodeOnly(
     "builds a single aggregated export request across multiple selected units",
     async function () {
@@ -976,6 +1043,9 @@ describe("workflow: literature-workbench import/export notes", function () {
     await handlers.parent.addNote(parent, {
       content: buildCitationNoteContent(),
     });
+    await handlers.parent.addNote(parent, {
+      content: buildLiteratureScoreNoteContent(),
+    });
 
     const selection = await buildSelectionContext([parent]);
     const requests = (await executeBuildRequests({
@@ -1024,11 +1094,85 @@ describe("workflow: literature-workbench import/export notes", function () {
       await readUtf8(joinPath(targetDir, "citation_analysis.json")),
     );
     assert.deepEqual(citationJson, buildNativeCitationArtifact());
+    const scoreJson = JSON.parse(
+      await readUtf8(joinPath(targetDir, "literature_score.json")),
+    );
+    assert.deepEqual(scoreJson, buildNativeLiteratureScoreArtifact());
     assert.equal(
       await readUtf8(joinPath(targetDir, "citation_analysis.md")),
       "# Citation Analysis\n\nStructured report",
     );
   });
+
+  itNodeOnly(
+    "publishes remote note exports as one downloadable archive",
+    async function () {
+      const workflow = await getWorkflow("export-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Remote Export Parent" },
+      });
+      await handlers.parent.addNote(parent, {
+        content: buildDigestNoteContent("# Remote Digest"),
+      });
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: await buildSelectionContext([parent]),
+      })) as Array<Record<string, unknown>>;
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const exportRoot = await mkTempDir("remote-notes-export");
+      const outputPath = joinPath(exportRoot, "notes-export.zip");
+      let publishedPath = "";
+
+      const result = (await executeApplyResult({
+        workflow,
+        parent,
+        request: requests[0],
+        bundleReader: { readText: async () => "" },
+        runtime: {
+          invocationMode: "non-interactive",
+          hostApi: {
+            ...baseHostApi,
+            resources: {
+              mode: "non-interactive",
+              getInput: () => null,
+              getInputs: () => [],
+              async allocateOutput() {
+                return { path: outputPath };
+              },
+              async publishOutput(args: { path: string }) {
+                publishedPath = args.path;
+                return {
+                  slotId: "notes",
+                  fileId: "file-notes-export",
+                  sourceKind: "workflow-artifact",
+                  displayName: "notes-export.zip",
+                  contentType: "application/zip",
+                  createdAt: "2026-08-07T00:00:00.000Z",
+                  expiresAt: "2026-08-07T02:00:00.000Z",
+                  downloadCommand:
+                    "zotero-bridge file download file-notes-export --output notes-export.zip",
+                };
+              },
+              listOutputs: () => [],
+            },
+          } as any,
+          hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        },
+      })) as {
+        exportedParents: number;
+        exportedFiles: number;
+        resourceOutputs: Array<{ fileId: string }>;
+      };
+
+      assert.equal(result.exportedParents, 1);
+      assert.equal(result.exportedFiles, 1);
+      assert.equal(result.resourceOutputs[0].fileId, "file-notes-export");
+      assert.equal(publishedPath, outputPath);
+      assert.isAbove((await readBytes(outputPath)).byteLength, 0);
+    },
+  );
 
   it("exports digest representative image as markdown marker and sidecar image", async function () {
     const workflow = await getWorkflow("export-notes");
@@ -1341,7 +1485,157 @@ describe("workflow: literature-workbench import/export notes", function () {
     assert.isOk(thrown, "note selection should be rejected");
   });
 
+  itNodeOnly(
+    "applies structured conflict policies for non-interactive note imports without opening an editor",
+    async function () {
+      const workflow = await getWorkflow("import-notes");
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const importRoot = await mkTempDir(
+        "literature-workbench-resource-import",
+      );
+      const digestPath = joinPath(importRoot, "digest.md");
+      await writeUtf8(digestPath, "# Incoming Digest\n\nRemote body");
+
+      for (const testCase of [
+        { policy: undefined, outcome: "error" },
+        { policy: "skip", outcome: "skip" },
+        { policy: "overwrite", outcome: "overwrite" },
+      ]) {
+        const parent = await handlers.item.create({
+          itemType: "journalArticle",
+          fields: { title: `Non-interactive ${testCase.outcome}` },
+        });
+        const existingDigest = await handlers.parent.addNote(parent, {
+          content: buildDigestNoteContent("# Existing Digest"),
+        });
+        const existingDigestContent = existingDigest.getNote();
+        let editorCalls = 0;
+        let thrown: unknown;
+        let result: unknown;
+        try {
+          result = await executeApplyResult({
+            workflow,
+            parent,
+            bundleReader: { readText: async () => "" },
+            executionOptions: testCase.policy
+              ? { workflowParams: { conflictPolicy: testCase.policy } }
+              : undefined,
+            runtime: {
+              invocationMode: "non-interactive",
+              hostApi: {
+                ...baseHostApi,
+                editor: {
+                  ...baseHostApi.editor,
+                  async openSession() {
+                    editorCalls += 1;
+                    throw new Error("editor must not open");
+                  },
+                },
+                resources: {
+                  mode: "non-interactive",
+                  getInput(slotId: string) {
+                    return slotId === "digest"
+                      ? {
+                          fileId: "file-digest",
+                          path: digestPath,
+                          displayName: "digest.md",
+                          contentType: "text/markdown",
+                        }
+                      : null;
+                  },
+                  getInputs(slotId: string) {
+                    const input = this.getInput(slotId);
+                    return input ? [input] : [];
+                  },
+                  async allocateOutput() {
+                    throw new Error("no output expected");
+                  },
+                  async publishOutput() {
+                    throw new Error("no output expected");
+                  },
+                  listOutputs() {
+                    return [];
+                  },
+                },
+              } as any,
+              hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+            },
+          });
+        } catch (error) {
+          thrown = error;
+        }
+
+        assert.equal(editorCalls, 0);
+        if (testCase.outcome === "error") {
+          assert.equal(
+            (thrown as { code?: string })?.code,
+            "workflow_conflict_requires_policy",
+          );
+          assert.equal(existingDigest.getNote(), existingDigestContent);
+          continue;
+        }
+        assert.isUndefined(thrown);
+        if (testCase.outcome === "skip") {
+          assert.deepEqual(result, { imported: 0, skipped: 1 });
+          assert.equal(existingDigest.getNote(), existingDigestContent);
+          continue;
+        }
+        assert.equal((result as { imported?: number })?.imported, 1);
+        const digest = parent
+          .getNotes()
+          .map((id) => Zotero.Items.get(id)!)
+          .find((entry) => hasGeneratedHeading(entry, "Digest"));
+        assert.equal(
+          (await parseStoredPayload(digest!, "digest-markdown")).content,
+          "# Incoming Digest\n\nRemote body",
+        );
+      }
+    },
+  );
+
   describeImportEditorSuite("import-notes editor-driven flows", function () {
+    it("imports a literature score file as a generated score note", async function () {
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import Literature Score Parent" },
+      });
+      const editorResult = {
+        saved: true,
+        result: {
+          literatureScore: {
+            sourcePath: "D:/imports/literature_score.json",
+            payload: {
+              version: 1,
+              entry: "D:/imports/literature_score.json",
+              format: "json",
+              literature_score: buildNativeLiteratureScoreArtifact(),
+            },
+          },
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+
+      const result = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+      })) as { imported?: number };
+
+      assert.equal(result.imported, 1);
+      const scoreNote = parent
+        .getNotes()
+        .map((id) => Zotero.Items.get(id)!)
+        .find((note) => hasGeneratedHeading(note, "Literature Score"));
+      assert.isOk(scoreNote);
+      assert.deepEqual(
+        (await parseStoredPayload(scoreNote!, "literature-score-json"))
+          .literature_score,
+        buildNativeLiteratureScoreArtifact(),
+      );
+    });
+
     it("imports selected digest/references/citation files and upserts generated notes", async function () {
       const workflow = await getWorkflow("import-notes");
       const parent = await handlers.item.create({

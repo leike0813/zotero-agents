@@ -42,11 +42,13 @@ export type HostBridgeErrorCode =
   | "backend_not_found"
   | "download_failed"
   | "file_handle_expired"
+  | "file_handle_leased"
   | "file_not_found"
   | "file_unavailable"
   | "collection_not_found"
   | "context_navigation_failed"
   | "invalid_capability_input"
+  | "capability_output_contract_violation"
   | "synthesis_maintenance_idempotency_conflict"
   | "invalid_library_cursor"
   | "invalid_host_bridge_cursor"
@@ -72,6 +74,8 @@ export type HostBridgeErrorCode =
   | "invalid_workflow_input"
   | "missing_required_workflow_parameter"
   | "invalid_workflow_submit_request"
+  | "invalid_workflow_defaults_request"
+  | "provider_profile_required"
   | "invalid_provider_profile_request"
   | "invalid_provider_profile"
   | "provider_profile_backend_not_found"
@@ -80,7 +84,16 @@ export type HostBridgeErrorCode =
   | "provider_profile_option_unknown"
   | "provider_profile_option_invalid"
   | "provider_profile_option_unavailable"
+  | "provider_profile_refresh_failed"
+  | "provider_profile_refresh_unsupported"
   | "workflow_provider_incompatible"
+  | "workflow_resource_missing"
+  | "workflow_resource_ineligible"
+  | "workflow_resource_mismatch"
+  | "workflow_resource_output_invalid"
+  | "invalid_workflow_resource_bindings"
+  | "workflow_interaction_required"
+  | "workflow_conflict_requires_policy"
   | "item_not_found"
   | "internal_error"
   | "method_not_allowed"
@@ -218,11 +231,22 @@ export type HostBridgeCapabilityManifestEntry = {
   summary: string;
   approval: HostBridgeApprovalRequirement;
   requestEffect: "read" | "state-change";
-  input: {
-    type: "none" | "object" | "item-ref" | "mutation-preview";
-    required: boolean;
-    properties?: Record<string, unknown>;
-    requiredProperties?: string[];
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  exposure: {
+    public: boolean;
+    debugOnly: boolean;
+    dangerous: boolean;
+    cacheView: boolean;
+    rawOnly: boolean;
+    mcpMirror: boolean;
+    responseSizing:
+      | "paged"
+      | "limit-bounded"
+      | "selector-bounded"
+      | "file-output"
+      | "bounded-diagnostic"
+      | "unclassified";
   };
 };
 

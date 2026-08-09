@@ -159,19 +159,21 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 6. 数值字段非法输入不得落盘，必须给出字段级错误提示。  
 7. 运行时文案语义统一为“默认配置 / default settings”，不得回退到“持久/persistent”。  
 8. 提交前 settings gate 失败时，workflow trigger 不得 silent no-op，必须写 runtime log 并提示用户。  
+9. 交互触发 workflow 时必须先锁定一次选择上下文；设置窗口或异步准备期间的 Zotero selection 变化不得改变本次提交的输入。
 
 ## 6. Sequence (Interactive Trigger)
 
-1. user trigger workflow  
-2. resolve `isWorkflowConfigurable`  
-3. if false -> execute directly  
-4. if true -> open submit web dialog  
-5. dialog confirm -> receive `{executionOptions, persist}`  
-6. if `persist` -> `updateWorkflowSettings`  
-7. run preparation seam with `executionOptionsOverride`  
-8. duplicate check and Host admission for ACP/SkillRunner execution units
-9. unit-local preflight / request build / provider run / required apply
-10. await the submission summary and emit one final feedback result
+1. user trigger workflow and capture the selected item snapshot
+2. build one serialized `SelectionContext` from that snapshot
+3. resolve `isWorkflowConfigurable`
+4. if false -> execute directly with the captured context
+5. if true -> open submit web dialog with preview derived from the captured context
+6. dialog confirm -> receive `{executionOptions, persist}`
+7. if `persist` -> `updateWorkflowSettings`
+8. run confirmed preparation with `executionOptionsOverride` and the captured context
+9. duplicate check and Host admission for ACP/SkillRunner execution units
+10. unit-local preflight / request build / provider run / required apply
+11. await the submission summary and emit one final feedback result
 
 ## 7. Current-state boundaries
 

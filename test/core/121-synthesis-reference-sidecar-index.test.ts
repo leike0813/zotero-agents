@@ -6,6 +6,7 @@ import {
 import {
   buildReferenceSidecarIndexRow,
   buildSynthesisLayerDbPath,
+  PAPER_ARTIFACT_TYPES,
 } from "../../src/modules/synthesis/registry";
 import { readArtifactsFromRegistryInputs } from "../../src/modules/synthesis/libraryAdapter";
 
@@ -41,6 +42,34 @@ function note(args: {
   };
 }
 
+function literatureScore(overallScore = 80, confidence = 0.75) {
+  return {
+    literature_score: {
+      schema: "literature_score.v1",
+      rubric_id: "literature-analysis-rubric.v1",
+      paper_type: "empirical",
+      paper_type_reason: "The paper reports an empirical study.",
+      overall_score: overallScore,
+      confidence,
+      confidence_adjusted_score: 72,
+      dimensions: [
+        "methodological_rigor",
+        "evidence_completeness",
+        "reproducibility",
+        "innovation_signals",
+        "research_impact_potential",
+        "writing_quality",
+      ].map((dimensionKey) => ({
+        dimension_key: dimensionKey,
+        name: dimensionKey,
+        score: overallScore,
+        confidence,
+        summary: `${dimensionKey} assessment`,
+      })),
+    },
+  };
+}
+
 describe("Synthesis Reference Sidecar Index", function () {
   it("builds index rows from Zotero source DTOs and derived artifact payloads [inv.ids.paper_ref_format]", function () {
     const row = buildReferenceSidecarIndexRow({
@@ -68,6 +97,11 @@ describe("Synthesis Reference Sidecar Index", function () {
           payloadType: "citation-analysis-json",
           payload: { citations: [{ role: "background" }] },
         }),
+        note({
+          key: "S1",
+          payloadType: "literature-score-json",
+          payload: literatureScore(),
+        }),
       ],
     });
 
@@ -76,6 +110,13 @@ describe("Synthesis Reference Sidecar Index", function () {
     assert.equal(row.artifacts.digest.status, "available");
     assert.equal(row.artifacts.references.status, "available");
     assert.equal(row.artifacts.citation_analysis.status, "available");
+    assert.equal(row.artifacts.literature_score.status, "available");
+    assert.deepEqual(PAPER_ARTIFACT_TYPES, [
+      "digest",
+      "references",
+      "citation_analysis",
+      "literature_score",
+    ]);
     assert.match(row.artifacts.digest.hash || "", /^sha256:[a-f0-9]{64}$/);
     assert.deepEqual(row.tags, ["topic:test"]);
     assert.deepEqual(row.collections, ["COLL1"]);
@@ -183,8 +224,117 @@ describe("Synthesis Reference Sidecar Index", function () {
     assert.equal(row.artifactCoverage, "missing");
     assert.deepEqual(
       row.diagnostics.map((entry) => entry.code),
-      ["payload_missing", "payload_missing", "payload_missing"],
+      [
+        "payload_missing",
+        "payload_missing",
+        "payload_missing",
+        "payload_missing",
+      ],
     );
+  });
+
+  it("keeps the reference facet score-independent while score state affects artifact coverage and row hash", function () {
+    const commonNotes = [
+      note({
+        key: "D1",
+        payloadType: "digest-markdown",
+        payload: "# Digest",
+        payloadFormat: "text",
+      }),
+      note({
+        key: "R1",
+        payloadType: "references-json",
+        payload: { references: [] },
+      }),
+      note({
+        key: "C1",
+        payloadType: "citation-analysis-json",
+        payload: { citation_analysis: { report_md: "## Report" } },
+      }),
+    ];
+    const missing = buildReferenceSidecarIndexRow({
+      libraryId: 1,
+      itemKey: "ABCD1234",
+      title: "Paper",
+      notes: commonNotes,
+    });
+    const available = buildReferenceSidecarIndexRow({
+      libraryId: 1,
+      itemKey: "ABCD1234",
+      title: "Paper",
+      notes: [
+        ...commonNotes,
+        note({
+          key: "S1",
+          payloadType: "literature-score-json",
+          payload: literatureScore(90, 0.8),
+        }),
+      ],
+    });
+    const invalid = buildReferenceSidecarIndexRow({
+      libraryId: 1,
+      itemKey: "ABCD1234",
+      title: "Paper",
+      notes: [
+        ...commonNotes,
+        note({
+          key: "S1",
+          payloadType: "literature-score-json",
+          payload: { literature_score: { schema: "literature_score.v1" } },
+        }),
+      ],
+    });
+
+    assert.equal(missing.artifactCoverage, "partial");
+    assert.equal(available.artifactCoverage, "complete");
+    assert.equal(invalid.artifactCoverage, "partial");
+    assert.equal(invalid.artifacts.literature_score.status, "error");
+    assert.equal(
+      missing.facets.reference.hash,
+      available.facets.reference.hash,
+    );
+    assert.equal(
+      invalid.facets.reference.hash,
+      available.facets.reference.hash,
+    );
+    assert.notEqual(
+      missing.facets.artifact.hash,
+      available.facets.artifact.hash,
+    );
+    assert.notEqual(missing.row_hash, available.row_hash);
+  });
+
+  it("reads all four artifact types by default and preserves explicit filtering", function () {
+    const input = {
+      libraryId: 1,
+      itemKey: "ABCD1234",
+      title: "Paper",
+      notes: [
+        note({
+          key: "S1",
+          payloadType: "literature-score-json",
+          payload: literatureScore(),
+        }),
+      ],
+    };
+
+    const all = readArtifactsFromRegistryInputs([input], {
+      paper_ref: "1:ABCD1234",
+    });
+    const scoreOnly = readArtifactsFromRegistryInputs([input], {
+      paper_ref: "1:ABCD1234",
+      artifact_types: ["literature_score"],
+    });
+
+    assert.deepEqual(
+      all.artifacts.map((artifact) => artifact.artifact_type),
+      PAPER_ARTIFACT_TYPES,
+    );
+    assert.deepEqual(
+      scoreOnly.artifacts.map((artifact) => artifact.artifact_type),
+      ["literature_score"],
+    );
+    assert.equal(scoreOnly.artifacts[0]?.status, "available");
   });
 
   it("plans a dedicated local SQLite database path", function () {

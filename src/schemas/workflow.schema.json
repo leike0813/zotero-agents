@@ -35,6 +35,22 @@
         "enum": ["auto", "interactive"]
       }
     },
+    "supportedInvocationModes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["interactive", "non-interactive"]
+      }
+    },
+    "resourceRequirements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/resourceRequirement"
+      }
+    },
     "provider": {
       "$ref": "#/$defs/nonEmptyString"
     },
@@ -189,6 +205,37 @@
   ],
   "additionalProperties": true,
   "$defs": {
+    "resourceRequirement": {
+      "type": "object",
+      "required": ["id", "direction", "kind", "cardinality", "required"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "direction": { "enum": ["input", "output"] },
+        "kind": { "enum": ["file", "archive"] },
+        "cardinality": { "enum": ["one", "many"] },
+        "required": { "type": "boolean" },
+        "accept": {
+          "type": "object",
+          "properties": {
+            "contentTypes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nonEmptyString" },
+              "uniqueItems": true
+            },
+            "extensions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nonEmptyString" },
+              "uniqueItems": true
+            },
+            "maxCount": { "type": "integer", "minimum": 1 },
+            "maxBytes": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "suggestedName": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
     "nonEmptyString": {
       "type": "string",
       "minLength": 1
@@ -509,6 +556,102 @@
                         "custom"
                       ]
                     }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "phase",
+                  "artifacts",
+                  "modes",
+                  "acceptModes"
+                ],
+                "properties": {
+                  "kind": { "const": "generated-note-readiness" },
+                  "phase": { "const": "availability" },
+                  "artifacts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["id", "noteKinds"],
+                      "properties": {
+                        "id": { "type": "string", "minLength": 1 },
+                        "noteKinds": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": { "type": "string", "minLength": 1 }
+                        },
+                        "payload": {
+                          "type": "object",
+                          "required": ["type"],
+                          "properties": {
+                            "type": { "type": "string", "minLength": 1 },
+                            "requirements": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": ["pointer"],
+                                "properties": {
+                                  "pointer": {
+                                    "type": "string",
+                                    "pattern": "^/"
+                                  },
+                                  "const": {},
+                                  "type": {
+                                    "enum": [
+                                      "string",
+                                      "number",
+                                      "array",
+                                      "object"
+                                    ]
+                                  },
+                                  "minimum": { "type": "number" },
+                                  "maximum": { "type": "number" },
+                                  "length": { "type": "integer", "minimum": 0 }
+                                },
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "modes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["id"],
+                      "properties": {
+                        "id": { "type": "string", "minLength": 1 },
+                        "allAvailable": {
+                          "type": "array",
+                          "items": { "type": "string" },
+                          "uniqueItems": true
+                        },
+                        "allUnavailable": {
+                          "type": "array",
+                          "items": { "type": "string" },
+                          "uniqueItems": true
+                        },
+                        "default": { "type": "boolean" }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "acceptModes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": { "type": "string", "minLength": 1 }
                   }
                 },
                 "additionalProperties": false

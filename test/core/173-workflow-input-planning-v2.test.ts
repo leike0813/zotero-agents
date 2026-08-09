@@ -401,6 +401,92 @@ describe("workflow input planning protocol v2", function () {
       });
     });
 
+    it("scopes each atomic candidate without retaining unrelated selection arrays", async function () {
+      const selectedParent = parent(1, "Parent");
+      const selectedAttachment = attachment(11, 1);
+      const selectedChild = {
+        item: { id: 21, key: "C21", title: "Child" },
+        parent: { id: 1, title: "Parent" },
+      };
+      const selectedNote = {
+        item: { id: 31, key: "N31", title: "Note" },
+        parent: { id: 1, title: "Parent" },
+      };
+      const selectedItems = {
+        parents: [selectedParent],
+        attachments: [selectedAttachment],
+        children: [selectedChild],
+        notes: [selectedNote],
+      };
+      const cases = [
+        {
+          kind: "parent",
+          plural: "parents",
+          expected: selectedParent,
+        },
+        {
+          kind: "attachment",
+          plural: "attachments",
+          expected: selectedAttachment,
+        },
+        {
+          kind: "child",
+          plural: "children",
+          expected: selectedChild,
+        },
+        {
+          kind: "note",
+          plural: "notes",
+          expected: selectedNote,
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const result = await plan(
+          manifest({
+            inputs: {
+              member: { kind: testCase.kind },
+              grouping: { mode: "each" },
+            },
+            validateSelection: {
+              select: { policy: "input-member", source: "selected" },
+              filters: [],
+            },
+          }),
+          {
+            items: selectedItems,
+            summary: {
+              parentCount: 1,
+              attachmentCount: 1,
+              childCount: 1,
+              noteCount: 1,
+            },
+          },
+        );
+
+        assert.lengthOf(result.units, 1, testCase.kind);
+        const scoped = result.units[0].selectionContext;
+        assert.equal(scoped.selectionType, testCase.kind);
+        assert.deepEqual(scoped.items?.[testCase.plural], [testCase.expected]);
+        for (const plural of [
+          "parents",
+          "attachments",
+          "children",
+          "notes",
+        ] as const) {
+          if (plural !== testCase.plural) {
+            assert.deepEqual(scoped.items?.[plural], [], plural);
+          }
+        }
+        assert.deepEqual(scoped.summary, {
+          parentCount: testCase.kind === "parent" ? 1 : 0,
+          attachmentCount: testCase.kind === "attachment" ? 1 : 0,
+          childCount: testCase.kind === "child" ? 1 : 0,
+          noteCount: testCase.kind === "note" ? 1 : 0,
+        });
+      }
+    });
+
     it("supports child as an atomic selected member", async function () {
       const result = await plan(
         manifest({

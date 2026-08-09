@@ -1211,6 +1211,8 @@ async function executeSequenceFromState(args: {
   onSequenceStepFinished?: SequenceStepFinishedObserver;
   parentWorkflowRunId?: string;
   semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
+  submissionId?: string;
+  submissionUnitId?: string;
 }) {
   const backendType = normalizeString(args.backend.type);
   if (
@@ -1343,6 +1345,8 @@ async function executeSequenceFromState(args: {
         sequenceStepIndex: index,
         skillId: step.skill_id,
         finalStepId: args.state.request.final_step_id,
+        submissionId: args.submissionId,
+        submissionUnitId: args.submissionUnitId,
       };
       if (
         __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -1609,6 +1613,8 @@ export async function executeSkillRunnerSequence(args: {
   workflowLabel?: string;
   workflowRunId: string;
   jobId: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   executeWithProvider: ExecuteWithProvider;
   applySequenceStepResult?: ApplySequenceStepResult;
   appendRuntimeLog: typeof appendRuntimeLog;
@@ -1639,6 +1645,8 @@ export async function executeSkillRunnerSequence(args: {
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
     onSequenceStepFinished: args.onSequenceStepFinished,
+    submissionId: args.submissionId,
+    submissionUnitId: args.submissionUnitId,
   };
   if (
     __acp_runtime_semantic_trace_recorder_enabled__ &&
@@ -1666,6 +1674,8 @@ export async function continueSkillRunnerSequence(args: {
   onSequenceStepFinished?: SequenceStepFinishedObserver;
   parentWorkflowRunId?: string;
   semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
+  submissionId?: string;
+  submissionUnitId?: string;
 }) {
   markSequenceRunContinuing(args.sequenceRunId);
   const state = getSequenceRunState(args.sequenceRunId);
@@ -1683,6 +1693,8 @@ export async function continueSkillRunnerSequence(args: {
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
     onSequenceStepFinished: args.onSequenceStepFinished,
+    submissionId: args.submissionId,
+    submissionUnitId: args.submissionUnitId,
   };
   if (
     __acp_runtime_semantic_trace_recorder_enabled__ &&

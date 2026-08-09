@@ -13,6 +13,7 @@ import {
 import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/representativeImage.mjs";
+import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   requireHostApi,
   requireHostEditor,
@@ -21,7 +22,12 @@ import {
 
 const IMPORT_RENDERER_ID = "literature-workbench.import-notes.v1";
 const CONFLICT_RENDERER_ID = "literature-workbench.import-notes-conflict.v1";
-const ROW_KIND_ORDER = ["digest", "references", "citation-analysis"];
+const ROW_KIND_ORDER = [
+  "digest",
+  "references",
+  "citation-analysis",
+  "literature-score",
+];
 
 export function getSelectedImportCandidateForKind(state, kind) {
   if (kind === "citation-analysis") {
@@ -32,6 +38,9 @@ export function getSelectedImportCandidateForKind(state, kind) {
   }
   if (kind === "references") {
     return state?.references || null;
+  }
+  if (kind === "literature-score") {
+    return state?.literatureScore || null;
   }
   return null;
 }
@@ -50,6 +59,11 @@ function clearSelectedImportCandidateForKind(draft, kind) {
   if (kind === "references") {
     draft.references = null;
     draft.errors.references = "";
+    return;
+  }
+  if (kind === "literature-score") {
+    draft.literatureScore = null;
+    draft.errors["literature-score"] = "";
   }
 }
 
@@ -76,6 +90,9 @@ function getKindLabel(kind) {
   if (kind === "references") {
     return "References note";
   }
+  if (kind === "literature-score") {
+    return "Literature score note";
+  }
   return "Citation analysis note";
 }
 
@@ -85,6 +102,9 @@ function getPickerTitle(kind) {
   }
   if (kind === "references") {
     return "Import References";
+  }
+  if (kind === "literature-score") {
+    return "Import Literature Score";
   }
   return "Import Citation Analysis";
 }
@@ -117,6 +137,88 @@ function getRepresentativeImageStatus(digest) {
 function formatValidationError(errors) {
   const first = Array.isArray(errors) && errors.length > 0 ? errors[0] : "";
   return String(first || "validation failed").trim();
+}
+
+async function buildNonInteractiveSelection({ host, runtime }) {
+  const resources = host.resources;
+  const selected = {
+    digest: null,
+    references: null,
+    citationAnalysis: null,
+    literatureScore: null,
+    customNotes: [],
+  };
+  const digest = resources?.getInput("digest");
+  if (digest) {
+    const markdown = await host.file.readText(digest.path);
+    const resolved = await resolveRepresentativeImageMarkdownImportCandidate({
+      runtime,
+      digestPath: digest.path,
+      markdown,
+    });
+    selected.digest = {
+      sourcePath: digest.path,
+      markdown: resolved.markdown,
+      representativeImage: resolved.representativeImage,
+    };
+  }
+  const schemas = await loadImportSchemas(runtime);
+  const references = resources?.getInput("references");
+  if (references) {
+    const payload = normalizeImportedReferencesPayload(
+      JSON.parse(await host.file.readText(references.path)),
+    );
+    const validation = validateImportedReferencesPayload(
+      payload,
+      schemas.referencesSchema,
+    );
+    if (!validation.valid) throw new Error(formatValidationError(validation.errors));
+    selected.references = {
+      sourcePath: references.path,
+      payload: { ...payload, entry: payload.entry || references.path },
+    };
+  }
+  const citation = resources?.getInput("citation-analysis");
+  if (citation) {
+    const payload = normalizeImportedCitationPayload(
+      JSON.parse(await host.file.readText(citation.path)),
+    );
+    const validation = validateImportedCitationPayload(
+      payload,
+      schemas.citationSchema,
+    );
+    if (!validation.valid) throw new Error(formatValidationError(validation.errors));
+    selected.citationAnalysis = {
+      sourcePath: citation.path,
+      payload: { ...payload, entry: payload.entry || citation.path },
+    };
+  }
+  const literatureScore = resources?.getInput("literature-score");
+  if (literatureScore) {
+    selected.literatureScore = {
+      sourcePath: literatureScore.path,
+      payload: buildLiteratureScorePayload(
+        JSON.parse(await host.file.readText(literatureScore.path)),
+        literatureScore.path,
+      ),
+    };
+  }
+  selected.customNotes = (resources?.getInputs("custom-notes") || []).map(
+    (file) => ({
+      sourcePath: file.path,
+      fileName: getBaseName(file.displayName).replace(/\.md$/i, ""),
+    }),
+  );
+  return selected;
+}
+
+function conflictPolicyError(conflictedKinds) {
+  const error = new Error(
+    `import-notes conflicts require an explicit non-interactive policy: ${conflictedKinds.join(", ")}`,
+  );
+  error.code = "workflow_conflict_requires_policy";
+  error.details = { conflictedKinds };
+  return error;
 }
 
 function createImportRenderer(args) {
@@ -227,6 +329,17 @@ function createImportRenderer(args) {
                   payload: normalized,
                 };
                 draft.errors.references = "";
+              });
+              return;
+            }
+
+            if (kind === "literature-score") {
+              host.patchState((draft) => {
+                draft.literatureScore = {
+                  sourcePath: selectedPath,
+                  payload: buildLiteratureScorePayload(parsed, selectedPath),
+                };
+                draft.errors["literature-score"] = "";
               });
               return;
             }
@@ -471,6 +584,7 @@ function createImportRenderer(args) {
         digest: state.digest || null,
         references: state.references || null,
         citationAnalysis: state.citationAnalysis || null,
+        literatureScore: state.literatureScore || null,
         customNotes: state.customNotes || [],
       });
     },
@@ -585,6 +699,7 @@ function resolveExistingGeneratedKinds(parentItem, runtime) {
     digest: false,
     references: false,
     "citation-analysis": false,
+    "literature-score": false,
   };
   const noteIds = parentItem.getNotes?.() || [];
   for (const noteRef of noteIds) {
@@ -607,6 +722,9 @@ function resolveExistingGeneratedKinds(parentItem, runtime) {
     if (kind === "citation-analysis") {
       existing["citation-analysis"] = true;
     }
+    if (kind === "literature-score") {
+      existing["literature-score"] = true;
+    }
   }
   return existing;
 }
@@ -616,6 +734,7 @@ function countSelectedCandidates(selection) {
     selection?.digest,
     selection?.references,
     selection?.citationAnalysis,
+    selection?.literatureScore,
   ].filter(Boolean).length;
 }
 
@@ -692,7 +811,11 @@ function findAppliedGeneratedNote(notes, kind) {
 }
 
 async function applyImportedStandardSidecar(args) {
-  if (args.standardCount <= 0) {
+  if (
+    !args.selected?.digest &&
+    !args.selected?.references &&
+    !args.selected?.citationAnalysis
+  ) {
     return undefined;
   }
   const selected = args.selected || {};
@@ -761,6 +884,11 @@ async function applySelectedImportBatch(args) {
             payload: args.selected.citationAnalysis.payload,
           }
         : null,
+      literatureScore: args.selected.literatureScore
+        ? {
+            payload: args.selected.literatureScore.payload,
+          }
+        : null,
     });
     importedCount += applied.notes.length;
     representativeImage = applied.representative_image || representativeImage;
@@ -793,19 +921,95 @@ async function applySelectedImportBatch(args) {
   };
 }
 
-async function applyResultImpl({ parent, runtime }) {
+function findConflictedKinds(selected, existing) {
+  return [
+    selected.digest && existing.digest ? "digest" : "",
+    selected.references && existing.references ? "references" : "",
+    selected.citationAnalysis && existing["citation-analysis"]
+      ? "citation-analysis"
+      : "",
+    selected.literatureScore && existing["literature-score"]
+      ? "literature-score"
+      : "",
+  ].filter(Boolean);
+}
+
+function buildAppliedImportResult(applied) {
+  return {
+    imported: applied.imported,
+    skipped: 0,
+    representative_image: applied.representative_image,
+    ...(applied.sidecar_apply !== undefined
+      ? {
+          sidecar_apply: applied.sidecar_apply,
+        }
+      : {}),
+  };
+}
+
+async function applyNonInteractiveImport(args) {
+  const host = requireHostApi(args.runtime);
+  const selected = await buildNonInteractiveSelection({
+    host,
+    runtime: args.runtime,
+  });
+  const standardCount = countSelectedCandidates(selected);
+  const customCount = countCustomNotes(selected);
+  if (standardCount === 0 && customCount === 0) {
+    return { imported: 0, skipped: 0 };
+  }
+  const conflictedKinds = findConflictedKinds(selected, args.existing);
+  const conflictPolicy = String(
+    args.executionOptions?.workflowParams?.conflictPolicy || "error",
+  ).trim();
+  if (conflictedKinds.length > 0) {
+    if (conflictPolicy === "error") {
+      throw conflictPolicyError(conflictedKinds);
+    }
+    if (conflictPolicy === "skip") {
+      return {
+        imported: 0,
+        skipped: standardCount + customCount,
+      };
+    }
+  }
+  const applied = await applySelectedImportBatch({
+    runtime: args.runtime,
+    parentItem: args.parentItem,
+    selected,
+    standardCount,
+    customCount,
+  });
+  return buildAppliedImportResult(applied);
+}
+
+async function applyResultImpl({ parent, runtime, executionOptions }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const existing = resolveExistingGeneratedKinds(parentItem, runtime);
+  const host = requireHostApi(runtime);
+  if (
+    runtime.invocationMode === "non-interactive" ||
+    host.resources?.mode === "non-interactive"
+  ) {
+    return applyNonInteractiveImport({
+      runtime,
+      executionOptions,
+      parentItem,
+      existing,
+    });
+  }
   const parentTitle = String(parentItem.getField?.("title") || "").trim();
   let selectionState = {
     digest: null,
     references: null,
     citationAnalysis: null,
+    literatureScore: null,
     customNotes: [],
     errors: {
       digest: "",
       references: "",
       "citation-analysis": "",
+      "literature-score": "",
       customNotes: "",
     },
     existing,
@@ -833,16 +1037,7 @@ async function applyResultImpl({ parent, runtime }) {
       };
     }
 
-    const conflictedKinds = [];
-    if (selected.digest && existing.digest) {
-      conflictedKinds.push("digest");
-    }
-    if (selected.references && existing.references) {
-      conflictedKinds.push("references");
-    }
-    if (selected.citationAnalysis && existing["citation-analysis"]) {
-      conflictedKinds.push("citation-analysis");
-    }
+    const conflictedKinds = findConflictedKinds(selected, existing);
 
     if (conflictedKinds.length === 0) {
       const applied = await applySelectedImportBatch({
@@ -852,16 +1047,7 @@ async function applyResultImpl({ parent, runtime }) {
         standardCount,
         customCount,
       });
-      return {
-        imported: applied.imported,
-        skipped: 0,
-        representative_image: applied.representative_image,
-        ...(applied.sidecar_apply !== undefined
-          ? {
-              sidecar_apply: applied.sidecar_apply,
-            }
-          : {}),
-      };
+      return buildAppliedImportResult(applied);
     }
 
     const conflictResult = await openConflictDialog({
@@ -877,16 +1063,7 @@ async function applyResultImpl({ parent, runtime }) {
         standardCount,
         customCount,
       });
-      return {
-        imported: applied.imported,
-        skipped: 0,
-        representative_image: applied.representative_image,
-        ...(applied.sidecar_apply !== undefined
-          ? {
-              sidecar_apply: applied.sidecar_apply,
-            }
-          : {}),
-      };
+      return buildAppliedImportResult(applied);
     }
     if (actionId === "skip") {
       return {
@@ -900,6 +1077,7 @@ async function applyResultImpl({ parent, runtime }) {
       digest: selected.digest || null,
       references: selected.references || null,
       citationAnalysis: selected.citationAnalysis || null,
+      literatureScore: selected.literatureScore || null,
       customNotes: selected.customNotes || [],
     };
   }

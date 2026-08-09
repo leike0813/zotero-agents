@@ -245,31 +245,40 @@ function installFragmentedBinaryInput(raw: Uint8Array) {
 }
 
 async function exerciseR2ProductionSeams(requestId: string) {
-  const scope = JSON.stringify({ kind: "acp-skill-run", requestId });
-  const raw = new TextEncoder().encode(
-    [
-      "GET /bridge/v1/health HTTP/1.1",
-      "Host: 127.0.0.1",
-      `X-Zotero-Bridge-Scope: ${scope}`,
-      "Content-Length: 0",
-      "",
-      "",
-    ].join("\r\n"),
-  );
-  const installed = installFragmentedBinaryInput(raw);
+  // The request reader stats measure wall-clock Date.now(); freeze it so the
+  // recorded host-input durations are machine-independent and the
+  // double-run repeatability gate is not subject to host scheduling.
+  const realDateNow = Date.now;
+  Date.now = () => 1_000;
   try {
-    await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
-      installed.inputStream,
+    const scope = JSON.stringify({ kind: "acp-skill-run", requestId });
+    const raw = new TextEncoder().encode(
+      [
+        "GET /bridge/v2/health HTTP/1.1",
+        "Host: 127.0.0.1",
+        `X-Zotero-Bridge-Scope: ${scope}`,
+        "Content-Length: 0",
+        "",
+        "",
+      ].join("\r\n"),
     );
+    const installed = installFragmentedBinaryInput(raw);
+    try {
+      await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
+        installed.inputStream,
+      );
+    } finally {
+      installed.restore();
+    }
+    configureHostBridgeServerForTests({ token: "fixture-host-bridge-token" });
+    await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: "/bridge/v2/health",
+      headers: { "X-Zotero-Bridge-Scope": scope },
+    });
   } finally {
-    installed.restore();
+    Date.now = realDateNow;
   }
-  configureHostBridgeServerForTests({ token: "fixture-host-bridge-token" });
-  await handleHostBridgeHttpRequestForTests({
-    method: "GET",
-    path: "/bridge/v1/health",
-    headers: { "X-Zotero-Bridge-Scope": scope },
-  });
 }
 
 async function exerciseR3ProductionSeam(
@@ -316,6 +325,7 @@ async function exerciseR3ProductionSeam(
       entries: [],
       queuedEntries: [],
       canCreateOwner: false,
+      notice: null,
     }),
     readOwnerRegions: async () => ({}),
     readTranscriptPage: async () =>
@@ -374,15 +384,6 @@ async function exerciseR3ProductionSeam(
     { publicationSurface: "acp-skills" },
     0,
   );
-  incrementAcpRuntimeMetric(requestId, "panel_signature", {
-    publicationSurface: "acp-skills",
-  });
-  observeAcpRuntimeDuration(
-    requestId,
-    "panel_signature_duration",
-    { publicationSurface: "acp-skills" },
-    0,
-  );
   const runtime = new AssistantWorkspacePublicationRuntime({
     coordinator,
     activity: () => "matching-target",
@@ -393,6 +394,24 @@ async function exerciseR3ProductionSeam(
     cause: "initialization",
     serviceStatus: { items: [] },
   });
+  // Exercise the real region signature guard: the first publish builds the
+  // signature and posts; the identical second publish hits the guard and is
+  // skipped. panel_signature* metrics are production-emitted by the
+  // coordinator.
+  const signaturePayload = {
+    counts: {
+      current: { message: 1, thought: 0, tool: 0 },
+      cumulative: { message: 1, thought: 0, tool: 0 },
+    },
+  };
+  for (let index = 0; index < 2; index += 1) {
+    coordinator.publishRegion({
+      owner,
+      publicationKind: "message-counts",
+      cause: "steady-state",
+      payload: signaturePayload,
+    });
+  }
 }
 
 async function exerciseBufferedWriteProductionSeam(requestId: string) {
@@ -415,6 +434,7 @@ export async function runAcpSilentRuntimeBaseline(
   options: {
     updateCount?: number;
     surfaceState?: AcpRuntimeBaselineSurfaceState;
+    phase?: "before-governance" | "after-governance";
   } = {},
 ): Promise<AcpSilentRuntimeBaseline> {
   const updateCount = options.updateCount ?? 1_000;
@@ -453,7 +473,7 @@ export async function runAcpSilentRuntimeBaseline(
   }
   const record = buildAcpRuntimeGovernanceBaselineRecord({
     kind: "automated",
-    phase: "before-governance",
+    phase: options.phase || "before-governance",
     metadata: {
       scenarioId: `silent-${updateCount}-production-seams-${surfaceState}`,
       surfaceState,
@@ -480,12 +500,15 @@ export async function resetAcpSilentRuntimeBaseline() {
   setDebugModeOverrideForTests();
 }
 
-export async function runAcpSilentRuntimeBaselineMatrix(updateCount = 1_000) {
+export async function runAcpSilentRuntimeBaselineMatrix(
+  updateCount = 1_000,
+  phase?: "before-governance" | "after-governance",
+) {
   const baselines: AcpSilentRuntimeBaseline[] = [];
   for (const surfaceState of ACP_RUNTIME_BASELINE_SURFACE_STATES) {
     try {
       baselines.push(
-        await runAcpSilentRuntimeBaseline({ updateCount, surfaceState }),
+        await runAcpSilentRuntimeBaseline({ updateCount, surfaceState, phase }),
       );
     } finally {
       await resetAcpSilentRuntimeBaseline();

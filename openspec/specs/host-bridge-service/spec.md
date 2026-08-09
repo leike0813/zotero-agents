@@ -3,22 +3,6 @@
 ## Purpose
 TBD - created by archiving change introduce-host-bridge-cli-interface. Update Purpose after archive.
 ## Requirements
-### Requirement: Host Bridge service exposes HTTP JSON v1
-The system SHALL expose a plugin-owned Host Bridge HTTP JSON API under
-`/bridge/v1` for local and explicitly enabled LAN clients.
-
-#### Scenario: Health endpoint reports bridge status
-- **WHEN** a client sends `GET /bridge/v1/health`
-- **THEN** the bridge SHALL return service status, protocol version, host
-  identity, and bind-mode metadata
-- **AND** the response MUST NOT include bearer tokens or local filesystem paths.
-
-#### Scenario: Manifest endpoint reports available bridge capabilities
-- **WHEN** an authenticated client sends `GET /bridge/v1/manifest`
-- **THEN** the bridge SHALL return available capability names, workflow support,
-  file download support, and CLI compatibility metadata
-- **AND** the response MUST NOT include bearer tokens or local filesystem paths.
-
 ### Requirement: Host Bridge service requires bearer authentication
 The system SHALL require bearer-token authentication for all Host Bridge
 requests except `GET /bridge/v1/health`.
@@ -245,3 +229,29 @@ The authenticated HTTP v1 service SHALL route pending queue list/cancel and acti
 #### Scenario: Unauthenticated queue request
 - **WHEN** a caller omits or fails bearer authentication
 - **THEN** the service SHALL reject the request before reading or mutating queue state
+
+### Requirement: Host Bridge SHALL expose executable capability contracts under protocol v2
+The Host Bridge SHALL expose `/bridge/v2`, advertise `host-bridge.v2`, and use one canonical capability contract as the runtime source for capability input Schema, output Schema, effect, and approval policy.
+
+#### Scenario: Valid capability call crosses every contract boundary
+- **WHEN** an authenticated client calls a registered capability with valid input
+- **THEN** Host Bridge SHALL validate input before permission evaluation
+- **AND** SHALL resolve effect and approval policy from the capability contract
+- **AND** SHALL validate the handler result before returning success.
+
+#### Scenario: Input is invalid
+- **WHEN** capability input is missing a required field, has the wrong type, or contains an undeclared field
+- **THEN** Host Bridge SHALL return `invalid_capability_input`
+- **AND** SHALL NOT request permission, invoke the handler, mutate state, or consume a handle.
+
+#### Scenario: Handler output violates the contract
+- **WHEN** a handler returns data that does not satisfy its declared output Schema
+- **THEN** Host Bridge SHALL return `capability_output_contract_violation`
+- **AND** SHALL NOT represent the result as a successful capability call.
+
+### Requirement: Host Bridge capability registration SHALL be closed
+The registered handler IDs and canonical capability IDs SHALL be identical, and handlers SHALL be invocable only through the validating dispatcher.
+
+#### Scenario: Registry and contract differ
+- **WHEN** a capability or handler is missing, duplicated, or orphaned
+- **THEN** Host Bridge startup and contract validation SHALL fail before serving requests.

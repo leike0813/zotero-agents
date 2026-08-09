@@ -106,7 +106,7 @@ impl StructuredArtifactPort for FixtureEngine {
                 "schema_id".into(),
                 json!("synthesis.topic_synthesis_artifact"),
             ),
-            ("schema_version".into(), json!("3.0.0")),
+            ("schema_version".into(), json!("4.0.0")),
             (
                 "language".into(),
                 manifest

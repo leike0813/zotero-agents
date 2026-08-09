@@ -3,12 +3,25 @@ import {
   listNotePayloadBlocksForItem,
   selectPreferredNotePayloadBlock,
 } from "./zoteroNotePayloadResolver";
+import {
+  LITERATURE_SCORE_PAYLOAD_TYPE,
+  parseLiteratureScore,
+  type LiteratureScoreSummary,
+} from "../shared/literatureScore";
+import type {
+  WorkflowGeneratedNoteArtifactSpec,
+  WorkflowGeneratedNotePayloadRequirement,
+  WorkflowGeneratedNoteReadinessFilter,
+  WorkflowGeneratedNoteReadinessResult,
+} from "../workflows/types";
+import { hydrateZoteroItemsByIds } from "./zoteroLibraryPageQuery";
 
 export type LibraryArtifactKind =
   | "source-markdown"
   | "digest"
   | "references"
-  | "citation-analysis";
+  | "citation-analysis"
+  | "literature-score";
 
 export type LibraryArtifactItem = Zotero.Item & {
   attachmentFilename?: string;
@@ -47,6 +60,10 @@ export type LibraryArtifactReadiness = {
     missingParts: Array<"digest" | "references" | "citation-analysis">;
     complete: boolean;
   };
+  literatureScore: {
+    status: "available" | "missing" | "invalid";
+    summary: LiteratureScoreSummary | null;
+  };
 };
 
 export const LIBRARY_ARTIFACT_DEFINITIONS: LibraryArtifactDefinition[] = [
@@ -70,6 +87,11 @@ export const LIBRARY_ARTIFACT_DEFINITIONS: LibraryArtifactDefinition[] = [
     label: "Citation Analysis",
     icon: "icon_artifact_citation_analysis.svg",
   },
+  {
+    kind: "literature-score",
+    label: "Literature Score",
+    icon: "icon_artifact_literature_score.svg",
+  },
 ];
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
@@ -91,30 +113,68 @@ const PAYLOAD_TYPES_BY_NOTE_KIND: Record<
   "citation-analysis": ["citation-analysis-json", "citation-analysis-markdown"],
 };
 
+function childItemIds(value: unknown) {
+  return (Array.isArray(value) ? value : [])
+    .map(Number)
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+}
+
+async function resolveArtifactChildren(item: LibraryArtifactItem) {
+  const zotero = (globalThis as { Zotero?: any }).Zotero;
+  if (typeof zotero?.Items?.loadDataTypes === "function") {
+    await zotero.Items.loadDataTypes([item], ["childItems"]);
+  }
+  const noteIds = childItemIds(item.getNotes?.() || []);
+  const attachmentIds = childItemIds(item.getAttachments?.() || []);
+  const childIds = Array.from(new Set([...noteIds, ...attachmentIds]));
+  const children = childIds.length
+    ? ((await hydrateZoteroItemsByIds(
+        childIds,
+        zotero,
+      )) as LibraryArtifactItem[])
+    : [];
+  const byId = new Map(children.map((child) => [Number(child.id), child]));
+  return {
+    notes: noteIds
+      .map((id) => byId.get(id))
+      .filter((child): child is LibraryArtifactItem => Boolean(child)),
+    attachments: attachmentIds
+      .map((id) => byId.get(id))
+      .filter((child): child is LibraryArtifactItem => Boolean(child)),
+  };
+}
+
 export async function resolveLibraryArtifactReadiness(
   item: LibraryArtifactItem,
 ): Promise<LibraryArtifactReadiness> {
   if (!isTopLevelRegularArtifactItem(item)) {
     return emptyLibraryArtifactReadiness();
   }
+  const children = await resolveArtifactChildren(item);
   const artifacts = new Set<LibraryArtifactKind>();
-  const pdfAttachment = await resolveBestPdfAttachment(item);
+  const pdfAttachment = await resolveBestPdfAttachment(
+    item,
+    children.attachments,
+  );
   const pdfFilename = pdfAttachment
     ? await resolveAttachmentFilename(pdfAttachment)
     : "";
   const pdfStem = pdfAttachment ? resolveStem(pdfFilename) : "";
-  const markdownStems = await resolveMarkdownAttachmentStems(item);
+  const markdownStems = await resolveMarkdownAttachmentStems(
+    children.attachments,
+  );
   const hasSourceMarkdown = !!pdfStem && markdownStems.has(pdfStem);
   if (hasSourceMarkdown) {
     artifacts.add("source-markdown");
   }
-  for (const artifact of await resolveGeneratedNoteArtifacts(item)) {
+  const generatedNotes = await resolveGeneratedNoteArtifacts(children.notes);
+  for (const artifact of generatedNotes.artifacts) {
     artifacts.add(artifact);
   }
   const missingParts = REQUIRED_ANALYSIS_ARTIFACTS.filter(
     (artifact) => !artifacts.has(artifact),
   );
-  return {
+  const readiness: LibraryArtifactReadiness = {
     state: serializeLibraryArtifactState(artifacts),
     artifacts: Array.from(artifacts),
     pdf: {
@@ -134,7 +194,12 @@ export async function resolveLibraryArtifactReadiness(
       missingParts,
       complete: missingParts.length === 0,
     },
+    literatureScore: {
+      status: generatedNotes.scoreStatus,
+      summary: generatedNotes.score,
+    },
   };
+  return readiness;
 }
 
 export function serializeLibraryArtifactState(
@@ -154,13 +219,17 @@ export function parseLibraryArtifactState(data: string) {
   return LIBRARY_ARTIFACT_DEFINITIONS.filter(({ kind }) => requested.has(kind));
 }
 
-export async function resolveBestPdfAttachment(item: LibraryArtifactItem) {
+export async function resolveBestPdfAttachment(
+  item: LibraryArtifactItem,
+  resolvedAttachments?: LibraryArtifactItem[],
+) {
   const best = await item.getBestAttachment?.();
   if (best && isPdfAttachment(best as LibraryArtifactItem)) {
     return best as LibraryArtifactItem;
   }
-  for (const id of item.getAttachments?.() || []) {
-    const attachment = Zotero.Items.get(id) as LibraryArtifactItem | undefined;
+  const attachments =
+    resolvedAttachments || (await resolveArtifactChildren(item)).attachments;
+  for (const attachment of attachments) {
     if (attachment && isPdfAttachment(attachment)) {
       return attachment;
     }
@@ -179,6 +248,167 @@ export function isTopLevelRegularArtifactItem(item: LibraryArtifactItem) {
     return item.isTopLevelItem();
   }
   return !item.parentID;
+}
+
+export async function evaluateGeneratedNoteReadiness(
+  parentItem: LibraryArtifactItem,
+  spec: WorkflowGeneratedNoteReadinessFilter,
+): Promise<WorkflowGeneratedNoteReadinessResult> {
+  const childNotes = (await resolveArtifactChildren(parentItem)).notes;
+  const notes: Array<{
+    item: LibraryArtifactItem;
+    kind: string;
+  }> = [];
+  for (const note of childNotes) {
+    if (!note?.isNote?.()) {
+      continue;
+    }
+    notes.push({ item: note, kind: await resolveGeneratedNoteKind(note) });
+  }
+
+  const artifacts: WorkflowGeneratedNoteReadinessResult["artifacts"] = {};
+  for (const artifactSpec of spec.artifacts) {
+    artifacts[artifactSpec.id] = await evaluateGeneratedNoteArtifact(
+      notes,
+      artifactSpec,
+    );
+  }
+  const mode =
+    spec.modes.find((candidate) => {
+      if (candidate.default) {
+        return false;
+      }
+      return (
+        (candidate.allAvailable || []).every(
+          (id) => artifacts[id]?.status === "available",
+        ) &&
+        (candidate.allUnavailable || []).every(
+          (id) => artifacts[id]?.status !== "available",
+        )
+      );
+    })?.id ||
+    spec.modes.find((candidate) => candidate.default)?.id ||
+    "";
+  const evidenceHash = JSON.stringify(
+    spec.artifacts.map((artifactSpec) => {
+      const artifact = artifacts[artifactSpec.id];
+      return [artifactSpec.id, artifact?.status, artifact?.noteIds || []];
+    }),
+  );
+  return {
+    mode,
+    accepted: spec.acceptModes.includes(mode),
+    evidenceHash,
+    artifacts,
+  };
+}
+
+async function evaluateGeneratedNoteArtifact(
+  notes: Array<{ item: LibraryArtifactItem; kind: string }>,
+  spec: WorkflowGeneratedNoteArtifactSpec,
+): Promise<WorkflowGeneratedNoteReadinessResult["artifacts"][string]> {
+  const candidates = notes.filter((note) => spec.noteKinds.includes(note.kind));
+  const noteIds = candidates
+    .map((candidate) => Number(candidate.item.id))
+    .filter(Number.isFinite);
+  if (!candidates.length) {
+    return { status: "missing", noteIds, diagnostics: [] };
+  }
+  if (!spec.payload) {
+    return { status: "available", noteIds, diagnostics: [] };
+  }
+  const diagnostics: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const block = selectPreferredNotePayloadBlock(
+        await listNotePayloadBlocksForItem(candidate.item),
+        spec.payload.type,
+      );
+      if (!block || block.errors?.length) {
+        diagnostics.push(...(block?.errors || ["payload missing"]));
+        continue;
+      }
+      const failed = (spec.payload.requirements || []).find(
+        (requirement) => !matchesPayloadRequirement(block.payload, requirement),
+      );
+      if (failed) {
+        diagnostics.push(`payload requirement failed: ${failed.pointer}`);
+        continue;
+      }
+      if (
+        spec.payload.type === LITERATURE_SCORE_PAYLOAD_TYPE &&
+        !parseLiteratureScore(block.payload)
+      ) {
+        diagnostics.push("literature score payload is invalid");
+        continue;
+      }
+      return {
+        status: "available",
+        noteIds,
+        payload: block.payload,
+        diagnostics: [],
+      };
+    } catch (error) {
+      diagnostics.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  return { status: "invalid", noteIds, diagnostics };
+}
+
+function matchesPayloadRequirement(
+  payload: unknown,
+  requirement: WorkflowGeneratedNotePayloadRequirement,
+) {
+  const value = resolveJsonPointer(payload, requirement.pointer);
+  if ("const" in requirement && value !== requirement.const) {
+    return false;
+  }
+  if (requirement.type === "array") {
+    if (!Array.isArray(value)) return false;
+    if (
+      typeof requirement.length === "number" &&
+      value.length !== requirement.length
+    ) {
+      return false;
+    }
+  } else if (requirement.type === "object") {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return false;
+  } else if (requirement.type && typeof value !== requirement.type) {
+    return false;
+  }
+  if (typeof value === "number") {
+    if (
+      typeof requirement.minimum === "number" &&
+      value < requirement.minimum
+    ) {
+      return false;
+    }
+    if (
+      typeof requirement.maximum === "number" &&
+      value > requirement.maximum
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function resolveJsonPointer(payload: unknown, pointer: string): unknown {
+  if (!pointer || pointer === "/") {
+    return payload;
+  }
+  let current = payload;
+  for (const token of pointer
+    .replace(/^\//, "")
+    .split("/")
+    .map((entry) => entry.replace(/~1/g, "/").replace(/~0/g, "~"))) {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[token];
+  }
+  return current;
 }
 
 function emptyLibraryArtifactReadiness(): LibraryArtifactReadiness {
@@ -202,13 +432,18 @@ function emptyLibraryArtifactReadiness(): LibraryArtifactReadiness {
       missingParts: [...REQUIRED_ANALYSIS_ARTIFACTS],
       complete: false,
     },
+    literatureScore: {
+      status: "missing",
+      summary: null,
+    },
   };
 }
 
-async function resolveGeneratedNoteArtifacts(item: LibraryArtifactItem) {
+async function resolveGeneratedNoteArtifacts(notes: LibraryArtifactItem[]) {
   const artifacts = new Set<LibraryArtifactKind>();
-  for (const id of item.getNotes?.() || []) {
-    const note = Zotero.Items.get(id) as LibraryArtifactItem | undefined;
+  let score: LiteratureScoreSummary | null = null;
+  let scoreStatus: "available" | "missing" | "invalid" = "missing";
+  for (const note of notes) {
     if (!note?.isNote?.()) {
       continue;
     }
@@ -219,9 +454,33 @@ async function resolveGeneratedNoteArtifacts(item: LibraryArtifactItem) {
       artifacts.add("references");
     } else if (noteKind === "citation-analysis") {
       artifacts.add("citation-analysis");
+    } else if (noteKind === "literature-score") {
+      const resolved = await resolveLiteratureScoreForNote(note);
+      if (resolved) {
+        artifacts.add("literature-score");
+        score = resolved;
+        scoreStatus = "available";
+      } else if (scoreStatus !== "available") {
+        scoreStatus = "invalid";
+      }
     }
   }
-  return artifacts;
+  return { artifacts, score, scoreStatus };
+}
+
+async function resolveLiteratureScoreForNote(note: LibraryArtifactItem) {
+  try {
+    const block = selectPreferredNotePayloadBlock(
+      await listNotePayloadBlocksForItem(note),
+      LITERATURE_SCORE_PAYLOAD_TYPE,
+    );
+    if (!block || block.errors?.length) {
+      return null;
+    }
+    return parseLiteratureScore(block.payload);
+  } catch {
+    return null;
+  }
 }
 
 async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
@@ -233,6 +492,11 @@ async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
   const headingKind = resolveGeneratedSchemaHeadingKind(noteHtml);
   if (!headingKind) {
     return "";
+  }
+  if (headingKind === "literature-score") {
+    return (await resolveLiteratureScoreForNote(note))
+      ? "literature-score"
+      : "";
   }
   return resolveGeneratedNoteKindFromEmbeddedPayload(note, headingKind);
 }
@@ -246,6 +510,9 @@ function normalizeGeneratedNoteKindFromMarkers(noteHtml: unknown) {
   const payloadType =
     readHtmlDataAttribute(html, "data-zs-payload") ||
     readHtmlDataAttribute(html, "data-zs-payload-anchor");
+  if (payloadType === LITERATURE_SCORE_PAYLOAD_TYPE) {
+    return "literature-score";
+  }
   return NOTE_PAYLOAD_KIND_BY_TYPE.get(payloadType) || "";
 }
 
@@ -266,6 +533,9 @@ function resolveGeneratedSchemaHeadingKind(noteHtml: unknown) {
   if (/^citation analysis$/i.test(heading)) {
     return "citation-analysis";
   }
+  if (/^(?:literature )?(?:score|rating)$/i.test(heading)) {
+    return "literature-score";
+  }
   return "";
 }
 
@@ -281,6 +551,9 @@ function normalizeKnownGeneratedNoteKind(value: unknown) {
     normalized === "citation_analysis"
   ) {
     return "citation-analysis";
+  }
+  if (normalized === "literature-score" || normalized === "literature_score") {
+    return "literature-score";
   }
   return "";
 }
@@ -338,10 +611,11 @@ function isPdfAttachment(item: LibraryArtifactItem) {
   return filename.endsWith(".pdf");
 }
 
-async function resolveMarkdownAttachmentStems(item: LibraryArtifactItem) {
+async function resolveMarkdownAttachmentStems(
+  attachments: LibraryArtifactItem[],
+) {
   const stems = new Set<string>();
-  for (const id of item.getAttachments?.() || []) {
-    const attachment = Zotero.Items.get(id) as LibraryArtifactItem | undefined;
+  for (const attachment of attachments) {
     if (!attachment || !(await isMarkdownAttachment(attachment))) {
       continue;
     }

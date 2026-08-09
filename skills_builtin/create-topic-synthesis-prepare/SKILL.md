@@ -24,7 +24,7 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 - duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。
 - resolver proposal 要可复现、边界清楚；runtime 负责执行 `synthesis resolver resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。
 - 远程 SkillRunner profile 下 filtered artifact export 可能返回 bridge-download；按 runtime 写出的 `runtime/payloads/paper-artifacts-export-delivery.json` 执行 downloadCommand/unpackHint 后再继续。
-- paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。
+- paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、core_digest 和 caveats；文献内在质量只读取 manifest 固化的 literature_quality，不提前写跨文献综合。
 
 ## 必需运行输入
 
@@ -44,14 +44,33 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 ## zotero-bridge CLI 使用说明
 
 Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill 维护。
-使用 Zotero host 能力前，先阅读该 wrapper skill 及其生成的
-`references/host-bridge-cli.md` 参考。
+使用 Zotero host 能力前，先阅读该 wrapper skill，再从
+`references/command-catalog.md` 按意图选择命令，并只读取所选命令的
+`references/commands/<command-path>.md` 命令卡。
 
 <!-- host-bridge-surface:topic-synthesis-fragment:start -->
 
 Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
-当前 topic synthesis 相关命令族摘要：`library annotation export`, `library annotation list`, `library item attachments`, `library item get`, `library item notes`, `library item search`, `library items list`, `library note get`, `library note payload`, `library note payloads`, `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf`, `library snapshot`, `synthesis artifact export-filtered`, `synthesis artifact manifest`, `synthesis artifact read`, `synthesis artifact resolve-topic-digest`, `synthesis concept query`, `synthesis graph get-layout`, `synthesis graph get-metrics`, `synthesis graph get-slice`, `synthesis graph overview`, `synthesis graph query-cluster`, `synthesis graph rank-external-references`, `synthesis graph rank-library-papers`, `synthesis graph refresh-metrics`, `synthesis index library get`, `synthesis index reference get`, `synthesis insight attention-queue`, `synthesis resolver resolve`, `synthesis schema get`, `synthesis topic find-by-paper-ref`, `synthesis topic get-context`, `synthesis topic get-report`, `synthesis topic get-review-input`, `synthesis topic list`。
-使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
+从 wrapper skill 直接链接的 `references/command-catalog.md` 选择最小语义命令；
+命令名、参数、payload、分页、权限和恢复规则只以所选命令卡与当前二进制的
+`surface describe '<canonical command>'` 为准。静态命令卡与 live descriptor
+不一致时，停止并报告 release identity 漂移，不要根据相似命令猜字段。
+
+Topic synthesis 读取如果要用“没有匹配项”作为证据，必须按命令卡声明的
+`outputBoundary` 完整遍历对应分页 section。保留原查询条件，只把
+`pagination.<section>.nextCursor` 作为同一 section 的下一页 cursor；不要把第一
+页为空、短页或截断结果当作全量不存在。
+
+所有 CLI stdout 都按单一 JSON envelope 处理。失败时保留 canonical command、
+脱敏后的输入摘要、`error.code`、`error.details.phase`、`argumentId`、bounded
+violations、`retryable`、`stateChange`、`handleConsumption` 和
+`safeNextActions`。`argv`、JSON source/syntax 与 `command_input` 错误只按
+命令卡或同一 leaf 的 `--schema` 修复已指明的边界；`payload_composition`、
+`payload_contract` 或 `command_result` 表示 executable contract 路径不一致，
+不得通过改用相似命令、raw capability 或 MCP 绕过。若 `stateChange` 或 handle
+状态不是明确安全值，先执行 descriptor 给出的 receipt/live-state 检查，再决定
+是否继续。
+
 不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 
 <!-- host-bridge-surface:topic-synthesis-fragment:end -->
@@ -77,7 +96,7 @@ Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护�
 
 - create topic intent 和 duplicate check 判断。
 - resolver proposal 设计。
-- per-paper triage：relevance、quality、core_digest、caveats。
+- per-paper triage：relevance、core_digest、caveats；质量使用 manifest 固化的 literature_quality。
 
 必须由脚本/runtime 完成：
 
@@ -266,8 +285,8 @@ Payload JSON 示例（可提交结构样例）：
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。
-  说明：如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。
+- Host read：`<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":100}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。
+  说明：读取 CLI stdout 的 data.data.pagination.papers；若 hasMore=true，保持筛选条件不变并将 nextCursor 回传为 cursor，直到 hasMore=false。需要用缺失作为证据时必须读完对应 section；该命令只辅助 resolver 设计，不代表 resolver result。
 
 材料使用说明：
 
@@ -327,7 +346,7 @@ Payload JSON 示例（可提交结构样例）：
 语义处理步骤：
 
 1. 先读取 `runtime/payloads/paper-artifacts-manifest-batch-1.json`。
-2. 按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。
+2. 按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；文献评分使用同一 paper row 中的 `literature_quality`快照；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。
 3. 逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。
 4. 如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。
 5. 按 gate 指令和 runtime audit 判断需要 triage 的 paper refs；create 通常覆盖所有 resolved papers，update 使用 gate 暴露的 `triage_required_refs`。
@@ -335,7 +354,7 @@ Payload JSON 示例（可提交结构样例）：
 7. 如果 update 没有可复用 triage，gate 会要求对 updated resolve 中全部 papers 写 assessment。
 8. 每条 assessment 判断只限该 paper 与 topic 的关系。
 9. 用 `core_digest` 提炼该 paper 对 topic window 的贡献。
-10. 提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。
+10. 提交后由 runtime 根据 triage、四件套 artifact manifest、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。
 
 上下文获取方式：
 
@@ -345,7 +364,7 @@ Payload JSON 示例（可提交结构样例）：
 材料使用说明：
 
 - `runtime/payloads/paper-artifacts-manifest-batch-1.json` 是 artifact 索引真源；具体文件以每条 artifact 的 `content_file` 为准。
-- `runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。
+- `runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是 relevance、core_digest 和 caveats 的判断依据；文献内在质量只使用 manifest 固化的 `literature_quality`；不要依赖大段附件路径。
 - LLM 不手写 cross-paper context 或 external-literature context；这些 view 必须由 runtime 从已校验输入生成。
 - payload 路径：runtime/payloads/prepare-analysis-context.json
 - schema 文件：assets/schemas/stage-30-prepare-analysis-context.schema.json
@@ -355,15 +374,13 @@ Payload JSON 示例（可提交结构样例）：
 - `assessments`：一篇 resolved paper 一条 assessment，`paper_ref` 必须来自当前 workset。
 - `relevance_level`：`core` 是主题核心证据；`related` 是相关背景或变体；`external` 主要用于覆盖/补充判断；`irrelevant` 是误召回；`unknown` 是材料不足。
 - `relevance_reason`：说明该 paper 与 topic 边界的关系。
-- `paper_quality_level`：评价可用证据质量，不等于引用量排序。
-- `paper_quality_reason`：说明实验、方法、综述、benchmark 或证据完整性。
 - `core_digest`：一到三句说明该 paper 对 topic 的贡献，保持 paper-local。
 - `caveats`：记录训练效率、实验范围、artifact 缺失、适用边界等限制。
 
 硬性约束：
 
 - paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。
-- 脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。
+- 脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 `literature_quality`。
 
 Subagent 委派建议：
 
@@ -394,8 +411,6 @@ Subagent 委派建议：
 - paper_ref：必须使用分配给你的 paper_ref。
 - relevance_level：core / related / external / irrelevant / unknown。
 - relevance_reason：说明该 paper 与 topic 边界的关系。
-- paper_quality_level：high / medium / low / unknown。
-- paper_quality_reason：说明证据质量。
 - core_digest：一到三句 paper-local 贡献摘要。
 - caveats：数组，记录证据限制或适用边界。
 ```
@@ -419,8 +434,6 @@ Payload JSON 示例（可提交结构样例）：
       "paper_ref": "1:DETR2020",
       "relevance_level": "core",
       "relevance_reason": "该论文把 object-query set prediction 建立为本 topic 的基线公式。",
-      "paper_quality_level": "high",
-      "paper_quality_reason": "该论文给出模型公式，并提供支撑该路线的 benchmark evidence。",
       "core_digest": "提出面向目标检测的 transformer-based set prediction，使 object queries 与 bipartite matching 成为后续 DETR-family 工作的核心概念。",
       "caveats": ["训练效率限制会影响后续改进工作的解释方式。"]
     }

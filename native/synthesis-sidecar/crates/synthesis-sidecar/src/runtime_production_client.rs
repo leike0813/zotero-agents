@@ -865,7 +865,7 @@ mod dispatch_integration_tests {
         let artifacts = repository
             .list_reference_artifacts(&["1:AAAA1111".into()])
             .expect("artifacts");
-        assert_eq!(artifacts.len(), 3);
+        assert_eq!(artifacts.len(), 4);
         let raw_before = repository.list_raw_references().expect("references");
         assert_eq!(raw_before.len(), 1);
         assert!(raw_before[0].roles_json.contains("background"));

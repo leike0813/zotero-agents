@@ -9,6 +9,11 @@ import type {
   SynthesisHostArtifactType,
   SynthesisHostLibraryItemSummary,
 } from "./hostRead.js";
+import {
+  LITERATURE_SCORE_SCHEMA,
+  SYNTHESIS_PAPER_ARTIFACT_TYPES,
+  type LiteratureQualitySnapshot,
+} from "./literatureArtifacts.js";
 
 export const SYNTHESIS_REFERENCE_REFRESH_APPLICATION_LIMITS = {
   scopedSources: 100,
@@ -34,7 +39,7 @@ export type SynthesisReferenceRefreshPrepareRequest = {
 
 export type SynthesisReferenceRefreshRead = {
   paperRef: string;
-  artifactType: "references" | "citation_analysis";
+  artifactType: "references" | "citation_analysis" | "literature_score";
   locator: string;
   expectedHash: string;
 };
@@ -102,6 +107,7 @@ const artifactOrder: Record<SynthesisHostArtifactType, number> = {
   digest: 0,
   references: 1,
   citation_analysis: 2,
+  literature_score: 3,
 };
 
 function invalid(location: string): never {
@@ -258,13 +264,15 @@ function rebuildDescriptor(
       "payloadHash",
       "estimatedSize",
       "diagnostics",
+      "literatureQuality",
     ],
     location,
   );
   if (
-    input.artifactType !== "digest" &&
-    input.artifactType !== "references" &&
-    input.artifactType !== "citation_analysis"
+    typeof input.artifactType !== "string" ||
+    !SYNTHESIS_PAPER_ARTIFACT_TYPES.includes(
+      input.artifactType as SynthesisHostArtifactType,
+    )
   ) {
     invalid(`${location}.artifactType`);
   }
@@ -292,21 +300,140 @@ function rebuildDescriptor(
   ) {
     invalid(`${location}.estimatedSize`);
   }
-  return {
+  const common = {
     paperRef: requiredString(input.paperRef, `${location}.paperRef`, 512),
-    artifactType: input.artifactType,
     payloadType: requiredString(
       input.payloadType,
       `${location}.payloadType`,
       256,
     ),
-    status: input.status,
+    status: input.status as
+      | "available"
+      | "missing"
+      | "decode_error"
+      | "unsupported",
     ...(locator ? { locator } : {}),
     ...(payloadHash ? { payloadHash } : {}),
     ...(input.estimatedSize === undefined
       ? {}
       : { estimatedSize: input.estimatedSize }),
     diagnostics: stringList(input.diagnostics, `${location}.diagnostics`, 256),
+  };
+  if (input.artifactType === "literature_score") {
+    return {
+      ...common,
+      artifactType: "literature_score",
+      literatureQuality: rebuildLiteratureQualitySnapshot(
+        input.literatureQuality,
+        `${location}.literatureQuality`,
+      ),
+    };
+  }
+  if (input.literatureQuality !== undefined) {
+    invalid(`${location}.literatureQuality`);
+  }
+  return {
+    ...common,
+    artifactType: input.artifactType as Exclude<
+      SynthesisHostArtifactType,
+      "literature_score"
+    >,
+  };
+}
+
+function rebuildLiteratureQualitySnapshot(
+  value: unknown,
+  location: string,
+): LiteratureQualitySnapshot {
+  const input = toSynthesisJsonObject(value, location);
+  exactFields(
+    input,
+    [
+      "status",
+      "schema",
+      "rubric_id",
+      "paper_type",
+      "overall_score",
+      "confidence",
+      "confidence_adjusted_score",
+      "quality_prior",
+      "payload_hash",
+      "diagnostics",
+    ],
+    location,
+  );
+  if (
+    input.status !== "available" &&
+    input.status !== "missing" &&
+    input.status !== "invalid"
+  ) {
+    invalid(`${location}.status`);
+  }
+  if (
+    typeof input.quality_prior !== "number" ||
+    !Number.isFinite(input.quality_prior) ||
+    input.quality_prior < 0 ||
+    input.quality_prior > 1
+  ) {
+    invalid(`${location}.quality_prior`);
+  }
+  const diagnostics = stringList(
+    input.diagnostics,
+    `${location}.diagnostics`,
+    2,
+  );
+  const payloadHash =
+    input.payload_hash === undefined
+      ? undefined
+      : requiredHash(input.payload_hash, `${location}.payload_hash`);
+  if (input.status !== "available") {
+    const expected =
+      input.status === "missing"
+        ? "literature_score_missing"
+        : "literature_score_invalid";
+    if (
+      input.quality_prior !== 0.5 ||
+      diagnostics.length !== 1 ||
+      diagnostics[0] !== expected
+    ) {
+      invalid(location);
+    }
+    return {
+      status: input.status,
+      quality_prior: 0.5,
+      ...(payloadHash ? { payload_hash: payloadHash } : {}),
+      diagnostics: [expected],
+    };
+  }
+  const overallScore = input.overall_score;
+  const confidence = input.confidence;
+  const adjusted = input.confidence_adjusted_score;
+  if (
+    input.schema !== LITERATURE_SCORE_SCHEMA ||
+    typeof overallScore !== "number" ||
+    overallScore < 0 ||
+    overallScore > 100 ||
+    typeof confidence !== "number" ||
+    confidence < 0 ||
+    confidence > 1 ||
+    typeof adjusted !== "number" ||
+    adjusted < 0 ||
+    adjusted > 100 ||
+    diagnostics.length !== 0
+  ) {
+    invalid(location);
+  }
+  return {
+    status: "available",
+    schema: LITERATURE_SCORE_SCHEMA,
+    rubric_id: requiredString(input.rubric_id, `${location}.rubric_id`, 512),
+    paper_type: requiredString(input.paper_type, `${location}.paper_type`, 512),
+    overall_score: overallScore,
+    confidence,
+    confidence_adjusted_score: adjusted,
+    quality_prior: input.quality_prior,
+    ...(payloadHash ? { payload_hash: payloadHash } : {}),
+    diagnostics: [],
   };
 }
 
@@ -386,11 +513,11 @@ export function rebuildSynthesisReferenceRefreshPrepareRequest(
     (artifact) => `${artifact.paperRef}\n${artifact.artifactType}`,
   );
   if (
-    artifacts.length !== items.length * 3 ||
+    artifacts.length !== items.length * SYNTHESIS_PAPER_ARTIFACT_TYPES.length ||
     new Set(keys).size !== keys.length ||
     artifacts.some((artifact) => !sourceSet.has(artifact.paperRef)) ||
     sourceRefs.some((paperRef) =>
-      (["digest", "references", "citation_analysis"] as const).some(
+      SYNTHESIS_PAPER_ARTIFACT_TYPES.some(
         (artifactType) => !keys.includes(`${paperRef}\n${artifactType}`),
       ),
     )

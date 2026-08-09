@@ -18,3 +18,9 @@ manual validation of sequence orchestration:
 
 The corresponding skills live under `skills_builtin/debug-*-probe*` and are
 marked `debug_only` in their `runner.json` manifests.
+
+The package also includes `debug-apply-existing-parent-bundle`. It accepts one
+or more selected parent items, runs `debug-apply-bundle-probe` once per parent,
+and attaches the declared `result/debug-apply-artifact.txt` to the same parent.
+The workflow never creates a replacement parent; a missing or stale target
+fails before bundle materialization or attachment creation.

@@ -16,8 +16,6 @@
           "paper_ref",
           "relevance_level",
           "relevance_reason",
-          "paper_quality_level",
-          "paper_quality_reason",
           "core_digest",
           "caveats"
         ],
@@ -30,12 +28,6 @@
             "enum": ["core", "related", "external", "irrelevant", "unknown"]
           },
           "relevance_reason": {
-            "type": "string"
-          },
-          "paper_quality_level": {
-            "enum": ["high", "medium", "low", "unknown"]
-          },
-          "paper_quality_reason": {
             "type": "string"
           },
           "core_digest": {
@@ -58,8 +50,6 @@
           "paper_ref": "1:ABC",
           "relevance_level": "core",
           "relevance_reason": "",
-          "paper_quality_level": "high",
-          "paper_quality_reason": "",
           "core_digest": "",
           "caveats": []
         }

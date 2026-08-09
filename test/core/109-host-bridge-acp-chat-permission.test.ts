@@ -24,11 +24,13 @@ describe("Host Bridge ACP Chat approval routing", function () {
   it("routes acp-chat scoped approvals to the ACP Chat permission handler", async function () {
     let capturedTitle = "";
     let capturedSource = "";
+    let capturedApprovalKind = "";
     registerAcpConversationHostBridgePermissionHandler(
       "chat-conversation-1",
       (request) => {
         capturedTitle = request.toolTitle;
         capturedSource = String(request.source || "");
+        capturedApprovalKind = String(request.approvalKind || "");
         request.resolve({
           outcome: "selected",
           optionId: "approve_once",
@@ -52,6 +54,7 @@ describe("Host Bridge ACP Chat approval routing", function () {
     assert.strictEqual(decision.channel, "acp-chat");
     assert.strictEqual(capturedTitle, "Approve Zotero write?");
     assert.strictEqual(capturedSource, "host-bridge-cli");
+    assert.strictEqual(capturedApprovalKind, "zotero-write");
   });
 
   it("does not fall back to global prompts for unavailable ACP Chat approval UI", async function () {

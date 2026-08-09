@@ -273,11 +273,27 @@ describe("suite governance constraints", function () {
 
   it("Risk: MR-02 keeps CI gate entries mapped to explicit pr/release targets", function () {
     const scripts = getScripts();
+    const gateSource = readFileSync(
+      join(process.cwd(), "scripts", "run-ci-gate.ts"),
+      "utf8",
+    );
 
     assert.match(scripts["test:gate:pr"] || "", /run-ci-gate\.ts\s+pr/i);
     assert.match(
       scripts["test:gate:release"] || "",
       /run-ci-gate\.ts\s+release/i,
+    );
+    const contentGate = gateSource.indexOf('"check:host-bridge-content"');
+    const suiteGate = gateSource.indexOf("runNpmScript(suiteCommand)");
+    assert.isAtLeast(
+      contentGate,
+      0,
+      "PR and release CI gates must reject stale Host Bridge derivatives",
+    );
+    assert.isBelow(
+      contentGate,
+      suiteGate,
+      "Host Bridge derivative validation must run before the test suite",
     );
   });
 
@@ -340,6 +356,7 @@ describe("suite governance constraints", function () {
       [
         "check:localization-governance",
         "check:ssot-invariants",
+        "check:host-bridge-content",
         "test:node:synthesis-sidecar:stage1",
         "test:lite",
       ],
@@ -349,6 +366,7 @@ describe("suite governance constraints", function () {
       [
         "check:localization-governance",
         "check:ssot-invariants",
+        "check:host-bridge-content",
         "test:node:synthesis-sidecar:stage1",
         "test:full",
       ],
@@ -369,6 +387,14 @@ describe("suite governance constraints", function () {
     assert.notInclude(
       scripts["check:content-package-release"] || "",
       "--check-mirror",
+    );
+    assert.notInclude(
+      scripts["check:content-package-release"] || "",
+      "--include-dev",
+    );
+    assert.match(
+      scripts["check:content-package-release:all"] || "",
+      /check-content-package-release\.ts\s+--include-dev/i,
     );
     assert.match(
       scripts["check:content-package-mirror"] || "",

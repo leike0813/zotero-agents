@@ -1,4 +1,5 @@
 import type { AcpConversationItem } from "./acpTypes";
+import type { AcpSkillRunTranscriptItem } from "./acpSkillRunStore";
 import {
   appendAcpSkillRunTranscriptEvent,
   enqueueAcpSkillRunTranscriptEvents,
@@ -37,9 +38,9 @@ export async function appendAcpChatTranscriptEvent(args: {
     runtimeDir: args.conversationStorageDir,
     op: args.op,
     itemId: args.itemId,
-    item: args.item as never,
+    item: args.item as unknown as AcpSkillRunTranscriptItem,
     text: args.text,
-    patch: args.patch as never,
+    patch: args.patch as unknown as Partial<AcpSkillRunTranscriptItem>,
     createdAt: args.createdAt,
   });
 }
@@ -59,9 +60,9 @@ export function enqueueAcpChatTranscriptEvent(args: {
       {
         op: args.op,
         itemId: args.itemId,
-        item: args.item as never,
+        item: args.item as unknown as AcpSkillRunTranscriptItem,
         text: args.text,
-        patch: args.patch as never,
+        patch: args.patch as unknown as Partial<AcpSkillRunTranscriptItem>,
         createdAt: args.createdAt,
       },
     ],

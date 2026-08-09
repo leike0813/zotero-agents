@@ -16,6 +16,11 @@ class Addon {
     config: typeof config;
     // Env type, see build.js
     env: "development" | "production";
+    packagedAssets?: {
+      rootURI: string;
+      resourceURI: string;
+      rootPath: string;
+    };
     initialized?: boolean;
     startupError?: {
       stage: string;

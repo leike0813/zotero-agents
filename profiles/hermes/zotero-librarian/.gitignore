@@ -1,5 +1,6 @@
 state.sqlite
 *.sqlite
+workspaces/
 runs/
 logs/
 .zotero-bridge/

@@ -11,6 +11,10 @@ import {
   validateTopicAnalysisManifest,
   validateTopicSynthesisArtifact,
 } from "../../packages/synthesis-engine/src/topicStructuredArtifact";
+import {
+  startHostBridgeCliFixtureHarness,
+  type HostBridgeCliFixtureHarness,
+} from "../helpers/hostBridgeCliHarness";
 
 const packages = {
   prepare: path.resolve("skills_builtin", "create-topic-synthesis-prepare"),
@@ -21,6 +25,7 @@ const packages = {
   core: path.resolve("skills_builtin", "topic-synthesis-core-enrichment"),
   finalize: path.resolve("skills_builtin", "topic-synthesis-finalize"),
 };
+const activeHarnesses = new Set<HostBridgeCliFixtureHarness>();
 
 async function writeJson(filePath: string, value: unknown) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -195,7 +200,8 @@ function assertStage30HardRules(gateInstruction: any) {
   const hardRules = gateInstruction.hard_rules.join("\n");
   assert.include(hardRules, "逐篇阅读 runtime 导出的 paper artifacts");
   assert.include(hardRules, "不得编写或运行脚本");
-  assert.include(hardRules, "relevance、quality、core_digest 和 caveats");
+  assert.include(hardRules, "relevance、core_digest 和 caveats");
+  assert.include(hardRules, "literature_quality");
   assert.isObject(gateInstruction.subagent_delegation);
   assert.include(
     gateInstruction.subagent_delegation.recommendation,
@@ -380,32 +386,23 @@ function runGateInCwd(
   return JSON.parse(output);
 }
 
-async function createFakeBridge(runRoot: string) {
-  const binDir = path.join(runRoot, ".zotero-bridge", "bin");
-  await fs.mkdir(binDir, { recursive: true });
-  const bridgeJs = path.join(binDir, "fake-zotero-bridge.mjs");
+async function createBridgeHarness(
+  runRoot: string,
+  options: { remoteExport?: boolean } = {},
+) {
+  const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
+  await fs.mkdir(fixtureRoot, { recursive: true });
+  const provider = path.join(fixtureRoot, "host-bridge-provider.mjs");
   await fs.writeFile(
-    bridgeJs,
+    provider,
     String.raw`
 import fs from "fs";
 import path from "path";
 
-const args = process.argv.slice(2);
-if (args.includes("--input")) {
-  console.error("semantic reads must use --query");
-  process.exit(64);
+const { command, input } = JSON.parse(process.argv[2]);
+function reply(data) {
+  console.log(JSON.stringify(data));
 }
-const queryIndex = args.indexOf("--query");
-if (queryIndex < 0) {
-  console.error("missing --query");
-  process.exit(64);
-}
-const queryRef = args[queryIndex + 1] || "";
-let input = {};
-if (queryRef.startsWith("@")) {
-  input = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), queryRef.slice(1)), "utf8"));
-}
-const command = args.slice(0, queryIndex).join(" ");
 fs.mkdirSync(path.join(process.cwd(), "runtime"), { recursive: true });
 fs.appendFileSync(path.join(process.cwd(), "runtime", "bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\n");
 const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
@@ -417,15 +414,15 @@ const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
 }));
 if (command === "synthesis topic get-context") {
   if (input.topicId === "missing-topic") {
-    console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { ok: false, status: "not_found", topic_id: input.topicId } } }));
+    reply({ ok: false, status: "not_found", topic_id: input.topicId });
   } else if (input.view === "digest") {
-    console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { schema_id: "synthesis.topic_context", view: "digest", topic_id: input.topicId, digest: {
+    reply({ schema_id: "synthesis.topic_context", view: "digest", topic_id: input.topicId, digest: {
       topic_id: input.topicId,
       title: "DETR-style Object Detection",
       definition: "Query-based object detection methods derived from DETR.",
       language: "zh-CN",
       paper_count: 1
-    } } } }));
+    } });
   } else if (input.view === "audit") {
     const linkedRefs = input.topicId === "partial-triage-topic" ? ["1:DETR", "1:DINO"] : ["1:DETR"];
     const linkedPapers = linkedRefs.map((ref) => ({
@@ -439,13 +436,11 @@ if (command === "synthesis topic get-context") {
         paper_ref: "1:DETR",
         relevance_level: "core",
         relevance_reason: "Original topic anchor.",
-        paper_quality_level: "high",
-        paper_quality_reason: "Fixture quality.",
         core_digest: "DETR remains the update anchor.",
         caveats: []
       }
     };
-    console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { schema_id: "synthesis.topic_context", view: "audit", topic_id: input.topicId, audit: {
+    reply({ schema_id: "synthesis.topic_context", view: "audit", topic_id: input.topicId, audit: {
       topic_id: input.topicId,
       language: "zh-CN",
       current_hashes: {
@@ -466,16 +461,16 @@ if (command === "synthesis topic get-context") {
       source_paper_triage: savedTriage,
       source_materials: { status: "complete", percent: 100 },
       discovery: { status: "candidates", candidate_count: 1, hints: [{ literature_item_id: "1:DINO" }] }
-    } } } }));
+    } });
   } else {
-    console.log(JSON.stringify({ ok: false, error: { code: "invalid_view" } }));
+    reply({ ok: false, status: "invalid_view" });
     process.exitCode = 1;
   }
 } else if (command === "synthesis resolver resolve") {
-  console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "resolvers.resolve", data: { ok: true, papers, returned: papers.length, total: papers.length } } }));
+  reply({ ok: true, candidates: papers, nextCursor: "", hasMore: false, returned: papers.length, total: papers.length, limit: Number(input.limit || 25) });
 } else if (command === "synthesis graph get-metrics") {
   const refs = input.paperRefs || input.paper_refs || [];
-  console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "citation_graph.get_metrics", data: { ok: true, status: "ready", items: refs.map((paper_ref) => ({
+  reply({ ok: true, status: "ready", metrics: refs.map((paper_ref) => ({
     paper_ref,
     status: "ready",
     foundation_score: 1,
@@ -486,24 +481,17 @@ if (command === "synthesis topic get-context") {
     external_reference_count: 2,
     unresolved_reference_count: 1,
     synthesis_role_hints: ["core", "external-heavy"]
-  })) } } }));
+  })), nextCursor: "", hasMore: false, returned: refs.length, total: refs.length, limit: Number(input.limit || 25) });
 } else if (command === "synthesis artifact export-filtered") {
-  if (process.env.ZS_FAKE_BRIDGE_REMOTE_EXPORT === "1") {
-    console.log(JSON.stringify({
-      ok: true,
-      data: {
-        approval: "none",
-        capability: "paper_artifacts.export_filtered",
-        data: {
-          delivery: {
-            mode: "bridge-download",
-            downloadCommand: "zotero-bridge file download file-123 --output paper-artifacts.zip",
-            unpackHint: "tar -xf paper-artifacts.zip -C .",
-            manifest_file: "runtime/payloads/paper-artifacts-manifest.json"
-          }
-        }
+  if (${JSON.stringify(options.remoteExport === true)}) {
+    reply({
+      delivery: {
+        mode: "bridge-download",
+        downloadCommand: "zotero-bridge file download file-123 --output paper-artifacts.zip",
+        unpackHint: "tar -xf paper-artifacts.zip -C .",
+        manifest_file: "runtime/payloads/paper-artifacts-manifest.json"
       }
-    }));
+    });
     process.exit(0);
   }
   const refs = input.paper_refs || [];
@@ -526,32 +514,39 @@ if (command === "synthesis topic get-context") {
     ] };
   }) };
   fs.writeFileSync(path.join(input.run_root, "runtime", "payloads", "paper-artifacts-manifest.json"), JSON.stringify(manifest, null, 2));
-  console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "paper_artifacts.export_filtered", data: { manifest } } }));
+  reply({ manifest });
 } else {
-  console.log(JSON.stringify({ ok: false, error: { code: "unknown_command", command } }));
+  reply({ ok: false, status: "unknown_command", command });
   process.exitCode = 1;
 }
 `,
     "utf8",
   );
-  const bridgeCmd = path.join(binDir, "zotero-bridge.cmd");
-  await fs.writeFile(
-    bridgeCmd,
-    `@echo off\r\nnode "%~dp0fake-zotero-bridge.mjs" %*\r\n`,
-    "utf8",
-  );
-  const bridgePosix = path.join(binDir, "zotero-bridge");
-  await fs.writeFile(
-    bridgePosix,
-    '#!/usr/bin/env sh\nexec node "$(dirname "$0")/fake-zotero-bridge.mjs" "$@"\n',
-    "utf8",
-  );
-  await fs.chmod(bridgePosix, 0o755);
-  return process.platform === "win32" ? bridgeCmd : bridgePosix;
+  const harness = await startHostBridgeCliFixtureHarness({
+    commands: [
+      "synthesis topic get-context",
+      "synthesis resolver resolve",
+      "synthesis graph get-metrics",
+      "synthesis artifact export-filtered",
+    ],
+    providerPath: provider,
+    cwd: runRoot,
+  });
+  activeHarnesses.add(harness);
+  return harness;
 }
 
 describe("topic synthesis split skill runtime", function () {
   this.timeout(30000);
+
+  afterEach(async function () {
+    await Promise.all(
+      Array.from(activeHarnesses, async (harness) => {
+        await harness.close();
+        activeHarnesses.delete(harness);
+      }),
+    );
+  });
 
   it("runs update prepare through topic context, resolver, triage, and handoff", async function () {
     const tempRoot = await fs.mkdtemp(
@@ -567,9 +562,9 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const bridgeBin = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    const env = harness.env;
     await writeJson(path.join(runRoot, "runtime/input.json"), {
       topicId: "detr-topic",
     });
@@ -707,8 +702,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DINO",
             relevance_level: "core",
             relevance_reason: "Representative update candidate.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DINO adds update evidence.",
             caveats: [],
           },
@@ -768,9 +761,9 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const bridgeBin = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    const env = harness.env;
     await writeJson(path.join(runRoot, "runtime/input.json"), {
       parameter: { topicId: "detr-topic" },
     });
@@ -836,9 +829,9 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const bridgeBin = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    const env = harness.env;
     await writeJson(
       path.join(
         runRoot,
@@ -893,9 +886,9 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const bridgeBin = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    const env = harness.env;
     await writeJson(path.join(runRoot, "runtime/input.json"), {
       topicId: "no-triage-topic",
     });
@@ -955,9 +948,9 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const bridgeBin = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    const env = harness.env;
     await writeJson(path.join(runRoot, "runtime/input.json"), {
       topicId: "partial-triage-topic",
     });
@@ -1049,9 +1042,9 @@ describe("topic synthesis split skill runtime", function () {
     await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
       recursive: true,
     });
-    const bridgeBin = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    const env = harness.env;
 
     const gate0 = runGate(packages.prepare, runRoot, ["--db", dbPath], env);
     assert.equal(gate0.stage, "stage_00_runtime_setup");
@@ -1189,8 +1182,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "primary",
             relevance_reason: "Invalid enum fixture.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DETR baseline.",
             caveats: [],
           },
@@ -1224,8 +1215,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "core",
             relevance_reason: "Baseline.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DETR baseline.",
             caveats: [],
           },
@@ -1233,8 +1222,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "related",
             relevance_reason: "Duplicate fixture.",
-            paper_quality_level: "medium",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "Duplicate DETR.",
             caveats: [],
           },
@@ -1269,8 +1256,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "core",
             relevance_reason: "Baseline.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DETR baseline.",
             caveats: [],
           },
@@ -1278,8 +1263,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DINO",
             relevance_level: "core",
             relevance_reason: "Training improvement.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DINO improves DETR training.",
             caveats: [],
           },
@@ -1948,7 +1931,9 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(detrSourcePaper?.summary, "DETR baseline.");
     assert.equal(detrSourcePaper?.synthesis_role, "core");
-    assert.equal(detrSourcePaper?.quality, "high");
+    assert.equal(detrSourcePaper?.literature_quality?.status, "missing");
+    assert.equal(detrSourcePaper?.literature_quality?.quality_prior, 0.5);
+    assert.notProperty(detrSourcePaper, "quality");
     assert.deepEqual(detrSourcePaper?.caveats, []);
     assert.notProperty(detrSourcePaper, "triage");
     assert.deepEqual((sections.statistics as any).time_span, {
@@ -2036,11 +2021,10 @@ describe("topic synthesis split skill runtime", function () {
     const runRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-topic-remote-export-"),
     );
-    const bridgeBin = await createFakeBridge(runRoot);
-    const env = {
-      ZOTERO_BRIDGE_BIN: bridgeBin,
-      ZS_FAKE_BRIDGE_REMOTE_EXPORT: "1",
-    };
+    const harness = await createBridgeHarness(runRoot, {
+      remoteExport: true,
+    });
+    const env = harness.env;
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
 
     runGate(packages.prepare, runRoot, ["--db", dbPath], env);

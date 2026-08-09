@@ -4,6 +4,7 @@ export type ZoteroNotePayloadKind =
   | "digest"
   | "references"
   | "citation-analysis"
+  | "literature-score"
   | string;
 
 export type ZoteroNotePayloadBlock = {
@@ -477,6 +478,9 @@ export function parseNoteKind(noteHtml: unknown) {
   }
   if (/data-zs-payload=(["'])citation-analysis-json\1/i.test(html)) {
     return "citation-analysis";
+  }
+  if (/data-zs-payload=(["'])literature-score-json\1/i.test(html)) {
+    return "literature-score";
   }
   if (/data-zs-payload=(["'])conversation-note-markdown\1/i.test(html)) {
     return "conversation-note";

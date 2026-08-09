@@ -16,6 +16,7 @@ export * from "./hostRead";
 export * from "./itemRef";
 export * from "./knowledgeCheckpoint";
 export * from "./libraryIndex";
+export * from "./literatureArtifacts";
 export * from "./lifecycle";
 export * from "./references";
 export * from "./referenceRefreshApplication";

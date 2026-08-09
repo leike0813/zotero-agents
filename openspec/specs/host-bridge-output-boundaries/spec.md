@@ -114,3 +114,32 @@ descriptors without local paths.
 - **THEN** stdout contains a `fileId` descriptor, byte size, and SHA-256 when available
 - **AND** downloading that handle yields the complete source bytes
 - **AND** stdout exposes no host-local path.
+
+### Requirement: Executable command contracts SHALL own CLI output boundaries
+Every canonical CLI leaf SHALL declare exactly one output boundary and result Schema in the executable command contract, or inherit its untransformed result Schema from its target capability. Separate output-boundary registries SHALL NOT exist.
+
+#### Scenario: Remote response violates the declared result
+- **WHEN** a Host response or command transformation violates the applicable result Schema
+- **THEN** the CLI SHALL return a protocol failure with exit code 11 for remote data
+- **AND** SHALL NOT print a success envelope.
+
+#### Scenario: Local command constructs an invalid result
+- **WHEN** a local command produces data that violates its command result Schema
+- **THEN** the CLI SHALL return an internal failure with exit code 70.
+
+#### Scenario: Command lacks a boundary
+- **WHEN** contract validation finds a missing, duplicate, or incompatible output boundary
+- **THEN** command-contract and surface generation SHALL fail.
+
+### Requirement: Workflow resource paths remain Host-owned
+Host Bridge SHALL resolve workflow input handles only beneath the managed upload root and SHALL finalize workflow outputs only beneath a run-scoped managed output root. External workflow contracts, queue records, receipts, diagnostics, and task projections SHALL omit absolute paths and path-like client data.
+
+#### Scenario: Input handle resolves inside the managed root
+- **WHEN** a valid bridge-upload handle is bound to a workflow input
+- **THEN** the workflow runtime SHALL receive a Host-managed temporary path
+- **AND** the path SHALL not be returned through the Host Bridge response
+
+#### Scenario: Output path escapes the run root
+- **WHEN** output finalization targets a path outside the current run-scoped root
+- **THEN** Host Bridge SHALL reject finalization with a structured boundary error
+- **AND** it SHALL not register the file for download

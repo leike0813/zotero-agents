@@ -27,7 +27,7 @@ research tasks, Zotero-side approval, Zotero-managed state, or the public
 bridge topology to decide whether a Skill applies.
 
 Machine contracts keep their established identity. Protocol and schema values
-such as `host-bridge.v1` and `host-bridge.agent-surface.v5`, `/bridge/v1/**`
+such as `host-bridge.v2` and `host-bridge.agent-surface.v6`, `/bridge/v2/**`
 routes, `ZOTERO_BRIDGE_HOST_PROFILE`, `ZOTERO_BRIDGE_HOST_HOME`, and code
 identifiers are not rewritten as prose. The shared agent-language gate checks
 authored surface sources, generated packages, CLI-visible strings, and the
@@ -51,18 +51,28 @@ and Minimum components byte-identically, then adds only its resident facet.
 The generated surface manifest records the exact CLI identity and the digest of
 every direct and inherited component.
 
+Minimum 与 Generic 的七个 Skill 统一生成到
+`addon/content/host-bridge-skills/`，并随 XPI 发布；bundle manifest 记录精确
+Skill 闭包、CLI identity、逐文件摘要和 aggregate digest。Content Package 不再
+携带这些 Skill。Hermes profile 仍由同一批内存渲染结果生成，避免维护第二套语义。
+
 ## Minimum: mechanism contract
 
 Minimum exposes `zotero-bridge` and the offline
-`host-bridge.agent-surface.v5` descriptor. The descriptor contains only
+`host-bridge.agent-surface.v6` descriptor. The descriptor contains only
 operational facts: complete global and local argument metadata, command paths,
 structured input schemas and examples, composed payload and command result
 schemas, effects, approvals, typed handles, recovery rules, targets, summaries,
 and operational aliases. `surface identity`, `surface describe`, and
 `surface search` therefore discover mechanism contracts without selecting a
-research task. The versioned command-contract registry is the payload/result
-fact source shared by the descriptor, `--schema`, help examples, and generated
-command references; Clap remains the argv fact source.
+research task. `host-bridge/contracts/capabilities.v2.json` owns capability
+input/output, effect, approval, and exposure facts.
+`host-bridge/contracts/cli-commands.v2.json` owns each command target, closed
+binding mode, structured-input source, result source, output boundary, and
+operational metadata. The Rust runtime descriptor combines those executable
+contracts with the live Clap command tree; the same descriptor drives
+`--schema`, offline surface discovery, generated command references, and the
+generated mechanism section of the CLI manual.
 
 The `zotero-bridge-cli` Skill is the complete operating contract for this
 layer. Its `SKILL.md` defines the command loop, approval and handle behavior,
@@ -199,6 +209,11 @@ warnings below 200 and 350 lines respectively. The semantic-surface reviewer
 must explicitly accept or expand every warning; line counts never replace the
 semantic checks for completeness, paraphrased duplication, reference
 coherence, and separation between layers.
+
+插件启动时会先验证并事务物化 XPI bundle，再扫描 workflow/skill registry。
+七个保留 ID 只接受 `xpi-bundled` 来源；official、dev-local 或 user 同名候选
+会产生结构化诊断，bundle 无效时也不会回退。ACP Chat 与 ACP Skills 会保存
+bundle aggregate 和 CLI identity，identity 变化后旧远端会话必须重新运行。
 
 ## Semantic preservation
 

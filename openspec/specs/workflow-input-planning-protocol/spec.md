@@ -22,9 +22,16 @@ The system SHALL plan workflow input by applying the empty-selection trigger gat
 ### Requirement: Candidate and unit models SHALL be ordered and immutable
 Each candidate SHALL expose a kind, stable identity, label, scoped selection context, and optional parent identity. Each prepared unit SHALL expose ordered members and member identities, member count, merged scoped context, a safe label, and an optional shared target parent.
 
+Atomic parent, attachment, child, and note candidates SHALL scope the top-level selection items to the current member only. The matching item array SHALL contain that member, the other top-level item arrays SHALL be empty, and the selection type and summary SHALL describe the atomic member.
+
 #### Scenario: Admission follows confirmed planning
 - **WHEN** a confirmed plan has been admitted for execution
 - **THEN** downstream build, preflight, duplicate guarding, and queueing use the same immutable unit membership without replanning or regrouping
+
+#### Scenario: Literature sources expand from multiple selected parents
+- **WHEN** a literature-source selector expands attachments from multiple selected parents and groups them with `each`
+- **THEN** every unit's scoped selection contains only its current attachment and no selected parent entries
+- **AND** every unit retains the parent identity associated with that attachment
 
 ### Requirement: Grouping SHALL be deterministic
 The system SHALL support `each`, `all`, and `parent` grouping. Parent grouping SHALL preserve first-seen group and member order and SHALL skip candidates without stable parent identity using reason `missing-parent`.
@@ -59,4 +66,3 @@ Host queue admission SHALL occur only after the Host has produced a confirmed In
 - **WHEN** an allowed prepared unit enters the submission seam
 - **THEN** its member order, member count, group identity, scoped context, and task label SHALL remain immutable
 - **AND** downstream execution SHALL NOT rerun raw-selection requirements or grouping
-

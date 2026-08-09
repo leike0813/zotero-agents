@@ -748,3 +748,63 @@ Workflow UI and Host Bridge SHALL call one submission seam after confirmed plann
 - **WHEN** UI and Host Bridge submit queue-managed workflows
 - **THEN** each entry path SHALL invoke the shared seam once
 - **AND** no path SHALL enqueue the same unit twice or bypass the native queue
+
+### Requirement: Existing-parent bundle debug probe
+The system SHALL provide a debug-only workflow that runs the existing debug bundle skill once for each selected parent and applies the declared artifact as an attachment of that same parent.
+
+#### Scenario: Multiple selected parents preserve apply ownership
+- **WHEN** two or more existing parent items are selected and the existing-parent bundle probe is executed
+- **THEN** Input Planning emits one ordered execution unit per parent
+- **AND** each provider request and apply invocation retains that unit's parent identity
+- **AND** each generated artifact is attached only to its corresponding parent
+
+#### Scenario: ACP-compatible bundle application
+- **WHEN** the probe executes through an ACP backend
+- **THEN** the ACP-compatible bundle reader supplies the declared artifact to the shared workflow apply seam
+- **AND** the artifact is attached to the parent owned by that execution unit
+
+#### Scenario: SkillRunner bundle application
+- **WHEN** the probe executes through a SkillRunner backend
+- **THEN** the fetched bundle supplies the declared artifact to the shared workflow apply seam
+- **AND** the artifact is attached to the parent owned by that execution unit
+
+#### Scenario: Existing parent is required
+- **WHEN** the probe has no resolvable existing parent at apply time
+- **THEN** application fails before creating an attachment
+- **AND** the workflow does not create a replacement parent item
+
+### Requirement: Execution seams SHALL coordinate submission slot ownership explicitly
+
+The submission execution context SHALL expose typed operations to yield a held slot, request priority resumption, cancel an unsent resumption, and ensure a slot before Host apply. These operations SHALL accept normalized Host reason values and SHALL NOT require the queue to interpret provider-specific status strings.
+
+#### Scenario: Waiting provider yields through the run seam
+
+- **WHEN** the run seam projects waiting-user, waiting-auth, or recoverable failure
+- **THEN** it SHALL map the provider state to a normalized Host yield reason
+- **AND** invoke the unit's idempotent yield operation
+
+#### Scenario: Apply follows yielded execution
+
+- **WHEN** a yielded provider run becomes terminal with an applicable result
+- **THEN** the apply seam SHALL await priority slot reacquisition before invoking Host apply
+
+### Requirement: Workflow execution seams carry an immutable resource view
+Preparation, prepared-unit, run, apply, and sequence-step apply seams SHALL carry the resource bindings needed by the current unit through an explicit immutable handoff. Hooks SHALL consume the resource runtime API rather than transport-specific picker calls when a non-interactive binding is present.
+
+#### Scenario: Queued unit resolves its resource after admission
+- **WHEN** a prepared unit is admitted from the Host queue
+- **THEN** the run seam SHALL receive its resource view and resolve inputs immediately before hook execution
+- **AND** queue preparation SHALL not embed a client or Host absolute path
+
+#### Scenario: GUI adapter supplies the same resource view
+- **WHEN** a GUI workflow selects an input or output destination
+- **THEN** the adapter SHALL normalize it into the runtime resource view
+- **AND** existing interactive workflow behavior SHALL remain observable
+
+### Requirement: Non-interactive hooks have deterministic interaction failures
+When execution is non-interactive, the workflow runtime SHALL reject picker, editor, confirmation, and equivalent GUI-only requests with a structured interaction-required outcome.
+
+#### Scenario: Picker is requested by a remote workflow
+- **WHEN** a non-interactive hook requests a file or directory picker
+- **THEN** the hook SHALL fail without opening Zotero UI
+- **AND** the workflow result SHALL identify the interaction boundary that was reached

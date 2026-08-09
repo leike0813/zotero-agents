@@ -2549,6 +2549,10 @@ th {
   width: 112px;
 }
 
+.registry-col-rating {
+  width: 104px;
+}
+
 .registry-col-id {
   width: 132px;
 }
@@ -2567,8 +2571,10 @@ th {
 }
 
 .registry-table th.registry-artifacts-header,
+.registry-table th.registry-rating-header,
 .registry-table th.registry-references-header,
 .registry-table td.registry-artifacts-cell,
+.registry-table td.registry-rating-cell,
 .registry-table td.registry-references-cell {
   text-align: center;
 }
@@ -2705,7 +2711,7 @@ th {
 
 .registry-artifact-badges {
   display: inline-grid;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(4, max-content);
   gap: 4px;
   align-items: center;
   justify-content: center;
@@ -2733,6 +2739,38 @@ th {
   min-width: 16px;
   min-height: 16px;
   object-fit: contain;
+}
+
+.registry-rating {
+  display: inline-flex;
+  align-items: center;
+  color: var(--zs-accent);
+  white-space: nowrap;
+}
+
+.registry-rating-star {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 16px;
+  line-height: 16px;
+}
+
+.registry-rating-star-empty,
+.registry-rating-star-fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.registry-rating-star-fill {
+  color: var(--zs-accent);
+  white-space: nowrap;
+}
+
+.registry-rating.is-missing {
+  color: var(--zs-muted);
+  opacity: 0.55;
 }
 
 .registry-reference-count {

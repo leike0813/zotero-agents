@@ -4,6 +4,22 @@
 Synthesis Workbench presents sidecar cache state, explicit operations, and review queues.
 
 ## Requirements
+### Requirement: Synthesis Index displays four artifact states and separate rating
+
+The Index SHALL display one availability icon for each paper artifact and a separate numeric-score-derived Rating column.
+
+#### Scenario: Four artifacts are available
+- **WHEN** digest, references, citation analysis, and literature score are available
+- **THEN** the artifact cell SHALL show four available icons
+- **AND** Analyze SHALL be disabled.
+
+#### Scenario: Only score is unavailable
+- **WHEN** the three analysis artifacts are available and literature score is missing or invalid
+- **THEN** Analyze SHALL execute literature-analysis score-only mode without exposing that mode as a user option.
+
+#### Scenario: Analysis artifact is unavailable
+- **WHEN** any digest, references, or citation-analysis artifact is unavailable
+- **THEN** Analyze SHALL execute full analysis.
 
 ### Requirement: Workbench presents cache state and explicit operations
 Synthesis Workbench SHALL present sidecar cache status, explicit operation rows, and bounded review queues instead of background synchronization queues.
@@ -183,3 +199,26 @@ Synthesis Home SHALL present WebDAV Sync status, actions, diagnostics, and execu
 
 - **WHEN** the Home Sync section is rendered
 - **THEN** it SHALL use a compact WebDAV summary row rather than insight cards.
+
+### Requirement: Synthesis Index SHALL display literature ratings
+
+The Synthesis Index SHALL project and render literature ratings for parent
+paper rows without exposing the internal score-only parameter.
+
+#### Scenario: Parent paper has a valid score
+
+- **WHEN** an Index parent row is rendered
+- **THEN** it SHALL display the same five-star rating as the Zotero library
+- **AND** an expanded reference child row SHALL preserve table alignment with an
+  empty rating cell.
+
+#### Scenario: Legacy triplet needs a score
+
+- **WHEN** the parent row's literature-analysis mode is `score-only`
+- **THEN** the Analyze action SHALL remain enabled
+- **AND** the UI SHALL NOT expose a score-only option.
+
+#### Scenario: All four outputs exist
+
+- **WHEN** the parent row's mode is `unavailable`
+- **THEN** the Analyze action SHALL be disabled.

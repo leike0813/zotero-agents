@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { startHostBridgeCliFixtureHarness } from "../helpers/hostBridgeCliHarness";
 
 const skillRoot = path.resolve("skills_builtin/collection-collector");
 
@@ -45,24 +46,16 @@ async function writeJson(target: string, value: unknown) {
   await fs.writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-async function createFakeBridge(runRoot: string) {
-  const binDir = path.join(runRoot, ".zotero-bridge", "bin");
-  await fs.mkdir(binDir, { recursive: true });
-  const bridge = path.join(binDir, "zotero-bridge");
+async function createBridgeHarness(runRoot: string) {
+  const fixtureRoot = path.join(runRoot, "runtime", "test-fixtures");
+  await fs.mkdir(fixtureRoot, { recursive: true });
+  const provider = path.join(fixtureRoot, "host-bridge-provider.cjs");
   const source = String.raw`#!/usr/bin/env node
-const args = process.argv.slice(2);
-if (args.includes("--input")) {
-  console.error("semantic reads must use --query");
-  process.exit(64);
-}
-const queryIndex = args.indexOf("--query");
-const commandArgs = args.slice(0, queryIndex >= 0 ? queryIndex : args.length);
-const command = commandArgs.join(" ");
+const { command, input } = JSON.parse(process.argv[2]);
 let data = {};
-if (command === "bridge status") data = { status: "ok" };
-else if (command === "library items list") data = {
+if (command === "library items list") data = {
   items: [{ libraryId: 1, key: "EXIST123", itemType: "journalArticle", title: "Existing streaming paper" }],
-  hasMore: false
+  nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25)
 };
 else if (command === "library snapshot") data = {
   items: [
@@ -70,27 +63,37 @@ else if (command === "library snapshot") data = {
     { libraryId: 1, key: "ITEM5678", itemType: "conferencePaper", title: "Multimodal fusion", tags: ["multimodal"] },
     { libraryId: 1, key: "EXIST123", itemType: "journalArticle", title: "Existing streaming paper", tags: ["streaming"] }
   ],
-  hasMore: false
+  nextCursor: "", hasMore: false, returned: 3, total: 3, limit: Number(input.limit || 25)
 };
 else if (command === "synthesis topic list") data = {
   topics: [{ topicId: "topic-a", title: "Multimodal perception" }],
-  hasMore: false
+  nextCursor: "", hasMore: false, returned: 1, total: 1, limit: Number(input.limit || 25)
 };
 else if (command === "synthesis topic get-context") data = {
   topicId: "topic-a",
   sourcePapers: ["1:ITEM5678"]
 };
-else if (command.startsWith("library item get")) {
-  const key = commandArgs[commandArgs.indexOf("--key") + 1];
+else if (command === "library item get") {
+  const key = input.key;
   data = { libraryId: 1, key, itemType: "journalArticle", title: key === "ITEM1234" ? "Streaming perception for tunnel boring machines" : "Multimodal fusion" };
 } else {
   console.error("unsupported command: " + command);
   process.exit(2);
 }
-console.log(JSON.stringify({ data }));
+console.log(JSON.stringify(data));
 `;
-  await fs.writeFile(bridge, source, { mode: 0o755 });
-  return bridge;
+  await fs.writeFile(provider, source, "utf8");
+  return startHostBridgeCliFixtureHarness({
+    commands: [
+      "library items list",
+      "library snapshot",
+      "synthesis topic list",
+      "synthesis topic get-context",
+      "library item get",
+    ],
+    providerPath: provider,
+    cwd: runRoot,
+  });
 }
 
 describe("collection collector skill runtime", function () {
@@ -102,7 +105,7 @@ describe("collection collector skill runtime", function () {
     );
     const dbPath = path.join(runRoot, "runtime", "collection-collector.sqlite");
     const inputPath = path.join(runRoot, "runtime", "input.json");
-    const bridge = await createFakeBridge(runRoot);
+    const harness = await createBridgeHarness(runRoot);
     await writeJson(inputPath, {
       parameter: {
         collection: "1:COLL1234",
@@ -110,84 +113,94 @@ describe("collection collector skill runtime", function () {
       },
     });
     const common = ["--db", dbPath, "--input", inputPath];
-    const env = { ZOTERO_BRIDGE_BIN: bridge };
+    const env = harness.env;
 
-    assert.equal(runGate(runRoot, common, env).stage, "stage_00_runtime_setup");
-    runGate(runRoot, [...common, "--run-stage"], env);
-    assert.equal(
-      runGate(runRoot, common, env).stage,
-      "stage_10_inventory_collect",
-    );
-    runGate(runRoot, [...common, "--run-stage"], env);
+    try {
+      assert.equal(
+        runGate(runRoot, common, env).stage,
+        "stage_00_runtime_setup",
+      );
+      runGate(runRoot, [...common, "--run-stage"], env);
+      assert.equal(
+        runGate(runRoot, common, env).stage,
+        "stage_10_inventory_collect",
+      );
+      runGate(runRoot, [...common, "--run-stage"], env);
 
-    const scopeGate = runGate(runRoot, common, env);
-    assert.equal(scopeGate.stage, "stage_20_scope_plan");
-    await writeJson(scopeGate.payload_path, {
-      scope_dimensions: ["streaming perception", "multimodal fusion"],
-      positive_terms: ["streaming", "multimodal"],
-      negative_terms: [],
-      selected_topics: [
-        {
-          topic_id: "topic-a",
-          relevance: 0.9,
-          reason: "The topic directly covers multimodal perception.",
-        },
-      ],
-    });
-    runGate(
-      runRoot,
-      [...common, "--submit-stage-payload", scopeGate.payload_path],
-      env,
-    );
-    runGate(runRoot, [...common, "--run-stage"], env);
+      const scopeGate = runGate(runRoot, common, env);
+      assert.equal(scopeGate.stage, "stage_20_scope_plan");
+      await writeJson(scopeGate.payload_path, {
+        scope_dimensions: ["streaming perception", "multimodal fusion"],
+        positive_terms: ["streaming", "multimodal"],
+        negative_terms: [],
+        selected_topics: [
+          {
+            topic_id: "topic-a",
+            relevance: 0.9,
+            reason: "The topic directly covers multimodal perception.",
+          },
+        ],
+      });
+      runGate(
+        runRoot,
+        [...common, "--submit-stage-payload", scopeGate.payload_path],
+        env,
+      );
+      runGate(runRoot, [...common, "--run-stage"], env);
 
-    const assessmentGate = runGate(runRoot, common, env);
-    assert.equal(assessmentGate.stage, "stage_40_paper_assessment");
-    const packet = JSON.parse(
-      await fs.readFile(assessmentGate.required_reads[0], "utf8"),
-    );
-    assert.deepEqual(
-      packet.papers.map((paper: any) => paper.paper_ref).sort(),
-      ["1:ITEM1234", "1:ITEM5678"],
-    );
-    await writeJson(assessmentGate.payload_path, {
-      batch_id: packet.batch_id,
-      assessments: packet.papers.map((paper: any) => ({
-        paper_ref: paper.paper_ref,
-        semantic_relevance: paper.paper_ref === "1:ITEM1234" ? 0.8 : 0.5,
-        evidence_basis: paper.matched_topic_ids.length
-          ? ["metadata", "topic"]
-          : ["metadata", "tags"],
-        matched_topic_ids: paper.matched_topic_ids,
-        reason: "Assessed against the declared collection scope.",
-        caveats: [],
-      })),
-    });
-    runGate(
-      runRoot,
-      [...common, "--submit-stage-payload", assessmentGate.payload_path],
-      env,
-    );
-    assert.equal(runGate(runRoot, common, env).stage, "stage_50_render_result");
-    runGate(runRoot, [...common, "--run-stage"], env);
+      const assessmentGate = runGate(runRoot, common, env);
+      assert.equal(assessmentGate.stage, "stage_40_paper_assessment");
+      const packet = JSON.parse(
+        await fs.readFile(assessmentGate.required_reads[0], "utf8"),
+      );
+      assert.deepEqual(
+        packet.papers.map((paper: any) => paper.paper_ref).sort(),
+        ["1:ITEM1234", "1:ITEM5678"],
+      );
+      await writeJson(assessmentGate.payload_path, {
+        batch_id: packet.batch_id,
+        assessments: packet.papers.map((paper: any) => ({
+          paper_ref: paper.paper_ref,
+          semantic_relevance: paper.paper_ref === "1:ITEM1234" ? 0.8 : 0.5,
+          evidence_basis: paper.matched_topic_ids.length
+            ? ["metadata", "topic"]
+            : ["metadata", "tags"],
+          matched_topic_ids: paper.matched_topic_ids,
+          reason: "Assessed against the declared collection scope.",
+          caveats: [],
+        })),
+      });
+      runGate(
+        runRoot,
+        [...common, "--submit-stage-payload", assessmentGate.payload_path],
+        env,
+      );
+      assert.equal(
+        runGate(runRoot, common, env).stage,
+        "stage_50_render_result",
+      );
+      runGate(runRoot, [...common, "--run-stage"], env);
 
-    const completed = runGate(runRoot, common, env);
-    assert.equal(completed.stage, "completed");
-    const result = JSON.parse(
-      await fs.readFile(
-        path.join(runRoot, "collection-collector.result.json"),
-        "utf8",
-      ),
-    );
-    assert.equal(result.inventory_count, 3);
-    assert.equal(result.existing_count, 1);
-    assert.equal(result.eligible_count, 2);
-    assert.equal(result.assessed_count, 2);
-    assert.equal(result.selected_count, 1);
-    assert.deepEqual(
-      result.selected_items.map((item: any) => item.paper_ref),
-      ["1:ITEM1234"],
-    );
+      const completed = runGate(runRoot, common, env);
+      assert.equal(completed.stage, "completed");
+      const result = JSON.parse(
+        await fs.readFile(
+          path.join(runRoot, "collection-collector.result.json"),
+          "utf8",
+        ),
+      );
+      assert.equal(result.inventory_count, 3);
+      assert.equal(result.existing_count, 1);
+      assert.equal(result.eligible_count, 2);
+      assert.equal(result.assessed_count, 2);
+      assert.equal(result.selected_count, 1);
+      assert.deepEqual(
+        result.selected_items.map((item: any) => item.paper_ref),
+        ["1:ITEM1234"],
+      );
+    } finally {
+      await harness.close();
+    }
   });
 
   it("returns a terminal invalid_input business cancellation", async function () {

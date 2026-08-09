@@ -85,3 +85,50 @@ Host Bridge SHALL obtain workflow submit approval before registering queue-manag
 - **WHEN** an authenticated interactive agent cancels a pending queue unit
 - **THEN** Host Bridge SHALL execute the pending-only transition without opening a Zotero approval prompt
 - **AND** resident cron policy SHALL still prohibit cancel requests
+
+### Requirement: Scoped Host Bridge approval SHALL remain attached to its invoking ACP owner
+
+Host Bridge SHALL route a scoped write approval using the immutable scope of the invoking ACP adapter or run and SHALL NOT use owner identity later written by another owner.
+
+#### Scenario: ACP Chat conversations share one profile
+
+- **GIVEN** two ACP Chat conversations share stable Host Bridge profile configuration
+- **WHEN** either conversation invokes a write after both adapters are connected
+- **THEN** Host Bridge SHALL route the approval to the invoking conversation
+- **AND** SHALL NOT fall back to another conversation or the global approval UI.
+
+### Requirement: Host Bridge writes SHALL be presented as Zotero write approvals
+
+Scoped Host Bridge write requests delivered to ACP Chat or ACP Skills SHALL carry the Zotero write approval kind.
+
+#### Scenario: A scoped mutation requires approval
+
+- **WHEN** a Host Bridge mutation reaches an ACP owner permission surface
+- **THEN** the approval card SHALL use the Zotero write review presentation
+- **AND** its original Host Bridge source identifier SHALL remain unchanged.
+
+### Requirement: Capability approval SHALL be selected from the executable contract
+Host Bridge SHALL validate capability input before selecting the capability's effect and approval policy from the canonical contract. Capability handlers, CLI metadata, and surface renderers SHALL NOT maintain independent approval classifications.
+
+#### Scenario: Invalid write input arrives
+- **WHEN** a write capability receives invalid input
+- **THEN** Host Bridge SHALL reject the input before creating an approval request
+- **AND** no handler or mutation path SHALL execute.
+
+#### Scenario: Valid capability arrives
+- **WHEN** a capability receives valid input
+- **THEN** the dispatcher SHALL apply the effect and approval policy declared for that capability
+- **AND** the handler SHALL not be able to weaken or bypass the selected policy.
+
+### Requirement: Host Bridge SHALL reject invalid write input before approval
+Host Bridge SHALL validate capability input structurally before evaluating approval policy. Invalid input SHALL produce a structured error without requesting approval, invoking handlers, or mutating state.
+
+#### Scenario: Missing required field
+- **WHEN** capability input omits a required field
+- **THEN** Host Bridge SHALL return a structured invalid input error
+- **AND** SHALL NOT create an approval request.
+
+#### Scenario: Undeclared field present
+- **WHEN** capability input contains a field not declared in the capability input Schema
+- **THEN** Host Bridge SHALL return a structured invalid input error listing the undeclared field
+- **AND** SHALL NOT invoke the handler.

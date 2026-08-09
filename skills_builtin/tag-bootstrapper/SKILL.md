@@ -49,7 +49,9 @@ When the runtime provides Zotero host access, use the library index before askin
 Before using Zotero host data:
 
 1. Read the built-in `zotero-bridge-cli` wrapper skill.
-2. Read `zotero-bridge-cli/references/host-bridge-cli.md` for the current command surface.
+2. Read `zotero-bridge-cli/references/command-catalog.md`, select
+   `synthesis index library get`, read its generated command card, and confirm
+   the live contract with `surface describe 'synthesis index library get'`.
 3. Prefer the run-local shim in the ACP or SkillRunner workspace:
    - Windows: `.\.zotero-bridge\bin\zotero-bridge.cmd`
    - POSIX: `./.zotero-bridge/bin/zotero-bridge`
@@ -58,16 +60,24 @@ Before using Zotero host data:
 Read the current library index with:
 
 ```bash
-<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":200}'
+<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":100,"includeTags":true,"tagCursor":0,"tagLimit":100,"includeCollections":true,"collectionCursor":0,"collectionLimit":100}'
 ```
 
-If the response has `has_more: true` and a non-empty `next_cursor`, continue with the same input shape and the returned cursor until enough context has been collected or the pages are exhausted. For large libraries, collect a representative view rather than trying to summarize every paper.
+The CLI stdout is an outer envelope. Read papers from `data.data.papers`, tags
+from `data.data.tags`, collections from `data.data.collections`, and each
+section's continuation from `data.data.pagination.<section>`. When a section
+has `hasMore: true`, preserve every other selector and pass that section's
+opaque `nextCursor` back through `cursor`, `tagCursor`, or `collectionCursor`.
+Deduplicate repeated rows when one section advances independently. Continue
+until enough representative context has been collected or that section is
+exhausted. A partial page cannot support a claim that a tag or collection is
+absent; exhaust the relevant section before using absence as evidence.
 
 Use library index fields only for vocabulary design:
 
 - `papers[].title`, `papers[].year`, `papers[].item_type`, and `papers[].creators` reveal recurring domains and methods;
-- `papers[].tags` and top-level `tags` reveal the user's current informal or imported tagging habits;
-- `collections` reveal project, corpus, and topic groupings;
+- `papers[].tags` and the explicitly requested `tags` section reveal the user's current informal or imported tagging habits;
+- the explicitly requested `collections` section reveals project, corpus, and topic groupings;
 - repeated terms across titles, collections, and tags are stronger candidates than one-off terms.
 
 Do not copy paper titles directly into tags. Convert observed library patterns into compact controlled vocabulary candidates that obey `input.protocol` and `references/tag_standard.md`. Do not directly read Zotero DB files, Zotero storage paths, plugin internals, or attachment paths to bypass Host Bridge.
@@ -79,7 +89,7 @@ If the Host Bridge CLI is unavailable, the command fails, the index is empty, or
 Ask concise questions until the vocabulary intent is clear. Do not ask about plugin internals, file formats, workflow hooks, or implementation details.
 
 1. Identify the user's research domains and recurring literature areas.
-2. Review the Host Bridge library index when available and identify recurring domains, methods, models, datasets, tools, collections, and informal tags.
+2. Review the explicitly requested Host Bridge library-index sections when available and identify recurring domains, methods, models, datasets, tools, collections, and informal tags.
 3. Identify the facets they actually want to govern: field, topic, method, model, ai_task, data, tool, status, or the subset allowed by `input.protocol.facets`.
 4. Ask about desired granularity: broad browse tags, mid-level retrieval tags, or fine-grained project tags.
 5. Review `existing_tags` and ask what is missing, over-specific, or underrepresented.

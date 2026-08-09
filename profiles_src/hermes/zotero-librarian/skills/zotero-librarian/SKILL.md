@@ -212,3 +212,11 @@ The agent classifies work, delegates finite research tasks, judges live evidence
 - Read [resident operations](references/resident-operations.md) before index, workflow catalog, run, notification, library-question, or scheduled work.
 - Read [automation policy](references/automation-policy.md) before workflow mode choice, native queue submission, concurrency, maintenance proposals, acknowledgement, or any authority boundary.
 - Read [state and recovery](references/state-and-recovery.md) before judging freshness, repairing local state, handling partial/failed receipts, uncertain outcomes, or changing profile configuration.
+
+### Connection-profile workspace routing
+
+- Do not calculate or manually pass a workspace path. Select a connection with service `--profile`, `ZOTERO_BRIDGE_PROFILE`, or the platform well-known profile; the resident service, cron, and CLI installer follow that selection together.
+- The well-known profile is the default workspace and owns the existing `$HERMES_HOME/zotero-librarian/state.sqlite`. An explicit profile is routed to its normalized-path `workspaces/<sha256>/` workspace.
+- Explicit profile workspaces never share SQLite rows, workflow catalog entries, watched runs, notifications, or local `.zotero-bridge/bin` installations. The identity excludes profile JSON contents, endpoint values, tokens, and other secrets.
+- Use `--db` only for a diagnostic path inside the active workspace. Treat `workspace_path_outside_profile`, profile path failures, unavailable roots, and connection failures as fail-closed errors; do not retry against a shared/default path.
+- A workspace cache is not Zotero's current authority. Preserve the existing approval, queue, receipt, live-state, and current-fact rules when a profile changes.

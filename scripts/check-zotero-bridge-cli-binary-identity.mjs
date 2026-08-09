@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,26 +25,52 @@ export async function checkHostBridgeCliBinaryIdentity(options = {}) {
     throw new Error("platform and binary are required");
   }
 
-  const [release, surface, bytes] = await Promise.all([
+  const [release, bytes] = await Promise.all([
     readJson(root, "cli/zotero-bridge/release.json"),
-    readJson(root, "cli/zotero-bridge/src/agent-surface.json"),
     fs.readFile(path.join(root, "addon", "bin", platform, binary)),
   ]);
-  const expected = [
+  const surface =
+    options.surface ||
+    JSON.parse(
+      execFileSync(
+        "cargo",
+        [
+          "run",
+          "--quiet",
+          "--manifest-path",
+          path.join(root, "cli/zotero-bridge/Cargo.toml"),
+          "--example",
+          "export-agent-surface",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ),
+    );
+  const staticIdentity = [
     release.version,
     release.buildFingerprint,
     surface.protocol,
     surface.cliSchema,
-    surface.commandCatalogChecksum,
   ].map((value) => String(value || ""));
-  const missing = expected.filter(
+  const missing = staticIdentity.filter(
     (value) => !value || bytes.indexOf(Buffer.from(value, "utf8")) < 0,
   );
+  const runtimeDerived = {
+    commandCatalogChecksum: String(surface.commandCatalogChecksum || ""),
+  };
+  const invalidRuntimeDerived = Object.entries(runtimeDerived)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
   return {
-    ok: missing.length === 0,
+    ok: missing.length === 0 && invalidRuntimeDerived.length === 0,
     platform,
     binary,
     missing,
+    runtimeDerived,
+    invalidRuntimeDerived,
   };
 }
 

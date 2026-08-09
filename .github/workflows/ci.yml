@@ -42,6 +42,16 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+      - name: Read Host Bridge CLI test toolchain
+        id: host_bridge_recipe
+        shell: bash
+        run: |
+          node scripts/host-bridge-cli-release-governance.mjs recipe --json > "$RUNNER_TEMP/host-bridge-cli-recipe.json"
+          echo "rust_toolchain=$(jq -r .toolchain.rust "$RUNNER_TEMP/host-bridge-cli-recipe.json")" >> "$GITHUB_OUTPUT"
+      - name: Setup Host Bridge CLI test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Run PR gate (blocking)
         run: npm run test:gate:pr
 
@@ -53,6 +63,16 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+      - name: Read Host Bridge CLI test toolchain
+        id: host_bridge_recipe
+        shell: bash
+        run: |
+          node scripts/host-bridge-cli-release-governance.mjs recipe --json > "$RUNNER_TEMP/host-bridge-cli-recipe.json"
+          echo "rust_toolchain=$(jq -r .toolchain.rust "$RUNNER_TEMP/host-bridge-cli-recipe.json")" >> "$GITHUB_OUTPUT"
+      - name: Setup Host Bridge CLI test toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.host_bridge_recipe.outputs.rust_toolchain }}
       - name: Initialize content submodules
         run: git submodule update --init
       - name: Run release gate (blocking)

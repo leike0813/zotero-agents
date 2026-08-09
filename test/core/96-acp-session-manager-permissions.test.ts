@@ -68,6 +68,7 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import { setAcpConversationHostBridgePermissionRequest } from "../../src/modules/acpConversationHostBridgePermissionRegistry";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -111,6 +112,122 @@ describe("acp session manager", function () {
       outcome: "selected",
       optionId: "allow-once",
     });
+  });
+
+  it("serializes overlapping permission requests and resolves only the active request id", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.emitPermissionDuringPrompt = true;
+      return harness.lastAdapter;
+    });
+
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Queue two permissions",
+    });
+    const first = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    const conversationId = first.conversationId;
+    const firstRequestId = first.pendingPermissionRequest?.requestId || "";
+    let secondOutcome: unknown = null;
+    assert.isTrue(
+      setAcpConversationHostBridgePermissionRequest(conversationId, {
+        requestId: "host-bridge-permission-2",
+        sessionId: first.sessionId,
+        toolCallId: "host-bridge-tool-2",
+        toolTitle: "Update Zotero item",
+        source: "host-bridge-cli",
+        approvalKind: "zotero-write",
+        summary: "Write one Zotero item",
+        requestedAt: "2026-07-28T00:00:00.000Z",
+        options: [
+          {
+            optionId: "approve_once",
+            kind: "allow_once",
+            name: "Approve",
+          },
+        ],
+        resolve: (outcome) => {
+          secondOutcome = outcome;
+        },
+      }),
+    );
+
+    assert.equal(
+      getAcpConversationSnapshot().pendingPermissionRequest?.requestId,
+      firstRequestId,
+    );
+    await resolveAcpConversationPermission({
+      permissionRequestId: "host-bridge-permission-2",
+      outcome: "cancelled",
+    });
+    assert.equal(
+      getAcpConversationSnapshot().pendingPermissionRequest?.requestId,
+      firstRequestId,
+    );
+    assert.isNull(secondOutcome);
+
+    await resolveAcpConversationPermission({
+      permissionRequestId: firstRequestId,
+      outcome: "selected",
+      optionId: "allow-once",
+    });
+    const second = await waitForAcpConversationSnapshot(
+      (entry) =>
+        entry.pendingPermissionRequest?.requestId ===
+        "host-bridge-permission-2",
+    );
+    assert.equal(second.pendingPermissionRequest?.approvalKind, "zotero-write");
+
+    await resolveAcpConversationPermission({
+      permissionRequestId: "host-bridge-permission-2",
+      outcome: "selected",
+      optionId: "approve_once",
+    });
+    await promptPromise;
+    assert.deepEqual(secondOutcome, {
+      outcome: "selected",
+      optionId: "approve_once",
+    });
+    assert.isNull(getAcpConversationSnapshot().pendingPermissionRequest);
+  });
+
+  it("publishes an explicit permission clear transition", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.emitPermissionDuringPrompt = true;
+      return harness.lastAdapter;
+    });
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Publish permission clear",
+    });
+    const pending = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    const permissionChangesBeforeResolve = changes.filter((change) =>
+      change.kinds.includes("permission"),
+    ).length;
+
+    await resolveAcpConversationPermission({
+      permissionRequestId: pending.pendingPermissionRequest?.requestId,
+      outcome: "selected",
+      optionId: "allow-once",
+    });
+    await promptPromise;
+    const permissionChangesAfterResolve = changes.filter((change) =>
+      change.kinds.includes("permission"),
+    ).length;
+    unsubscribe();
+
+    assert.isAbove(
+      permissionChangesAfterResolve,
+      permissionChangesBeforeResolve,
+    );
+    assert.isNull(getAcpConversationSnapshot().pendingPermissionRequest);
   });
 
   it("resolves arbitrary permission option ids supplied by the adapter", async function () {
@@ -333,6 +450,23 @@ describe("acp session manager", function () {
     await waitForAcpConversationSnapshot(
       (entry) => !!entry.pendingPermissionRequest,
     );
+    const snapshot = getAcpConversationSnapshot();
+    let queuedOutcome: unknown = null;
+    assert.isTrue(
+      setAcpConversationHostBridgePermissionRequest(snapshot.conversationId, {
+        requestId: "queued-before-cancel",
+        sessionId: snapshot.sessionId,
+        toolCallId: "queued-tool",
+        toolTitle: "Queued Zotero write",
+        source: "host-bridge-cli",
+        approvalKind: "zotero-write",
+        requestedAt: "2026-07-28T00:00:00.000Z",
+        options: [],
+        resolve: (outcome) => {
+          queuedOutcome = outcome;
+        },
+      }),
+    );
 
     await cancelAcpConversationPrompt();
     await promptPromise;
@@ -340,6 +474,7 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.lastPermissionOutcome, {
       outcome: "cancelled",
     });
+    assert.deepEqual(queuedOutcome, { outcome: "cancelled" });
     assert.isNull(getAcpConversationSnapshot().pendingPermissionRequest);
     assert.equal(
       getAcpConversationSnapshot().promptInterruptState,

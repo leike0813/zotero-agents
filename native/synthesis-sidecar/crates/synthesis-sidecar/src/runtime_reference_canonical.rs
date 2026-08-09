@@ -33,7 +33,7 @@ use crate::runtime_public_maintenance_operation::{
     checkpoint_before_promotion_in_repository, current_operation_id,
 };
 
-const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 3;
+const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 4;
 use crate::runtime_host_collection::{
     HOST_PAGE_LIMIT, HostItemCollectionPort, MAX_HOST_PAGES, MAX_HOST_ROWS, ReferenceHostItem,
     collect_host_items, collect_host_items_bounded, validate_page_metadata,
@@ -74,6 +74,8 @@ pub(crate) struct ReferenceHostArtifact {
     pub estimated_size: Option<usize>,
     #[serde(default)]
     pub diagnostics: Vec<String>,
+    #[serde(default)]
+    pub literature_quality: Option<Value>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -102,6 +104,7 @@ struct ReferenceIndexFactRow {
     references: Vec<ReferenceIndexFactReference>,
     reference_count: usize,
     unbound_reference_count: usize,
+    rating_score: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -144,6 +147,8 @@ pub(crate) struct LiteratureDigestApplyRequest {
     #[serde(default)]
     pub citation_analysis: Option<Map<String, Value>>,
     #[serde(default)]
+    pub literature_score: Option<Map<String, Value>>,
+    #[serde(default)]
     pub literature_matching_metadata: Option<Value>,
     #[serde(default)]
     pub matched_references: Option<Value>,
@@ -156,6 +161,8 @@ pub(crate) trait ReferenceHostPort: HostItemCollectionPort {
         &self,
         cursor: &str,
         limit: usize,
+        paper_refs: &[String],
+        artifact_types: &[&str],
     ) -> Result<ReferenceHostArtifactsPage, String>;
     fn read_artifact(
         &self,
@@ -303,6 +310,8 @@ impl ReferenceCanonicalApplication {
         let references_hash = literature_artifact_hash(request.references.as_ref(), "references")?;
         let citation_hash =
             literature_artifact_hash(request.citation_analysis.as_ref(), "citation_analysis")?;
+        let score_hash =
+            literature_artifact_hash(request.literature_score.as_ref(), "literature_score")?;
         let artifacts = vec![
             literature_artifact_descriptor(
                 &request.paper_ref,
@@ -324,6 +333,13 @@ impl ReferenceCanonicalApplication {
                 "citation-analysis-json",
                 request.citation_analysis.is_some(),
                 &citation_hash,
+            )?,
+            literature_artifact_descriptor(
+                &request.paper_ref,
+                ReferenceArtifactType::LiteratureScore,
+                "literature_score.v1",
+                request.literature_score.is_some(),
+                &score_hash,
             )?,
         ];
         let item = literature_refresh_item(&request);
@@ -362,7 +378,9 @@ impl ReferenceCanonicalApplication {
                         .clone()
                         .map(Value::Object)
                         .ok_or_else(|| "invalid_request".to_owned())?,
-                    ReferenceArtifactType::Digest => return Err("invalid_request".into()),
+                    ReferenceArtifactType::Digest | ReferenceArtifactType::LiteratureScore => {
+                        return Err("invalid_request".into());
+                    }
                 };
                 Ok(ReferenceRefreshPayload {
                     locator: read.locator.clone(),
@@ -487,7 +505,7 @@ impl ReferenceCanonicalApplication {
             .skip(query.cursor)
             .take(query.limit)
             .collect::<Vec<_>>();
-        let fact_rows = self.project_reference_index_rows(page_items)?;
+        let fact_rows = self.project_reference_index_rows(page_items, None)?;
         let rows = fact_rows
             .iter()
             .map(|fact| {
@@ -577,7 +595,39 @@ impl ReferenceCanonicalApplication {
         } else {
             self.collect_host_items_bounded(100)?
         };
-        let mut rows = self.project_reference_index_rows(items)?;
+        let paper_refs = items
+            .iter()
+            .map(|item| item.paper_ref.clone())
+            .collect::<Vec<_>>();
+        let host_artifacts = if paper_refs.is_empty() {
+            Vec::new()
+        } else {
+            let page = self.host.scan_artifacts_page(
+                "",
+                paper_refs.len(),
+                &paper_refs,
+                &[
+                    "digest",
+                    "references",
+                    "citation_analysis",
+                    "literature_score",
+                ],
+            )?;
+            validate_artifact_page(
+                "",
+                &page.cursor,
+                page.returned,
+                paper_refs.len(),
+                page.limit,
+                page.has_more,
+                &page.next_cursor,
+            )?;
+            if page.has_more {
+                return Err("reverse_host_result_invalid".into());
+            }
+            page.artifacts
+        };
+        let mut rows = self.project_reference_index_rows(items, Some(&host_artifacts))?;
         if scope == "referenced" {
             rows.retain(|row| row.reference_count > 0);
             rows.truncate(100);
@@ -603,6 +653,7 @@ impl ReferenceCanonicalApplication {
                     "year":row.item.year,
                     "artifactCoverage":row.artifact_coverage,
                     "missing_artifacts":row.missing_artifacts,
+                    "ratingScore":row.rating_score,
                     "index_scope":scope,
                     "literature_item_id":row.item.paper_ref,
                     "reference_count":row.reference_count,
@@ -2013,6 +2064,7 @@ impl ReferenceCanonicalApplication {
     fn project_reference_index_rows(
         &self,
         items: Vec<ReferenceHostItem>,
+        host_artifacts: Option<&[ReferenceHostArtifact]>,
     ) -> Result<Vec<ReferenceIndexFactRow>, String> {
         if items.is_empty() {
             return Ok(Vec::new());
@@ -2055,6 +2107,16 @@ impl ReferenceCanonicalApplication {
                 )
             })
             .collect::<HashMap<(String, String), ReferenceArtifactRecord>>();
+        let host_artifact_by_key = host_artifacts
+            .unwrap_or_default()
+            .iter()
+            .map(|artifact| {
+                (
+                    (artifact.paper_ref.clone(), artifact.artifact_type.clone()),
+                    artifact,
+                )
+            })
+            .collect::<HashMap<_, _>>();
         let binding_by_canonical = bindings
             .into_iter()
             .filter(|binding| binding.status != "revoked")
@@ -2078,18 +2140,30 @@ impl ReferenceCanonicalApplication {
         Ok(items
             .into_iter()
             .map(|item| {
-                let missing_artifacts = ["digest", "references", "citation_analysis"]
-                    .into_iter()
-                    .filter(|artifact_type| {
-                        artifact_by_key
-                            .get(&(item.paper_ref.clone(), (*artifact_type).into()))
-                            .is_none_or(|artifact| artifact.status != "available")
-                    })
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>();
+                let missing_artifacts = [
+                    "digest",
+                    "references",
+                    "citation_analysis",
+                    "literature_score",
+                ]
+                .into_iter()
+                .filter(|artifact_type| {
+                    let key = (item.paper_ref.clone(), (*artifact_type).into());
+                    host_artifact_by_key
+                        .get(&key)
+                        .map(|artifact| host_artifact_is_available(artifact))
+                        .or_else(|| {
+                            artifact_by_key
+                                .get(&key)
+                                .map(|artifact| artifact.status == "available")
+                        })
+                        != Some(true)
+                })
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
                 let artifact_coverage = if missing_artifacts.is_empty() {
                     "complete"
-                } else if missing_artifacts.len() == 3 {
+                } else if missing_artifacts.len() == 4 {
                     "missing"
                 } else {
                     "partial"
@@ -2102,12 +2176,16 @@ impl ReferenceCanonicalApplication {
                     .iter()
                     .filter(|reference| reference.binding.is_none())
                     .count();
+                let rating_score = host_artifact_by_key
+                    .get(&(item.paper_ref.clone(), "literature_score".into()))
+                    .and_then(|artifact| literature_rating_score(artifact));
                 ReferenceIndexFactRow {
                     item,
                     artifact_coverage,
                     missing_artifacts,
                     reference_count: references.len(),
                     unbound_reference_count,
+                    rating_score,
                     references,
                 }
             })
@@ -2171,7 +2249,9 @@ impl ReferenceCanonicalApplication {
         let mut seen = HashSet::new();
         let mut artifacts = Vec::new();
         for _ in 0..MAX_HOST_PAGES {
-            let page = self.host.scan_artifacts_page(&cursor, HOST_PAGE_LIMIT)?;
+            let page = self
+                .host
+                .scan_artifacts_page(&cursor, HOST_PAGE_LIMIT, &[], &[])?;
             validate_artifact_page(
                 &cursor,
                 &page.cursor,
@@ -2193,7 +2273,7 @@ impl ReferenceCanonicalApplication {
                 return Err("reverse_host_page_cycle".into());
             }
             artifacts.extend(page.artifacts);
-            if artifacts.len() > MAX_HOST_ROWS * 3 {
+            if artifacts.len() > MAX_HOST_ROWS * 4 {
                 return Err("reverse_host_input_too_large".into());
             }
             if !page.has_more {
@@ -2634,6 +2714,7 @@ fn literature_artifact_descriptor(
         payload_hash: payload_hash.into(),
         estimated_size: None,
         diagnostics: Vec::new(),
+        literature_quality: None,
     })
 }
 
@@ -2815,6 +2896,41 @@ fn workbench_reference_row(reference: &ReferenceIndexFactReference) -> Value {
     })
 }
 
+fn literature_rating_score(artifact: &ReferenceHostArtifact) -> Option<f64> {
+    if artifact.artifact_type != "literature_score" || artifact.status != "available" {
+        return None;
+    }
+    let quality = artifact.literature_quality.as_ref()?.as_object()?;
+    if quality.get("status").and_then(Value::as_str) != Some("available")
+        || quality.get("schema").and_then(Value::as_str) != Some("literature_score.v1")
+    {
+        return None;
+    }
+    let overall_score = quality.get("overall_score").and_then(Value::as_f64)?;
+    let confidence = quality.get("confidence").and_then(Value::as_f64)?;
+    let confidence_adjusted_score = quality
+        .get("confidence_adjusted_score")
+        .and_then(Value::as_f64)?;
+    let quality_prior = quality.get("quality_prior").and_then(Value::as_f64)?;
+    if !(0.0..=100.0).contains(&overall_score)
+        || !(0.0..=1.0).contains(&confidence)
+        || !(0.0..=100.0).contains(&confidence_adjusted_score)
+    {
+        return None;
+    }
+    let expected_prior = 0.5 + confidence * (overall_score / 100.0 - 0.5);
+    (quality_prior - expected_prior)
+        .abs()
+        .le(&0.000_001)
+        .then_some(overall_score)
+}
+
+fn host_artifact_is_available(artifact: &ReferenceHostArtifact) -> bool {
+    artifact.status == "available"
+        && (artifact.artifact_type != "literature_score"
+            || literature_rating_score(artifact).is_some())
+}
+
 fn complete_artifact_manifest(
     items: &[ReferenceHostItem],
     artifacts: &[ReferenceHostArtifact],
@@ -2831,12 +2947,13 @@ fn complete_artifact_manifest(
     if by_key.len() != artifacts.len() {
         return Err("reverse_host_result_invalid".into());
     }
-    let mut result = Vec::with_capacity(items.len() * 3);
+    let mut result = Vec::with_capacity(items.len() * 4);
     for item in items {
         for (kind, name) in [
             (ReferenceArtifactType::Digest, "digest"),
             (ReferenceArtifactType::References, "references"),
             (ReferenceArtifactType::CitationAnalysis, "citation_analysis"),
+            (ReferenceArtifactType::LiteratureScore, "literature_score"),
         ] {
             let artifact = by_key.get(&(item.paper_ref.as_str(), name)).copied();
             let placeholder = canonical_json_hash(&json!({
@@ -2878,6 +2995,8 @@ fn complete_artifact_manifest(
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default(),
+                literature_quality: artifact
+                    .and_then(|artifact| artifact.literature_quality.clone()),
             });
         }
     }
@@ -3470,6 +3589,8 @@ mod tests {
             &self,
             cursor: &str,
             limit: usize,
+            _paper_refs: &[String],
+            _artifact_types: &[&str],
         ) -> Result<ReferenceHostArtifactsPage, String> {
             if !cursor.is_empty() {
                 return Err("reverse_host_result_invalid".into());
@@ -3489,6 +3610,7 @@ mod tests {
                             100
                         }),
                         diagnostics: Vec::new(),
+                        literature_quality: None,
                     },
                     ReferenceHostArtifact {
                         paper_ref: "1:BBBB2222".into(),
@@ -3503,6 +3625,7 @@ mod tests {
                             100
                         }),
                         diagnostics: Vec::new(),
+                        literature_quality: None,
                     },
                     ReferenceHostArtifact {
                         paper_ref: "1:AAAA1111".into(),
@@ -3513,6 +3636,7 @@ mod tests {
                         payload_hash: String::new(),
                         estimated_size: None,
                         diagnostics: Vec::new(),
+                        literature_quality: None,
                     },
                 ],
                 cursor: String::new(),
@@ -3834,6 +3958,7 @@ mod tests {
                 payload_hash: format!("sha256:{}", item.paper_ref),
                 estimated_size: Some(1),
                 diagnostics: Vec::new(),
+                literature_quality: None,
             })
             .collect::<Vec<_>>();
         let count_batches = partition_refresh_batches(&items, &artifacts);
@@ -3854,6 +3979,7 @@ mod tests {
                 payload_hash: format!("sha256:{}", item.paper_ref),
                 estimated_size: Some(REFERENCE_REFRESH_ESTIMATED_BATCH_BYTES / 2 + 1),
                 diagnostics: Vec::new(),
+                literature_quality: None,
             })
             .collect::<Vec<_>>();
         assert_eq!(

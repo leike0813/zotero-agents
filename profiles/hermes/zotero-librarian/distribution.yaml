@@ -1,7 +1,7 @@
 schema: hermes.profile.distribution.v1
 name: zotero-librarian
 title: Zotero Librarian
-version: 0.4.1
+version: 0.5.3
 summary: Hermes profile for maintaining a Zotero literature library through zotero-bridge.
 entrypoint: SOUL.md
 repository: https://github.com/leike0813/zotero-librarian-profile
@@ -9,6 +9,10 @@ sourceRepository: https://github.com/leike0813/zotero-agents
 state:
   defaultDir: "$HERMES_HOME/zotero-librarian"
   overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR
+  activeProfileEnv: ZOTERO_BRIDGE_PROFILE
+  workspaceLayout: connection-profile-v1
+  explicitWorkspace: "$BASE/workspaces/<sha256>"
+  defaultWorkspace: "$BASE/state.sqlite"
 assets:
   zoteroBridgeBinaries: assets/zotero-bridge/bin
 skills:

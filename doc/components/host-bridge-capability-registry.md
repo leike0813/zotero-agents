@@ -2,22 +2,26 @@
 
 ## Overview
 
-The Host Bridge Capability Registry (`src/modules/hostBridgeCapabilityRegistry.ts`)
-is the central registry of all Host Bridge capabilities. It defines what
-operations are available through the `/bridge/v1/call` endpoint and the MCP tool
-system.
+The executable capability contract
+(`host-bridge/contracts/capabilities.v2.json`) is the single metadata owner for
+all Host Bridge capabilities. It defines each capability's input and output
+JSON Schemas, category, summary, effect, approval requirement, exposure, and
+response-sizing policy. The Host Bridge Capability Registry
+(`src/modules/hostBridgeCapabilityRegistry.ts`) binds private TypeScript
+handlers to those canonical IDs for `/bridge/v2/call` and the MCP tool system.
 
-Within the agent-facing architecture, this registry supplies runtime mechanism
-facts for the Minimum layer. The generated
-`host-bridge.agent-surface.v5` descriptor and CLI mappings expose those facts
+Within the agent-facing architecture, the executable contract supplies runtime
+mechanism facts for the Minimum layer. The generated
+`host-bridge.agent-surface.v6` descriptor and CLI mappings expose those facts
 as commands, schemas, effects, approvals, handles, recovery, targets, and
 operational aliases. Research-task policy and Hermes resident policy are not
 registry responsibilities; their ownership and composition are defined in
 [Host Bridge Agent-facing Surfaces](host-bridge-agent-surfaces.md).
 
-The registry remains the source for callable Host Bridge capabilities. It does
-not select a Generic task, define a Skill workflow, or authorize resident
-automation beyond the approval requirement declared for each capability.
+The registry remains the implementation owner for callable behavior only. It
+does not redeclare contract metadata, select a Generic task, define a Skill
+workflow, or authorize resident automation beyond the effective approval
+policy derived from the capability contract.
 
 ---
 
@@ -37,6 +41,7 @@ type HostBridgeCapabilityDefinition =
 type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: "local" | "remote";
+  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
   resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
 };
 ```
@@ -51,23 +56,24 @@ resolver used by tests. Production resolution uses the cached default client.
 
 ## Registration: Static Declaration
 
-Capabilities are **not registered dynamically**. They are declared statically
-in a module-level `CAPABILITIES` array of `HostBridgeCapabilityDefinition[]`.
-Lookup is done through a `Map<string, HostBridgeCapabilityDefinition>` built
-from this array at module load time.
+Capabilities are **not registered dynamically**. Private handler bindings are
+declared statically in a module-level `CAPABILITIES` array and indexed by ID.
+At module initialization, the registry compares the complete handler ID set
+with the complete canonical contract ID set. Missing handlers, orphan handlers,
+or duplicate handler IDs prevent the module from loading.
 
-Three factory functions build capability definitions:
+Three factory functions bind implementations without owning metadata:
 
-### `capability(name, category, summary, input, handler)` — General purpose
+### `capability(name, handler)` — General purpose
 
-`approval` is resolved via `getHostBridgeApprovalRequirement(name)`. The
-handler is wrapped with `normalizeJsonSafeValue` for JSON-safe output.
+The factory requires a matching canonical contract entry, copies its manifest
+metadata, resolves the current effective approval requirement, and attaches the
+handler. A missing contract entry is a startup error.
 
-### `debugCapability(name, summary, handler)` — Debug-only
+### `debugCapability(name, handler)` — Debug-only
 
-Category is fixed to `"debug"`, input mode is `{ type: "object", required: false }`.
-The handler wrapper calls `assertDebugModeEnabled()` before execution, throwing
-when debug mode is off.
+The canonical entry still owns category and schemas. The wrapper adds only the
+runtime debug-mode availability check before invoking the handler.
 
 ### `synthesisCapability(name, category, summary, invoke)` — Synthesis-backed
 
@@ -84,22 +90,28 @@ dispatcher.
 
 ## Capability Categories
 
+<!-- host-bridge-surface:capability-categories:start -->
 | Category | Count | Capabilities |
-|----------|-------|-------------|
-| `context` | 2 | `get_current_view`, `get_selected_items` |
-| `library` | 8 | `search_items`, `list_items`, `get_item_detail`, `get_item_notes`, `get_note_detail`, `list_note_payloads`, `get_note_payload`, `get_item_attachments` |
-| `mutation` | 2 | `preview`, `execute` |
-| `diagnostic` | 1 | `get_status` |
-| `topics` | 4 | `list`, `get_context`, `get_report`, `get_review_input` |
-| `schemas` | 1 | `get` |
-| `concepts` | 1 | `query` |
-| `citation_graph` | 7 | `query_cluster`, `get_overview`, `get_slice`, `get_metrics`, `rank_external_references`, `rank_library_papers`, `refresh_metrics` |
-| `paper_artifacts` | 4 | `get_manifest`, `read`, `export_filtered`, `resolve_topic_digest` |
-| `insights` | 1 | `get_attention_queue` |
-| `resolvers` | 1 | `resolve` |
-| `reference_index` | 1 | `get` |
-| `library_index` | 1 | `get` |
-| `debug` | 12 | `status`, `persistence.snapshot`, `tasks.snapshot`, `acpSkillRun.reapplyResult`, `zotero.eval`, 7 synthesis debug helpers |
+| --- | --- | --- |
+| `citation_graph` | 9 | `citation_graph.get_layout`, `citation_graph.get_metrics`, `citation_graph.get_overview`, `citation_graph.get_slice`, `citation_graph.query_cluster`, `citation_graph.rank_external_references`, `citation_graph.rank_library_papers`, `citation_graph.refresh_metrics`, `citation_graph.update` |
+| `concepts` | 1 | `concepts.query` |
+| `context` | 2 | `context.get_current_view`, `context.get_selected_items` |
+| `debug` | 14 | `debug.acpSkillRun.reapplyResult`, `debug.persistence.snapshot`, `debug.skillrunner.connections.snapshot`, `debug.status`, `debug.synthesis.cache.list`, `debug.synthesis.cleanInstallReset`, `debug.synthesis.diff`, `debug.synthesis.operations.list`, `debug.synthesis.paper.inspect`, `debug.synthesis.profiler.list`, `debug.synthesis.snapshot`, `debug.synthesis.topic.inspect`, `debug.tasks.snapshot`, `debug.zotero.eval` |
+| `diagnostic` | 2 | `diagnostic.get_status`, `synthesis.operation.get` |
+| `insights` | 1 | `insights.get_attention_queue` |
+| `library` | 12 | `library.export_annotations`, `library.get_item_attachments`, `library.get_item_detail`, `library.get_item_notes`, `library.get_note_detail`, `library.get_note_payload`, `library.list_annotations`, `library.list_items`, `library.list_note_payloads`, `library.readiness_audit`, `library.search_items`, `library.sync_snapshot` |
+| `library_index` | 1 | `library_index.get` |
+| `mutation` | 3 | `mutation.execute`, `mutation.preview`, `workflow_products.remove` |
+| `paper_artifacts` | 4 | `paper_artifacts.export_filtered`, `paper_artifacts.get_manifest`, `paper_artifacts.read`, `paper_artifacts.resolve_topic_digest` |
+| `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
+| `resolvers` | 1 | `resolvers.resolve` |
+| `schemas` | 1 | `schemas.get` |
+| `topics` | 5 | `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
+| `workflow_products` | 4 | `workflow_products.export`, `workflow_products.get`, `workflow_products.list`, `workflow_products.read_asset` |
+<!-- host-bridge-surface:capability-categories:end -->
+
+The renderer derives this complete inventory and every count from
+`capabilities.v2.json`; generated surfaces do not reconstruct it from prose.
 
 ---
 
@@ -110,7 +122,7 @@ function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[]
 ```
 
 Returns manifest entries for all non-debug capabilities (debug capabilities are
-filtered out when debug mode is disabled).
+filtered out when debug mode is disabled). Handler functions are never exposed.
 
 ```typescript
 function getHostBridgeCapability(
@@ -121,6 +133,8 @@ function getHostBridgeCapability(
 Looks up a capability by name. Returns `null` when:
 - The name is not registered.
 - The capability is a `debug` category capability and debug mode is disabled.
+- The SkillRunner connection audit capability is unavailable in the current
+  build or runtime.
 
 ```typescript
 function getHostBridgeCapabilityApproval(
@@ -130,3 +144,19 @@ function getHostBridgeCapabilityApproval(
 
 Returns the `approval` requirement for a named capability. Returns
 `"zotero-ui-required"` when the capability is not found.
+
+```typescript
+async function executeHostBridgeCapability(
+  name: string,
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+): Promise<JsonSerializableValue | null>
+```
+
+Execution validates input against the canonical Draft 2020-12 schema before
+calling the handler, then validates handler output before returning success.
+Input failures use `invalid_capability_input`; implementation/contract output
+drift uses `capability_output_contract_violation`. Both carry bounded,
+redacted, structured violations. Permission evaluation in HTTP and MCP paths
+occurs only after input validation, so malformed write requests cannot trigger
+approval UI.

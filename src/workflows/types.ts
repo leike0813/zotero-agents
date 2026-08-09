@@ -193,6 +193,7 @@ export type WorkflowSelectionFilter =
       phase: "availability";
       noteKinds: string[];
     }
+  | WorkflowGeneratedNoteReadinessFilter
   | {
       kind: "artifact-absent";
       phase: "availability" | "execute";
@@ -202,6 +203,52 @@ export type WorkflowSelectionFilter =
         | "translator-markdown";
       parameter?: string;
     };
+
+export type WorkflowGeneratedNotePayloadRequirement = {
+  pointer: string;
+  const?: string | number | boolean | null;
+  type?: "string" | "number" | "array" | "object";
+  minimum?: number;
+  maximum?: number;
+  length?: number;
+};
+
+export type WorkflowGeneratedNoteArtifactSpec = {
+  id: string;
+  noteKinds: string[];
+  payload?: {
+    type: string;
+    requirements?: WorkflowGeneratedNotePayloadRequirement[];
+  };
+};
+
+export type WorkflowGeneratedNoteReadinessFilter = {
+  kind: "generated-note-readiness";
+  phase: "availability";
+  artifacts: WorkflowGeneratedNoteArtifactSpec[];
+  modes: Array<{
+    id: string;
+    allAvailable?: string[];
+    allUnavailable?: string[];
+    default?: boolean;
+  }>;
+  acceptModes: string[];
+};
+
+export type WorkflowGeneratedNoteReadinessResult = {
+  mode: string;
+  accepted: boolean;
+  evidenceHash: string;
+  artifacts: Record<
+    string,
+    {
+      status: "available" | "missing" | "invalid";
+      noteIds: number[];
+      payload?: unknown;
+      diagnostics: string[];
+    }
+  >;
+};
 
 export type WorkflowValidateSelectionSpec = {
   require?: WorkflowSelectionRequirements;
@@ -236,6 +283,69 @@ export type WorkflowExecutionSpec = {
   feedback?: {
     showNotifications?: boolean;
   };
+};
+
+export type WorkflowInvocationMode = "interactive" | "non-interactive";
+
+export type WorkflowResourceRequirement = {
+  id: string;
+  direction: "input" | "output";
+  kind: "file" | "archive";
+  cardinality: "one" | "many";
+  required: boolean;
+  accept?: {
+    contentTypes?: string[];
+    extensions?: string[];
+    maxCount?: number;
+    maxBytes?: number;
+  };
+  suggestedName?: string;
+};
+
+export type WorkflowResourceBindings = {
+  schema: "zotero-bridge.workflow-resources.v1";
+  inputs: Record<string, { fileIds: string[] }>;
+  outputs: Record<string, { delivery: "bridge-download" }>;
+};
+
+export type WorkflowResourceFile = {
+  fileId: string;
+  path: string;
+  displayName: string;
+  contentType: string;
+  size?: number;
+  sha256?: string;
+};
+
+export type WorkflowResourceOutputDescriptor = {
+  slotId: string;
+  fileId: string;
+  sourceKind: "workflow-artifact";
+  displayName: string;
+  contentType: string;
+  size?: number;
+  sha256?: string;
+  createdAt: string;
+  expiresAt: string;
+  downloadCommand: string;
+};
+
+export type WorkflowResourceApi = {
+  mode: WorkflowInvocationMode;
+  getInput: (slotId: string) => WorkflowResourceFile | null;
+  getInputs: (slotId: string) => WorkflowResourceFile[];
+  allocateOutput: (args: {
+    slotId: string;
+    suggestedName?: string;
+    contentType?: string;
+  }) => Promise<{ path: string }>;
+  publishOutput: (args: {
+    slotId: string;
+    path: string;
+    displayName?: string;
+    contentType?: string;
+  }) => Promise<WorkflowResourceOutputDescriptor>;
+  listOutputs: () => WorkflowResourceOutputDescriptor[];
 };
 
 export type WorkflowResultSpec = {
@@ -320,6 +430,8 @@ export type WorkflowManifest = {
   label: string;
   description?: string;
   executionModes?: Array<"auto" | "interactive">;
+  supportedInvocationModes?: WorkflowInvocationMode[];
+  resourceRequirements?: WorkflowResourceRequirement[];
   debug_only?: boolean;
   provider: string;
   version?: string;
@@ -377,10 +489,15 @@ export type HookHelpers = {
   resolveReferenceSource: (entry: unknown) => string;
   renderReferenceLocator: (entry: unknown) => string;
   renderReferencesTable: (references: unknown) => string;
+  inspectGeneratedNoteReadiness: (
+    parentRef: Zotero.Item | number | string,
+    spec: WorkflowGeneratedNoteReadinessFilter,
+  ) => Promise<WorkflowGeneratedNoteReadinessResult>;
 };
 
 export type WorkflowHostApi = {
   version: number;
+  resources?: WorkflowResourceApi;
   addon: {
     getConfig: () => {
       addonName: string;
@@ -670,6 +787,7 @@ export type WorkflowImagePreparationOptions = {
   minQuality?: number;
   background?: string;
   sourceKind?: string;
+  outputMimeType?: "image/jpeg" | "image/png";
 };
 
 export type WorkflowPreparedNoteImage = {
@@ -691,6 +809,7 @@ export type WorkflowRuntimeContext = {
   addon?: typeof addon | null;
   hostApi: WorkflowHostApi;
   hostApiVersion: number;
+  invocationMode?: WorkflowInvocationMode;
   debugMode?: boolean;
   workflowId?: string;
   packageId?: string;
@@ -823,6 +942,10 @@ export type ApplyResultHook = (args: {
   };
   manifest: WorkflowManifest;
   runtime: WorkflowRuntimeContext;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
 }) => WorkflowApplyResult | void | Promise<WorkflowApplyResult | void>;
 
 export type NormalizeWorkflowSettingsHook = (

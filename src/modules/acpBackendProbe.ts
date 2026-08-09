@@ -143,8 +143,13 @@ export function buildAcpRuntimeOptionsCache(args: {
     modes: args.modes,
     models: args.models,
   });
+  const refreshedAt = args.refreshedAt || new Date().toISOString();
   return {
-    refreshedAt: args.refreshedAt || new Date().toISOString(),
+    refreshedAt,
+    revision: refreshedAt,
+    source: "acp-probe" as const,
+    status: "ready" as const,
+    diagnostics: [],
     ...state,
   };
 }

@@ -67,9 +67,33 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import {
+  clearHostBridgePluginSkillBundleMaterializationForTests,
+  materializeHostBridgePluginSkillBundle,
+} from "../../src/modules/hostBridgePluginSkillBundle";
+import { HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED } from "../../src/shared/hostBridgePluginSkillBundleContract";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  function configureFirstUseBackend() {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-first-use",
+            displayName: "ACP First Use",
+            type: "acp",
+            command: "node",
+            args: ["first-use.js"],
+          },
+        ],
+      }),
+      true,
+    );
+  }
 
   it("atomically selects one reusable local placeholder for an empty backend", async function () {
     Zotero.Prefs.set(
@@ -151,6 +175,54 @@ describe("acp session manager", function () {
     } finally {
       unsubscribe();
     }
+  });
+
+  it("connects a backend through one reusable local conversation", async function () {
+    configureFirstUseBackend();
+    const factoryArgs: AcpConnectionAdapterFactoryArgs[] = [];
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      factoryArgs.push(args);
+      return new FakeAcpConnectionAdapter();
+    });
+
+    await connectAcpConversation({ backendId: "acp-first-use" });
+    const first = getAcpConversationSnapshot();
+    assert.equal(first.backendId, "acp-first-use");
+    assert.match(first.conversationId, /^acp-conversation-/);
+    assert.equal(first.status, "connected");
+    assert.isNotEmpty(first.sessionId);
+    assert.lengthOf(listAcpChatSessions("acp-first-use"), 1);
+    assert.lengthOf(factoryArgs, 1);
+
+    await connectAcpConversation({ backendId: "acp-first-use" });
+    const second = getAcpConversationSnapshot();
+    assert.equal(second.conversationId, first.conversationId);
+    assert.lengthOf(listAcpChatSessions("acp-first-use"), 1);
+    assert.lengthOf(factoryArgs, 1);
+  });
+
+  it("retains the selected local conversation when backend connection fails", async function () {
+    configureFirstUseBackend();
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      const adapter = new FakeAcpConnectionAdapter();
+      adapter.failInitialize = true;
+      return adapter;
+    });
+
+    let thrown: unknown;
+    try {
+      await connectAcpConversation({ backendId: "acp-first-use" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    const snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.backendId, "acp-first-use");
+    assert.match(snapshot.conversationId, /^acp-conversation-/);
+    assert.equal(snapshot.status, "error");
+    assert.isString(snapshot.prerequisiteError);
+    assert.lengthOf(listAcpChatSessions("acp-first-use"), 1);
   });
 
   it("keeps parallel ACP backend sessions isolated and routes actions to the active backend", async function () {
@@ -581,6 +653,49 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.resumeSessionIds, ["session-1"]);
     assert.deepEqual(harness.lastAdapter?.loadSessionIds, []);
     assert.deepEqual(harness.lastAdapter?.sessionIds, []);
+  });
+
+  it("refuses to restore a persisted remote session after the plugin Skill bundle identity changes", async function () {
+    this.timeout(10_000);
+    await sendAcpConversationPrompt({ message: "Persist old bundle context" });
+    const conversationId = getAcpConversationSnapshot().conversationId;
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-bundle-identity-"),
+    );
+    try {
+      const materialized = await materializeHostBridgePluginSkillBundle({
+        runtimeRoot,
+      });
+      assert.isTrue(materialized.ok);
+      resetAcpSessionManagerForTests();
+      setAcpConnectionAdapterFactoryForTests(async () => {
+        harness.lastAdapter = new FakeAcpConnectionAdapter();
+        harness.lastAdapter.canResumeSession = true;
+        return harness.lastAdapter;
+      });
+
+      await setActiveAcpConversation({ conversationId });
+      let failure: unknown;
+      try {
+        await reconnectAcpConversation();
+      } catch (error) {
+        failure = error;
+      }
+
+      assert.strictEqual(
+        (failure as { code?: string })?.code,
+        HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
+      );
+      assert.deepEqual(harness.lastAdapter?.resumeSessionIds, []);
+      assert.deepEqual(harness.lastAdapter?.sessionIds, []);
+      assert.strictEqual(
+        getAcpConversationSnapshot().lastError,
+        HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_IDENTITY_CHANGED,
+      );
+    } finally {
+      clearHostBridgePluginSkillBundleMaterializationForTests();
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
   });
 
   it("loads a persisted remote ACP session when resume is unavailable and suppresses replay duplication", async function () {

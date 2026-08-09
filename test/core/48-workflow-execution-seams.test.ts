@@ -19,11 +19,15 @@ import {
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import {
   buildPreparedWorkflowUnitExecution,
+  buildWorkflowExecutionUnitPreview,
   runWorkflowPreparationSeam,
 } from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
-import { submitPreparedWorkflowUnits } from "../../src/modules/workflowExecution/submissionSeam";
+import {
+  executePreparedWorkflowUnit,
+  submitPreparedWorkflowUnits,
+} from "../../src/modules/workflowExecution/submissionSeam";
 import { WorkflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
@@ -167,6 +171,93 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  it("reacquires a yielded submission slot before Host apply", async function () {
+    const admission = deferred<boolean>();
+    const calls: string[] = [];
+    const execution = executePreparedWorkflowUnit(
+      {
+        prepared: {} as any,
+        unit: {} as any,
+        messageFormatter: (() => "") as any,
+        submissionContext: {
+          submissionId: "submission-a" as never,
+          submissionUnitId: "unit-a" as never,
+          slot: {
+            yield: () => false,
+            ensureSlot: async (reason) => {
+              calls.push(`ensure:${reason}`);
+              return admission.promise;
+            },
+            runWithPrioritySlot: async () => false,
+            cancelPendingResumption: () => {
+              calls.push("cancel-pending-resumption");
+              return true;
+            },
+            snapshot: () => null,
+          },
+        },
+      },
+      {
+        buildPreparedUnit: async () => ({
+          status: "ready",
+          built: {} as any,
+        }),
+        runPreparedUnit: () => ({ terminalPromise: Promise.resolve() }) as any,
+        applyPreparedUnit: async () => {
+          calls.push("apply");
+          return { failed: 0, pending: 0 } as any;
+        },
+      },
+    );
+
+    await flushMicrotasks();
+    assert.deepEqual(calls, ["cancel-pending-resumption", "ensure:host-apply"]);
+    admission.resolve(true);
+    assert.deepInclude(await execution, {
+      outcome: { status: "succeeded" },
+    });
+    assert.deepEqual(calls, [
+      "cancel-pending-resumption",
+      "ensure:host-apply",
+      "apply",
+    ]);
+  });
+
+  it("skips Host apply when resumption admission is canceled", async function () {
+    let applyCalls = 0;
+    const execution = await executePreparedWorkflowUnit(
+      {
+        prepared: {} as any,
+        unit: {} as any,
+        messageFormatter: (() => "") as any,
+        submissionContext: {
+          submissionId: "submission-a" as never,
+          submissionUnitId: "unit-a" as never,
+          slot: {
+            yield: () => false,
+            ensureSlot: async () => false,
+            runWithPrioritySlot: async () => false,
+            cancelPendingResumption: () => false,
+            snapshot: () => null,
+          },
+        },
+      },
+      {
+        buildPreparedUnit: async () => ({
+          status: "ready",
+          built: {} as any,
+        }),
+        runPreparedUnit: () => ({ terminalPromise: Promise.resolve() }) as any,
+        applyPreparedUnit: async () => {
+          applyCalls += 1;
+          return {} as any;
+        },
+      },
+    );
+    assert.equal(execution.outcome.status, "skipped");
+    assert.equal(applyCalls, 0);
+  });
+
   it("submits the approved Input Planning v2 units unchanged and holds a queue slot through terminal apply", async function () {
     const scheduled: Array<() => void> = [];
     const queue = new WorkflowSubmissionQueue({
@@ -712,6 +803,95 @@ describe("workflow execution seams", function () {
     assert.include(logs, "trigger-no-valid-input");
   });
 
+  it("reuses an explicit selection-context snapshot across preview and preparation", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-selection-context-override",
+        label: "Selection Context Override",
+        hooks: { applyResult: "hooks/applyResult.js" },
+        inputs: { member: { kind: "parent" }, grouping: { mode: "each" } },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "pass-through-local",
+        type: "pass-through",
+        baseUrl: "local://pass-through",
+        auth: { kind: "none" },
+      },
+      requestKind: "pass-through.run.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "pass-through",
+    };
+    const lockedContext = {
+      selectionType: "parent",
+      items: { parents: [{ item: { id: 101, title: "Locked Parent" } }] },
+      summary: { parentCount: 1 },
+    };
+    const plannedContexts: unknown[] = [];
+    const deps = {
+      buildSelectionContext: async () => {
+        throw new Error("live selection must not be read");
+      },
+      resolveWorkflowExecutionOptionsPreview: () =>
+        ({
+          workflowParams: {},
+          providerOptions: {},
+          runOptions: {},
+        }) as any,
+      planWorkflowExecutionUnits: async (args: {
+        selectionContext: unknown;
+      }) => {
+        plannedContexts.push(args.selectionContext);
+        return planSingleWorkflowUnit({
+          selectionContext: args.selectionContext,
+        });
+      },
+      resolveWorkflowExecutionContext: async () => fakeExecutionContext as any,
+      appendRuntimeLog: () => undefined,
+      alertWindow: () => undefined,
+    };
+
+    const preview = await buildWorkflowExecutionUnitPreview(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => {
+              throw new Error("preview must not read live selection");
+            },
+          },
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+        selectionContextOverride: lockedContext,
+      },
+      deps,
+    );
+    assert.equal(preview.status, "success");
+
+    const preparation = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => {
+              throw new Error("preparation must not read live selection");
+            },
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+        selectedItemsOverride: [{} as Zotero.Item],
+        messageFormatter: createLocalizedMessageFormatter(),
+        selectionContextOverride: lockedContext,
+      },
+      deps,
+    );
+    assert.equal(preparation.status, "ready");
+    assert.lengthOf(plannedContexts, 2);
+    assert.strictEqual(plannedContexts[0], lockedContext);
+    assert.strictEqual(plannedContexts[1], lockedContext);
+  });
+
   it("resolves SkillRunner skill display metadata during preparation", async function () {
     const fakeWorkflow = {
       manifest: {
@@ -1017,7 +1197,7 @@ describe("workflow execution seams", function () {
                 execution_mode: "interactive",
                 env: {
                   KEEP_ME: "yes",
-                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v2",
                   ZOTERO_BRIDGE_CONNECTION_MODE: "local",
                 },
                 zotero_host_access: {
@@ -1034,10 +1214,10 @@ describe("workflow execution seams", function () {
           assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
           return {
             ok: true,
-            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            endpoint: "http://127.0.0.1:27655/bridge/v2",
             connectionMode: "local",
             env: {
-              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
               ZOTERO_BRIDGE_TOKEN: "runtime-token",
               ZOTERO_BRIDGE_CONNECTION_MODE: "local",
             },
@@ -1069,7 +1249,7 @@ describe("workflow execution seams", function () {
                 execution_mode: "interactive",
                 env: {
                   KEEP_ME: "yes",
-                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v2",
                   ZOTERO_BRIDGE_CONNECTION_MODE: "local",
                 },
                 zotero_host_access: {
@@ -1084,10 +1264,10 @@ describe("workflow execution seams", function () {
           assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
           return {
             ok: true,
-            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            endpoint: "http://127.0.0.1:27655/bridge/v2",
             connectionMode: "local",
             env: {
-              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
               ZOTERO_BRIDGE_TOKEN: "runtime-token",
               ZOTERO_BRIDGE_CONNECTION_MODE: "local",
             },
@@ -1112,7 +1292,7 @@ describe("workflow execution seams", function () {
       { ...env, ZOTERO_BRIDGE_SCOPE: undefined },
       {
         KEEP_ME: "yes",
-        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
         ZOTERO_BRIDGE_TOKEN: "runtime-token",
         ZOTERO_BRIDGE_CONNECTION_MODE: "local",
         ZOTERO_BRIDGE_SCOPE: undefined,
@@ -1201,10 +1381,10 @@ describe("workflow execution seams", function () {
           fakeExecutionContext as any,
         buildSkillRunnerHostBridgeEnv: async () => ({
           ok: true,
-          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          endpoint: "http://127.0.0.1:27655/bridge/v2",
           connectionMode: "local",
           env: {
-            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
             ZOTERO_BRIDGE_TOKEN: "runtime-token",
             ZOTERO_BRIDGE_CONNECTION_MODE: "local",
           },
@@ -1249,10 +1429,10 @@ describe("workflow execution seams", function () {
           ] as any,
         buildSkillRunnerHostBridgeEnv: async () => ({
           ok: true,
-          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          endpoint: "http://127.0.0.1:27655/bridge/v2",
           connectionMode: "local",
           env: {
-            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
             ZOTERO_BRIDGE_TOKEN: "runtime-token",
             ZOTERO_BRIDGE_CONNECTION_MODE: "local",
           },
@@ -1272,7 +1452,7 @@ describe("workflow execution seams", function () {
       { ...env, ZOTERO_BRIDGE_SCOPE: undefined },
       {
         KEEP_ME: "yes",
-        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v2",
         ZOTERO_BRIDGE_TOKEN: "runtime-token",
         ZOTERO_BRIDGE_CONNECTION_MODE: "local",
         ZOTERO_BRIDGE_SCOPE: undefined,
@@ -1806,6 +1986,7 @@ describe("workflow execution seams", function () {
       itemType: "journalArticle",
       fields: { title: "Seam Configurable Gate Failure Parent" },
     });
+    let selectionReads = 0;
     const toasts: string[] = [];
     const runtime = globalThis as typeof globalThis & {
       ztoolkit?: Record<string, unknown>;
@@ -1848,7 +2029,10 @@ describe("workflow execution seams", function () {
       await executeWorkflowFromCurrentSelection({
         win: {
           ZoteroPane: {
-            getSelectedItems: () => [parent],
+            getSelectedItems: () => {
+              selectionReads += 1;
+              return [parent];
+            },
           },
           alert: (message: string) => {
             throw new Error(`unexpected modal alert: ${message}`);
@@ -1879,6 +2063,7 @@ describe("workflow execution seams", function () {
       ),
       `missing settings gate failure toast: ${JSON.stringify(toasts)}`,
     );
+    assert.equal(selectionReads, 1);
 
     const logs = listRuntimeLogs({
       workflowId: "seam-configurable-gate-failure",
@@ -1893,6 +2078,44 @@ describe("workflow execution seams", function () {
     assert.isOk(failureLog);
     assert.equal(failureDetails.workflowSource, "");
     assert.equal(failureDetails.gateStage, "dialog-open");
+  });
+
+  it("fails closed when the trigger-time selection snapshot cannot be captured", async function () {
+    clearRuntimeLogs();
+    const workflow = {
+      manifest: {
+        id: "seam-selection-capture-failure",
+        label: "Selection Capture Failure",
+        provider: "pass-through",
+        execution: { feedback: { showNotifications: true } },
+        hooks: { applyResult: "hooks/applyResult.js" },
+      },
+    } as any;
+
+    await executeWorkflowFromCurrentSelection({
+      win: {
+        ZoteroPane: {
+          getSelectedItems: () => {
+            throw new Error("selection unavailable");
+          },
+        },
+        alert: () => undefined,
+      } as unknown as _ZoteroTypes.MainWindow,
+      workflow,
+    });
+
+    const logs = listRuntimeLogs({
+      workflowId: "seam-selection-capture-failure",
+    });
+    const failure = logs.find(
+      (entry) => entry.stage === "selection-context-capture-failed",
+    );
+    assert.isOk(failure);
+    assert.equal(
+      (failure?.details as Record<string, unknown>)?.reason,
+      "selection unavailable",
+    );
+    assert.isFalse(logs.some((entry) => entry.stage === "trigger-start"));
   });
 
   it("supports feedback seam verification without UI runtime", function () {

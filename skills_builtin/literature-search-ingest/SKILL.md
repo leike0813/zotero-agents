@@ -444,11 +444,14 @@ report 缺失或畸形只影响对应 candidate。已有合法 payload 仍由主
 
 对每篇就绪 payload：
 
-1. 主代理执行一个 `zotero-bridge mutation literature-ingest --input @<payload-path>`；
-2. 等待该命令返回 terminal JSON；
-3. 原样保存 Host response，并与同一 candidate 和 payload 路径关联；
-4. 根据 Host response 更新 outcome 和账本；
-5. 完成当前论文后才开始下一篇 Host mutation。
+1. 主代理为当前 candidate 分配一个稳定且不与其它论文复用的 operation id，
+   在提交前把它与 candidate、payload path 关联；
+2. 执行一个
+   `zotero-bridge mutation literature-ingest --operation-id <operation-id> --input @<payload-path>`；
+3. 等待该命令返回单一 terminal JSON envelope；
+4. 原样保存 stdout envelope，并与同一 candidate、payload path 和 operation id 关联；
+5. 根据 envelope 的结构化结果更新 outcome 和账本；
+6. 完成当前论文后才开始下一篇 Host mutation。
 
 子代理不执行、排队、重试或监控 Zotero mutation。研究并发不能改变 Host mutation 的串行性。
 
@@ -461,12 +464,39 @@ Host response 是以下事实的唯一来源：
 
 不要从 `pdfUrl` 推断 `pdfStatus: "attached"`。只有 Host 明确确认附件时才报告 attached。
 
+成功的 CLI stdout 必须满足外层 `ok: true`。命令结果位于外层 `data`，
+mutation 业务结果位于 `data.data.result.ingest`，approval 位于
+`data.approval`，实际 operation id 位于 `meta.operationId`。不要把命令卡的
+result schema 当作最外层 stdout schema，也不要从旧示例读取顶层
+`result.ingest`。输入 payload 不写 `operation`；该常量由
+`mutation literature-ingest` 的 executable composition 注入。
+
+失败的 CLI stdout 使用外层 `ok: false` 和 `error`。如果
+`error.details.schema` 是 `host-bridge.argument-error.v1`，按
+`error.details.phase` 处理：
+
+- `argv`、`json_source`、`json_syntax` 或 `command_input` 且
+  `stateChange: "unchanged"`：只修复 bounded violation 指明的参数或 JSON，
+  用同一 candidate operation id 重新校验；不要猜字段名；
+- `payload_composition` 或 `payload_contract`：这是当前 CLI contract、执行器
+  或 binary identity 漂移，停止后续 mutation 并返回
+  `execution_blocked`，不得绕过为 raw capability；
+- `command_result`：该 response 不能作为成功 receipt；先用 operation id 读取
+  durable receipt，再决定是否能恢复。
+
+权限错误按原始 `error.code` 区分：`permission_denied` 映射为 workflow
+`approval_denied`；`permission_timeout` 与 `permission_ui_unavailable` 映射为
+`execution_blocked`，不得声称用户拒绝。任何网络或响应中断只要
+`stateChange` 为 `changed` 或 `unknown`，都必须先执行
+`zotero-bridge operation get <operation-id>`；在 receipt 未明确终态前不得重试
+或换新 operation id。
+
 #### Host 结果处理
 
 - `created`：记录数字 item id；根据本轮结果确定 `needsCuration` 和 PDF 状态；
 - `existing`：报告已存在，不报告新建；保留 Host 返回的 item id；
 - paper-specific `failed`：记录该论文失败，并继续处理其他已批准论文；
-- `host_unavailable`、`approval_denied` 或 `execution_blocked`：视为致命执行失败，停止后续 mutation，保留已完成 receipt 并返回 canceled；
+- `host_unavailable`、`approval_denied` 或 `execution_blocked`：视为致命执行失败，停止后续 mutation，保留已完成 receipt、当前 operation id 和结构化错误并返回 canceled；
 - `not_attempted`：没有 Host mutation，由阶段 40 身份或 metadata 结论产生。
 
 每份 receipt 只关联一篇论文，不跨候选复用。详细 typed payload、receipt 和恢复规则见 [Ingest, Output, And Recovery](references/ingest-output-recovery.md)。
@@ -496,7 +526,7 @@ Host response 是以下事实的唯一来源：
 - PDF 不可用：保留 metadata-only ingest，不把落地页当作 PDF。
 - paper-specific Host failure：记录 `failed` 并继续下一篇。
 - 致命 Host failure：立即停止后续 mutation，保留已有 receipt，输出 canceled。
-- 恢复运行：扫描当前 `runtime/candidates/`，读取其中的 candidate object 和 `payloadPath`，再关联独立 payload 与 Host receipts；已具有 terminal receipt 的论文不重复 mutation；缺失的论文单独恢复。
+- 恢复运行：扫描当前 `runtime/candidates/`，读取其中的 candidate object 和 `payloadPath`，再关联独立 payload、operation id 与 Host receipts；已具有 terminal receipt 的论文不重复 mutation；有 operation id 但缺少明确终态的论文先执行 `operation get`，缺失的论文单独恢复。
 - 工作区不可写：报告 `execution_blocked`，不要切换到外部目录。
 
 ## 最终输出
@@ -508,7 +538,7 @@ Host response 是以下事实的唯一来源：
 - kind、terminal status、search mode 和 breadth；
 - discovery rounds、query/source attempt 摘要和 stop reasons；
 - 累计、批准与排除的 candidate ids；
-- 每篇批准论文的 candidate path、title、payload path、receipt path、metadata/PDF/ingest status、item id 和 `needsCuration`；
+- 每篇批准论文的 candidate path、title、payload path、operation id、receipt path、metadata/PDF/ingest status、item id 和 `needsCuration`；
 - canceled 时的原因和消息；
 - 可选内部审计若存在，可在账本中以普通内部路径引用，但最终 JSON 不暴露该路径。
 

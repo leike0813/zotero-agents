@@ -1,6 +1,6 @@
 ---
 name: export-research-bundle
-description: Discover existing Topic Synthesis topics and Zotero literature for a proposed paper, assess a bounded candidate workset, and produce an auditable related/core research selection for a Dashboard Research Bundle. Use for the no-selection export-research-bundle workflow when paperTitle, articleType, and researchContent must drive automatic topic and literature selection; do not use for Zotero migration bundles, manuscript drafting, or Topic creation and update.
+description: Produce an research material bundle for researcher to consume. Use when handing off literature investigation results to downstream consumers.
 ---
 
 # Export Research Bundle
@@ -11,17 +11,9 @@ Produce one machine-validated research selection from the supplied manuscript in
 
 This is an automatic, read-only workflow. Do not ask the user to confirm intermediate choices.
 
-## When To Use
+## Non-goals
 
-Use this skill only when a runner starts the no-selection `export-research-bundle` workflow with a proposed paper title and research content.
-
-Do not use it for:
-
-- exporting or importing Zotero entries between Zotero instances;
-- packaging a user-selected Zotero item set without manuscript-driven discovery;
-- drafting an Introduction, Related Work, or manuscript;
-- creating or updating a Synthesis Topic;
-- refreshing graph metrics, invalidating caches, repairing analysis artifacts, or mutating Zotero.
+This skill does not transfer Zotero entries between libraries, package a user-selected item set, draft manuscript sections, create or update Synthesis Topics, refresh indexes or graph metrics, repair analysis artifacts, or mutate Zotero.
 
 ## Inputs And Automation Contract
 
@@ -37,7 +29,7 @@ Optional parameters:
 - `articleType`: free string; default `original research`.
 - `maxTopics`: integer 0-5; default 5.
 - `maxCorePapers`: integer 1-20; default 20.
-- `maxRelatedPapers`: integer 1-80; default 80. This count includes core papers.
+- `maxRelatedPapers`: integer 1-80; default 80. This count limits only non-Topic additional papers; every paper resolved by a selected Topic is retained even when the total exceeds this value.
 
 There is no `language` parameter and no Zotero selection input.
 
@@ -108,9 +100,9 @@ CLI stdout from `run_stage` and `submit_stage_payload` is a receipt, not final a
 | --- | --- | --- |
 | `stage_00_runtime_setup` | command | Run the gate command. The runtime locks input, initializes SQLite, and checks Host Bridge. |
 | `stage_10_intent_query_plan` | payload | Write the research dimensions and precise library-query plan defined below. |
-| `stage_20_discovery_collect` | command | Run the gate command. The runtime pages Topic inventory and executes bounded library searches. |
+| `stage_20_discovery_collect` | command | Run the gate command. The runtime pages the current Topic inventory. |
 | `stage_30_topic_assessment` | payload or automatic skip | Read Topic candidates and select only existing relevant Topics. The runtime skips this stage when `maxTopics=0` or no Topic exists. |
-| `stage_40_evidence_prepare` | command or external blocker | Run the gate command. The runtime collects Topic review input, graph neighbors, reference diagnostics, digest evidence, and assessment packets. |
+| `stage_40_evidence_prepare` | command or external blocker | Run the gate command. The runtime collects every selected Topic paper, then executes library searches, merges candidates, gathers evidence, and creates assessment packets. |
 | `stage_50_paper_assessment` | repeated payload | Assess every paper in the current packet exactly once. Repeat only while the gate returns this stage. |
 | `stage_60_enrich_and_select` | command | Run the gate command. The runtime derives graph/readiness values, scores papers, and assigns related/core roles. |
 | `stage_70_render_result` | command | Run the gate command. The runtime validates and renders the selection, audit, artifact manifest, and business result. |
@@ -154,10 +146,7 @@ Duplicate queries, empty focus strings, fewer than two queries, more than eight 
 
 Schema: `assets/schemas/stage-30-topic-assessment.schema.json`.
 
-Read only the gate `required_reads`, normally:
-
-- `runtime/views/03-topic-candidates.json`;
-- `runtime/views/04-library-search-candidates.json`.
+Read only the gate `required_reads`: `runtime/views/03-topic-candidates.json`.
 
 Submit a top-level `topics` array. Each selected Topic must contain exactly:
 
@@ -281,7 +270,8 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 ### Must Be Done By The Runtime
 
 - Lock runner input, locate Host Bridge, execute and page Host reads, and record receipts.
-- Merge and cap candidates, generate assessment packets, validate payload shape and exact coverage, and persist SQLite state.
+- Collect each selected Topic's resolved paper set before library search, merge both sources by `paper_ref`, preserve every selected-Topic paper while capping only non-Topic candidates, generate assessment packets, validate exact coverage, and persist SQLite state.
+- Use graph, reference, digest, and readiness data only to enrich candidates already obtained from selected Topics or library search.
 - Determine graph availability, graph importance, Topic coverage, material readiness, score, stable order, and role.
 - Handle diagnostics, remote-delivery state, business cancellation, selection validation, and final rendering.
 
@@ -295,14 +285,14 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 
 ## Selection Policy
 
-- Papers with `semantic_relevance < 0.45` are excluded.
+- Papers with `semantic_relevance < 0.45` are excluded unless they are associated with a selected Topic's resolved paper set; Topic-associated papers are mandatory.
 - Topic coverage is the fraction of selected Topics matched through persisted Topic source membership or validated `matched_topic_ids`; it is 0 when no Topic is selected.
 - Material readiness is 1.0 for source Markdown, 0.8 for PDF-only, and 0 otherwise.
 - Graph importance is the maximum available normalized foundation, frontier, PageRank, and in-degree signal.
 - With a ready per-paper graph row: `0.60 semantic + 0.20 graph + 0.15 topic + 0.05 readiness`.
 - With missing, stale, or absent per-paper graph state: `0.80 semantic + 0.15 topic + 0.05 readiness`.
 - Papers are ordered by descending score and then ascending `paper_ref`.
-- The list is capped at `maxRelatedPapers`; its first `maxCorePapers` entries are core. Core is always a subset and highest-scoring prefix of related papers.
+- Non-Topic additional papers are capped at `maxRelatedPapers`; mandatory Topic papers can make the final list larger. The first `maxCorePapers` entries are core. Core is always a subset and highest-scoring prefix of the final list.
 
 ## Failure And Resume
 
@@ -318,13 +308,13 @@ Recovery rules:
 - Continue only the returned `next_action`; do not replay payloads from conversation memory.
 - If submit validation fails, rerun gate, repair only the current payload, and resubmit it.
 - If SQLite or a runtime-owned artifact is corrupt and the gate exposes no legal repair action, stop and report the error. Do not delete or rebuild the DB.
-- Missing Topic inventory, Topic review input, reference index, digest, graph state, or source files degrades through diagnostics; never claim that missing evidence was used.
+- Missing Topic inventory, Topic context, reference index, digest, graph state, or source files degrades through diagnostics; never claim that missing evidence was used.
 
 Terminal cancellation reasons are exactly:
 
 - `invalid_input`: required runner input is absent or invalid.
 - `host_unavailable`: required Host Bridge access is unavailable.
-- `no_related_literature`: no assessed paper meets the semantic threshold.
+- `no_related_literature`: no assessed paper meets the semantic threshold and no selected Topic resolved a paper.
 
 Completion is defined only by gate `stage: "completed"`, not by the success of the last command. A completed gate may contain either selection success or business cancellation.
 
@@ -362,6 +352,11 @@ Cancellation final envelope:
 
 Do not output Markdown fences, logs, explanation, receipts, or multiple JSON objects. Do not write `result/result.json`; the runner owns it.
 
+## References
+
+- Read `assets/input.schema.json`, `assets/parameter.schema.json`, `assets/output.schema.json`, and the schemas under `assets/schemas/` when validating runner, stage-payload, or final-selection fields.
+- Invoke only `scripts/gate_runtime.py` through the gate-provided commands. `scripts/stage_runtime.py` is the deterministic internal writer and renderer described by the Runtime, Gate, and Responsibilities sections.
+
 ## Execution Examples
 
 Happy path:
@@ -374,5 +369,3 @@ Happy path:
 6. When the gate returns `return_final_output`, return the final envelope.
 
 Near miss: if a Stage 50 payload omits one packet candidate, the submit fails and remains on Stage 50. Add the missing low-relevance row; do not skip the paper or edit SQLite.
-
-Wrong skill: if the user wants to move selected Zotero entries and their files between Zotero instances, use the literature bundle export/import workflow instead of this skill.

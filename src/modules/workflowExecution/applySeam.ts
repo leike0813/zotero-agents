@@ -924,6 +924,8 @@ export async function runWorkflowApplySeam(
         resultContext,
         request: args.runState.requests[i],
         runResult: enrichedRunResult,
+        runtime: args.runState.runtime,
+        executionOptions: args.runState.executionOptions,
       });
       const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       await resolved.collectSkillRunFeedback({
@@ -1087,6 +1089,8 @@ export async function runWorkflowApplySeam(
         resultContext,
         request: entry.request,
         runResult: entry.runResult,
+        runtime: args.runState.runtime,
+        executionOptions: args.runState.executionOptions,
       });
       const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       succeeded += 1;
@@ -1257,6 +1261,8 @@ export async function runWorkflowApplySeam(
           aggregateId: aggregate.id,
         },
         runResult: aggregateRunResult,
+        runtime: args.runState.runtime,
+        executionOptions: args.runState.executionOptions,
       });
       const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       succeeded += 1;

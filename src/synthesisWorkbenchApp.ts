@@ -32,6 +32,7 @@ import {
   type SynthesisWorkbenchI18nEnvelope,
   type SynthesisWorkbenchMessageKey,
 } from "./synthesisWorkbenchI18n";
+import { literatureScoreToStars } from "./shared/literatureScore";
 
 declare const window: Window &
   typeof globalThis & {
@@ -7543,6 +7544,11 @@ const registryArtifactBadges = [
     "Citation analysis artifact",
     "icon_artifact_citation_analysis.svg",
   ],
+  [
+    "literature_score",
+    "Literature score artifact",
+    "icon_artifact_literature_score.svg",
+  ],
 ] as const;
 
 function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
@@ -7576,6 +7582,36 @@ function renderRegistryArtifacts(row: Record<string, unknown>) {
     image.setAttribute("aria-hidden", "true");
     node.appendChild(image);
     wrap.appendChild(node);
+  });
+  return wrap;
+}
+
+function renderRegistryRating(row: Record<string, unknown>) {
+  const score = Number(row.ratingScore);
+  const missing = !Number.isFinite(score) || score < 0 || score > 100;
+  const rating = missing ? null : literatureScoreToStars(score);
+  const wrap = el("span", `registry-rating ${missing ? "is-missing" : ""}`);
+  const label = missing
+    ? t("synthesis-rating-unavailable")
+    : t("synthesis-rating-value", {
+        score,
+        stars: rating?.rating || 0,
+      });
+  wrap.title = label;
+  wrap.setAttribute("aria-label", label);
+  const fills = missing ? ([1, 1, 1, 1, 1] as const) : rating!.fills;
+  fills.forEach((fill) => {
+    const star = el("span", "registry-rating-star");
+    star.setAttribute("aria-hidden", "true");
+    star.appendChild(
+      el("span", "registry-rating-star-empty", missing ? "★" : "☆"),
+    );
+    if (!missing && fill > 0) {
+      const filled = el("span", "registry-rating-star-fill", "★");
+      filled.style.width = `${fill * 100}%`;
+      star.appendChild(filled);
+    }
+    wrap.appendChild(star);
   });
   return wrap;
 }
@@ -7931,7 +7967,7 @@ function renderRegistryRowActions(row: Record<string, unknown>) {
         args: { libraryId, itemKey, workflowId: "literature-analysis" },
       },
       false,
-      row.artifactCoverage === "complete",
+      textValue(row.artifactCoverage) === "complete",
     ),
   );
   actions.appendChild(
@@ -7959,6 +7995,7 @@ function renderRegistryParentRow(row: Record<string, unknown>) {
       "registry-center-cell",
     ],
     [renderRegistryArtifacts(row), "registry-artifacts-cell"],
+    [renderRegistryRating(row), "registry-rating-cell"],
     [
       badge(textValue(row.index_scope, "library"), "ok"),
       "registry-center-cell",
@@ -8002,6 +8039,7 @@ function renderRegistryTable(snapshot: Snapshot) {
     "year",
     "coverage",
     "artifacts",
+    "rating",
     "status",
     "references",
     "id",
@@ -8015,6 +8053,9 @@ function renderRegistryTable(snapshot: Snapshot) {
     renderRegistryHeader("Coverage"),
     renderRegistryHeader("Artifacts", {
       className: "registry-artifacts-header",
+    }),
+    renderRegistryHeader(t("synthesis-column-rating"), {
+      className: "registry-rating-header",
     }),
     renderRegistryHeader("Status"),
     renderRegistryHeader("References", {
@@ -15246,6 +15287,7 @@ function compactRegistryRowSignature(row: Record<string, unknown>) {
     row.artifactCoverage,
     row.missing_artifacts,
     row.artifacts,
+    row.ratingScore,
     row.index_scope,
     row.reference_count,
     row.unbound_reference_count,

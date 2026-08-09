@@ -5,9 +5,14 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  verifyPluginNativeAssets,
+  verifyPluginHostBridgeAssets,
   type HostBridgeCliReleaseManifest,
-} from "../../scripts/check-plugin-native-assets";
+} from "../../scripts/check-plugin-host-bridge-assets";
+import {
+  HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+  hostBridgePluginSkillBundleDigestPayload,
+  type HostBridgePluginSkillBundleManifest,
+} from "../../src/shared/hostBridgePluginSkillBundleContract";
 
 function sha256(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -51,10 +56,13 @@ function createStoredZip(entries: Array<{ name: string; bytes: Uint8Array }>) {
 
 const HOST_BINARY_PATH = "bin/win32-x64/zotero-bridge.exe";
 const ACP_BINARY_PATH = "bin/win32-x64/zotero-acp-bridge.exe";
+const SKILL_MANIFEST_PATH = "content/host-bridge-skills/manifest.json";
 const hostBytes = Buffer.from("host-bridge");
 const acpBytes = Buffer.from("acp-bridge");
 const hostBridgeRelease: HostBridgeCliReleaseManifest = {
   schema: "zotero-bridge-cli-release.v1",
+  version: "1.2.3",
+  buildFingerprint: "b".repeat(64),
   binaries: [
     {
       platform: "win32-x64",
@@ -64,6 +72,66 @@ const hostBridgeRelease: HostBridgeCliReleaseManifest = {
     },
   ],
 };
+
+function validSkillBundleEntries() {
+  const files = [
+    {
+      path: "zotero-bridge-cli/SKILL.md",
+      bytes: Buffer.from("# Skill\n"),
+    },
+    {
+      path: "zotero-bridge-cli/assets/runner.json",
+      bytes: Buffer.from('{"version":"1.2.3"}\n'),
+    },
+  ].map((file) => ({
+    path: file.path,
+    bytes: file.bytes.length,
+    sha256: sha256(file.bytes),
+    content: file.bytes,
+  }));
+  const withoutDigest: Omit<
+    HostBridgePluginSkillBundleManifest,
+    "aggregateSha256"
+  > = {
+    schema: HOST_BRIDGE_PLUGIN_SKILL_BUNDLE_SCHEMA,
+    cli: {
+      version: hostBridgeRelease.version,
+      buildFingerprint: hostBridgeRelease.buildFingerprint,
+      commandCatalogChecksum: "c".repeat(64),
+    },
+    surfaces: [
+      { id: "zotero-bridge-cli", kind: "minimum-core", version: "1.2.3" },
+    ],
+    skills: [
+      {
+        id: "zotero-bridge-cli",
+        mount: "skills/zotero-bridge-cli",
+        runnerVersion: "1.2.3",
+      },
+    ],
+    files: files.map(({ content: _content, ...file }) => file),
+  };
+  const manifest = {
+    ...withoutDigest,
+    aggregateSha256: sha256(
+      Buffer.from(hostBridgePluginSkillBundleDigestPayload(withoutDigest)),
+    ),
+  };
+  return [
+    ...files.map((file) => ({
+      name: `content/host-bridge-skills/${file.path}`,
+      bytes: file.content,
+    })),
+    {
+      name: SKILL_MANIFEST_PATH,
+      bytes: Buffer.from(`${JSON.stringify(manifest)}\n`),
+    },
+    {
+      name: "bin/zotero-bridge-release.json",
+      bytes: Buffer.from(`${JSON.stringify(hostBridgeRelease)}\n`),
+    },
+  ];
+}
 
 function validNativeEntries() {
   return [
@@ -77,6 +145,7 @@ function validNativeEntries() {
       name: `${ACP_BINARY_PATH}.sha256`,
       bytes: Buffer.from(`${sha256(acpBytes)}  zotero-acp-bridge.exe\n`),
     },
+    ...validSkillBundleEntries(),
   ];
 }
 
@@ -120,9 +189,10 @@ describe("acp websocket bridge packaging", function () {
     const xpiPath = path.join(root, "valid.xpi");
     await fsp.writeFile(xpiPath, createStoredZip(validNativeEntries()));
 
-    const result = verifyPluginNativeAssets({
+    const result = verifyPluginHostBridgeAssets({
       xpiPath,
       hostBridgeRelease,
+      expectedSkillIds: ["zotero-bridge-cli"],
     });
 
     assert.isTrue(result.ok);
@@ -163,21 +233,97 @@ describe("acp websocket bridge packaging", function () {
         ),
         code: "host_bridge_release_mismatch",
       },
+      {
+        name: "missing Skill bundle manifest",
+        entries: validNativeEntries().filter(
+          (entry) => entry.name !== SKILL_MANIFEST_PATH,
+        ),
+        code: "skill_bundle_manifest_missing",
+      },
+      {
+        name: "unexpected Skill bundle file",
+        entries: [
+          ...validNativeEntries(),
+          {
+            name: "content/host-bridge-skills/unexpected.txt",
+            bytes: Buffer.from("unexpected"),
+          },
+        ],
+        code: "skill_bundle_inventory_extra",
+      },
+      {
+        name: "Skill bundle file digest mismatch",
+        entries: validNativeEntries().map((entry) =>
+          entry.name === "content/host-bridge-skills/zotero-bridge-cli/SKILL.md"
+            ? { ...entry, bytes: Buffer.from("changed") }
+            : entry,
+        ),
+        code: "skill_bundle_digest_mismatch",
+      },
+      {
+        name: "Skill bundle CLI identity mismatch",
+        entries: validNativeEntries().map((entry) =>
+          entry.name === "bin/zotero-bridge-release.json"
+            ? {
+                ...entry,
+                bytes: Buffer.from(
+                  `${JSON.stringify({ ...hostBridgeRelease, version: "9.9.9" })}\n`,
+                ),
+              }
+            : entry,
+        ),
+        code: "skill_bundle_identity_mismatch",
+      },
     ];
 
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), "zs-native-xpi-"));
     for (const testCase of cases) {
       const xpiPath = path.join(root, `${testCase.code}.xpi`);
       await fsp.writeFile(xpiPath, createStoredZip(testCase.entries));
-      const result = verifyPluginNativeAssets({
+      const result = verifyPluginHostBridgeAssets({
         xpiPath,
         hostBridgeRelease,
+        expectedSkillIds: ["zotero-bridge-cli"],
       });
       assert.isFalse(result.ok, testCase.name);
       assert.include(
         result.issues.map((issue) => issue.code),
         testCase.code,
         testCase.name,
+      );
+    }
+  });
+
+  it("rejects duplicate and path-traversing XPI entries", async function () {
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), "zs-native-xpi-"));
+    for (const [name, entries, pattern] of [
+      [
+        "duplicate",
+        [...validNativeEntries(), validNativeEntries()[0]],
+        /Duplicate ZIP entry/,
+      ],
+      [
+        "traversal",
+        [
+          ...validNativeEntries(),
+          {
+            name: "content/host-bridge-skills/../escaped",
+            bytes: Buffer.from("x"),
+          },
+        ],
+        /Unsafe ZIP entry/,
+      ],
+    ] as const) {
+      const xpiPath = path.join(root, `${name}.xpi`);
+      await fsp.writeFile(xpiPath, createStoredZip([...entries]));
+      assert.throws(
+        () =>
+          verifyPluginHostBridgeAssets({
+            xpiPath,
+            hostBridgeRelease,
+            expectedSkillIds: ["zotero-bridge-cli"],
+          }),
+        pattern,
       );
     }
   });

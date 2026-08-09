@@ -38,7 +38,7 @@ STAGE_CONTRACT = {
         "task": "Select only existing relevant Topics, bounded by maxTopics; an empty list is valid.",
         "payload": "runtime/payloads/topic-assessment.json",
         "schema": "assets/schemas/stage-30-topic-assessment.schema.json",
-        "required_reads": ["runtime/views/03-topic-candidates.json", "runtime/views/04-library-search-candidates.json"],
+        "required_reads": ["runtime/views/03-topic-candidates.json"],
     },
     "stage_40_evidence_prepare": {
         "kind": "command",

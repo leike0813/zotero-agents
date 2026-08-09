@@ -123,7 +123,7 @@ function topicSnapshot(topicId: string, markdown: Record<string, string> = {}) {
   const sections = { brief: { text: "Brief" } };
   const artifact = {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "3.0.0",
+    schema_version: "4.0.0",
     language: "en",
     ...sections,
   };

@@ -47,6 +47,18 @@ const defaultSubmissionSeamDeps: SubmissionSeamDeps = {
   appendRuntimeLog,
 };
 
+type PreparedWorkflowUnitDeps = Readonly<{
+  buildPreparedUnit: typeof buildPreparedWorkflowUnitExecution;
+  runPreparedUnit: typeof runWorkflowExecutionSeam;
+  applyPreparedUnit: typeof runWorkflowApplySeam;
+}>;
+
+const defaultPreparedWorkflowUnitDeps: PreparedWorkflowUnitDeps = {
+  buildPreparedUnit: buildPreparedWorkflowUnitExecution,
+  runPreparedUnit: runWorkflowExecutionSeam,
+  applyPreparedUnit: runWorkflowApplySeam,
+};
+
 function summarizeDirectOutcomes(
   outcomes: ReadonlyArray<WorkflowExecutionUnitOutcome>,
 ): WorkflowSubmissionSummary {
@@ -59,13 +71,17 @@ function summarizeDirectOutcomes(
   });
 }
 
-export async function executePreparedWorkflowUnit(args: {
-  prepared: PreparedWorkflowExecution;
-  unit: PreparedWorkflowUnit;
-  messageFormatter: WorkflowMessageFormatter;
-  submissionContext?: WorkflowSubmissionQueueExecutionContext;
-}): Promise<PreparedWorkflowUnitExecutionResult> {
-  const buildResult = await buildPreparedWorkflowUnitExecution({
+export async function executePreparedWorkflowUnit(
+  args: {
+    prepared: PreparedWorkflowExecution;
+    unit: PreparedWorkflowUnit;
+    messageFormatter: WorkflowMessageFormatter;
+    submissionContext?: WorkflowSubmissionQueueExecutionContext;
+  },
+  deps: Partial<PreparedWorkflowUnitDeps> = {},
+): Promise<PreparedWorkflowUnitExecutionResult> {
+  const resolved = { ...defaultPreparedWorkflowUnitDeps, ...deps };
+  const buildResult = await resolved.buildPreparedUnit({
     prepared: args.prepared,
     unit: args.unit,
   });
@@ -77,12 +93,26 @@ export async function executePreparedWorkflowUnit(args: {
       },
     };
   }
-  const runState = runWorkflowExecutionSeam({
+  const runState = resolved.runPreparedUnit({
     prepared: buildResult.built,
     submissionLineage: args.submissionContext,
   });
   await runState.terminalPromise;
-  const applySummary = await runWorkflowApplySeam({
+  if (args.submissionContext) {
+    args.submissionContext.slot.cancelPendingResumption();
+    const admitted = await args.submissionContext.slot.ensureSlot("host-apply");
+    if (!admitted) {
+      return {
+        outcome: {
+          status: "skipped",
+          reasonCode: "workflow-unit-apply-admission-canceled",
+        },
+        runState,
+        failureReason: "Host apply admission was canceled before execution.",
+      };
+    }
+  }
+  const applySummary = await resolved.applyPreparedUnit({
     runState,
     messageFormatter: args.messageFormatter,
   });
@@ -108,6 +138,7 @@ export async function submitPreparedWorkflowUnits(
     workflowLabel: string;
     skippedByGuard: number;
     messageFormatter: WorkflowMessageFormatter;
+    onTerminal?: (summary: WorkflowSubmissionSummary) => void;
   },
   deps: Partial<SubmissionSeamDeps> = {},
 ): Promise<PreparedWorkflowSubmission> {
@@ -165,6 +196,8 @@ export async function submitPreparedWorkflowUnits(
     args.prepared.executionContext.backend.type || "",
   ).trim();
   if (backendType === "acp" || backendType === "skillrunner") {
+    const providerOptions =
+      args.prepared.executionContext.providerOptions || {};
     const handle = resolved.submissionQueue.enqueueSubmission({
       backend: {
         backendType,
@@ -187,7 +220,20 @@ export async function submitPreparedWorkflowUnits(
       })),
       maxConcurrency:
         args.prepared.executionOptions.hostOptions?.queue?.maxConcurrency,
+      presentation:
+        backendType === "acp"
+          ? {
+              provider: String(providerOptions.acpModelProvider || "").trim(),
+              model: String(providerOptions.acpModelId || "").trim(),
+            }
+          : {
+              provider: String(
+                providerOptions.provider_id || providerOptions.engine || "",
+              ).trim(),
+              model: String(providerOptions.model || "").trim(),
+            },
       initialOutcomes,
+      onTerminal: args.onTerminal,
       executeUnit,
     });
     return Object.freeze({

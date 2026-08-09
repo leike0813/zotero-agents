@@ -212,3 +212,11 @@ The agent classifies work, delegates finite research tasks, judges live evidence
 - Read [resident operations](references/resident-operations.md) before index, workflow catalog, run, notification, library-question, or scheduled work.
 - Read [automation policy](references/automation-policy.md) before workflow mode choice, native queue submission, concurrency, maintenance proposals, acknowledgement, or any authority boundary.
 - Read [state and recovery](references/state-and-recovery.md) before judging freshness, repairing local state, handling partial/failed receipts, uncertain outcomes, or changing profile configuration.
+
+### 连接 profile workspace 路由
+
+- 不要计算或手动传入 workspace 路径。使用 service `--profile`、`ZOTERO_BRIDGE_PROFILE` 或平台 well-known profile 选择连接；resident service、cron 和 CLI installer 会共同跟随该选择。
+- well-known profile 是默认 workspace，并拥有现有 `$HERMES_HOME/zotero-librarian/state.sqlite`。显式 profile 按规范化路径路由到 `workspaces/<sha256>/` workspace。
+- 显式 profile workspace 不共享 SQLite 行、workflow catalog、watched run、notification 或本地 `.zotero-bridge/bin` 安装。identity 不包含 profile JSON 内容、endpoint、token 或其他 secret。
+- `--db` 只能用于当前 workspace 内的诊断路径。遇到 `workspace_path_outside_profile`、profile 路径失败、workspace 根不可用或连接失败时必须 fail-closed；不得重试到共享/默认路径。
+- workspace cache 不是 Zotero 当前权威。profile 切换时仍须遵守现有 approval、queue、receipt、live-state 和 current-fact 规则。

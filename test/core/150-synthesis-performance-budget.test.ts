@@ -259,6 +259,107 @@ describe("Synthesis performance budgets", function () {
     assert.deepEqual(review.registry?.rows || [], []);
   });
 
+  it("reuses one bounded library page for Index audit, rows, and ratings", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+    const pageInputs = createSyntheticSynthesisBenchmarkRegistryInputs({
+      paperCount: 2,
+      referenceFanout: 0,
+    });
+    for (const input of pageInputs) {
+      Object.assign(input, {
+        literatureAnalysisArtifacts: {
+          digest: true,
+          references: true,
+          citationAnalysis: true,
+        },
+      });
+    }
+    Object.assign(pageInputs[0], {
+      literatureScore: { overallScore: 86 },
+      notes: [
+        {
+          key: "literature-score-note",
+          title: "Literature Score",
+          updatedAt: "2026-05-27T00:00:00.000Z",
+          html: "",
+          payloadBlocks: [
+            {
+              source: "embedded-image-attachment",
+              sourceStorage: "embedded-image-attachment-v2",
+              payloadType: "literature-score-json",
+              noteKind: "literature-score",
+              version: "1",
+              encoding: "embedded-image-attachment",
+              encodedValue: "",
+              estimatedSize: 1,
+              format: "json",
+              payload: {
+                literature_score: {
+                  schema: "literature_score.v1",
+                  rubric_id: "performance-budget.v1",
+                  paper_type: "empirical",
+                  paper_type_reason: "Performance fixture",
+                  overall_score: 86,
+                  confidence: 0.8,
+                  confidence_adjusted_score: 78,
+                  dimensions: [
+                    "methodological_rigor",
+                    "evidence_completeness",
+                    "reproducibility",
+                    "innovation_signals",
+                    "research_impact_potential",
+                    "writing_quality",
+                  ].map((dimensionKey) => ({
+                    dimension_key: dimensionKey,
+                    name: dimensionKey,
+                    score: 86,
+                    confidence: 0.8,
+                    summary: `${dimensionKey} fixture`,
+                  })),
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    let pageReadCount = 0;
+    let itemReadCount = 0;
+    const baseHostReadPort = createTestSynthesisHostReadPort(pageInputs);
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      hostReadPort: {
+        library: {
+          async listItemsPage(request) {
+            pageReadCount += 1;
+            return baseHostReadPort.library.listItemsPage(request);
+          },
+          async getItemsByRef(request) {
+            itemReadCount += 1;
+            return baseHostReadPort.library.getItemsByRef(request);
+          },
+        },
+        artifacts: baseHostReadPort.artifacts,
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+
+    const index = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const ratedRow = index.registry?.rows.find(
+      (row) => row.itemKey === pageInputs[0].itemKey,
+    );
+
+    assert.equal(pageReadCount, 1);
+    assert.equal(itemReadCount, 0);
+    assert.equal(ratedRow?.ratingScore, 86);
+  });
+
   it("keeps Index reference details out of the default surface read", async function () {
     const root = await makeRuntimeRoot();
     const repository = createSynthesisRepository({

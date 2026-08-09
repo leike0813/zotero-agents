@@ -18,11 +18,6 @@ export const SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED = true;
 // fold this out through the esbuild define below.
 export const WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED = true;
 
-// Assert every outgoing SkillRunner workspace snapshot against the v1 wire
-// schema at the single push funnel. Debug-only; release builds fold this out
-// through the esbuild define below.
-export const SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED = true;
-
 if (typeof __acp_runtime_performance_profiler_enabled__ === "undefined") {
   (
     globalThis as typeof globalThis & {
@@ -75,15 +70,6 @@ if (typeof __workspace_publication_wire_assert_enabled__ === "undefined") {
     }
   ).__workspace_publication_wire_assert_enabled__ =
     WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED;
-}
-
-if (typeof __skillrunner_snapshot_wire_assert_enabled__ === "undefined") {
-  (
-    globalThis as typeof globalThis & {
-      __skillrunner_snapshot_wire_assert_enabled__?: boolean;
-    }
-  ).__skillrunner_snapshot_wire_assert_enabled__ =
-    SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED;
 }
 
 let debugModeOverrideForTests: boolean | undefined;
@@ -169,23 +155,6 @@ export function setWorkspacePublicationWireAssertOverrideForTests(
     typeof enabled === "boolean"
       ? enabled
       : WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED;
-}
-
-export function isSkillRunnerSnapshotWireAssertAvailable() {
-  return __skillrunner_snapshot_wire_assert_enabled__ && isDebugModeEnabled();
-}
-
-export function setSkillRunnerSnapshotWireAssertOverrideForTests(
-  enabled?: boolean,
-) {
-  (
-    globalThis as typeof globalThis & {
-      __skillrunner_snapshot_wire_assert_enabled__?: boolean;
-    }
-  ).__skillrunner_snapshot_wire_assert_enabled__ =
-    typeof enabled === "boolean"
-      ? enabled
-      : SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED;
 }
 
 export function setDebugModeOverrideForTests(enabled?: boolean) {

@@ -103,10 +103,9 @@ const DEFAULT_REPO = "leike0813/zotero-agents";
 
 const HOST_BRIDGE_PREFIXES = [
   "cli/zotero-bridge/",
-  "skills_builtin/zotero-bridge-cli/",
+  "addon/content/host-bridge-skills/",
   "skills_src/zotero-bridge-cli/",
   "skills_src/zotero-library-agent/",
-  "skills_builtin/zotero-library-agent/",
   "profiles_src/hermes/zotero-librarian/",
   "profiles/hermes/zotero-librarian/",
   "host-bridge/",

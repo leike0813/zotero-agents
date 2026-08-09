@@ -90,9 +90,9 @@ Selon la méthode d'exécution et le type de backend, les workflows peuvent êtr
 
 | Modèle | Cas d'usage typique | Type de backend |
 |--------|---------------------|-----------------|
-| **pass-through** | Opérations purement locales (export, traitement de fichiers), aucun backend distant nécessaire | Aucun |
-| **skillrunner.job.v1** | Exécution de skill en une seule étape soumise à SkillRunner | skillrunner / acp |
-| **skillrunner.sequence.v1** | Exécution de skills enchaînées en plusieurs étapes, avec relay entre les étapes | acp |
+| **pass-through** | Opérations purement locales (export, traitement de fichiers), aucun backend distant nécessaire | Pass-through |
+| **skillrunner.job.v1** | Exécution de skill en une seule étape soumise à SkillRunner | skillrunner |
+| **skillrunner.sequence.v1** | Exécution de skills enchaînées en plusieurs étapes, avec relay entre les étapes | acp / skillrunner |
 | **generic-http.request.v1** | Appel API HTTP unique | generic-http |
 | **generic-http.steps.v1** | Appels API HTTP en plusieurs étapes | generic-http |
 

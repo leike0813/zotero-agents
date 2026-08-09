@@ -16,6 +16,20 @@ type RuntimeFilePickerCtor = new (
   open: () => Promise<unknown> | unknown;
 };
 
+function isUsableRuntimeFilePickerParentWindow(
+  value: unknown,
+): value is Window {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  try {
+    const window = value as Window & { browsingContext?: unknown };
+    return !window.closed && !!window.browsingContext;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveRuntimeFilePickerParentWindow() {
   const runtimeAddon = resolveRuntimeAddon() as
     | {
@@ -28,12 +42,18 @@ export function resolveRuntimeFilePickerParentWindow() {
   const runtimeZotero = resolveRuntimeZotero() as
     | { getMainWindow?: () => Window | null | undefined }
     | undefined;
-  return (
-    runtimeAddon?.data?.dialog?.window ||
-    runtimeAddon?.data?.prefs?.window ||
-    runtimeZotero?.getMainWindow?.() ||
-    undefined
-  );
+  let mainWindow: Window | null | undefined;
+  try {
+    mainWindow = runtimeZotero?.getMainWindow?.();
+  } catch {
+    mainWindow = undefined;
+  }
+  const candidates = [
+    runtimeAddon?.data?.dialog?.window || undefined,
+    runtimeAddon?.data?.prefs?.window || undefined,
+    mainWindow || undefined,
+  ];
+  return candidates.find(isUsableRuntimeFilePickerParentWindow);
 }
 
 export async function openRuntimeFilePicker(args: {

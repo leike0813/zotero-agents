@@ -1,7 +1,7 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import path from "node:path";
 import pkg from "./package.json";
-import { assertPluginNativeAssets } from "./scripts/check-plugin-native-assets";
+import { assertPluginHostBridgeAssets } from "./scripts/check-plugin-host-bridge-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
 import { runtimeDiagnosticsSideEffectsPlugin } from "./scripts/runtime-diagnostics-esbuild";
 import {
@@ -9,7 +9,6 @@ import {
   ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
   ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
   SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
-  SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
   SYNTHESIS_SIDECAR_DIAGNOSTICS_ENABLED,
   WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
@@ -116,7 +115,7 @@ export default defineConfig({
   build: {
     hooks: {
       "build:pack": (ctx) => {
-        assertPluginNativeAssets({
+        assertPluginHostBridgeAssets({
           xpiPath: path.join(ctx.dist, `${ctx.xpiName}.xpi`),
           hostBridgeReleasePath: path.join(
             "cli",
@@ -131,6 +130,7 @@ export default defineConfig({
       "addon/bin/**/*",
       "addon/bin/**/zotero-bridge",
       "addon/bin/**/synthesis-sidecar/**/*",
+      "addon/content/host-bridge-skills/**/*",
     ],
     define: {
       ...pkg.config,
@@ -166,9 +166,6 @@ export default defineConfig({
           ),
           __workspace_publication_wire_assert_enabled__: String(
             WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
-          ),
-          __skillrunner_snapshot_wire_assert_enabled__: String(
-            SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
           ),
         },
         bundle: true,
@@ -209,18 +206,16 @@ export default defineConfig({
       {
         entryPoints: ["src/sidebar/acpChildApp.js"],
         bundle: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/sidebar/acp-child.bundle.js",
       },
       {
-        entryPoints: ["src/sidebar/runDialogApp.js"],
-        bundle: true,
-        target: "firefox115",
-        outfile: ".scaffold/build/addon/content/sidebar/run-dialog.bundle.js",
-      },
-      {
         entryPoints: ["src/sidebar/assistantWorkspaceApp.js"],
         bundle: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
         target: "firefox115",
         outfile:
           ".scaffold/build/addon/content/sidebar/assistant-workspace.bundle.js",

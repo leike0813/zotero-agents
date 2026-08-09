@@ -3,6 +3,7 @@ import { readArtifactsFromRegistryInputs } from "../synthesis/libraryAdapter";
 import { buildReferenceSidecarMetadataFingerprintPayload } from "../synthesis/registry";
 import type { ReferenceSidecarInput } from "../synthesis/registry";
 import { hashCanonicalJson } from "../synthesis/foundation";
+import { buildLiteratureQualitySnapshot } from "../../shared/literatureScore";
 import {
   SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT,
   SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
@@ -399,29 +400,49 @@ export async function createZoteroReadonlyHostReadPort(
           artifact_types: request.artifactTypes,
         });
         const artifacts: SynthesisHostArtifactDescriptor[] =
-          result.artifacts.map((artifact) => ({
-            paperRef: artifact.paper_ref,
-            artifactType: artifact.artifact_type,
-            payloadType: artifact.payload_type,
-            status: artifact.status,
-            ...(artifact.status === "available" && artifact.note_key
+          result.artifacts.map((artifact) => {
+            const common = {
+              paperRef: artifact.paper_ref,
+              payloadType: artifact.payload_type,
+              status: artifact.status,
+              ...(artifact.status === "available" && artifact.note_key
+                ? {
+                    locator: locatorFor({
+                      paperRef: artifact.paper_ref,
+                      artifactType: artifact.artifact_type,
+                      noteKey: artifact.note_key,
+                    }),
+                  }
+                : {}),
+              ...(artifact.payload_hash || artifact.hash
+                ? {
+                    payloadHash: cleanString(
+                      artifact.payload_hash || artifact.hash,
+                    ),
+                  }
+                : {}),
+              diagnostics: [...artifact.diagnostics],
+            };
+            return artifact.artifact_type === "literature_score"
               ? {
-                  locator: locatorFor({
-                    paperRef: artifact.paper_ref,
-                    artifactType: artifact.artifact_type,
-                    noteKey: artifact.note_key,
+                  ...common,
+                  artifactType: "literature_score",
+                  literatureQuality: buildLiteratureQualitySnapshot({
+                    payload:
+                      artifact.status === "available"
+                        ? artifact.payload
+                        : undefined,
+                    payloadHash: cleanString(
+                      artifact.payload_hash || artifact.hash,
+                    ),
+                    missing: artifact.status === "missing",
                   }),
                 }
-              : {}),
-            ...(artifact.payload_hash || artifact.hash
-              ? {
-                  payloadHash: cleanString(
-                    artifact.payload_hash || artifact.hash,
-                  ),
-                }
-              : {}),
-            diagnostics: [...artifact.diagnostics],
-          }));
+              : {
+                  ...common,
+                  artifactType: artifact.artifact_type,
+                };
+          });
         return {
           artifacts,
           cursor: cleanString(request.cursor),

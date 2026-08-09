@@ -5,7 +5,7 @@
   "required": ["schema_id", "schema_version", "intent", "limits", "query_plan", "topics", "papers", "diagnostics"],
   "properties": {
     "schema_id": { "const": "research_bundle.selection" },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "intent": { "type": "object" },
     "limits": { "type": "object" },
     "query_plan": { "type": "object" },

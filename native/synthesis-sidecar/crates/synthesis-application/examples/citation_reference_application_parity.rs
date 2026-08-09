@@ -438,7 +438,7 @@ fn main() -> Result<(), String> {
                 ReferenceArtifactType::CitationAnalysis => {
                     request.corpus.fixture.refresh.citation_analysis.clone()
                 }
-                ReferenceArtifactType::Digest => json!({}),
+                ReferenceArtifactType::Digest | ReferenceArtifactType::LiteratureScore => json!({}),
             },
             diagnostics: Vec::new(),
         })

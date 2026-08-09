@@ -33,3 +33,9 @@ Read `SOUL.md` for librarian posture and `skills/zotero-librarian/SKILL.md` for 
 - `state-and-recovery.md` for cache freshness, atomic updates, typed handles, uncertain outcomes, installation, and state rebuild.
 
 The bundled Generic and CLI Skills are part of the effective profile. Do not copy their task playbooks or command facts into the resident documentation.
+
+## Connection-profile workspaces
+
+Agents do not need to calculate or pass a workspace path. The service and cron jobs follow `--profile`, then `ZOTERO_BRIDGE_PROFILE`, then the platform well-known profile automatically. The well-known profile is the default workspace and continues to own `$HERMES_HOME/zotero-librarian/state.sqlite`; every explicit profile gets its own content-addressed `workspaces/<sha256>/` directory for SQLite state, runs, notifications, catalog, and `.zotero-bridge/bin`.
+
+`--db` is a diagnostic override only when its resolved path remains inside the active workspace. Profile identity uses only the normalized profile path, never profile JSON, tokens, endpoints, or other secrets. Missing profiles, path normalization failures, unavailable workspace roots, connection failures, and database escapes fail closed with a structured receipt; they never fall back to shared state. Workspace caches remain discovery aids, not current Zotero facts, and do not change approval, queue, receipt, or live-state rules.

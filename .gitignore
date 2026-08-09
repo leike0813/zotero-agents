@@ -13,6 +13,7 @@ yarn.lock
 
 # TSC
 tsconfig.tsbuildinfo
+tsconfig.sidebar.tsbuildinfo
 
 # Rust
 cli/zotero-bridge/target/
@@ -32,6 +33,7 @@ logs
 .claude/
 .kilo/
 .kilocode/
+.kimi-code/
 .codebuddy/
 .qwen/
 .codebuddy/
