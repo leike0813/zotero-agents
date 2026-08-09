@@ -20,7 +20,8 @@ export type LibraryArtifactKind =
   | "source-markdown"
   | "digest"
   | "references"
-  | "citation-analysis";
+  | "citation-analysis"
+  | "literature-score";
 
 export type LibraryArtifactItem = Zotero.Item & {
   attachmentFilename?: string;
@@ -85,6 +86,11 @@ export const LIBRARY_ARTIFACT_DEFINITIONS: LibraryArtifactDefinition[] = [
     kind: "citation-analysis",
     label: "Citation Analysis",
     icon: "icon_artifact_citation_analysis.svg",
+  },
+  {
+    kind: "literature-score",
+    label: "Literature Score",
+    icon: "icon_artifact_literature_score.svg",
   },
 ];
 
@@ -451,6 +457,7 @@ async function resolveGeneratedNoteArtifacts(notes: LibraryArtifactItem[]) {
     } else if (noteKind === "literature-score") {
       const resolved = await resolveLiteratureScoreForNote(note);
       if (resolved) {
+        artifacts.add("literature-score");
         score = resolved;
         scoreStatus = "available";
       } else if (scoreStatus !== "available") {

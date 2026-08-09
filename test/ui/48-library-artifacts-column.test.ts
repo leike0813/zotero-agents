@@ -541,6 +541,8 @@ describe("library artifacts column", function () {
 
     assert.equal(readiness.literatureScore.status, "available");
     assert.equal(readiness.literatureScore.summary?.overallScore, 65);
+    assert.include(readiness.artifacts, "literature-score");
+    assert.equal(readiness.state, "literature-score");
     assert.deepEqual(literatureScoreToStars(65), {
       rating: 3.5,
       fills: [1, 1, 1, 0.5, 0],
@@ -580,7 +582,7 @@ describe("library artifacts column", function () {
     const doc = createTinyDocument();
 
     const cell = libraryArtifactsColumnInternalsForTests.renderArtifactsCell(
-      "source-markdown|digest|references|citation-analysis",
+      "source-markdown|digest|references|citation-analysis|literature-score",
       doc as unknown as Document,
     );
 
@@ -588,7 +590,7 @@ describe("library artifacts column", function () {
     assert.equal(cell.className, "cell zs-library-artifacts-cell");
     assert.equal(
       cell.getAttribute("title"),
-      "Source Markdown, Digest, References, Citation Analysis",
+      "Source Markdown, Digest, References, Citation Analysis, Literature Score",
     );
     assert.deepEqual(
       icons.map((icon) => icon.getAttribute("src")),
@@ -597,11 +599,18 @@ describe("library artifacts column", function () {
         `chrome://${config.addonRef}/content/icons/icon_artifact_digest.svg`,
         `chrome://${config.addonRef}/content/icons/icon_artifact_references.svg`,
         `chrome://${config.addonRef}/content/icons/icon_artifact_citation_analysis.svg`,
+        `chrome://${config.addonRef}/content/icons/icon_artifact_literature_score.svg`,
       ],
     );
     assert.deepEqual(
       icons.map((icon) => icon.getAttribute("title")),
-      ["Source Markdown", "Digest", "References", "Citation Analysis"],
+      [
+        "Source Markdown",
+        "Digest",
+        "References",
+        "Citation Analysis",
+        "Literature Score",
+      ],
     );
     assert.equal(icons[0]?.className, "zs-library-artifact-icon");
   });

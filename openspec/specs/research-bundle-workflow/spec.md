@@ -16,7 +16,7 @@ The system SHALL provide a core SkillRunner workflow named `export-research-bund
 
 ### Requirement: Agent selects bounded research material
 
-The skill SHALL automatically select related Topics and papers from current Synthesis and Zotero read surfaces while preserving SQLite as the execution source of truth.
+The skill SHALL automatically select related Topics and papers from current Synthesis and Zotero read surfaces while preserving SQLite as the execution source of truth. Research Bundle SHALL apply semantic relevance and Topic-mandatory eligibility before intrinsic quality affects selection rank.
 
 #### Scenario: Skill instructions are independently executable
 
@@ -47,9 +47,9 @@ The skill SHALL automatically select related Topics and papers from current Synt
 #### Scenario: Selection is rendered
 
 - **WHEN** all semantic assessment packets are valid
-- **THEN** the runtime SHALL derive Topic coverage, graph availability and importance, material readiness, score, stable order, and role from persisted evidence
+- **THEN** the runtime SHALL derive Topic coverage, graph availability and importance, material readiness, `selection_score`, stable order, and role from persisted evidence
 - **AND** core papers SHALL be the highest-scoring bounded prefix of the related set
-- **AND** the agent SHALL NOT supply graph state, readiness, score, or role.
+- **AND** the agent SHALL NOT supply graph state, readiness, `selection_score`, or role.
 
 #### Scenario: Topic or graph context is incomplete
 
@@ -74,6 +74,27 @@ The skill SHALL automatically select related Topics and papers from current Synt
 - **WHEN** no candidate meets the related-literature threshold and no selected Topic resolves a paper
 - **THEN** the workflow SHALL return a business cancellation
 - **AND** SHALL NOT register a Product.
+
+#### Scenario: Graph metrics are available
+- **WHEN** an eligible paper has graph metrics
+- **THEN** `selection_score` SHALL combine semantic relevance 0.50, quality prior 0.15, graph 0.15, Topic coverage 0.15, and material readiness 0.05.
+
+#### Scenario: Graph metrics are unavailable
+- **WHEN** an eligible paper lacks graph metrics
+- **THEN** graph weight SHALL return to semantic relevance, making semantic relevance 0.65.
+
+#### Scenario: Optional candidate misses relevance threshold
+- **WHEN** a non-Topic candidate has semantic relevance below `0.45`
+- **THEN** quality SHALL NOT make it eligible.
+
+### Requirement: Research Bundle records auditable quality selection
+
+Each selected paper SHALL record four-artifact manifest state, a literature-quality snapshot, every selection component, and `selection_score` under `research_bundle.selection` `2.0.0`.
+
+#### Scenario: Score is unavailable
+- **WHEN** literature score is missing or invalid
+- **THEN** quality prior SHALL be neutral
+- **AND** the stable score diagnostic SHALL be preserved.
 
 ### Requirement: Research Product contains auditable materials
 

@@ -65,6 +65,26 @@ async function writeJson(target: string, value: unknown) {
   await fs.writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+async function materializeRunLocalBridgeShims(
+  runRoot: string,
+  cliPath: string,
+) {
+  const shimDir = path.join(runRoot, ".zotero-bridge", "bin");
+  const shellQuotedCliPath = `'${cliPath.replaceAll("'", `'"'"'`)}'`;
+  await fs.mkdir(shimDir, { recursive: true });
+  await fs.writeFile(
+    path.join(shimDir, "zotero-bridge"),
+    `#!/bin/sh\nexec ${shellQuotedCliPath} "$@"\n`,
+    "utf8",
+  );
+  await fs.chmod(path.join(shimDir, "zotero-bridge"), 0o755);
+  await fs.writeFile(
+    path.join(shimDir, "zotero-bridge.cmd"),
+    `@"${cliPath}" %*\r\n`,
+    "utf8",
+  );
+}
+
 async function createBridgeHarness(
   runRoot: string,
   options: { remote?: boolean; topicContext?: "ok" | "missing" | "error" } = {},
@@ -236,7 +256,7 @@ describe("export research bundle skill runtime", function () {
     );
   });
 
-  it("runs discovery, batched semantic assessment, deterministic scoring, and rendering", async function () {
+  it("runs discovery through run-local shims, batched assessment, scoring, and rendering", async function () {
     const runRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "export-research-bundle-runtime-"),
     );
@@ -247,6 +267,7 @@ describe("export research bundle skill runtime", function () {
     );
     const inputPath = path.join(runRoot, "runtime", "input.json");
     const harness = await createBridgeHarness(runRoot);
+    await materializeRunLocalBridgeShims(runRoot, harness.cliPath);
     await writeJson(inputPath, {
       parameter: {
         paperTitle: "Graph-grounded review",
@@ -257,7 +278,8 @@ describe("export research bundle skill runtime", function () {
         maxRelatedPapers: 3,
       },
     });
-    const env = harness.env;
+    const env = { ...harness.env };
+    delete env.ZOTERO_BRIDGE_BIN;
     const common = await advanceToEvidenceStage(
       runRoot,
       dbPath,

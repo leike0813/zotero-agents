@@ -310,13 +310,15 @@ def bridge_executable(run_root: Path) -> Path:
     if clean(os.environ.get("ZOTERO_BRIDGE_BIN")):
         candidates.append(Path(str(os.environ["ZOTERO_BRIDGE_BIN"])))
     bridge_dir = run_root / ".zotero-bridge/bin"
-    candidates.extend(
-        [
-            bridge_dir / "zotero-bridge.cmd",
-            bridge_dir / "zotero-bridge.exe",
-            bridge_dir / "zotero-bridge",
-        ]
-    )
+    if os.name == "nt":
+        candidates.extend(
+            [
+                bridge_dir / "zotero-bridge.cmd",
+                bridge_dir / "zotero-bridge.exe",
+            ]
+        )
+    else:
+        candidates.append(bridge_dir / "zotero-bridge")
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
