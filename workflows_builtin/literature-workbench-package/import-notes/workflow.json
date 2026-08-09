@@ -31,6 +31,14 @@
       "accept": { "extensions": [".json"] }
     },
     {
+      "id": "literature-score",
+      "direction": "input",
+      "kind": "file",
+      "cardinality": "one",
+      "required": false,
+      "accept": { "extensions": [".json"] }
+    },
+    {
       "id": "custom-notes",
       "direction": "input",
       "kind": "file",

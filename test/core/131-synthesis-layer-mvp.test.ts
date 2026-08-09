@@ -2,10 +2,18 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
+import {
+  buildWorkbenchPayloadEnvelope,
+  buildWorkbenchPayloadPngBytes,
+  renderPayloadBlock,
+} from "../../src/modules/notePayloadCodec";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
 import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  installRuntimeBridgeOverrideForTests,
+  resetRuntimeBridgeOverrideForTests,
+} from "../../src/utils/runtimeBridge";
 
 async function makeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-synthesis-mvp-"));
@@ -76,6 +84,63 @@ async function addPayloadNote(
   );
   await note.saveTx();
   return note;
+}
+
+const basePngBytes = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+);
+
+async function addEmbeddedLiteratureScoreNote(
+  parent: Zotero.Item,
+  payload: unknown,
+) {
+  const note = new Zotero.Item("note");
+  note.libraryID = parent.libraryID;
+  note.parentItemID = parent.id;
+  note.setField("title", "Literature Score");
+  note.setNote(
+    '<div data-zs-note-kind="literature-score"><h1>Literature Score</h1></div>',
+  );
+  await note.saveTx();
+
+  const envelope = buildWorkbenchPayloadEnvelope({
+    noteKind: "literature-score",
+    payloadType: "literature-score-json",
+    payload,
+    noteId: note.id,
+    noteKey: note.key,
+    parentId: parent.id,
+  });
+  const filePath = path.join(
+    await makeRoot(),
+    `literature-score-${note.key}.png`,
+  );
+  await fs.writeFile(
+    filePath,
+    buildWorkbenchPayloadPngBytes(basePngBytes, envelope),
+  );
+  const attachment = new Zotero.Item("attachment") as Zotero.Item & {
+    attachmentContentType?: string;
+    attachmentFilename?: string;
+    setFilePath?: (path: string) => void;
+  };
+  attachment.libraryID = parent.libraryID;
+  attachment.parentItemID = note.id;
+  attachment.attachmentContentType = "image/png";
+  attachment.attachmentFilename = filePath.split(/[\\/]+/).pop() || "image.png";
+  attachment.setFilePath?.(filePath);
+  await attachment.saveTx();
+  note.setNote(
+    [
+      '<div data-zs-note-kind="literature-score">',
+      "<h1>Literature Score</h1>",
+      `<img data-attachment-key="${attachment.key}" data-zs-payload-anchor="literature-score-json">`,
+      "</div>",
+    ].join(""),
+  );
+  await note.saveTx();
+  return { note, attachment };
 }
 
 async function addDigestNoteWithRepresentativeImage(
@@ -164,6 +229,35 @@ function validBundle(topicId: string, paperRefs: string[]) {
   };
 }
 
+function validLiteratureScore(overallScore: number) {
+  const dimensionKeys = [
+    "methodological_rigor",
+    "evidence_completeness",
+    "reproducibility",
+    "innovation_signals",
+    "research_impact_potential",
+    "writing_quality",
+  ];
+  return {
+    literature_score: {
+      schema: "literature_score.v1",
+      rubric_id: "default-v1",
+      paper_type: "empirical",
+      paper_type_reason: "The paper reports an empirical study.",
+      overall_score: overallScore,
+      confidence: 0.8,
+      confidence_adjusted_score: overallScore * 0.8,
+      dimensions: dimensionKeys.map((dimensionKey) => ({
+        dimension_key: dimensionKey,
+        name: dimensionKey,
+        score: 80,
+        confidence: 0.8,
+        summary: `${dimensionKey} summary`,
+      })),
+    },
+  };
+}
+
 function mcpRequest(
   id: number,
   name: string,
@@ -232,6 +326,212 @@ describe("Synthesis Layer MVP real-data closure", function () {
       );
     } finally {
       (Zotero.Items as any).get = previousGet;
+    }
+  });
+
+  it("hydrates the bounded Index page before reading literature scores", async function () {
+    const paper = await createPaper({
+      title: "Hydrated Literature Score Paper",
+      date: "2026",
+    });
+    const { note, attachment } = await addEmbeddedLiteratureScoreNote(
+      paper,
+      validLiteratureScore(97),
+    );
+
+    let parentChildrenLoaded = false;
+    let noteChildrenLoaded = false;
+    let attachmentLoaded = false;
+    const cachedParent = Object.create(paper) as Zotero.Item;
+    const cachedNote = Object.create(note) as Zotero.Item;
+    (cachedParent as any).getNotes = () =>
+      parentChildrenLoaded ? paper.getNotes() : [];
+    (cachedNote as any).getAttachments = () => {
+      if (!noteChildrenLoaded) {
+        throw new Error("note childItems are not loaded");
+      }
+      return note.getAttachments();
+    };
+    const runtime = Zotero as any;
+    const previousDb = runtime.DB;
+    const previousGet = Zotero.Items.get;
+    const previousGetAsync = (Zotero.Items as any).getAsync;
+    const previousLoadDataTypes = (Zotero.Items as any).loadDataTypes;
+    const previousGetAll = (Zotero.Items as any).getAll;
+    const hydratedIds: number[][] = [];
+    const loadedDataTypes: Array<{ itemIds: number[]; dataTypes: string[] }> =
+      [];
+    let getAllCalls = 0;
+
+    runtime.DB = {
+      queryAsync: async (
+        _sql: string,
+        _params: unknown[],
+        options?: {
+          onRow?: (row: { getResultByName: (name: string) => unknown }) => void;
+        },
+      ) => {
+        options?.onRow?.({
+          getResultByName: (name) => (name === "itemID" ? paper.id : undefined),
+        });
+      },
+    };
+    (Zotero.Items as any).get = (id: number) => {
+      if (id === paper.id) return cachedParent;
+      if (id === note.id) return cachedNote;
+      if (id === attachment.id) {
+        return attachmentLoaded ? attachment : undefined;
+      }
+      return previousGet(id);
+    };
+    (Zotero.Items as any).getAsync = async (ids: number | number[]) => {
+      const requestedIds = Array.isArray(ids) ? ids : [ids];
+      hydratedIds.push([...requestedIds]);
+      const loaded = requestedIds
+        .map((id) => {
+          if (id === paper.id) return cachedParent;
+          if (id === note.id) return cachedNote;
+          if (id === attachment.id) {
+            attachmentLoaded = true;
+            return attachment;
+          }
+          return previousGet(id);
+        })
+        .filter(Boolean);
+      return Array.isArray(ids) ? loaded : loaded[0];
+    };
+    (Zotero.Items as any).loadDataTypes = async (
+      items: Zotero.Item[],
+      dataTypes: string[],
+    ) => {
+      loadedDataTypes.push({
+        itemIds: items.map((item) => item.id),
+        dataTypes: [...dataTypes],
+      });
+      for (const item of items) {
+        if (item.id === paper.id && dataTypes.includes("childItems")) {
+          parentChildrenLoaded = true;
+        }
+        if (item.id === note.id && dataTypes.includes("childItems")) {
+          noteChildrenLoaded = true;
+        }
+      }
+    };
+    (Zotero.Items as any).getAll = async (...args: unknown[]) => {
+      getAllCalls += 1;
+      return previousGetAll.apply(Zotero.Items, args);
+    };
+    const alternateItems = Object.create(Zotero.Items);
+    Object.defineProperty(alternateItems, "getAsync", {
+      configurable: true,
+      value: async () => [],
+    });
+    const alternateZotero = Object.create(Zotero);
+    Object.defineProperty(alternateZotero, "Items", {
+      configurable: true,
+      value: alternateItems,
+    });
+    installRuntimeBridgeOverrideForTests({
+      zotero: alternateZotero as typeof Zotero,
+    });
+
+    try {
+      const libraryAdapter = createZoteroSynthesisLibraryAdapter({
+        libraryId: Zotero.Libraries.userLibraryID,
+      });
+      const page = await libraryAdapter.getRegistryInputsPage?.({
+        libraryId: Zotero.Libraries.userLibraryID,
+        limit: 1,
+      });
+
+      assert.equal((page?.[0] as any)?.literatureScore?.overallScore, 97);
+      assert.equal(getAllCalls, 0);
+
+      const service = createSynthesisService({
+        root: await makeRoot(),
+        libraryId: Zotero.Libraries.userLibraryID,
+        libraryAdapter,
+      });
+      const input = await service.getSynthesisWorkbenchSurfaceInput("index");
+      const row = input.registry?.rows.find(
+        (candidate) => candidate.itemKey === paper.key,
+      );
+
+      assert.equal(row?.ratingScore, 97);
+      assert.isNotEmpty(hydratedIds);
+      assert.isNotEmpty(loadedDataTypes);
+      assert.deepInclude(hydratedIds, [paper.id]);
+      assert.deepInclude(hydratedIds, [note.id]);
+      assert.deepInclude(hydratedIds, [attachment.id]);
+      assert.deepInclude(loadedDataTypes, {
+        itemIds: [paper.id],
+        dataTypes: ["childItems"],
+      });
+      assert.deepInclude(loadedDataTypes, {
+        itemIds: [note.id],
+        dataTypes: ["childItems"],
+      });
+      assert.isTrue(hydratedIds.every((ids) => ids.length <= 1));
+    } finally {
+      runtime.DB = previousDb;
+      (Zotero.Items as any).get = previousGet;
+      (Zotero.Items as any).getAsync = previousGetAsync;
+      (Zotero.Items as any).loadDataTypes = previousLoadDataTypes;
+      (Zotero.Items as any).getAll = previousGetAll;
+      resetRuntimeBridgeOverrideForTests();
+    }
+  });
+
+  it("bounds concurrent readiness reads for the current Index page", async function () {
+    const papers = await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        createPaper({ title: `Bounded Index Paper ${index + 1}` }),
+      ),
+    );
+    const runtime = Zotero as any;
+    const previousDb = runtime.DB;
+    const previousGetAsync = (Zotero.Items as any).getAsync;
+    const previousLoadDataTypes = (Zotero.Items as any).loadDataTypes;
+    let activeReads = 0;
+    let peakReads = 0;
+
+    runtime.DB = {
+      queryAsync: async () =>
+        papers.map((paper) => ({ itemID: Number(paper.id) })),
+    };
+    (Zotero.Items as any).getAsync = async (ids: number | number[]) => {
+      const requestedIds = Array.isArray(ids) ? ids : [ids];
+      const loaded = requestedIds
+        .map((id) => Zotero.Items.get(id))
+        .filter(Boolean);
+      return Array.isArray(ids) ? loaded : loaded[0];
+    };
+    (Zotero.Items as any).loadDataTypes = async () => {
+      activeReads += 1;
+      peakReads = Math.max(peakReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeReads -= 1;
+    };
+
+    try {
+      const libraryAdapter = createZoteroSynthesisLibraryAdapter({
+        libraryId: Zotero.Libraries.userLibraryID,
+      });
+      const page = await libraryAdapter.getRegistryInputsPage?.({
+        libraryId: Zotero.Libraries.userLibraryID,
+        limit: papers.length,
+      });
+
+      assert.lengthOf(page || [], papers.length);
+      assert.isBelow(
+        peakReads,
+        papers.length,
+        "Index readiness must not fan out across the whole page",
+      );
+    } finally {
+      runtime.DB = previousDb;
+      (Zotero.Items as any).getAsync = previousGetAsync;
+      (Zotero.Items as any).loadDataTypes = previousLoadDataTypes;
     }
   });
 

@@ -47,7 +47,7 @@ Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读
 - 根目录 `references.bib`：实际成功写入研究包的全部核心文献和相关文献的 BibTeX 引用；优先使用 Better BibTeX，无法导出时回退到 Zotero 原生 BibTeX，并在清单中记录实际格式与回退原因
 - 已选 Topic 的报告（可用时）
 - 每篇核心文献和相关文献的可移植书目信息
-- 可用的 Literature Analysis 三件套：digest、references 和 citation-analysis；普通笔记与 conversation payload 不进入 Research Bundle
+- 可用的 Literature Analysis 产物：digest、references、citation-analysis 和 literature-score；普通笔记与 conversation payload 不进入 Research Bundle
 - 对核心文献，优先附带 Markdown 原文及其本地图片；没有可用 Markdown 时尝试附带 PDF；两者均不可用时记录警告
 
 根目录包含 README、清单和参考文献表，研究材料目录只使用 `topics/` 和 `papers/`。每个 Topic 和每篇文献都有稳定逻辑 ID 的独立目录，例如 `topics/topic-001/report.md`、`papers/paper-001/metadata.json`、`papers/paper-001/source.md` 或 `papers/paper-001/digest-001.md`；同类 payload 不再额外建立分类目录。

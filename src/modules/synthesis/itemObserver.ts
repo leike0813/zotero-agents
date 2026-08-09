@@ -1,4 +1,5 @@
 import { getDefaultSynthesisService, type SynthesisService } from "./service";
+import { parseNoteKind } from "../notePayloadCodec";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -72,6 +73,32 @@ function isChildItemType(value: unknown) {
   return normalized === "attachment" || normalized === "note";
 }
 
+function isLiteratureScoreNote(item: any) {
+  try {
+    return (
+      typeof item?.isNote === "function" &&
+      item.isNote() &&
+      parseNoteKind(item.getNote?.()) === "literature-score"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isLiteratureScoreChildChange(
+  id: string | number,
+  extraRow: Record<string, unknown>,
+) {
+  const item = resolveItem(id);
+  if (isLiteratureScoreNote(item)) {
+    return true;
+  }
+  const parentID =
+    Number(item?.parentID || item?.parentItemID || 0) ||
+    Number(extraRow.parentID || extraRow.parentItemID || 0);
+  return parentID > 0 && isLiteratureScoreNote(resolveItem(parentID));
+}
+
 export function isSynthesisLibraryReadModelInvalidationEvent(args: {
   event: string;
   type: string;
@@ -92,7 +119,9 @@ export function isSynthesisLibraryReadModelInvalidationEvent(args: {
     const extraRow = extraRowForId(args.extraData, id);
     const itemType =
       extraRow.itemType || extraRow.item_type || extraRow.type || "";
-    return !isChildItemType(itemType);
+    return (
+      !isChildItemType(itemType) || isLiteratureScoreChildChange(id, extraRow)
+    );
   });
 }
 

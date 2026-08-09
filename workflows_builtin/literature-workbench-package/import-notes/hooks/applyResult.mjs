@@ -13,6 +13,7 @@ import {
 import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/representativeImage.mjs";
+import { buildLiteratureScorePayload } from "../../lib/literatureScoreNote.mjs";
 import {
   requireHostApi,
   requireHostEditor,
@@ -21,7 +22,12 @@ import {
 
 const IMPORT_RENDERER_ID = "literature-workbench.import-notes.v1";
 const CONFLICT_RENDERER_ID = "literature-workbench.import-notes-conflict.v1";
-const ROW_KIND_ORDER = ["digest", "references", "citation-analysis"];
+const ROW_KIND_ORDER = [
+  "digest",
+  "references",
+  "citation-analysis",
+  "literature-score",
+];
 
 export function getSelectedImportCandidateForKind(state, kind) {
   if (kind === "citation-analysis") {
@@ -32,6 +38,9 @@ export function getSelectedImportCandidateForKind(state, kind) {
   }
   if (kind === "references") {
     return state?.references || null;
+  }
+  if (kind === "literature-score") {
+    return state?.literatureScore || null;
   }
   return null;
 }
@@ -50,6 +59,11 @@ function clearSelectedImportCandidateForKind(draft, kind) {
   if (kind === "references") {
     draft.references = null;
     draft.errors.references = "";
+    return;
+  }
+  if (kind === "literature-score") {
+    draft.literatureScore = null;
+    draft.errors["literature-score"] = "";
   }
 }
 
@@ -76,6 +90,9 @@ function getKindLabel(kind) {
   if (kind === "references") {
     return "References note";
   }
+  if (kind === "literature-score") {
+    return "Literature score note";
+  }
   return "Citation analysis note";
 }
 
@@ -85,6 +102,9 @@ function getPickerTitle(kind) {
   }
   if (kind === "references") {
     return "Import References";
+  }
+  if (kind === "literature-score") {
+    return "Import Literature Score";
   }
   return "Import Citation Analysis";
 }
@@ -125,6 +145,7 @@ async function buildNonInteractiveSelection({ host, runtime }) {
     digest: null,
     references: null,
     citationAnalysis: null,
+    literatureScore: null,
     customNotes: [],
   };
   const digest = resources?.getInput("digest");
@@ -170,6 +191,16 @@ async function buildNonInteractiveSelection({ host, runtime }) {
     selected.citationAnalysis = {
       sourcePath: citation.path,
       payload: { ...payload, entry: payload.entry || citation.path },
+    };
+  }
+  const literatureScore = resources?.getInput("literature-score");
+  if (literatureScore) {
+    selected.literatureScore = {
+      sourcePath: literatureScore.path,
+      payload: buildLiteratureScorePayload(
+        JSON.parse(await host.file.readText(literatureScore.path)),
+        literatureScore.path,
+      ),
     };
   }
   selected.customNotes = (resources?.getInputs("custom-notes") || []).map(
@@ -298,6 +329,17 @@ function createImportRenderer(args) {
                   payload: normalized,
                 };
                 draft.errors.references = "";
+              });
+              return;
+            }
+
+            if (kind === "literature-score") {
+              host.patchState((draft) => {
+                draft.literatureScore = {
+                  sourcePath: selectedPath,
+                  payload: buildLiteratureScorePayload(parsed, selectedPath),
+                };
+                draft.errors["literature-score"] = "";
               });
               return;
             }
@@ -542,6 +584,7 @@ function createImportRenderer(args) {
         digest: state.digest || null,
         references: state.references || null,
         citationAnalysis: state.citationAnalysis || null,
+        literatureScore: state.literatureScore || null,
         customNotes: state.customNotes || [],
       });
     },
@@ -656,6 +699,7 @@ function resolveExistingGeneratedKinds(parentItem, runtime) {
     digest: false,
     references: false,
     "citation-analysis": false,
+    "literature-score": false,
   };
   const noteIds = parentItem.getNotes?.() || [];
   for (const noteRef of noteIds) {
@@ -678,6 +722,9 @@ function resolveExistingGeneratedKinds(parentItem, runtime) {
     if (kind === "citation-analysis") {
       existing["citation-analysis"] = true;
     }
+    if (kind === "literature-score") {
+      existing["literature-score"] = true;
+    }
   }
   return existing;
 }
@@ -687,6 +734,7 @@ function countSelectedCandidates(selection) {
     selection?.digest,
     selection?.references,
     selection?.citationAnalysis,
+    selection?.literatureScore,
   ].filter(Boolean).length;
 }
 
@@ -763,7 +811,11 @@ function findAppliedGeneratedNote(notes, kind) {
 }
 
 async function applyImportedStandardSidecar(args) {
-  if (args.standardCount <= 0) {
+  if (
+    !args.selected?.digest &&
+    !args.selected?.references &&
+    !args.selected?.citationAnalysis
+  ) {
     return undefined;
   }
   const selected = args.selected || {};
@@ -832,6 +884,11 @@ async function applySelectedImportBatch(args) {
             payload: args.selected.citationAnalysis.payload,
           }
         : null,
+      literatureScore: args.selected.literatureScore
+        ? {
+            payload: args.selected.literatureScore.payload,
+          }
+        : null,
     });
     importedCount += applied.notes.length;
     representativeImage = applied.representative_image || representativeImage;
@@ -870,6 +927,9 @@ function findConflictedKinds(selected, existing) {
     selected.references && existing.references ? "references" : "",
     selected.citationAnalysis && existing["citation-analysis"]
       ? "citation-analysis"
+      : "",
+    selected.literatureScore && existing["literature-score"]
+      ? "literature-score"
       : "",
   ].filter(Boolean);
 }
@@ -943,11 +1003,13 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
     digest: null,
     references: null,
     citationAnalysis: null,
+    literatureScore: null,
     customNotes: [],
     errors: {
       digest: "",
       references: "",
       "citation-analysis": "",
+      "literature-score": "",
       customNotes: "",
     },
     existing,
@@ -1015,6 +1077,7 @@ async function applyResultImpl({ parent, runtime, executionOptions }) {
       digest: selected.digest || null,
       references: selected.references || null,
       citationAnalysis: selected.citationAnalysis || null,
+      literatureScore: selected.literatureScore || null,
       customNotes: selected.customNotes || [],
     };
   }

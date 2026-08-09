@@ -34,6 +34,11 @@ import {
   renderRepresentativeImageDiagnosticBlock,
   REPRESENTATIVE_IMAGE_EXPORT_FILE_NAME,
 } from "./representativeImage.mjs";
+import {
+  LITERATURE_SCORE_PAYLOAD_TYPE,
+  toNativeLiteratureScoreArtifact,
+  upsertLiteratureScoreNote,
+} from "./literatureScoreNote.mjs";
 
 export const LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE =
   "literature-matching-metadata-json";
@@ -154,6 +159,7 @@ export function collectGeneratedNotesByKind(parentItem, runtime) {
     ["digest", []],
     ["references", []],
     ["citation-analysis", []],
+    ["literature-score", []],
   ]);
   const noteIds = parentItem.getNotes?.() || [];
   for (const noteRef of noteIds) {
@@ -566,6 +572,7 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
       hasDigest: !!args.digest,
       hasReferences: !!args.references,
       hasCitationAnalysis: !!args.citationAnalysis,
+      hasLiteratureScore: !!args.literatureScore,
     },
     async () => {
       const existingByKind = collectGeneratedNotesByKind(
@@ -646,6 +653,16 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
           payload: args.citationAnalysis.payload,
         });
         writtenNotes.push(citationNote);
+      }
+
+      if (args.literatureScore) {
+        const scoreApplied = await upsertLiteratureScoreNote({
+          runtime: args.runtime,
+          parentItem: args.parentItem,
+          payload: args.literatureScore.payload,
+          existingNotes: existingByKind.get("literature-score"),
+        });
+        writtenNotes.push(scoreApplied.note);
       }
 
       return {
@@ -779,6 +796,31 @@ export async function exportGeneratedNoteCandidate(args) {
         {
           fileName: "citation_analysis.md",
           content: String(nativeArtifact?.report_md || ""),
+        },
+      ],
+    };
+  }
+  if (kind === "literature-score") {
+    const parsed = await resolveGeneratedPayloadForNote({
+      runtime: args.runtime,
+      noteItem,
+      payloadType: LITERATURE_SCORE_PAYLOAD_TYPE,
+      parseLegacy: () =>
+        parsePayloadBlock(
+          noteContent,
+          LITERATURE_SCORE_PAYLOAD_TYPE,
+          args.runtime,
+          { payloadFormat: "json" },
+        ),
+    });
+    const nativeArtifact = toNativeLiteratureScoreArtifact(parsed.payload);
+    return {
+      kind,
+      payload: nativeArtifact,
+      files: [
+        {
+          fileName: "literature_score.json",
+          content: JSON.stringify(nativeArtifact, null, 2),
         },
       ],
     };

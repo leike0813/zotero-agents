@@ -6,7 +6,7 @@ import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
-  executeApplyResult,
+  executeApplyResult as executeWorkflowApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
@@ -23,11 +23,83 @@ import {
   workflowsPath,
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
-import { parseEmbeddedNotePayloadBlock } from "../../src/modules/notePayloadCodec";
+import {
+  encodeBase64Utf8,
+  parseEmbeddedNotePayloadBlock,
+} from "../../src/modules/notePayloadCodec";
 import {
   classifyReferenceExtractionQuality,
   filterReferencesForDigestApply,
 } from "../../workflows_builtin/literature-workbench-package/lib/referenceQualityGate.mjs";
+
+const literatureScoreArtifact = {
+  literature_score: {
+    schema: "literature_score.v1",
+    rubric_id: "default.v1",
+    paper_type: "empirical",
+    paper_type_reason: "The paper reports an empirical evaluation.",
+    overall_score: 60,
+    confidence: 0.8,
+    confidence_adjusted_score: 58,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimension_key) => ({
+      dimension_key,
+      name: dimension_key.replaceAll("_", " "),
+      configured_weight: 1 / 6,
+      effective_weight: 1 / 6,
+      raw_score: 6,
+      applicable_max_score: 10,
+      score: 60,
+      confidence: 0.8,
+      summary: `${dimension_key} summary`,
+      criteria: [
+        {
+          criterion_key: `${dimension_key}.criterion`,
+          name: "Criterion",
+          status: "scored",
+          score: 6,
+          max_score: 10,
+          reason: "Supported by the paper.",
+          evidence: [],
+        },
+      ],
+    })),
+  },
+};
+
+const basePngBytes = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+);
+
+function withLiteratureScoreBundleReader(bundleReader: {
+  readText(entryPath: string): Promise<string>;
+}) {
+  return {
+    ...bundleReader,
+    async readText(entryPath: string) {
+      if (entryPath === "artifacts/literature_score.json") {
+        return JSON.stringify(literatureScoreArtifact);
+      }
+      return bundleReader.readText(entryPath);
+    },
+  };
+}
+
+function executeApplyResult(
+  args: Parameters<typeof executeWorkflowApplyResult>[0],
+) {
+  return executeWorkflowApplyResult({
+    ...args,
+    bundleReader: withLiteratureScoreBundleReader(args.bundleReader),
+  });
+}
 
 type LiteratureAnalysisSequenceRequest = {
   kind: string;
@@ -50,6 +122,8 @@ type LiteratureAnalysisSequenceRequest = {
     };
     parameter?: {
       language?: string;
+      score_only?: boolean;
+      identifier?: string;
       infer_tag?: boolean;
       valid_tags_format?: string;
       tag_note_language?: string;
@@ -82,6 +156,7 @@ function assertLiteratureAnalysisDigestStep(
     language?: string;
     targetParentID?: number;
     autoTagRegulator?: boolean;
+    identifier?: string;
   },
 ) {
   assert.equal(request.kind, "skillrunner.sequence.v1");
@@ -100,6 +175,7 @@ function assertLiteratureAnalysisDigestStep(
   assert.equal(digestStep?.apply_result?.on_failure, "continue");
   assert.equal(digestStep?.input?.source_path, expected.sourcePath);
   assert.equal(digestStep?.parameter?.language, expected.language || "zh-CN");
+  assert.equal(digestStep?.parameter?.identifier, expected.identifier);
   assert.equal(
     request.final_step_id,
     expected.autoTagRegulator === false ? "digest" : "tag-regulator",
@@ -263,12 +339,13 @@ describe("workflow: literature-analysis", function () {
 
   async function createDigestAttachmentParent(args: {
     title: string;
+    fields?: Record<string, string>;
     attachmentTitle?: string;
     attachmentMimeType?: string;
   }) {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
-      fields: { title: args.title },
+      fields: { title: args.title, ...(args.fields || {}) },
     });
     const mdFile = fixturePath("literature-analysis", "example.md");
     const attachment = await handlers.attachment.createFromPath({
@@ -292,6 +369,15 @@ describe("workflow: literature-analysis", function () {
     await handlers.parent.addNote(parent, { content: noteContents.references });
     await handlers.parent.addNote(parent, {
       content: noteContents.citationAnalysis,
+    });
+  }
+
+  async function addGeneratedScoreNote(
+    parent: Zotero.Item,
+    payload: unknown = literatureScoreArtifact,
+  ) {
+    await handlers.parent.addNote(parent, {
+      content: `<div data-zs-note-kind="literature-score"><h1>Literature Score</h1><span data-zs-block="payload" data-zs-payload="literature-score-json" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${encodeBase64Utf8(JSON.stringify(payload))}"></span></div>`,
     });
   }
 
@@ -352,7 +438,10 @@ describe("workflow: literature-analysis", function () {
   it("builds request from selected markdown attachment", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
-      fields: { title: "Workflow Parent" },
+      fields: {
+        title: "Workflow Parent",
+        DOI: "https://doi.org/10.1000/Workflow.Identifier",
+      },
     });
 
     const mdFile = fixturePath("literature-analysis", "example.md");
@@ -385,7 +474,58 @@ describe("workflow: literature-analysis", function () {
       sourcePath: mdFile,
       targetParentID: parent.id,
       autoTagRegulator: false,
+      identifier: "10.1000/workflow.identifier",
     });
+  });
+
+  it("passes only supported DOI and arXiv identifiers from the parent item", async function () {
+    const workflow = await getLiteratureDigestWorkflow();
+    const cases = [
+      {
+        label: "arXiv URL",
+        fields: { url: "https://arxiv.org/pdf/2301.12345v2.pdf" },
+        expected: "2301.12345v2",
+      },
+      {
+        label: "arXiv after unsupported ISBN in Extra",
+        fields: {
+          extra: "ISBN: 978-3-16-148410-0\narXiv: 2401.12345v3",
+        },
+        expected: "2401.12345v3",
+      },
+      {
+        label: "ISBN only",
+        fields: { extra: "ISBN: 978-3-16-148410-0" },
+        expected: undefined,
+      },
+      {
+        label: "PubMed URL",
+        fields: { url: "https://pubmed.ncbi.nlm.nih.gov/12345678/" },
+        expected: undefined,
+      },
+    ];
+
+    for (const entry of cases) {
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: `Identifier Parent: ${entry.label}`,
+        fields: entry.fields,
+      });
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: await buildSelectionContext([attachment]),
+        executionOptions: {
+          workflowParams: { auto_tag_regulator: false },
+        },
+      })) as LiteratureAnalysisSequenceRequest[];
+
+      assert.lengthOf(requests, 1, entry.label);
+      assertLiteratureAnalysisDigestStep(requests[0], {
+        sourcePath: fixturePath("literature-analysis", "example.md"),
+        targetParentID: parent.id,
+        autoTagRegulator: false,
+        identifier: entry.expected,
+      });
+    }
   });
 
   itNodeOnly(
@@ -432,12 +572,13 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
-  it("skips build for core idempotent note shapes", async function () {
+  it("builds score-only request for the complete legacy triplet", async function () {
     const workflow = await getLiteratureDigestWorkflow();
     const cases = [
       {
         label: "generated note-kind markers",
         title: "Workflow Skip Parent",
+        fields: { DOI: "10.1000/score-only-parent" },
         noteContents: {
           digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
           references:
@@ -451,27 +592,153 @@ describe("workflow: literature-analysis", function () {
     for (const entry of cases) {
       const { parent, attachment } = await createDigestAttachmentParent({
         title: entry.title,
+        fields: entry.fields,
       });
       await addGeneratedDigestNotes(parent, entry.noteContents);
       const context = await buildSelectionContext([attachment]);
 
-      let thrown: unknown = null;
-      try {
-        await executeBuildRequests({
-          workflow,
-          selectionContext: context,
-        });
-      } catch (error) {
-        thrown = error;
-      }
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: context,
+        executionOptions: {
+          workflowParams: { auto_tag_regulator: true },
+        },
+      })) as LiteratureAnalysisSequenceRequest[];
 
-      assert.isOk(thrown, `${entry.label}: expected build request to skip`);
-      assert.match(
-        String(thrown),
-        /has no valid input units after filtering/,
-        entry.label,
+      assert.lengthOf(requests, 1, entry.label);
+      assert.deepEqual(
+        requests[0].steps?.map((step) => step.id),
+        ["digest"],
+      );
+      assert.equal(requests[0].steps?.[0]?.parameter?.score_only, true);
+      assert.equal(
+        requests[0].steps?.[0]?.parameter?.identifier,
+        "10.1000/score-only-parent",
       );
     }
+  });
+
+  it("rejects parents whose legacy triplet and valid score are complete", async function () {
+    const workflow = await getLiteratureDigestWorkflow();
+    const { parent, attachment } = await createDigestAttachmentParent({
+      title: "Workflow Fully Scored Parent",
+    });
+    await addGeneratedDigestNotes(parent, {
+      digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
+      references:
+        '<div data-zs-note-kind="references"><h1>References</h1></div>',
+      citationAnalysis:
+        '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
+    });
+    await addGeneratedScoreNote(parent);
+
+    let thrown: unknown = null;
+    try {
+      await executeBuildRequests({
+        workflow,
+        selectionContext: await buildSelectionContext([attachment]),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    assert.match(String(thrown), /has no valid input units after filtering/);
+  });
+
+  it("repairs an invalid score payload through score-only mode", async function () {
+    const workflow = await getLiteratureDigestWorkflow();
+    const { parent, attachment } = await createDigestAttachmentParent({
+      title: "Workflow Invalid Score Parent",
+    });
+    await addGeneratedDigestNotes(parent, {
+      digest: '<div data-zs-note-kind="digest"><h1>Digest</h1></div>',
+      references:
+        '<div data-zs-note-kind="references"><h1>References</h1></div>',
+      citationAnalysis:
+        '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1></div>',
+    });
+    await addGeneratedScoreNote(parent, {
+      literature_score: {
+        ...literatureScoreArtifact.literature_score,
+        dimensions: literatureScoreArtifact.literature_score.dimensions.map(
+          (dimension, index) =>
+            index === 1
+              ? {
+                  ...dimension,
+                  dimension_key: "methodological_rigor",
+                }
+              : dimension,
+        ),
+      },
+    });
+
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([attachment]),
+    })) as LiteratureAnalysisSequenceRequest[];
+
+    assert.equal(requests[0]?.steps?.[0]?.parameter?.score_only, true);
+  });
+
+  it("applies score-only output without rewriting the legacy triplet", async function () {
+    const workflow = await getLiteratureDigestWorkflow();
+    const { parent } = await createDigestAttachmentParent({
+      title: "Workflow Score-only Apply Parent",
+    });
+    await addGeneratedDigestNotes(parent, {
+      digest:
+        '<div data-zs-note-kind="digest"><h1>Digest</h1><p>Keep digest</p></div>',
+      references:
+        '<div data-zs-note-kind="references"><h1>References</h1><p>Keep references</p></div>',
+      citationAnalysis:
+        '<div data-zs-note-kind="citation-analysis"><h1>Citation Analysis</h1><p>Keep citation analysis</p></div>',
+    });
+    const originalNotes = parent.getNotes();
+    const baseHostApi = createWorkflowHostApi();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "success",
+              data: {
+                literature_score_path: "artifacts/literature_score.json",
+              },
+            });
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+      request: {
+        steps: [{ id: "digest", parameter: { score_only: true } }],
+      },
+      runtime: {
+        hostApi: {
+          ...baseHostApi,
+          images: {
+            ...baseHostApi.images,
+            prepareForNoteEmbedding: async () => ({
+              bytes: new Uint8Array(basePngBytes),
+              mimeType: "image/png",
+            }),
+          },
+        } as any,
+      },
+    })) as { notes: Zotero.Item[]; mode?: string };
+
+    assert.equal(applied.mode, "score-only");
+    assert.lengthOf(applied.notes, 1);
+    assert.deepEqual(parent.getNotes().slice(0, 3), originalNotes);
+    const scoreNote = Zotero.Items.get(applied.notes[0].id)!;
+    assert.equal(parseNoteKind(scoreNote.getNote()), "literature-score");
+    assert.include(scoreNote.getNote(), "60/100");
+    assert.include(scoreNote.getNote(), "3/5 stars");
+    assert.include(scoreNote.getNote(), 'data-zs-score-radar="v1"');
+    await assertStoredPayloadExists(scoreNote, "literature-score-json");
   });
 
   const legacySkipCases = [
@@ -500,7 +767,7 @@ describe("workflow: literature-analysis", function () {
 
   for (const entry of legacySkipCases) {
     itFullOnly(
-      `skips build for legacy and payload-marker note formats (${entry.label})`,
+      `builds score-only for legacy and payload-marker note formats (${entry.label})`,
       async function () {
         const workflow = await getLiteratureDigestWorkflow();
         const { parent, attachment } = await createDigestAttachmentParent({
@@ -509,20 +776,15 @@ describe("workflow: literature-analysis", function () {
         await addGeneratedDigestNotes(parent, entry.noteContents);
         const context = await buildSelectionContext([attachment]);
 
-        let thrown: unknown = null;
-        try {
-          await executeBuildRequests({
-            workflow,
-            selectionContext: context,
-          });
-        } catch (error) {
-          thrown = error;
-        }
+        const requests = (await executeBuildRequests({
+          workflow,
+          selectionContext: context,
+        })) as LiteratureAnalysisSequenceRequest[];
 
-        assert.isOk(thrown, `${entry.label}: expected build request to skip`);
-        assert.match(
-          String(thrown),
-          /has no valid input units after filtering/,
+        assert.lengthOf(requests, 1, entry.label);
+        assert.equal(
+          requests[0]?.steps?.[0]?.parameter?.score_only,
+          true,
           entry.label,
         );
       },
@@ -565,7 +827,7 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
-  it("applies bundle by creating digest/references/citation-analysis child notes", async function () {
+  it("rejects legacy bundles that do not contain a literature score", async function () {
     this.timeout(5000);
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -582,49 +844,71 @@ describe("workflow: literature-analysis", function () {
     );
     assert.isOk(workflow, "missing literature-analysis workflow");
 
-    const statusTransitions: unknown[] = [];
-    const applied = (await executeApplyResult({
-      workflow: workflow!,
-      parent,
-      bundleReader: bundle,
-      runtime: {
-        hostApi: {
-          ...createWorkflowHostApi(),
-          statusTags: {
-            getPolicy: () => ({}),
-            transition: async (args: unknown) => {
-              statusTransitions.push(args);
-              return { added: [], removed: [], warnings: [] };
-            },
-          },
-        } as any,
+    let thrown: unknown = null;
+    try {
+      await executeWorkflowApplyResult({
+        workflow: workflow!,
+        parent,
+        bundleReader: bundle,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    assert.match(String(thrown), /literature_score_path/);
+  });
+
+  it("rejects malformed literature score artifacts before writing notes", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Invalid Score Artifact Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+    const invalidScore = {
+      literature_score: {
+        ...literatureScoreArtifact.literature_score,
+        dimensions: literatureScoreArtifact.literature_score.dimensions.map(
+          (dimension, index) =>
+            index === 1
+              ? { ...dimension, dimension_key: "methodological_rigor" }
+              : dimension,
+        ),
       },
-    })) as { notes: Zotero.Item[]; partial?: boolean };
+    };
 
-    assert.lengthOf(applied.notes, 3);
-    const firstNote = Zotero.Items.get(applied.notes[0].id)!;
-    const secondNote = Zotero.Items.get(applied.notes[1].id)!;
-    const thirdNote = Zotero.Items.get(applied.notes[2].id)!;
-    assert.equal(firstNote.parentItemID, parent.id);
-    assert.equal(secondNote.parentItemID, parent.id);
-    assert.equal(thirdNote.parentItemID, parent.id);
-    assert.match(firstNote.getNote(), /<h1>Digest<\/h1>/);
-    assert.notMatch(firstNote.getNote(), /data-zs-payload="digest-markdown"/);
-    await assertStoredPayloadExists(firstNote, "digest-markdown");
-    assert.match(secondNote.getNote(), /<h1>References<\/h1>/);
-    assert.match(secondNote.getNote(), /<table\b/i);
-    await assertStoredPayloadExists(secondNote, "references-json");
-    assert.match(thirdNote.getNote(), /<h1>Citation Analysis<\/h1>/);
-    await assertStoredPayloadExists(thirdNote, "citation-analysis-json");
+    let thrown: unknown = null;
+    try {
+      await executeWorkflowApplyResult({
+        workflow,
+        parent,
+        bundleReader: {
+          async readText(entryPath: string) {
+            if (entryPath === "result/result.json") {
+              return JSON.stringify({
+                status: "success",
+                data: {
+                  digest_path: "artifacts/digest.md",
+                  references_path: "artifacts/references.json",
+                  citation_analysis_path: "artifacts/citation_analysis.json",
+                  literature_score_path: "artifacts/literature_score.json",
+                },
+              });
+            }
+            if (entryPath === "artifacts/literature_score.json") {
+              return JSON.stringify(invalidScore);
+            }
+            throw new Error(`unexpected read: ${entryPath}`);
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
 
-    const parentNotes = parent.getNotes();
-    assert.include(parentNotes, firstNote.id);
-    assert.include(parentNotes, secondNote.id);
-    assert.include(parentNotes, thirdNote.id);
-    assert.deepEqual(statusTransitions, [
-      { item: parent, remove: ["need-analysis"] },
-    ]);
-    assert.isFalse(applied.partial);
+    assert.isOk(thrown);
+    assert.match(String(thrown), /literature score dimension is invalid/);
+    assert.lengthOf(parent.getNotes(), 0);
   });
 
   it("applies valid artifacts when skill output includes a non-null error diagnostic", async function () {
@@ -688,7 +972,21 @@ describe("workflow: literature-analysis", function () {
       };
     };
 
-    assert.lengthOf(applied.notes || [], 3);
+    assert.lengthOf(applied.notes || [], 4);
+    const scoreNote = (applied.notes || []).find(
+      (note) =>
+        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) ===
+        "literature-score",
+    );
+    assert.isOk(scoreNote);
+    assert.match(
+      Zotero.Items.get(scoreNote!.id)!.getNote(),
+      /<h1>Literature Score<\/h1>/,
+    );
+    await assertStoredPayloadExists(
+      Zotero.Items.get(scoreNote!.id)!,
+      "literature-score-json",
+    );
     assert.deepEqual(applied.warnings, ["partial extraction"]);
     assert.equal(applied.skill_diagnostics?.status, "failed");
     assert.equal(
@@ -998,7 +1296,7 @@ describe("workflow: literature-analysis", function () {
       literature_matching_metadata?: { status?: string };
     };
 
-    assert.lengthOf(applied.notes, 3);
+    assert.lengthOf(applied.notes, 4);
     assert.equal(applied.literature_matching_metadata?.status, "attached");
     const digestNote = Zotero.Items.get(applied.notes[0].id)!;
     assert.deepEqual(
@@ -1229,7 +1527,7 @@ describe("workflow: literature-analysis", function () {
         },
       })) as { notes: Zotero.Item[] };
 
-      assert.lengthOf(applied.notes, 3);
+      assert.lengthOf(applied.notes, 4);
       const digestNote = Zotero.Items.get(applied.notes[0].id)!;
       const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
       const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
@@ -1334,6 +1632,10 @@ describe("workflow: literature-analysis", function () {
         const digestPath = path.join(resultDir, "digest.md");
         const referencesPath = path.join(resultDir, "references.json");
         const citationPath = path.join(resultDir, "citation_analysis.json");
+        const literatureScorePath = path.join(
+          resultDir,
+          "literature_score.json",
+        );
         await fs.writeFile(digestPath, "# ACP Digest", "utf8");
         await fs.writeFile(referencesPath, "[]", "utf8");
         await fs.writeFile(
@@ -1341,10 +1643,16 @@ describe("workflow: literature-analysis", function () {
           '{"report_md":"# ACP Citation"}',
           "utf8",
         );
+        await fs.writeFile(
+          literatureScorePath,
+          JSON.stringify(literatureScoreArtifact),
+          "utf8",
+        );
         const resultJson = {
           digest_path: digestPath,
           references_path: referencesPath,
           citation_analysis_path: citationPath,
+          literature_score_path: literatureScorePath,
         };
 
         const loaded = await loadWorkflowManifests(workflowsPath());
@@ -1380,7 +1688,7 @@ describe("workflow: literature-analysis", function () {
           },
         })) as { notes: Zotero.Item[] };
 
-        assert.lengthOf(applied.notes, 3);
+        assert.lengthOf(applied.notes, 4);
         const digestNote = Zotero.Items.get(applied.notes[0].id)!;
         assert.equal(
           await parseStoredPayloadEntryPath(digestNote, "digest-markdown"),
@@ -1487,7 +1795,7 @@ describe("workflow: literature-analysis", function () {
         request: requests[0],
       })) as { notes: Zotero.Item[] };
 
-      assert.lengthOf(applied.notes, 3);
+      assert.lengthOf(applied.notes, 4);
       const digestNote = Zotero.Items.get(applied.notes[0].id)!;
       const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
       const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
@@ -1541,7 +1849,7 @@ describe("workflow: literature-analysis", function () {
         },
       })) as { notes: Zotero.Item[] };
 
-      assert.lengthOf(applied.notes, 3);
+      assert.lengthOf(applied.notes, 4);
       const digestNote = Zotero.Items.get(applied.notes[0].id)!;
       const referencesNote = Zotero.Items.get(applied.notes[1].id)!;
       const citationAnalysisNote = Zotero.Items.get(applied.notes[2].id)!;
@@ -1615,7 +1923,9 @@ describe("workflow: literature-analysis", function () {
               ...baseHostApi,
               images: {
                 async prepareForNoteEmbedding(source: unknown, options: any) {
-                  preparedPath = String(source || "");
+                  if (typeof source === "string") {
+                    preparedPath = source;
+                  }
                   assert.equal(options.maxLongEdge, 720);
                   assert.equal(options.hardMaxBytes, 320 * 1024);
                   return {
@@ -1906,7 +2216,7 @@ describe("workflow: literature-analysis", function () {
           representative_image?: { status?: string; reason?: string };
         };
 
-        assert.lengthOf(applied.notes, 3);
+        assert.lengthOf(applied.notes, 4);
         assert.equal(applied.representative_image?.status, "skipped");
         assert.equal(
           applied.representative_image?.reason,
@@ -2012,7 +2322,7 @@ describe("workflow: literature-analysis", function () {
           representative_image?: { status?: string; reason?: string };
         };
 
-        assert.lengthOf(applied.notes, 3);
+        assert.lengthOf(applied.notes, 4);
         assert.equal(applied.representative_image?.status, "skipped");
         assert.equal(
           applied.representative_image?.reason,
@@ -2090,7 +2400,9 @@ describe("workflow: literature-analysis", function () {
               ...baseHostApi,
               images: {
                 async prepareForNoteEmbedding(source: unknown) {
-                  preparedPath = String(source || "");
+                  if (typeof source === "string") {
+                    preparedPath = source;
+                  }
                   return {
                     bytes: new Uint8Array([1, 2, 3]),
                     mimeType: "image/jpeg",
@@ -2271,7 +2583,9 @@ describe("workflow: literature-analysis", function () {
             },
             images: {
               async prepareForNoteEmbedding(source: unknown) {
-                preparedPath = String(source || "");
+                if (typeof source === "string") {
+                  preparedPath = source;
+                }
                 return {
                   bytes: new Uint8Array([1, 2, 3]),
                   mimeType: "image/jpeg",
@@ -2357,7 +2671,7 @@ describe("workflow: literature-analysis", function () {
         representative_image?: { status?: string; reason?: string };
       };
 
-      assert.lengthOf(applied.notes, 3);
+      assert.lengthOf(applied.notes, 4);
       assert.equal(applied.representative_image?.status, "skipped");
       assert.equal(
         applied.representative_image?.reason,
@@ -2501,15 +2815,26 @@ describe("workflow: literature-analysis", function () {
         };
       };
 
-      assert.lengthOf(requests, 1);
-      assert.equal(
-        (requests[0] as LiteratureAnalysisSequenceRequest).targetParentID,
-        parentRun.id,
+      assert.lengthOf(requests, 2);
+      const requestsByParent = new Map(
+        requests.map((request) => [
+          (request as LiteratureAnalysisSequenceRequest).targetParentID,
+          request as LiteratureAnalysisSequenceRequest,
+        ]),
       );
-      assert.equal(requests.__stats?.totalUnits, 1);
+      assert.equal(
+        requestsByParent.get(parentSkipped.id)?.steps?.[0]?.parameter
+          ?.score_only,
+        true,
+      );
+      assert.equal(
+        requestsByParent.get(parentRun.id)?.steps?.[0]?.parameter?.score_only,
+        false,
+      );
+      assert.equal(requests.__stats?.totalUnits, 2);
       assert.equal(requests.__stats?.skippedUnits, 0);
       assert.equal(requests.__stats?.candidateStats?.total, 2);
-      assert.equal(requests.__stats?.candidateStats?.skipped, 1);
+      assert.equal(requests.__stats?.candidateStats?.skipped, 0);
     },
   );
 

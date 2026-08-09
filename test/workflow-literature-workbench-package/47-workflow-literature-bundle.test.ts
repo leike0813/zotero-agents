@@ -32,6 +32,35 @@ import {
   parseWorkbenchEmbeddedPayloadBytes,
 } from "../../workflows_builtin/literature-workbench-package/lib/embeddedPayloadAttachments.mjs";
 
+const portableLiteratureScore = {
+  version: 1,
+  entry: "artifacts/literature_score.json",
+  format: "json",
+  literature_score: {
+    schema: "literature_score.v1",
+    rubric_id: "default.v1",
+    paper_type: "empirical",
+    paper_type_reason: "Empirical evaluation.",
+    overall_score: 60,
+    confidence: 0.8,
+    confidence_adjusted_score: 58,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimension_key) => ({
+      dimension_key,
+      name: dimension_key.replaceAll("_", " "),
+      score: 60,
+      confidence: 0.8,
+      summary: `${dimension_key} summary`,
+    })),
+  },
+};
+
 describe("literature portable bundle workflows", function () {
   it("loads export and import as non-core pass-through workflows", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
@@ -1106,6 +1135,11 @@ describe("literature portable bundle workflows", function () {
         payloadType: "citation-analysis-json",
         payload: { format: "json", report_md: "# Citation analysis" },
       },
+      {
+        noteKind: "literature-score",
+        payloadType: "literature-score-json",
+        payload: portableLiteratureScore,
+      },
     ]) {
       const generatedNote = await handlers.parent.addNote(parent, {
         content: `<div data-zs-note-kind="${fixture.noteKind}"><p>${fixture.noteKind}</p></div>`,
@@ -1153,6 +1187,7 @@ describe("literature portable bundle workflows", function () {
         "digest-markdown",
         "references-json",
         "citation-analysis-json",
+        "literature-score-json",
       ],
     );
     const bundlePath = joinPath(root, "portable.zip");
@@ -1218,7 +1253,7 @@ describe("literature portable bundle workflows", function () {
           joinPath(storageRoot, "assets", "m1", "asset.png"),
         ),
       );
-      assert.lengthOf(imported.getNotes(), 5);
+      assert.lengthOf(imported.getNotes(), 6);
       assert.isTrue(
         imported
           .getNotes()
@@ -1253,6 +1288,7 @@ describe("literature portable bundle workflows", function () {
           "digest-markdown",
           "references-json",
           "citation-analysis-json",
+          "literature-score-json",
         ],
       );
       const conversationPayload = parsedPayloads.find(

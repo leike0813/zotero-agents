@@ -8,10 +8,16 @@ import {
   libraryArtifactsColumnInternalsForTests,
   notifyLibraryArtifactsColumnItemsChanged,
   registerLibraryArtifactsColumn,
+  registerLibraryRatingColumn,
   resetLibraryArtifactsColumnForTests,
   unregisterLibraryArtifactsColumn,
+  unregisterLibraryRatingColumn,
 } from "../../src/modules/libraryArtifactsColumn";
 import { resolveLibraryArtifactReadiness } from "../../src/modules/libraryArtifactReadiness";
+import {
+  literatureScoreToStars,
+  parseLiteratureScore,
+} from "../../src/shared/literatureScore";
 import {
   buildWorkbenchPayloadEnvelope,
   buildWorkbenchPayloadPngBytes,
@@ -29,11 +35,13 @@ describe("library artifacts column", function () {
   beforeEach(async function () {
     previousAddon = (globalThis as { addon?: unknown }).addon;
     await unregisterLibraryArtifactsColumn();
+    await unregisterLibraryRatingColumn();
     resetLibraryArtifactsColumnForTests();
   });
 
   afterEach(async function () {
     await unregisterLibraryArtifactsColumn();
+    await unregisterLibraryRatingColumn();
     resetLibraryArtifactsColumnForTests();
     (globalThis as { addon?: unknown }).addon = previousAddon;
   });
@@ -67,6 +75,36 @@ describe("library artifacts column", function () {
     assert.notProperty(calls[0], "defaultIn");
     assert.notProperty(calls[0], "fixedWidth");
     assert.notProperty(calls[0], "staticWidth");
+  });
+
+  it("registers Rating after Artifacts without default visibility", async function () {
+    const originalRegister = Zotero.ItemTreeManager.registerColumn;
+    const calls: Array<Record<string, any>> = [];
+    Zotero.ItemTreeManager.registerColumn = (async (
+      options: Record<string, any>,
+    ) => {
+      calls.push(options);
+      return `registered-${options.dataKey}`;
+    }) as typeof Zotero.ItemTreeManager.registerColumn;
+
+    try {
+      await registerLibraryArtifactsColumn();
+      await registerLibraryRatingColumn();
+    } finally {
+      Zotero.ItemTreeManager.registerColumn = originalRegister;
+    }
+
+    assert.deepEqual(
+      calls.map((entry) => entry.dataKey),
+      ["artifacts", "literatureRating"],
+    );
+    assert.include(calls[1], {
+      label: "Rating",
+      showInColumnPicker: true,
+      width: "86",
+    });
+    assert.deepEqual(calls[1].zoteroPersist, ["hidden"]);
+    assert.notProperty(calls[1], "defaultIn");
   });
 
   it("uses the localized Artifacts column label when locale data is available", async function () {
@@ -486,6 +524,58 @@ describe("library artifacts column", function () {
     assert.equal(readiness.state, "source-markdown|digest");
   });
 
+  it("resolves a valid score payload and quantizes it to half stars", async function () {
+    const parent = await createParentItem("Scored Paper");
+    const note = await createNote(
+      parent,
+      "Literature Score",
+      '<div data-zs-note-kind="literature-score"><h1>Literature Score</h1></div>',
+    );
+    await createEmbeddedPayloadAttachment(note, {
+      noteKind: "literature-score",
+      payloadType: "literature-score-json",
+      payload: scorePayload(65),
+    });
+
+    const readiness = await resolveLibraryArtifactReadiness(parent);
+
+    assert.equal(readiness.literatureScore.status, "available");
+    assert.equal(readiness.literatureScore.summary?.overallScore, 65);
+    assert.deepEqual(literatureScoreToStars(65), {
+      rating: 3.5,
+      fills: [1, 1, 1, 0.5, 0],
+    });
+    assert.equal(parseLiteratureScore(scorePayload(101)), null);
+  });
+
+  it("renders rated and missing star states with one accessible label", function () {
+    const doc = createTinyDocument();
+    const rated = libraryArtifactsColumnInternalsForTests.renderRatingCell(
+      "60",
+      doc as unknown as Document,
+    );
+    const missing = libraryArtifactsColumnInternalsForTests.renderRatingCell(
+      "missing",
+      doc as unknown as Document,
+    );
+
+    const ratedStars = rated.querySelectorAll("span");
+    assert.equal(ratedStars.length, 5);
+    assert.equal(
+      ratedStars.filter((star) => star.getAttribute("data-fill") === "1")
+        .length,
+      3,
+    );
+    assert.equal(
+      ratedStars.filter((star) => star.getAttribute("data-fill") === "0")
+        .length,
+      2,
+    );
+    assert.include(rated.getAttribute("aria-label") || "", "60");
+    assert.isTrue(missing.className.includes("is-missing"));
+    assert.equal(missing.querySelectorAll("span").length, 5);
+  });
+
   it("renders the artifact icon set for multi-artifact cells", function () {
     const doc = createTinyDocument();
 
@@ -688,4 +778,50 @@ async function createEmbeddedPayloadAttachment(
     }
   ).isEmbeddedImageAttachment = () => true;
   return attachment;
+}
+
+function scorePayload(overallScore: number) {
+  const dimensionKeys = [
+    "methodological_rigor",
+    "evidence_completeness",
+    "reproducibility",
+    "innovation_signals",
+    "research_impact_potential",
+    "writing_quality",
+  ];
+  return {
+    version: 1,
+    format: "json",
+    literature_score: {
+      schema: "literature_score.v1",
+      rubric_id: "default-v1",
+      paper_type: "empirical",
+      paper_type_reason: "The paper reports an empirical study.",
+      overall_score: overallScore,
+      confidence: 0.8,
+      confidence_adjusted_score: Math.min(100, overallScore * 0.8),
+      dimensions: dimensionKeys.map((dimensionKey) => ({
+        dimension_key: dimensionKey,
+        name: dimensionKey,
+        configured_weight: 1 / 6,
+        effective_weight: 1 / 6,
+        raw_score: 8,
+        applicable_max_score: 10,
+        score: 80,
+        confidence: 0.8,
+        summary: `${dimensionKey} summary`,
+        criteria: [
+          {
+            criterion_key: `${dimensionKey}.criterion`,
+            name: "Criterion",
+            status: "scored",
+            score: 8,
+            max_score: 10,
+            reason: "Supported",
+            evidence: [],
+          },
+        ],
+      })),
+    },
+  };
 }

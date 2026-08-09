@@ -63,6 +63,7 @@ import {
   type SynthesisTagUsageCount,
 } from "./libraryAdapter";
 import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
+import type { LiteratureScoreSummary } from "../../shared/literatureScore";
 import {
   buildReferenceSidecarIndexRow,
   buildReferenceSidecarIndexRows,
@@ -2403,8 +2404,105 @@ function graphForPapers(papers: CitationGraphPaperInput[] | undefined) {
   return buildUnifiedCitationGraph({ papers: papers || [] });
 }
 
-function registryRowsForInputs(inputs: ReferenceSidecarInput[] | undefined) {
-  return buildReferenceSidecarIndexRows(inputs || []);
+type WorkbenchAnalysisInput = ReferenceSidecarInput & {
+  literatureAnalysisMode?: "full" | "score-only" | "unavailable";
+  literatureAnalysisArtifacts?: {
+    digest: boolean;
+    references: boolean;
+    citationAnalysis: boolean;
+  };
+  literatureScore?: LiteratureScoreSummary;
+};
+
+type WorkbenchRegistryRow = ReferenceSidecarIndexRow & {
+  literatureAnalysisMode: "full" | "score-only" | "unavailable";
+  literatureScore?: LiteratureScoreSummary;
+};
+
+function refreshArtifactDerivedFields(row: ReferenceSidecarIndexRow) {
+  const statuses = Object.values(row.artifacts).map(
+    (artifact) => artifact.status,
+  );
+  row.artifactCoverage = statuses.every((status) => status === "available")
+    ? "complete"
+    : statuses.some((status) => status === "available")
+      ? "partial"
+      : "missing";
+  row.facets.artifact = {
+    hash: hashCanonicalJson(row.artifacts),
+    status:
+      row.artifactCoverage === "complete" ? "ready" : row.artifactCoverage,
+  };
+  row.facets.reference = {
+    hash: hashCanonicalJson(row.artifacts.references || {}),
+    status:
+      row.artifacts.references?.status === "available" ? "ready" : "missing",
+  };
+  row.diagnostics = Object.values(row.artifacts).flatMap(
+    (artifact) => artifact.diagnostics,
+  );
+  row.row_hash = hashCanonicalJson({
+    paper_ref: row.paper_ref,
+    title: row.title,
+    year: row.year,
+    artifacts: row.artifacts,
+    artifactCoverage: row.artifactCoverage,
+    diagnostics: row.diagnostics,
+  });
+}
+
+function applyLiteratureAnalysisArtifactProjection(
+  row: ReferenceSidecarIndexRow,
+  input: WorkbenchAnalysisInput | undefined,
+) {
+  const projection = input?.literatureAnalysisArtifacts;
+  if (!projection) {
+    return;
+  }
+  const availability = {
+    digest: projection.digest,
+    references: projection.references,
+    citation_analysis: projection.citationAnalysis,
+  } as const;
+  for (const [artifactType, available] of Object.entries(availability)) {
+    if (!available) {
+      continue;
+    }
+    const type = artifactType as keyof typeof row.artifacts;
+    row.artifacts[type] = {
+      ...row.artifacts[type],
+      status: "available",
+      diagnostics: [],
+    };
+  }
+  refreshArtifactDerivedFields(row);
+}
+
+function registryRowsForInputs(
+  inputs: ReferenceSidecarInput[] | undefined,
+): WorkbenchRegistryRow[] {
+  const sourceInputs = inputs || [];
+  const inputByPaperRef = new Map(
+    sourceInputs.map((input) => [paperRefForRegistryInput(input), input]),
+  );
+  return buildReferenceSidecarIndexRows(sourceInputs).map((row) => {
+    const input = inputByPaperRef.get(row.paper_ref) as
+      | WorkbenchAnalysisInput
+      | undefined;
+    const mode = input?.literatureAnalysisMode;
+    const workbenchRow: WorkbenchRegistryRow = {
+      ...row,
+      literatureAnalysisMode:
+        mode === "full" || mode === "score-only" || mode === "unavailable"
+          ? mode
+          : row.artifactCoverage === "complete"
+            ? "score-only"
+            : "full",
+      literatureScore: input?.literatureScore,
+    };
+    applyLiteratureAnalysisArtifactProjection(workbenchRow, input);
+    return workbenchRow;
+  });
 }
 
 function paperRefForRegistryInput(input: ReferenceSidecarInput) {
@@ -3591,21 +3689,26 @@ function registryRowsToUi(
   rows: ReferenceSidecarIndexRow[],
   tagAuditByItem: ReadonlyMap<string, boolean> = new Map(),
 ) {
-  return rows.map((row) => ({
-    libraryId: row.library_id,
-    itemKey: row.item_key,
-    paper_ref: row.paper_ref,
-    title: row.title,
-    year: row.year,
-    artifactCoverage: row.artifactCoverage,
-    missing_artifacts: Object.values(row.artifacts)
-      .filter((artifact) => artifact.status !== "available")
-      .map((artifact) => artifact.type),
-    index_scope: "library" as const,
-    needsTagRegulation:
-      tagAuditByItem.get(tagAuditRecordKey(row.library_id, row.item_key)) ===
-      true,
-  }));
+  return rows.map((row) => {
+    const workbenchRow = row as WorkbenchRegistryRow;
+    return {
+      libraryId: row.library_id,
+      itemKey: row.item_key,
+      paper_ref: row.paper_ref,
+      title: row.title,
+      year: row.year,
+      artifactCoverage: row.artifactCoverage,
+      literatureAnalysisMode: workbenchRow.literatureAnalysisMode,
+      ratingScore: workbenchRow.literatureScore?.overallScore,
+      missing_artifacts: Object.values(row.artifacts)
+        .filter((artifact) => artifact.status !== "available")
+        .map((artifact) => artifact.type),
+      index_scope: "library" as const,
+      needsTagRegulation:
+        tagAuditByItem.get(tagAuditRecordKey(row.library_id, row.item_key)) ===
+        true,
+    };
+  });
 }
 
 function referenceSidecarReferenceToUiRow(
@@ -9421,38 +9524,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return registryInputsForService(options);
   }
 
-  function refreshArtifactDerivedFields(row: ReferenceSidecarIndexRow) {
-    const statuses = Object.values(row.artifacts).map(
-      (artifact) => artifact.status,
-    );
-    row.artifactCoverage = statuses.every((status) => status === "available")
-      ? "complete"
-      : statuses.some((status) => status === "available")
-        ? "partial"
-        : "missing";
-    row.facets.artifact = {
-      hash: hashCanonicalJson(row.artifacts),
-      status:
-        row.artifactCoverage === "complete" ? "ready" : row.artifactCoverage,
-    };
-    row.facets.reference = {
-      hash: hashCanonicalJson(row.artifacts.references || {}),
-      status:
-        row.artifacts.references?.status === "available" ? "ready" : "missing",
-    };
-    row.diagnostics = Object.values(row.artifacts).flatMap(
-      (artifact) => artifact.diagnostics,
-    );
-    row.row_hash = hashCanonicalJson({
-      paper_ref: row.paper_ref,
-      title: row.title,
-      year: row.year,
-      artifacts: row.artifacts,
-      artifactCoverage: row.artifactCoverage,
-      diagnostics: row.diagnostics,
-    });
-  }
-
   function artifactPayloadType(type: ReferenceSidecarArtifactType) {
     return type === "digest"
       ? "digest-markdown"
@@ -9496,15 +9567,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function verifyIncompleteArtifactRowsFromCurrentLibrary(
     rowsByRef: Map<string, ReferenceSidecarIndexRow>,
+    skipSourceRefs: ReadonlySet<string> = new Set(),
   ) {
     const itemReader = options.libraryAdapter?.getRegistryInputForItem;
     if (typeof itemReader !== "function") {
       return;
     }
-    const candidates = Array.from(rowsByRef.values()).filter((row) =>
-      Object.values(row.artifacts).some(
-        (artifact) => artifact.status !== "available",
-      ),
+    const candidates = Array.from(rowsByRef.values()).filter(
+      (row) =>
+        !skipSourceRefs.has(row.paper_ref) &&
+        Object.values(row.artifacts).some(
+          (artifact) => artifact.status !== "available",
+        ),
     );
     for (const row of candidates) {
       const parsed = parsePaperRef(row.paper_ref);
@@ -9541,12 +9615,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function enrichRegistryRowsWithLiveMetadata(
     rowsByRef: Map<string, ReferenceSidecarIndexRow>,
+    skipSourceRefs: ReadonlySet<string> = new Set(),
   ) {
     const itemReader = options.libraryAdapter?.getRegistryInputSummaryForItem;
     if (typeof itemReader !== "function") {
       return;
     }
     for (const row of rowsByRef.values()) {
+      if (skipSourceRefs.has(row.paper_ref)) {
+        continue;
+      }
       const parsed = parsePaperRef(row.paper_ref);
       if (!parsed?.itemKey) {
         continue;
@@ -10833,6 +10911,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     args: {
       sourceRefs?: string[];
       limit?: number;
+      inputs?: ReferenceSidecarInput[];
     } = {},
   ) {
     const requestedSourceRefs = new Set(
@@ -10841,8 +10920,23 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const requestedLimit = Math.max(0, Math.floor(Number(args.limit) || 0));
     const inputs =
       requestedSourceRefs.size === 0
-        ? await registryInputsForWorkbenchPage(requestedLimit)
+        ? args.inputs !== undefined
+          ? args.inputs
+          : await registryInputsForWorkbenchPage(requestedLimit)
         : await registryInputsForSourceRefs(requestedSourceRefs);
+    const inputSourceRefs = new Set(
+      inputs.map(paperRefForRegistryInput).filter(Boolean),
+    );
+    const artifactProjectedSourceRefs = new Set(
+      inputs
+        .filter((input) =>
+          Boolean(
+            (input as WorkbenchAnalysisInput).literatureAnalysisArtifacts,
+          ),
+        )
+        .map(paperRefForRegistryInput)
+        .filter(Boolean),
+    );
     const rowsByRef = new Map(
       registryRowsForInputs(inputs).map((row) => [row.paper_ref, row] as const),
     );
@@ -10915,9 +11009,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     for (const row of rowsByRef.values()) {
       refreshArtifactDerivedFields(row);
     }
-    await enrichRegistryRowsWithLiveMetadata(rowsByRef);
-    await verifyIncompleteArtifactRowsFromCurrentLibrary(rowsByRef);
-    await enrichRegistryRowsWithLiveMetadata(rowsByRef);
+    await enrichRegistryRowsWithLiveMetadata(rowsByRef, inputSourceRefs);
+    await verifyIncompleteArtifactRowsFromCurrentLibrary(
+      rowsByRef,
+      artifactProjectedSourceRefs,
+    );
     return Array.from(rowsByRef.values()).sort(
       (left, right) =>
         left.library_id - right.library_id ||
@@ -15954,9 +16050,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ): Promise<SynthesisUiSnapshotInput> {
     if (surface === "index") {
       const referencedScope = state.registry.scope === "referenced";
-      const tagAuditByItem = await ensureIndexTagAudits(
-        await registryInputsForWorkbenchPage(SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX),
+      const pageInputs = await registryInputsForWorkbenchPage(
+        SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
       );
+      const tagAuditByItem = await ensureIndexTagAudits(pageInputs);
       const registryPage = referencedScope
         ? await registryRowsForReferencedScope(
             SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
@@ -15965,6 +16062,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             rows: (
               await registryRowsFromCurrentLibraryAndSidecar({
                 limit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
+                inputs: pageInputs,
               })
             ).slice(0, SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX),
             rawReferenceIds: [],

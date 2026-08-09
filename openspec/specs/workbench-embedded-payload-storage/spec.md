@@ -31,8 +31,27 @@ The debug migration workflow SHALL migrate recoverable legacy payload notes to v
 - **WHEN** migration processes a note with a recoverable hidden payload block or v1 embedded payload attachment
 - **THEN** it SHALL write a v2 payload attachment and matching anchor
 - **AND** it SHALL remove hidden payload blocks from the visible note HTML.
-
 #### Scenario: V2 payload lacks anchor
+
 - **WHEN** migration processes a note with a v2 payload attachment but no matching anchor
 - **THEN** it SHALL repair the anchor without changing the payload content.
+
+### Requirement: Derived score images SHALL coexist with payload images
+
+Workbench score-note storage SHALL keep derived radar images and machine
+payload images independently addressable and replaceable.
+
+#### Scenario: Score note is rewritten
+
+- **WHEN** a literature-score note replaces its radar and payload
+- **THEN** radar cleanup SHALL remove only radar attachments owned by that note
+- **AND** payload cleanup SHALL remove only matching score payload attachments
+- **AND** neither cleanup SHALL delete the other attachment.
+
+#### Scenario: Radar preparation fails
+
+- **WHEN** the score radar cannot be converted to a note image
+- **THEN** the note SHALL retain its textual summary, dimension table, and score
+  payload
+- **AND** it SHALL NOT retain a stale radar from an older score.
 

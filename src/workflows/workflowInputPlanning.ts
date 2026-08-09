@@ -5,6 +5,7 @@ import { resolveRuntimeAddon, resolveRuntimeZotero } from "../utils/runtimeBridg
 import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
 import { handlers } from "../handlers";
 import { resolveWorkflowDisplayLocale } from "./localization";
+import { evaluateGeneratedNoteReadiness } from "../modules/libraryArtifactReadiness";
 import type {
   LoadedWorkflow,
   WorkflowInputMemberKind,
@@ -541,6 +542,7 @@ function parseGeneratedNoteKind(noteContent: unknown) {
     kind === "digest" ||
     kind === "references" ||
     kind === "citation-analysis" ||
+    kind === "literature-score" ||
     kind === "conversation-note" ||
     kind === "custom"
   ) {
@@ -1488,6 +1490,14 @@ async function applyCandidateFilters(args: {
             filter.noteKinds,
             args.runtime,
           ));
+      } else if (filter.kind === "generated-note-readiness") {
+        const parentID = candidateParentID(candidate);
+        const parentItem = parentID ? resolveItem(args.runtime, parentID) : null;
+        keep =
+          !!parentItem &&
+          (
+            await evaluateGeneratedNoteReadiness(parentItem, filter)
+          ).accepted;
       } else if (filter.kind === "artifact-absent") {
         keep =
           (

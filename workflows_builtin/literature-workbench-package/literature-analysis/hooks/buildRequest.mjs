@@ -4,6 +4,10 @@ import {
   resolveParentItemFromSelection,
   resolveRequestParameters as resolveTagRegulatorParameters,
 } from "../../lib/tagRegulatorRequest.mjs";
+import {
+  buildParentSnapshot,
+  selectIdentifier,
+} from "../../lib/metadataCurator.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -42,10 +46,48 @@ function resolveWorkflowParams(executionOptions) {
   };
 }
 
-async function buildRequestImpl({ selectionContext, executionOptions, runtime }) {
+function resolveSupportedIdentifier(parentItem) {
+  const identifier = selectIdentifier(buildParentSnapshot(parentItem), {
+    allowedTypes: ["DOI", "arXiv"],
+  });
+  return normalizeString(identifier?.normalized);
+}
+
+function resolveReadinessSpec(manifest) {
+  const filters = manifest?.validateSelection?.filters;
+  const spec = Array.isArray(filters)
+    ? filters.find((entry) => entry?.kind === "generated-note-readiness")
+    : null;
+  if (!spec) {
+    throw new Error("literature-analysis readiness declaration is missing");
+  }
+  return spec;
+}
+
+async function inspectReadiness(parentItem, manifest, runtime) {
+  const inspect = runtime?.helpers?.inspectGeneratedNoteReadiness;
+  if (typeof inspect !== "function") {
+    throw new Error("generated note readiness helper is unavailable");
+  }
+  const readiness = await inspect(parentItem, resolveReadinessSpec(manifest));
+  if (!readiness?.accepted) {
+    throw new Error("literature-analysis input already has all generated artifacts");
+  }
+  return readiness;
+}
+
+async function buildRequestImpl({
+  selectionContext,
+  executionOptions,
+  manifest,
+  runtime,
+}) {
   const sourcePath = resolveSourceAttachmentPath(selectionContext, runtime);
   const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
   const params = resolveWorkflowParams(executionOptions);
+  const identifier = resolveSupportedIdentifier(parentItem);
+  const readiness = await inspectReadiness(parentItem, manifest, runtime);
+  const scoreOnly = readiness.mode === "score-only";
   const digestStep = {
     id: "digest",
     skill_id: "literature-analysis",
@@ -61,12 +103,14 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     },
     parameter: {
       language: params.language,
+      score_only: scoreOnly,
+      ...(identifier ? { identifier } : {}),
     },
   };
   const steps = [digestStep];
   let finalStepId = "digest";
 
-  if (params.autoTagRegulator) {
+  if (params.autoTagRegulator && !scoreOnly) {
     const tagInput = await buildTagRegulatorInputFromParent({
       parentItem,
       runtime,
@@ -102,6 +146,16 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     finalStepId = "tag-regulator";
   }
 
+  const confirmedReadiness = await inspectReadiness(parentItem, manifest, runtime);
+  if (
+    confirmedReadiness.mode !== readiness.mode ||
+    confirmedReadiness.evidenceHash !== readiness.evidenceHash
+  ) {
+    throw new Error(
+      "literature-analysis generated-note readiness changed while building the request; retry",
+    );
+  }
+
   return {
     kind: "skillrunner.sequence.v1",
     sourceAttachmentPaths: [sourcePath],
@@ -121,4 +175,6 @@ export async function buildRequest(args) {
 
 export const __literatureAnalysisBuildRequestTestOnly = {
   resolveWorkflowParams,
+  resolveReadinessSpec,
+  resolveSupportedIdentifier,
 };

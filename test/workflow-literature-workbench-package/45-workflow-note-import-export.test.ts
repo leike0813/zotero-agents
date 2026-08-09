@@ -23,7 +23,10 @@ import {
   writeUtf8,
 } from "../zotero/workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
-import { resolveRepresentativeImageMarkdownImportCandidate } from "../../workflows_builtin/literature-workbench-package/lib/representativeImage.mjs";
+import {
+  extractExistingRepresentativeImageKeys,
+  resolveRepresentativeImageMarkdownImportCandidate,
+} from "../../workflows_builtin/literature-workbench-package/lib/representativeImage.mjs";
 import {
   analyzeNoteHtmlForDebug,
   parsePseudoEmbeddedPayloadBytesForDebug,
@@ -164,6 +167,46 @@ function buildCitationNoteContent() {
   ].join("\n");
 }
 
+function buildNativeLiteratureScoreArtifact() {
+  return {
+    schema: "literature_score.v1",
+    rubric_id: "default.v1",
+    paper_type: "empirical",
+    paper_type_reason: "Empirical evaluation.",
+    overall_score: 60,
+    confidence: 0.8,
+    confidence_adjusted_score: 58,
+    dimensions: [
+      "methodological_rigor",
+      "evidence_completeness",
+      "reproducibility",
+      "innovation_signals",
+      "research_impact_potential",
+      "writing_quality",
+    ].map((dimension_key) => ({
+      dimension_key,
+      name: dimension_key.replaceAll("_", " "),
+      score: 60,
+      confidence: 0.8,
+      summary: `${dimension_key} summary`,
+    })),
+  };
+}
+
+function buildLiteratureScoreNoteContent() {
+  return [
+    '<div data-zs-note-kind="literature-score">',
+    "<h1>Literature Score</h1>",
+    renderPayloadBlock("literature-score-json", {
+      version: 1,
+      entry: "artifacts/literature_score.json",
+      format: "json",
+      literature_score: buildNativeLiteratureScoreArtifact(),
+    }),
+    "</div>",
+  ].join("\n");
+}
+
 function buildConversationNoteContent(
   markdown: string,
   entry = "artifacts/conversation-note.md",
@@ -285,6 +328,9 @@ describe("workflow: literature-workbench import/export notes", function () {
       const citationAnalysis = {
         sourcePath: "D:/imports/citation_analysis.json",
       };
+      const literatureScore = {
+        sourcePath: "D:/imports/literature_score.json",
+      };
       assert.equal(
         getSelectedImportCandidateForKind(
           { digest, references, citationAnalysis },
@@ -305,6 +351,13 @@ describe("workflow: literature-workbench import/export notes", function () {
           "citation-analysis",
         ),
         citationAnalysis,
+      );
+      assert.equal(
+        getSelectedImportCandidateForKind(
+          { digest, references, citationAnalysis, literatureScore },
+          "literature-score",
+        ),
+        literatureScore,
       );
     },
   );
@@ -908,6 +961,20 @@ describe("workflow: literature-workbench import/export notes", function () {
     assert.equal(parsed?.contentLength, 24);
   });
 
+  it("scopes representative-image cleanup away from score and payload images", function () {
+    const html = [
+      '<div data-zs-block="representative-image"><img data-attachment-key="IMGREP"></div>',
+      '<img data-attachment-key="IMGREP2" data-zs-representative-image="v1">',
+      '<img data-attachment-key="IMGSCORE" data-zs-score-radar="v1">',
+      '<img data-attachment-key="IMGPAYLOAD" alt="Zotero Skills artifact payload">',
+    ].join("\n");
+
+    assert.deepEqual(extractExistingRepresentativeImageKeys(html), [
+      "IMGREP2",
+      "IMGREP",
+    ]);
+  });
+
   itNodeOnly(
     "builds a single aggregated export request across multiple selected units",
     async function () {
@@ -976,6 +1043,9 @@ describe("workflow: literature-workbench import/export notes", function () {
     await handlers.parent.addNote(parent, {
       content: buildCitationNoteContent(),
     });
+    await handlers.parent.addNote(parent, {
+      content: buildLiteratureScoreNoteContent(),
+    });
 
     const selection = await buildSelectionContext([parent]);
     const requests = (await executeBuildRequests({
@@ -1024,6 +1094,10 @@ describe("workflow: literature-workbench import/export notes", function () {
       await readUtf8(joinPath(targetDir, "citation_analysis.json")),
     );
     assert.deepEqual(citationJson, buildNativeCitationArtifact());
+    const scoreJson = JSON.parse(
+      await readUtf8(joinPath(targetDir, "literature_score.json")),
+    );
+    assert.deepEqual(scoreJson, buildNativeLiteratureScoreArtifact());
     assert.equal(
       await readUtf8(joinPath(targetDir, "citation_analysis.md")),
       "# Citation Analysis\n\nStructured report",
@@ -1521,6 +1595,47 @@ describe("workflow: literature-workbench import/export notes", function () {
   );
 
   describeImportEditorSuite("import-notes editor-driven flows", function () {
+    it("imports a literature score file as a generated score note", async function () {
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import Literature Score Parent" },
+      });
+      const editorResult = {
+        saved: true,
+        result: {
+          literatureScore: {
+            sourcePath: "D:/imports/literature_score.json",
+            payload: {
+              version: 1,
+              entry: "D:/imports/literature_score.json",
+              format: "json",
+              literature_score: buildNativeLiteratureScoreArtifact(),
+            },
+          },
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+
+      const result = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+      })) as { imported?: number };
+
+      assert.equal(result.imported, 1);
+      const scoreNote = parent
+        .getNotes()
+        .map((id) => Zotero.Items.get(id)!)
+        .find((note) => hasGeneratedHeading(note, "Literature Score"));
+      assert.isOk(scoreNote);
+      assert.deepEqual(
+        (await parseStoredPayload(scoreNote!, "literature-score-json"))
+          .literature_score,
+        buildNativeLiteratureScoreArtifact(),
+      );
+    });
+
     it("imports selected digest/references/citation files and upserts generated notes", async function () {
       const workflow = await getWorkflow("import-notes");
       const parent = await handlers.item.create({

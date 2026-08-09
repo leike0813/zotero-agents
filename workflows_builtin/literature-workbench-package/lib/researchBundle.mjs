@@ -13,6 +13,7 @@ const PAYLOAD_TYPES = new Set([
   "digest-markdown",
   "references-json",
   "citation-analysis-json",
+  "literature-score-json",
 ]);
 
 export function isResearchPayloadType(value) {

@@ -852,6 +852,45 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("preserves bounded literature ratings and analysis routing on Index rows", function () {
+    const snapshot = buildSynthesisUiSnapshot({
+      libraryId: 1,
+      registry: {
+        rows: [
+          {
+            paper_ref: "1:RATED",
+            title: "Rated Paper",
+            artifactCoverage: "complete",
+            missing_artifacts: [],
+            literatureAnalysisMode: "unavailable",
+            ratingScore: 65,
+          },
+          {
+            paper_ref: "1:REPAIR",
+            title: "Repair Score",
+            artifactCoverage: "complete",
+            missing_artifacts: [],
+            literatureAnalysisMode: "score-only",
+            ratingScore: 101,
+          },
+        ],
+      },
+    });
+
+    const rated = snapshot.registry.rows.find(
+      (row) => row.paper_ref === "1:RATED",
+    );
+    const repair = snapshot.registry.rows.find(
+      (row) => row.paper_ref === "1:REPAIR",
+    );
+    assert.deepInclude(rated, {
+      literatureAnalysisMode: "unavailable",
+      ratingScore: 65,
+    });
+    assert.equal(repair?.literatureAnalysisMode, "score-only");
+    assert.isUndefined(repair?.ratingScore);
+  });
+
   it("tracks Review center filters and Index review drawer state", function () {
     const selected = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "selectTab",
@@ -2844,12 +2883,27 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(actionBlock, "getDebugSynthesisSnapshotInput");
     assert.notInclude(actionBlock, ".getSynthesisSnapshotInput");
     assert.include(actionBlock, "scheduleActiveSurfaceRefresh");
+    const readyBlock = extractIfBlock(
+      actionBlock,
+      'envelope.action === "ready"',
+    );
+    assert.notInclude(
+      readyBlock,
+      "scheduleActiveSurfaceRefresh",
+      "the handshake owns the initial surface read",
+    );
     const sendSurfaceBlock = extractFunctionBlock(host, "sendSurface");
-    assert.include(sendSurfaceBlock, "requestId: request.requestId");
-    assert.include(sendSurfaceBlock, "isLatestSurfaceRefreshRequest");
-    assert.include(sendSurfaceBlock, "!isActiveSurface(runtime, surface)");
-    assert.include(sendSurfaceBlock, '"synthesis:surface-error"');
-    assert.include(sendSurfaceBlock, 'code: transient ? "storage_busy"');
+    assert.include(sendSurfaceBlock, "inFlightSurfaceRefreshes");
+    assert.include(sendSurfaceBlock, "queuedServiceSurfaceRefreshes");
+    const performSurfaceBlock = extractFunctionBlock(
+      host,
+      "performSurfaceSend",
+    );
+    assert.include(performSurfaceBlock, "requestId: request.requestId");
+    assert.include(performSurfaceBlock, "isLatestSurfaceRefreshRequest");
+    assert.include(performSurfaceBlock, "!isActiveSurface(runtime, surface)");
+    assert.include(performSurfaceBlock, '"synthesis:surface-error"');
+    assert.include(performSurfaceBlock, 'code: transient ? "storage_busy"');
     const scheduleSurfaceBlock = extractFunctionBlock(
       host,
       "scheduleActiveSurfaceRefresh",
@@ -3104,6 +3158,27 @@ describe("Synthesis tab UI model", function () {
           "3": { itemType: "note" },
           "4": { itemType: "attachment" },
         },
+      }),
+    );
+  });
+
+  it("invalidates the Index when a literature score note changes", async function () {
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Score invalidation parent");
+    await parent.saveTx();
+    const note = new Zotero.Item("note");
+    note.parentID = parent.id;
+    note.setNote(
+      '<div data-zs-note-kind="literature-score"><h1>Literature Score</h1></div>',
+    );
+    await note.saveTx();
+
+    assert.isTrue(
+      isSynthesisLibraryReadModelInvalidationEvent({
+        event: "modify",
+        type: "item",
+        ids: [note.id],
+        extraData: { [note.id]: { itemType: "note" } },
       }),
     );
   });
@@ -4321,10 +4396,12 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "registryStatusTone");
     assert.include(source, '"ID"');
     assert.include(source, '"Artifacts"');
+    assert.include(source, '"synthesis-column-rating"');
     assert.include(source, '"References"');
     assert.include(source, '"(Total/Unbound)"');
     assert.include(source, "registryArtifactBadges");
     assert.include(source, "renderRegistryArtifacts");
+    assert.include(source, "renderRegistryRating");
     assert.include(source, "icon_artifact_digest.svg");
     assert.include(source, "icon_artifact_references.svg");
     assert.include(source, "icon_artifact_citation_analysis.svg");
@@ -4651,6 +4728,12 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "compactRegistryRowSignature");
     assert.include(app, "row.missing_artifacts");
     assert.include(app, "row.artifacts");
+    const registryRowSignatureBlock = extractFunctionBlock(
+      app,
+      "compactRegistryRowSignature",
+    );
+    assert.include(registryRowSignatureBlock, "row.ratingScore");
+    assert.include(registryRowSignatureBlock, "row.literatureAnalysisMode");
     assert.include(app, "compactReferenceProposalSignature");
     const renderSurfaceBlock = extractFunctionBlock(app, "renderSurface");
     assert.notInclude(renderSurfaceBlock, "clear(root)");

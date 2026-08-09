@@ -4,6 +4,7 @@ import {
   type ZoteroNotePayloadBlock,
 } from "./notePayloadCodec";
 import { readRuntimeBytes } from "./runtimePersistence";
+import { hydrateZoteroItemsByIds } from "./zoteroLibraryPageQuery";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -36,15 +37,6 @@ function resolveZotero() {
   return (globalThis as { Zotero?: any }).Zotero || null;
 }
 
-function resolveChildAttachment(ref: unknown) {
-  const zotero = resolveZotero();
-  try {
-    return zotero?.Items?.get?.(Number(ref)) || null;
-  } catch {
-    return null;
-  }
-}
-
 async function readBytes(path: string) {
   return readRuntimeBytes(path);
 }
@@ -57,21 +49,35 @@ async function readAttachmentBytes(attachment: any) {
   return readBytes(path);
 }
 
+async function resolveNoteAttachments(note: Zotero.Item) {
+  const zotero = resolveZotero();
+  if (!zotero) {
+    return [];
+  }
+  if (typeof zotero.Items?.loadDataTypes === "function") {
+    await zotero.Items.loadDataTypes([note], ["childItems"]);
+  }
+  const attachmentIds = (
+    typeof note?.getAttachments === "function"
+      ? note.getAttachments() || []
+      : []
+  )
+    .map(Number)
+    .filter((id: number) => Number.isSafeInteger(id) && id > 0);
+  const attachments = attachmentIds.length
+    ? await hydrateZoteroItemsByIds(attachmentIds, zotero)
+    : [];
+  return attachments;
+}
+
 export async function listNotePayloadBlocksForItem(
   note: Zotero.Item,
 ): Promise<ZoteroNotePayloadBlock[]> {
   const html = String(note?.getNote?.() || "");
   const blocks = listNotePayloadBlocks(html);
   const anchors = collectPayloadAnchors(html);
-  const attachmentIds =
-    typeof note?.getAttachments === "function"
-      ? note.getAttachments() || []
-      : [];
-  for (const attachmentRef of attachmentIds) {
-    const attachment = resolveChildAttachment(attachmentRef);
-    if (!attachment) {
-      continue;
-    }
+  const attachments = await resolveNoteAttachments(note);
+  for (const attachment of attachments) {
     try {
       const parsed = parseEmbeddedNotePayloadBlock(
         await readAttachmentBytes(attachment),

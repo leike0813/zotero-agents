@@ -167,11 +167,12 @@ describe("export research bundle workflow", function () {
     );
   });
 
-  it("collects only the literature-analysis three-payload set", function () {
+  it("collects the complete literature-analysis payload set", function () {
     for (const payloadType of [
       "digest-markdown",
       "references-json",
       "citation-analysis-json",
+      "literature-score-json",
     ]) {
       assert.isTrue(isResearchPayloadType(payloadType));
     }
@@ -194,6 +195,15 @@ describe("export research bundle workflow", function () {
         format: "json",
       }),
       "papers/paper-001/citation-analysis-002.json",
+    );
+    assert.equal(
+      researchPayloadArtifactPath({
+        logicalId: "paper-001",
+        payloadType: "literature-score-json",
+        ordinal: 3,
+        format: "json",
+      }),
+      "papers/paper-001/literature-score-003.json",
     );
   });
 

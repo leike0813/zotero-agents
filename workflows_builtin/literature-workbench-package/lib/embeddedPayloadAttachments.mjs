@@ -8,6 +8,7 @@ const WORKBENCH_PAYLOAD_ARTIFACT_NAMES = new Map([
   ["digest-markdown", "digest"],
   ["references-json", "references"],
   ["citation-analysis-json", "citation-analysis"],
+  ["literature-score-json", "literature-score"],
   ["conversation-note-markdown", "conversation"],
 ]);
 

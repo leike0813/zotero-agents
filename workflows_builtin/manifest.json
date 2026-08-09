@@ -21,6 +21,8 @@
     "literature-workbench-package/lib/importSchemas.mjs",
     "literature-workbench-package/lib/jsonSchemaLite.mjs",
     "literature-workbench-package/lib/literatureDigestNotes.mjs",
+    "literature-workbench-package/lib/literatureScoreNote.mjs",
+    "literature-workbench-package/lib/noteEmbeddedImages.mjs",
     "literature-workbench-package/lib/literatureDigestSidecar.mjs",
     "literature-workbench-package/lib/noteCodecs.mjs",
     "literature-workbench-package/lib/path.mjs",

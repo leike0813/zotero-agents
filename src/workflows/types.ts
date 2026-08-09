@@ -178,6 +178,7 @@ export type WorkflowSelectionFilter =
       phase: "availability";
       noteKinds: string[];
     }
+  | WorkflowGeneratedNoteReadinessFilter
   | {
       kind: "artifact-absent";
       phase: "availability" | "execute";
@@ -187,6 +188,52 @@ export type WorkflowSelectionFilter =
         | "translator-markdown";
       parameter?: string;
     };
+
+export type WorkflowGeneratedNotePayloadRequirement = {
+  pointer: string;
+  const?: string | number | boolean | null;
+  type?: "string" | "number" | "array" | "object";
+  minimum?: number;
+  maximum?: number;
+  length?: number;
+};
+
+export type WorkflowGeneratedNoteArtifactSpec = {
+  id: string;
+  noteKinds: string[];
+  payload?: {
+    type: string;
+    requirements?: WorkflowGeneratedNotePayloadRequirement[];
+  };
+};
+
+export type WorkflowGeneratedNoteReadinessFilter = {
+  kind: "generated-note-readiness";
+  phase: "availability";
+  artifacts: WorkflowGeneratedNoteArtifactSpec[];
+  modes: Array<{
+    id: string;
+    allAvailable?: string[];
+    allUnavailable?: string[];
+    default?: boolean;
+  }>;
+  acceptModes: string[];
+};
+
+export type WorkflowGeneratedNoteReadinessResult = {
+  mode: string;
+  accepted: boolean;
+  evidenceHash: string;
+  artifacts: Record<
+    string,
+    {
+      status: "available" | "missing" | "invalid";
+      noteIds: number[];
+      payload?: unknown;
+      diagnostics: string[];
+    }
+  >;
+};
 
 export type WorkflowValidateSelectionSpec = {
   require?: WorkflowSelectionRequirements;
@@ -427,6 +474,10 @@ export type HookHelpers = {
   resolveReferenceSource: (entry: unknown) => string;
   renderReferenceLocator: (entry: unknown) => string;
   renderReferencesTable: (references: unknown) => string;
+  inspectGeneratedNoteReadiness: (
+    parentRef: Zotero.Item | number | string,
+    spec: WorkflowGeneratedNoteReadinessFilter,
+  ) => Promise<WorkflowGeneratedNoteReadinessResult>;
 };
 
 export type WorkflowHostApi = {
@@ -668,6 +719,7 @@ export type WorkflowImagePreparationOptions = {
   minQuality?: number;
   background?: string;
   sourceKind?: string;
+  outputMimeType?: "image/jpeg" | "image/png";
 };
 
 export type WorkflowPreparedNoteImage = {

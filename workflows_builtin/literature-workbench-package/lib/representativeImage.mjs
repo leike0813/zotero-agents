@@ -4,6 +4,7 @@ import {
   escapeHtml,
   readTagAttribute,
 } from "./htmlCodec.mjs";
+import { extractMarkedEmbeddedImageKeys } from "./noteEmbeddedImages.mjs";
 import { requireHostApi } from "./runtime.mjs";
 
 const REPRESENTATIVE_IMAGE_MARKDOWN_BLOCK_RE =
@@ -540,6 +541,7 @@ function renderRepresentativeImageBlock(args) {
   const height = String(args.prepared?.height || "").trim();
   const imageAttrs = [
     `data-attachment-key="${escapeAttribute(args.attachmentKey)}"`,
+    'data-zs-representative-image="v1"',
     `alt="${escapeAttribute(locator.label || "Representative image")}"`,
     width ? `width="${escapeAttribute(width)}"` : "",
     height ? `height="${escapeAttribute(height)}"` : "",
@@ -593,7 +595,10 @@ function withRepresentativeImageDiagnostic(result) {
 }
 
 export function extractExistingRepresentativeImageKeys(noteContent) {
-  const keys = [];
+  const keys = extractMarkedEmbeddedImageKeys(noteContent, {
+    markerAttribute: "data-zs-representative-image",
+    markerValue: "v1",
+  });
   const blockMatches = String(noteContent || "").matchAll(
     /<div\s+data-zs-block=(["'])representative-image\1[\s\S]*?<\/div>/gi,
   );
@@ -614,15 +619,6 @@ export function extractExistingRepresentativeImageKeys(noteContent) {
       if (key) {
         keys.push(key);
       }
-    }
-  }
-  const html = String(noteContent || "");
-  for (const keyMatch of html.matchAll(
-    /<img\b[^>]*data-attachment-key=(["'])([^"']+)\1[^>]*>/gi,
-  )) {
-    const key = normalizeText(keyMatch[2]);
-    if (key) {
-      keys.push(key);
     }
   }
   return Array.from(new Set(keys));

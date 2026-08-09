@@ -33,7 +33,7 @@
 - `README.md`、`manifest.json`、`references.bib`
 - 每个父条目的可移植 metadata、全部直接附件、全部子笔记和笔记图片
 - 一份指向现有附件的首选原文索引：Markdown 优先，PDF 回退，不会重复写入原文字节
-- digest、references、citation-analysis、conversation payload 的 Agent 可读文本投影，以及 Markdown 图片 companion files
+- digest、references、citation-analysis、literature-score、conversation payload 的 Agent 可读文本投影，以及 Markdown 图片 companion files
 - 本次同时导出父条目之间的包内关联关系
 
 以下情况会保留其他可导出内容，并在结果中报告警告：

@@ -1,4 +1,6 @@
 import { getAllRegularZoteroItems } from "../zoteroHostCapabilityBroker";
+import { resolveLibraryArtifactReadiness } from "../libraryArtifactReadiness";
+import { hydrateZoteroItemsByIds } from "../zoteroLibraryPageQuery";
 import { listNotePayloadBlocksForItem } from "../zoteroNotePayloadResolver";
 import {
   listNotePayloadBlocks,
@@ -136,6 +138,31 @@ const PAYLOAD_TYPES: Record<ReferenceSidecarArtifactType, string> = {
   references: "references-json",
   citation_analysis: "citation-analysis-json",
 };
+
+const SYNTHESIS_REGISTRY_PAGE_READ_CONCURRENCY = 4;
+
+async function mapWithBoundedConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+) {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    values.length,
+    Math.max(1, Math.floor(concurrency)),
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(values[index]);
+      }
+    }),
+  );
+  return results;
+}
 
 const ARTIFACT_TYPE_ALIASES: Record<string, ReferenceSidecarArtifactType> = {
   digest: "digest",
@@ -321,13 +348,11 @@ async function paperInputFromItem(
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
+    ...(await literatureAnalysisSummaryFromItem(item)),
   };
 }
 
-function paperInputSummaryFromItem(
-  item: any,
-  fallbackLibraryId: number,
-): ReferenceSidecarInput {
+async function paperInputSummaryFromItem(item: any, fallbackLibraryId: number) {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
   return {
     libraryId,
@@ -343,6 +368,26 @@ function paperInputSummaryFromItem(
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
+    ...(await literatureAnalysisSummaryFromItem(item)),
+  };
+}
+
+async function literatureAnalysisSummaryFromItem(item: any) {
+  const readiness = await resolveLibraryArtifactReadiness(item);
+  const hasLegacyTriplet = readiness.generated.complete;
+  const score = readiness.literatureScore.summary;
+  return {
+    literatureAnalysisMode: !hasLegacyTriplet
+      ? ("full" as const)
+      : score
+        ? ("unavailable" as const)
+        : ("score-only" as const),
+    literatureAnalysisArtifacts: {
+      digest: readiness.generated.digest,
+      references: readiness.generated.references,
+      citationAnalysis: readiness.generated.citationAnalysis,
+    },
+    literatureScore: score || undefined,
   };
 }
 
@@ -462,13 +507,14 @@ function itemIdFromQueryRow(row: unknown) {
   );
 }
 
-async function queryVisibleTopLevelRegularItemIds(args: {
-  libraryId: number;
-  limit: number;
-}) {
-  const zotero = zoteroRuntime();
-  const queryAsync = zotero.DB?.queryAsync;
-  if (typeof queryAsync !== "function") {
+async function queryVisibleTopLevelRegularItemIds(
+  args: {
+    libraryId: number;
+    limit: number;
+  },
+  zotero = zoteroRuntime(),
+) {
+  if (typeof zotero.DB?.queryAsync !== "function") {
     return null;
   }
   const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
@@ -501,10 +547,32 @@ async function queryVisibleTopLevelRegularItemIds(args: {
   ];
   for (const sql of queries) {
     try {
-      const rows = await queryAsync.call(zotero.DB, sql, baseParams);
-      return (Array.isArray(rows) ? rows : [])
-        .map(itemIdFromQueryRow)
-        .filter(Boolean);
+      // Keep Zotero's host Promise, result array, and row proxies behind this
+      // boundary; only plain numeric IDs enter the plugin's local runtime.
+      return await new Promise<number[]>((resolve, reject) => {
+        const itemIds: number[] = [];
+        zotero.DB.queryAsync(sql, baseParams, {
+          onRow(row: { getResultByName?: (name: string) => unknown }) {
+            const itemId = Math.max(
+              0,
+              Math.floor(Number(row.getResultByName?.("itemID")) || 0),
+            );
+            if (itemId) {
+              itemIds.push(itemId);
+            }
+          },
+        }).then((rows: unknown) => {
+          if (itemIds.length) {
+            resolve(itemIds);
+            return;
+          }
+          resolve(
+            (Array.isArray(rows) ? rows : [])
+              .map(itemIdFromQueryRow)
+              .filter(Boolean),
+          );
+        }, reject);
+      });
     } catch {
       // Try the next schema-compatible query or fall back to a bounded scan.
     }
@@ -543,14 +611,17 @@ async function visibleTopLevelRegularItemsPage(args: {
   libraryId: number;
   limit: number;
 }) {
+  const zotero = zoteroRuntime();
   const requestedLimit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const ids = await queryVisibleTopLevelRegularItemIds({
-    libraryId: args.libraryId,
-    limit: requestedLimit,
-  });
+  const ids = await queryVisibleTopLevelRegularItemIds(
+    {
+      libraryId: args.libraryId,
+      limit: requestedLimit,
+    },
+    zotero,
+  );
   if (ids) {
-    return ids
-      .map((id) => itemById(id))
+    return (await hydrateZoteroItemsByIds(ids, zotero))
       .filter(isVisibleTopLevelRegular)
       .filter(
         (item: any) =>
@@ -1012,9 +1083,13 @@ export function createZoteroSynthesisLibraryAdapter(
         libraryId: requestedLibraryId,
         limit: limit > 0 ? limit : 250,
       });
-      return page
-        .map((item: any) => paperInputSummaryFromItem(item, requestedLibraryId))
-        .filter((input) => input.itemKey);
+      return (
+        await mapWithBoundedConcurrency(
+          page,
+          SYNTHESIS_REGISTRY_PAGE_READ_CONCURRENCY,
+          (item: any) => paperInputSummaryFromItem(item, requestedLibraryId),
+        )
+      ).filter((input) => input.itemKey);
     },
     async getRegistryInputForItem(request) {
       const requestedLibraryId = normalizeLibraryId(
@@ -1044,7 +1119,7 @@ export function createZoteroSynthesisLibraryAdapter(
       if (!item || !isVisibleTopLevelRegular(item)) {
         return null;
       }
-      return paperInputSummaryFromItem(item, requestedLibraryId);
+      return await paperInputSummaryFromItem(item, requestedLibraryId);
     },
     async getTagUsageCounts(request = {}) {
       const requestedLibraryId = normalizeLibraryId(

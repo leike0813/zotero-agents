@@ -384,6 +384,7 @@ function validateInputPlanningSemantics(manifest: WorkflowManifest) {
     if (
       (filter.kind === "source-file-exists" ||
         filter.kind === "generated-note-kinds-absent" ||
+        filter.kind === "generated-note-readiness" ||
         filter.kind === "artifact-absent") &&
       memberKind !== "attachment"
     ) {

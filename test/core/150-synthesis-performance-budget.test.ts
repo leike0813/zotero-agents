@@ -273,6 +273,86 @@ describe("Synthesis performance budgets", function () {
     assert.deepEqual(review.registry?.rows || [], []);
   });
 
+  it("reuses one bounded library page for Index audit, rows, and ratings", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+    const pageInputs = createSyntheticSynthesisBenchmarkRegistryInputs({
+      paperCount: 2,
+      referenceFanout: 0,
+    });
+    for (const input of pageInputs) {
+      Object.assign(input, {
+        literatureAnalysisArtifacts: {
+          digest: true,
+          references: true,
+          citationAnalysis: true,
+        },
+      });
+    }
+    Object.assign(pageInputs[0], {
+      literatureAnalysisMode: "unavailable",
+      literatureScore: { overallScore: 86 },
+    });
+    let pageReadCount = 0;
+    let itemReadCount = 0;
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      libraryAdapter: {
+        async getRegistryInputs() {
+          throw new Error("Index must use its bounded page reader");
+        },
+        async getRegistryInputsPage() {
+          pageReadCount += 1;
+          return pageInputs;
+        },
+        async getRegistryInputForItem(request) {
+          itemReadCount += 1;
+          return (
+            pageInputs.find((input) => input.itemKey === request.itemKey) ||
+            null
+          );
+        },
+        async getRegistryInputSummaryForItem(request) {
+          itemReadCount += 1;
+          return (
+            pageInputs.find((input) => input.itemKey === request.itemKey) ||
+            null
+          );
+        },
+        async getLibraryIndex() {
+          return {
+            libraryId: 1,
+            papers: [],
+            tags: [],
+            collections: [],
+            diagnostics: [],
+          };
+        },
+        async getCitationGraphInputs() {
+          return [];
+        },
+        async readPaperArtifacts() {
+          return { artifacts: [], diagnostics: [] };
+        },
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+
+    const index = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const ratedRow = index.registry?.rows.find(
+      (row) => row.itemKey === pageInputs[0].itemKey,
+    );
+
+    assert.equal(pageReadCount, 1);
+    assert.equal(itemReadCount, 0);
+    assert.equal(ratedRow?.ratingScore, 86);
+  });
+
   it("keeps Index reference details out of the default surface read", async function () {
     const root = await makeRuntimeRoot();
     const repository = createSynthesisRepository({

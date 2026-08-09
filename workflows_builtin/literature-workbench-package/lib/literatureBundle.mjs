@@ -8,6 +8,10 @@ import {
 } from "./embeddedPayloadAttachments.mjs";
 import { exportBundleBibliography } from "./bundleBibliography.mjs";
 import { rewriteMarkdownLocalImages } from "./markdownLocalImages.mjs";
+import {
+  buildLiteratureScorePayload,
+  upsertLiteratureScoreNote,
+} from "./literatureScoreNote.mjs";
 
 export { rewriteMarkdownLocalImages };
 
@@ -1210,6 +1214,8 @@ function productPayloadNoteKind(payloadType) {
       ? "references"
       : payloadType === "citation-analysis-json"
         ? "citation-analysis"
+        : payloadType === "literature-score-json"
+          ? "literature-score"
         : "conversation-note";
 }
 
@@ -1248,6 +1254,19 @@ export async function importResearchProductArchive(args) {
       for (const payload of paper.payloads || []) {
         const content = await archive.readText(payload.path);
         const noteKind = productPayloadNoteKind(payload.payload_type);
+        if (payload.payload_type === "literature-score-json") {
+          const applied = await upsertLiteratureScoreNote({
+            runtime: args.runtime || { hostApi: host },
+            parentItem: parent,
+            payload: buildLiteratureScorePayload(
+              productPayloadForImport(payload.payload_type, content),
+              payload.path,
+            ),
+            existingNotes: [],
+          });
+          createdChildren.push(applied.note);
+          continue;
+        }
         const note = await host.parents.addNote(parent, {
           content: `<div data-zs-note-kind="${noteKind}"></div>`,
         });

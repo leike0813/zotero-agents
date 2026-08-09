@@ -54,7 +54,9 @@ import {
   isLibraryArtifactsColumnInvalidationEvent,
   notifyLibraryArtifactsColumnItemsChanged,
   registerLibraryArtifactsColumn,
+  registerLibraryRatingColumn,
   unregisterLibraryArtifactsColumn,
+  unregisterLibraryRatingColumn,
 } from "./modules/libraryArtifactsColumn";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
@@ -875,6 +877,7 @@ async function onStartup() {
 
   registerPrefsPane();
   await registerLibraryArtifactsColumn();
+  await registerLibraryRatingColumn();
   registerLibraryArtifactsNotifierObserver();
 
   await Promise.all(
@@ -1206,6 +1209,7 @@ async function onShutdown(): Promise<void> {
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
   unregisterLibraryArtifactsNotifierObserver();
+  await unregisterLibraryRatingColumn();
   await unregisterLibraryArtifactsColumn();
   uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
