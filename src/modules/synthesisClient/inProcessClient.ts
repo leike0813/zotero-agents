@@ -53,9 +53,11 @@ import {
   type SynthesisTagImportApplyRequest,
   type SynthesisTagImportPreviewRequest,
   type SynthesisTagSelectionRequest,
+  type SynthesisTagSuggestionStageRequest,
   type SynthesisStagedTagUpdateRequest,
   type SynthesisTagStagedSuggestion,
   type SynthesisTagVocabularySnapshot,
+  type SynthesisTagVocabularySaveRequest,
   type SynthesisTagVocabularyEntryDeleteRequest,
   type SynthesisTagVocabularyEntryUpdateRequest,
   type SynthesisTopicApplyRequest,
@@ -168,12 +170,16 @@ export interface SynthesisClientPort {
   initializeBuiltinTagPolicy?(): Promise<unknown>;
   isBuiltinTagPolicyInitialized?(): boolean | Promise<boolean>;
   loadTagVocabulary?(): Promise<unknown>;
-  saveTagVocabulary?(request: Record<string, unknown>): Promise<unknown>;
+  saveTagVocabulary?(
+    request: SynthesisTagVocabularySaveRequest,
+  ): Promise<unknown>;
   validateTagVocabulary?(): Promise<unknown>;
   rebuildTagVocabularyIndex?(): Promise<unknown>;
   exportTagVocabularyForRegulator?(): Promise<unknown>;
   listStagedTagSuggestions?(): Promise<unknown>;
-  stageTagSuggestions?(request: Record<string, unknown>): Promise<unknown>;
+  stageTagSuggestions?(
+    request: SynthesisTagSuggestionStageRequest,
+  ): Promise<unknown>;
   updateStagedTagSuggestion?(
     request: SynthesisStagedTagUpdateRequest,
   ): Promise<unknown>;
@@ -593,6 +599,56 @@ function normalizeRequiredString(
     });
   }
   return value.trim();
+}
+
+function omitUndefinedTagFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(omitUndefinedTagFields);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, entry]) =>
+      entry === undefined
+        ? []
+        : [[key, omitUndefinedTagFields(entry)] as const],
+    ),
+  );
+}
+
+function normalizeTagVocabularySaveRequest(
+  value: unknown,
+): SynthesisTagVocabularySaveRequest {
+  const request = toSynthesisJsonObject(
+    omitUndefinedTagFields(value),
+    "$.request",
+  );
+  if (!Array.isArray(request.entries)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Tag Vocabulary entries must be an array",
+      { field: "entries" },
+    );
+  }
+  return request as unknown as SynthesisTagVocabularySaveRequest;
+}
+
+function normalizeTagSuggestionStageRequest(
+  value: unknown,
+): SynthesisTagSuggestionStageRequest {
+  const request = toSynthesisJsonObject(
+    omitUndefinedTagFields(value),
+    "$.request",
+  );
+  if (!Array.isArray(request.entries)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis staged Tag entries must be an array",
+      { field: "entries" },
+    );
+  }
+  return request as unknown as SynthesisTagSuggestionStageRequest;
 }
 
 function normalizeTagSelectionRequest(
@@ -1855,14 +1911,15 @@ export function createSynthesisClientFromPort(
         );
       },
       async saveTagVocabulary(request) {
-        return runLegacy(async () =>
-          normalizeLegacyJson(
+        return runLegacy(async () => {
+          const normalized = normalizeTagVocabularySaveRequest(request);
+          return normalizeLegacyJson(
             await requireLegacyPort(
               legacy.saveTagVocabulary,
               "tags.saveTagVocabulary",
-            )(request),
-          ),
-        );
+            )(normalized),
+          );
+        });
       },
       async validateTagVocabulary() {
         return runLegacy(async () =>
@@ -1924,14 +1981,15 @@ export function createSynthesisClientFromPort(
         });
       },
       async stageTagSuggestions(request) {
-        return runLegacy(async () =>
-          normalizeLegacyJson(
+        return runLegacy(async () => {
+          const normalized = normalizeTagSuggestionStageRequest(request);
+          return normalizeLegacyJson(
             await requireLegacyPort(
               legacy.stageTagSuggestions,
               "tags.stageTagSuggestions",
-            )(request),
-          ),
-        );
+            )(normalized),
+          );
+        });
       },
       async updateStagedTagSuggestion(request) {
         return runLegacy(async () => {

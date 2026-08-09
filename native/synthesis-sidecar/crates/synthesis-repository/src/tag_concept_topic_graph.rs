@@ -570,15 +570,34 @@ impl Repository {
         })
     }
 
-    pub fn replace_tag_audit(&mut self, record: &TagAuditRecord) -> Result<(), String> {
-        self.transaction(|repository| put_tag_audit(repository, record))
+    pub fn replace_tag_audits(
+        &mut self,
+        library_id: i64,
+        records: &[TagAuditRecord],
+    ) -> Result<(), String> {
+        if library_id <= 0
+            || records
+                .iter()
+                .any(|record| record.library_id != library_id || record.item_key.is_empty())
+        {
+            return Err("invalid_request".into());
+        }
+        self.transaction(|repository| {
+            repository.execute(
+                "DELETE FROM synt_tag_audit WHERE library_id=?1",
+                &[json!(library_id)],
+            )?;
+            records
+                .iter()
+                .try_for_each(|record| put_tag_audit(repository, record))
+        })
     }
 
-    pub fn clear_tag_audit(&mut self, library_id: i64, item_key: &str) -> Result<bool, String> {
-        Ok(self.execute(
-            "DELETE FROM synt_tag_audit WHERE library_id=?1 AND item_key=?2",
-            &[json!(library_id), json!(item_key)],
-        )? > 0)
+    pub fn upsert_tag_audit(&mut self, record: &TagAuditRecord) -> Result<(), String> {
+        if record.library_id <= 0 || record.item_key.is_empty() {
+            return Err("invalid_request".into());
+        }
+        self.transaction(|repository| put_tag_audit(repository, record))
     }
 
     pub fn update_tag_effect(
@@ -1490,6 +1509,76 @@ mod tests {
                 .expect("active")
                 .vocabulary_hash,
             "tag:1"
+        );
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tag_audit_replacement_is_library_scoped_and_atomic() {
+        let (root, mut repository) = open("tag-audit-replacement");
+        let audit = |library_id: i64, item_key: &str| TagAuditRecord {
+            library_id,
+            item_key: item_key.into(),
+            needs_tag_regulation: 1,
+            non_compliant_tags_json: "[]".into(),
+            audited_at: "2026-08-09T00:00:00.000Z".into(),
+            updated_at: "2026-08-09T00:00:00.000Z".into(),
+        };
+        repository
+            .replace_tag_audits(1, &[audit(1, "ONE"), audit(1, "TWO")])
+            .expect("seed first library");
+        repository
+            .replace_tag_audits(2, &[audit(2, "OTHER")])
+            .expect("seed second library");
+        repository
+            .replace_tag_audits(1, &[audit(1, "REPLACED")])
+            .expect("replace first library");
+        assert_eq!(
+            repository
+                .list_tag_audits()
+                .expect("audits")
+                .iter()
+                .map(|record| (record.library_id, record.item_key.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "REPLACED"), (2, "OTHER")]
+        );
+
+        repository
+            .execute(
+                "CREATE TRIGGER fail_tag_audit BEFORE INSERT ON synt_tag_audit
+                 WHEN NEW.item_key='FAIL' BEGIN SELECT RAISE(ABORT,'forced'); END",
+                &[],
+            )
+            .expect("trigger");
+        assert!(
+            repository
+                .replace_tag_audits(1, &[audit(1, "FAIL")])
+                .is_err()
+        );
+        assert_eq!(
+            repository
+                .list_tag_audits()
+                .expect("audits after rollback")
+                .iter()
+                .map(|record| (record.library_id, record.item_key.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "REPLACED"), (2, "OTHER")]
+        );
+        let mut cleared = audit(1, "REPLACED");
+        cleared.needs_tag_regulation = 0;
+        repository
+            .upsert_tag_audit(&cleared)
+            .expect("write compliant audit state");
+        assert_eq!(
+            repository
+                .list_tag_audits()
+                .expect("cleared audit")
+                .into_iter()
+                .find(|record| record.library_id == 1)
+                .expect("first library audit")
+                .needs_tag_regulation,
+            0
         );
         drop(repository);
         let _ = std::fs::remove_dir_all(root);

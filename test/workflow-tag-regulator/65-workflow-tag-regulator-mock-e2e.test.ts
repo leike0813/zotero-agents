@@ -260,6 +260,16 @@ function installSynthesisTagVocabularyHostApiGlobals() {
             diagnostics: [],
           };
         },
+        async replaceTagAuditRecords(args: {
+          libraryId: number;
+          entries?: unknown[];
+        }) {
+          return {
+            libraryId: args.libraryId,
+            audited: Array.isArray(args.entries) ? args.entries.length : 0,
+          };
+        },
+        async clearTagAuditRecord() {},
       },
     },
   });

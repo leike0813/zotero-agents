@@ -104,3 +104,37 @@
 - A real child-process regression first exposed panic stderr and returned `worker_crashed`; after bounded stderr capture it returned `worker_panicked` without emitting the private panic detail. The full `synthesis-sidecar` package passed 1 library, 69 binary, and 11 worker-pool integration tests.
 - Rust format, scoped Clippy with warnings denied, the debug sidecar build, and strict validation of this OpenSpec change passed.
 - A read-only immutable query of the current Synthesis database produced 2,292 nodes, 3,096 edges, and one self-loop. The rebuilt worker completed Force layout in 1,552 ms, returned all 2,292 nodes with the original graph hash, exited zero, and wrote no stderr. The database and deployed runtime were not modified.
+
+## 11. Repair Tag Public DTO Routing
+
+- [x] 11.1 Add failing real production-route evidence for public vocabulary save/reopen and staged-suggestion add/list behavior
+- [x] 11.2 Define the grouped Tag public DTOs explicitly and remove repository-record requirements from the native adapter boundary
+- [x] 11.3 Restore application-owned vocabulary entry and staged-suggestion mutation semantics, including update, delete, discard, and promotion
+- [x] 11.4 Replace false-green Tag `invalid_request` acceptance evidence and run focused TypeScript, Rust, workflow, production-route, and strict OpenSpec gates
+
+### 2026-08-09 Tag public DTO repair evidence
+
+- The new real-route regression first failed before Host RPC because `loadTagVocabulary` omitted public `aliases`, `abbrev`, and `protocol`; after repair it exercised native composition, HTTP, Rust, SQLite, and cold reopen for vocabulary save, staged add/update/discard/promote, entry update/delete, import merge, aliases, abbreviations, protocol, and audit replacement.
+- Tag public DTO reconstruction now belongs to the typed adapter and Tag application service. Repository records, serialized JSON columns, revision fields, and timestamps are no longer required public mutation inputs. Builtin policy initialization and import/staged/vocabulary mutation rules are application-owned, and library audit replacement is one repository transaction.
+- The fixed-baseline scenario no longer classifies valid Tag requests as `invalid_request` or `unavailable`. The Tag parity checker rejects any future stable-error classification for the 19 ready Tag operations, and the closed 96-operation native-composition matrix passed with valid Tag DTOs.
+- TypeScript, synthesis-contract, production-capability, typed-application, Tag application parity, ESLint, Prettier, Rust format/Clippy/build, all 209 Rust workspace tests, focused Tag Regulator workflow tests, four real production-route/roster cases, and strict OpenSpec validation passed. No server, release, publication, archive, or Gitee synchronization was run.
+
+## 12. Repair Workflow Tag Surface Invalidation
+
+- [x] 12.1 Add failing behavior evidence that successful workflow Tag mutations invalidate the Tags Workbench surface
+- [x] 12.2 Make affected Workbench surfaces explicit in the sidecar-change event and publish Tags invalidation after workflow vocabulary save, staged add, and staged discard
+- [x] 12.3 Run focused workflow, Workbench, Tag Regulator, real production-route, formatting, lint, and strict OpenSpec gates and record the result
+- [x] 12.4 Add failing real production-route evidence that the Workbench Tags projection includes the same staged rows as the Tag staged-list capability
+- [x] 12.5 Compose the Workbench Tags DTO from public vocabulary and staged application reads, rebuild the native sidecar, and rerun focused gates
+
+### 2026-08-09 Workflow Tag surface invalidation evidence
+
+- The workflow-client regression first observed no invalidation after vocabulary save, staged add, or staged discard, while existing notifications carried no affected-surface identity. After repair, all three successful Tag mutations publish Tags-only invalidation; digest and Tag audit paths retain their prior Index/Graph scopes through the same explicit contract.
+- The Workbench invalidation event now carries the exact affected surface set, deduplicates it once, and passes it unchanged to listeners. The Workbench marks only those surfaces dirty, immediately refreshes the active affected surface, and leaves inactive affected surfaces dirty until selected.
+- The workflow-client suite passed 9 cases, the full Workbench UI model suite passed 83, Tag Regulator apply-intake passed 16, and the real Rust production-route staged DTO save/list/reopen case passed. Project TypeScript, scoped ESLint, scoped Prettier, diff whitespace, and strict OpenSpec validation passed. No server, release, publication, archive, or Gitee synchronization was run.
+
+### 2026-08-09 Workbench Tags staged projection evidence
+
+- A read-only query against the active Zotero Synthesis database found four staged suggestions, and the active sidecar's direct staged-list capability returned the same four public rows. Its Workbench Tags surface nevertheless omitted the `staged` field, reproducing the empty inbox independently of UI state and proving the projection defect.
+- The new real production-route assertion first failed because `tags.staged` was absent. The typed Workbench adapter now composes the Tags DTO directly from `load_public_vocabulary` and `list_public_staged`; the same route test passes with the staged row and its public facet, note, source flow, and stable parent binding, including cold reopen coverage from the enclosing case.
+- The debug native sidecar was rebuilt. The `synthesis-sidecar` package passed 1 library test, 67 binary tests, and 11 worker-pool integration tests; workspace Clippy with warnings denied, Rust format, project TypeScript, scoped ESLint, scoped Prettier, diff whitespace, and strict OpenSpec validation passed. The already-running Zotero process still owns the prior staged sidecar copy and must be restarted before desktop verification. No development server, release, publication, archive, or Gitee synchronization was run.

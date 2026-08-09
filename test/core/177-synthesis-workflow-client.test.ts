@@ -82,11 +82,17 @@ async function assertInvalidRequest(run: () => Promise<unknown>) {
 describe("Synthesis workflow client migration", function () {
   it("exposes only the twelve workflow methods and routes grouped capabilities", async function () {
     const calls: string[] = [];
-    const changes: string[] = [];
+    const changes: Array<{
+      reason: string;
+      invalidatedSurfaces: string[];
+    }> = [];
     const api = createWorkflowSynthesisHostApi({
       resolveClient: async () => fakeClient(calls),
       notifyChanged(input) {
-        changes.push(String(input.reason || ""));
+        changes.push({
+          reason: String(input.reason || ""),
+          invalidatedSurfaces: input.invalidatedSurfaces,
+        });
       },
     });
 
@@ -122,9 +128,30 @@ describe("Synthesis workflow client migration", function () {
       "clearTagAuditRecord",
     ]);
     assert.deepEqual(changes, [
-      "literature_digest_apply",
-      "tag_audit_apply",
-      "tag_regulation_apply",
+      {
+        reason: "tag_vocabulary_save",
+        invalidatedSurfaces: ["tags"],
+      },
+      {
+        reason: "tag_suggestions_stage",
+        invalidatedSurfaces: ["tags"],
+      },
+      {
+        reason: "tag_suggestions_discard",
+        invalidatedSurfaces: ["tags"],
+      },
+      {
+        reason: "literature_digest_apply",
+        invalidatedSurfaces: ["index", "graph"],
+      },
+      {
+        reason: "tag_audit_apply",
+        invalidatedSurfaces: ["index"],
+      },
+      {
+        reason: "tag_regulation_apply",
+        invalidatedSurfaces: ["index"],
+      },
     ]);
   });
 

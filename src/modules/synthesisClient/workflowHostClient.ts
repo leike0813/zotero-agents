@@ -459,9 +459,9 @@ export function createWorkflowSynthesisHostApi(
       ).workflowApply.applyLiteratureDigestSidecar(request);
       const sourceRef = cleanString(result.sourceRef || result.source_ref);
       notifyChanged({
+        invalidatedSurfaces: ["index", "graph"],
         sourceRefs: sourceRef ? [sourceRef] : [],
         reason: "literature_digest_apply",
-        graphMayHaveChanged: true,
       });
       return result;
     },
@@ -480,7 +480,14 @@ export function createWorkflowSynthesisHostApi(
       return (await resolveClient()).tags.loadTagVocabulary();
     },
     async saveTagVocabulary(request) {
-      return (await resolveClient()).tags.saveTagVocabulary(request);
+      const result = await (
+        await resolveClient()
+      ).tags.saveTagVocabulary(request);
+      notifyChanged({
+        invalidatedSurfaces: ["tags"],
+        reason: "tag_vocabulary_save",
+      });
+      return result;
     },
     async exportTagVocabularyForRegulator() {
       return (await resolveClient()).tags.exportTagVocabularyForRegulator();
@@ -489,26 +496,40 @@ export function createWorkflowSynthesisHostApi(
       return (await resolveClient()).tags.listStagedTagSuggestions();
     },
     async stageTagSuggestions(request) {
-      return (await resolveClient()).tags.stageTagSuggestions(request);
+      const result = await (
+        await resolveClient()
+      ).tags.stageTagSuggestions(request);
+      notifyChanged({
+        invalidatedSurfaces: ["tags"],
+        reason: "tag_suggestions_stage",
+      });
+      return result;
     },
     async discardStagedTagSuggestions(request) {
-      return (await resolveClient()).tags.discardStagedTagSuggestions(request);
+      const result = await (
+        await resolveClient()
+      ).tags.discardStagedTagSuggestions(request);
+      notifyChanged({
+        invalidatedSurfaces: ["tags"],
+        reason: "tag_suggestions_discard",
+      });
+      return result;
     },
     async replaceTagAuditRecords(request) {
       const result = await (
         await resolveClient()
       ).tags.replaceTagAuditRecords(request);
       notifyChanged({
+        invalidatedSurfaces: ["index"],
         reason: "tag_audit_apply",
-        graphMayHaveChanged: false,
       });
       return result;
     },
     async clearTagAuditRecord(request) {
       await (await resolveClient()).tags.clearTagAuditRecord(request);
       notifyChanged({
+        invalidatedSurfaces: ["index"],
         reason: "tag_regulation_apply",
-        graphMayHaveChanged: false,
       });
     },
   };

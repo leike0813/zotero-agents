@@ -677,6 +677,228 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
+  it("persists public Tag vocabulary and staged-suggestion DTOs across reopen", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-tag-dto-"));
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "tag-dto-initial",
+      root,
+    });
+    try {
+      await harness.client.tags.initializeBuiltinTagPolicy();
+      const initial = await harness.client.tags.loadTagVocabulary();
+      await harness.client.tags.saveTagVocabulary({
+        entries: [
+          ...((initial.entries as unknown[]) || []),
+          {
+            tag: "topic:public-dto",
+            facet: "topic",
+            note: "Saved through the grouped client contract",
+            source: "manual",
+          },
+          {
+            tag: "topic:mutation-dto",
+            facet: "topic",
+            source: "manual",
+          },
+        ],
+        aliases: { "topic:public-alias": "topic:public-dto" },
+        abbrev: { pdt: "topic:public-dto" },
+        protocol: initial.protocol,
+      });
+      await harness.client.tags.stageTagSuggestions({
+        entries: [
+          {
+            tag: "method:staged-dto",
+            facet: "method",
+            note: "Staged through the workflow DTO",
+            source_flow: "tag-regulator-suggest",
+            parent_bindings: [{ libraryId: 1, itemKey: "TAGDTO1" }],
+          },
+          {
+            tag: "method:discard-dto",
+            facet: "method",
+            source_flow: "tag-regulator-suggest",
+          },
+          {
+            tag: "method:promote-dto",
+            facet: "method",
+            source_flow: "tag-regulator-suggest",
+          },
+        ],
+      });
+      const updatedStaged = await harness.client.tags.updateStagedTagSuggestion(
+        {
+          originalTag: "method:staged-dto",
+          tag: "method:updated-staged-dto",
+          facet: "method",
+          note: "Updated through the grouped client contract",
+          sourceFlow: "tag-regulator-suggest",
+          parentBindings: [{ libraryId: 1, itemKey: "TAGDTO2" }],
+        },
+      );
+      assert.deepInclude(updatedStaged.staged[0], {
+        tag: "method:updated-staged-dto",
+        parent_bindings: [{ libraryId: 1, itemKey: "TAGDTO2" }],
+      });
+      assert.deepEqual(
+        await harness.client.tags.discardStagedTagSuggestions({
+          tags: ["method:discard-dto"],
+        }),
+        { discarded: ["method:discard-dto"] },
+      );
+      assert.deepEqual(
+        await harness.client.tags.promoteStagedTagSuggestions({
+          tags: ["method:promote-dto"],
+        }),
+        { promoted: ["method:promote-dto"], skipped: [] },
+      );
+      const updatedEntry = await harness.client.tags.updateTagVocabularyEntry({
+        originalTag: "topic:mutation-dto",
+        tag: "topic:renamed-dto",
+        facet: "topic",
+        note: "Renamed through the grouped client contract",
+      });
+      assert.equal(updatedEntry.mutated, true);
+      assert.deepInclude(updatedEntry.updated as Record<string, unknown>, {
+        tag: "topic:renamed-dto",
+        facet: "topic",
+        note: "Renamed through the grouped client contract",
+      });
+      assert.deepEqual(
+        await harness.client.tags.deleteTagVocabularyEntry({
+          originalTag: "topic:renamed-dto",
+        }),
+        { mutated: true, deleted: ["topic:renamed-dto"] },
+      );
+      const importPayload = JSON.stringify({
+        entries: [{ tag: "topic:imported-dto", facet: "topic" }],
+      });
+      const importPreview =
+        await harness.client.tags.previewTagVocabularyImport({
+          payload: importPayload,
+        });
+      assert.include(
+        (importPreview.additions as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "topic:imported-dto",
+      );
+      await harness.client.tags.applyTagVocabularyImport({
+        payload: importPayload,
+        action: "merge-non-conflicting",
+      });
+      assert.deepEqual(
+        await harness.client.tags.replaceTagAuditRecords({
+          libraryId: 1,
+          entries: [
+            {
+              itemKey: "TAGDTO1",
+              compliant: false,
+              nonCompliantTags: ["topic:legacy"],
+            },
+          ],
+        }),
+        { libraryId: 1, audited: 1 },
+      );
+      assert.deepEqual(
+        await harness.client.tags.replaceTagAuditRecords({
+          libraryId: 1,
+          entries: [],
+        }),
+        { libraryId: 1, audited: 0 },
+      );
+
+      const saved = await harness.client.tags.loadTagVocabulary();
+      assert.deepEqual(saved.aliases, {
+        "topic:public-alias": "topic:public-dto",
+      });
+      assert.deepEqual(saved.abbrev, { pdt: "topic:public-dto" });
+      assert.deepInclude(
+        (saved.entries as Array<Record<string, unknown>>).find(
+          (entry) => entry.tag === "topic:public-dto",
+        ),
+        {
+          tag: "topic:public-dto",
+          facet: "topic",
+          note: "Saved through the grouped client contract",
+          source: "manual",
+        },
+      );
+      assert.deepInclude(
+        (await harness.client.tags.listStagedTagSuggestions()).find(
+          (entry) => entry.tag === "method:updated-staged-dto",
+        ),
+        {
+          tag: "method:updated-staged-dto",
+          facet: "method",
+          note: "Updated through the grouped client contract",
+          source_flow: "tag-regulator-suggest",
+          parent_bindings: [{ libraryId: 1, itemKey: "TAGDTO2" }],
+        },
+      );
+      const workbenchTags = (await harness.call(
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["tags", {}] },
+      )) as {
+        tags?: {
+          staged?: Array<Record<string, unknown>>;
+        };
+      };
+      assert.deepInclude(
+        workbenchTags.tags?.staged?.find(
+          (entry) => entry.tag === "method:updated-staged-dto",
+        ),
+        {
+          tag: "method:updated-staged-dto",
+          facet: "method",
+          note: "Updated through the grouped client contract",
+          source_flow: "tag-regulator-suggest",
+          parent_bindings: [{ libraryId: 1, itemKey: "TAGDTO2" }],
+        },
+      );
+
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "tag-dto-reopen",
+        root,
+      });
+      const reopened = await harness.client.tags.loadTagVocabulary();
+      assert.include(
+        (reopened.entries as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "topic:public-dto",
+      );
+      assert.include(
+        (reopened.entries as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "method:promote-dto",
+      );
+      assert.include(
+        (reopened.entries as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "topic:imported-dto",
+      );
+      assert.notInclude(
+        (reopened.entries as Array<Record<string, unknown>>).map(
+          (entry) => entry.tag,
+        ),
+        "topic:renamed-dto",
+      );
+      assert.include(
+        (await harness.client.tags.listStagedTagSuggestions()).map(
+          (entry) => entry.tag,
+        ),
+        "method:updated-staged-dto",
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("persists Topic delete, rebuild, and purge across production-route reopen", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(

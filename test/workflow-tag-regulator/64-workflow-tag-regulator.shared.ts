@@ -471,6 +471,16 @@ function installSynthesisTagVocabularyHostApiGlobals() {
             removed: true,
           };
         },
+        async replaceTagAuditRecords(args: {
+          libraryId: number;
+          entries?: unknown[];
+        }) {
+          return {
+            libraryId: args.libraryId,
+            audited: Array.isArray(args.entries) ? args.entries.length : 0,
+          };
+        },
+        async clearTagAuditRecord() {},
       },
     },
   });
@@ -1921,6 +1931,7 @@ function registerTagRegulatorApplyIntakeSegment(
               clearCount += 1;
               return { discarded: [] };
             },
+            async clearTagAuditRecord() {},
           },
         },
       });

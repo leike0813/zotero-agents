@@ -182,8 +182,8 @@ pub trait TagVocabularyRepositoryPort: Send + Sync {
         index_json: &str,
         now: &str,
     ) -> Result<bool, String>;
-    fn replace_audit(&self, record: &TagAuditRecord) -> Result<(), String>;
-    fn clear_audit(&self, library_id: i64, item_key: &str) -> Result<bool, String>;
+    fn replace_audits(&self, library_id: i64, records: &[TagAuditRecord]) -> Result<(), String>;
+    fn upsert_audit(&self, record: &TagAuditRecord) -> Result<(), String>;
     fn update_effect_receipts(&self, receipts: &[TagEffectReceiptRecord]) -> Result<(), String>;
 }
 
@@ -550,18 +550,18 @@ impl TagVocabularyRepositoryPort for RepositoryPort {
             .promote_tag_index(expected_vocabulary_hash, index_hash, index_json, now)
     }
 
-    fn replace_audit(&self, record: &TagAuditRecord) -> Result<(), String> {
+    fn replace_audits(&self, library_id: i64, records: &[TagAuditRecord]) -> Result<(), String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .replace_tag_audit(record)
+            .replace_tag_audits(library_id, records)
     }
 
-    fn clear_audit(&self, library_id: i64, item_key: &str) -> Result<bool, String> {
+    fn upsert_audit(&self, record: &TagAuditRecord) -> Result<(), String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .clear_tag_audit(library_id, item_key)
+            .upsert_tag_audit(record)
     }
 
     fn update_effect_receipts(&self, receipts: &[TagEffectReceiptRecord]) -> Result<(), String> {

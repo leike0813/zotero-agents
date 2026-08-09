@@ -22,6 +22,10 @@ const operationsPath = path.join(
   root,
   "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
 );
+const baselinePath = path.join(
+  root,
+  "test/fixtures/synthesis-sidecar-migration/main-e210997a-production-observables.v1.json",
+);
 const boundary = ["invalid_args", "oversized", "expired"];
 const readCases = ["empty", "deterministic_order", "pagination"];
 const mutationCases = [
@@ -48,6 +52,9 @@ export function inspectSynthesisTagSurfaceParity() {
   )!.corpus as Corpus;
   const manifest = JSON.parse(fs.readFileSync(operationsPath, "utf8")) as {
     access: Record<string, Access>;
+  };
+  const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8")) as {
+    productionRouteScenario: { stableErrors: Record<string, string> };
   };
   const ids = corpus.operations.map((op) => op.id);
   const errors = [
@@ -96,6 +103,9 @@ export function inspectSynthesisTagSurfaceParity() {
     ...(new Set(ready).size === ready.length
       ? []
       : ["duplicate ready capability"]),
+    ...ids
+      .filter((id) => baseline.productionRouteScenario.stableErrors[id])
+      .map((id) => `valid Tag scenario is classified as stable error: ${id}`),
   ];
   return { ok: errors.length === 0, operations: ids.length, errors };
 }

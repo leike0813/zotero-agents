@@ -18,21 +18,11 @@
       "boolean": ["client.isBuiltinTagPolicyInitialized"],
       "array": [
         "client.exportTagVocabularyForRegulator",
-        "client.listStagedTagSuggestions"
+        "client.listStagedTagSuggestions",
+        "client.validateTagVocabulary"
       ]
     },
     "stableErrors": {
-      "client.validateTagVocabulary": "invalid_request",
-      "client.previewTagVocabularyImport": "invalid_request",
-      "client.saveTagVocabulary": "invalid_request",
-      "client.stageTagSuggestions": "invalid_request",
-      "client.updateStagedTagSuggestion": "invalid_request",
-      "client.updateTagVocabularyEntry": "invalid_request",
-      "client.deleteTagVocabularyEntry": "invalid_request",
-      "client.promoteStagedTagSuggestions": "unavailable",
-      "client.discardStagedTagSuggestions": "invalid_request",
-      "client.applyTagVocabularyImport": "invalid_request",
-      "client.replaceTagAuditRecords": "invalid_request",
       "client.updateConceptDisplayText": "unavailable",
       "client.applyConceptReviewAction": "unavailable",
       "client.deleteConceptEntries": "unavailable",
@@ -395,21 +385,34 @@
       "id": "tag",
       "cases": [
         {
-          "id": "case:tag-empty-vocabulary",
+          "id": "case:tag-default-vocabulary",
           "operation": "client.loadTagVocabulary",
           "access": "read",
           "request": { "args": [] },
           "expected": {
-            "dtoSemantics": ["bounded-empty-tag-vocabulary"],
+            "dtoSemantics": ["bounded-public-tag-vocabulary"],
             "logicalFacts": ["tag-policy-preserved"],
             "hostEffects": [],
             "writeExpectation": "zero",
             "projection": {
-              "entryCount": 0,
-              "stagedCount": 0,
-              "entries": [],
-              "staged": [],
-              "effects": []
+              "aliases": {},
+              "abbrev": {},
+              "protocol": {
+                "version": "1.0.0",
+                "tag_pattern": "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+                "max_tag_length": 120,
+                "facets": [
+                  "field",
+                  "topic",
+                  "method",
+                  "model",
+                  "ai_task",
+                  "data",
+                  "tool",
+                  "status"
+                ]
+              },
+              "validation_warnings": []
             }
           },
           "comparison": { "unorderedCollections": ["entries:tag"] }

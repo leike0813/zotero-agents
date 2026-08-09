@@ -2,10 +2,72 @@ import type { SynthesisJsonObject, SynthesisJsonValue } from "./common";
 import type { SynthesisHostItemRef } from "./itemRef";
 import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
-export type SynthesisTagVocabularySnapshot = SynthesisJsonObject;
+export type SynthesisTagVocabularyEntry = {
+  tag: string;
+  facet: string;
+  note?: string;
+  source?: string;
+  deprecated?: boolean;
+  replacement?: string;
+  aliases?: string[];
+  abbrev?: string[];
+  usage_count?: number;
+  last_synced_at?: string;
+};
+
+export type SynthesisTagProtocol = {
+  version?: string;
+  tag_pattern: string;
+  max_tag_length: number;
+  facets: string[];
+};
+
+export type SynthesisTagValidationWarning = {
+  code: string;
+  severity: "warning" | "error";
+  tag?: string;
+  message: string;
+};
+
+export type SynthesisTagVocabularySnapshot = {
+  entries: SynthesisTagVocabularyEntry[];
+  aliases: Record<string, string>;
+  abbrev: Record<string, string>;
+  protocol: SynthesisTagProtocol;
+  manifest: SynthesisJsonObject;
+  validation_warnings: SynthesisTagValidationWarning[];
+  projection?: SynthesisJsonObject;
+  import_preview?: SynthesisJsonObject;
+};
+
+export type SynthesisTagVocabularySaveRequest = {
+  entries: SynthesisTagVocabularyEntry[];
+  aliases?: Record<string, string>;
+  abbrev?: Record<string, string>;
+  protocol?: SynthesisTagProtocol;
+  transactionId?: string;
+};
 
 export type SynthesisTagStagedSuggestion = SynthesisJsonObject & {
   tag: string;
+  facet: string;
+  note?: string;
+  source_flow?: string;
+  parent_bindings?: SynthesisHostItemRef[];
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SynthesisTagSuggestionInput = {
+  tag: string;
+  facet?: string;
+  note?: string;
+  source_flow?: string;
+  parent_bindings?: SynthesisHostItemRef[];
+};
+
+export type SynthesisTagSuggestionStageRequest = {
+  entries: SynthesisTagSuggestionInput[];
 };
 
 export type SynthesisTagSelectionRequest = {
@@ -64,13 +126,15 @@ export interface SynthesisTagsClient {
   initializeBuiltinTagPolicy(): Promise<SynthesisTagVocabularySnapshot>;
   isBuiltinTagPolicyInitialized(): Promise<boolean>;
   loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot>;
-  saveTagVocabulary(request: SynthesisJsonObject): Promise<SynthesisJsonValue>;
+  saveTagVocabulary(
+    request: SynthesisTagVocabularySaveRequest,
+  ): Promise<SynthesisJsonValue>;
   validateTagVocabulary(): Promise<SynthesisJsonValue>;
   rebuildTagVocabularyIndex(): Promise<SynthesisPublicMaintenanceOperation>;
   exportTagVocabularyForRegulator(): Promise<string[]>;
   listStagedTagSuggestions(): Promise<SynthesisTagStagedSuggestion[]>;
   stageTagSuggestions(
-    request: SynthesisJsonObject,
+    request: SynthesisTagSuggestionStageRequest,
   ): Promise<SynthesisJsonValue>;
   updateStagedTagSuggestion(
     request: SynthesisStagedTagUpdateRequest,

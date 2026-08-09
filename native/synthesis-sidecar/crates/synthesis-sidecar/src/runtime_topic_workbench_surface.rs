@@ -467,8 +467,11 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 
     fn tags(&self, _state: &Value) -> Result<Value, String> {
-        let tags = crate::runtime_tag_surface::dispatch(self.apps, "client.loadTagVocabulary", &[])
-            .ok_or_else(|| "operation_unavailable".to_owned())??;
+        let mut tags = wire(self.apps.tags.load_public_vocabulary()?)?;
+        let staged = wire(self.apps.tags.list_public_staged()?)?;
+        tags.as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .insert("staged".into(), staged);
         Ok(json!({
             "libraryId":self.apps.library_id(),
             "tags":tags,

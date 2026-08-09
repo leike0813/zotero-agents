@@ -31,9 +31,8 @@ use synthesis_application::webdav_sync::{
 use synthesis_application::{
     CanonicalStorePort, CitationGraphApplication, ConceptKbApplication,
     DebugMaintenanceApplication, DurableBundleApplication, ReferenceMatchingApplication,
-    ReferenceRefreshApplication, RepositoryPort, TagVocabularyApplication,
-    TagVocabularyRepositoryPort, TopicApplication, TopicGraphApplication, TopicLibraryQueryPort,
-    WebDavSyncApplication, WorkbenchApplication,
+    ReferenceRefreshApplication, RepositoryPort, TagVocabularyApplication, TopicApplication,
+    TopicGraphApplication, TopicLibraryQueryPort, WebDavSyncApplication, WorkbenchApplication,
 };
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_protocol::utc_now_iso8601;
@@ -111,83 +110,6 @@ impl ProductionApplications {
                 &utc_now_iso8601(),
             )?;
         Ok(json!({"consumed":consumed}))
-    }
-
-    pub(crate) fn initialize_builtin_tag_policy(&self) -> Result<Value, String> {
-        const BUILTIN_TAGS: &[&str] = &[
-            "status:need-analysis",
-            "status:need-deep-reading",
-            "status:need-fulltext",
-            "status:need-markdown",
-            "status:need-metadata-curation",
-        ];
-        let mut candidate = self.repository.load_candidate()?;
-        let expected_hash = (!candidate.state.vocabulary_hash.is_empty())
-            .then(|| candidate.state.vocabulary_hash.clone());
-        let now = utc_now_iso8601();
-        if candidate.protocols.is_empty() {
-            candidate.protocols.push(TagProtocolRecord {
-                protocol_id: "builtin".into(),
-                version: "1.0.0".into(),
-                tag_pattern: "^[a-z_]+:[a-zA-Z0-9/_.-]+$".into(),
-                max_tag_length: 120,
-                facets_json: serde_json::to_string(&[
-                    "field", "topic", "method", "model", "ai_task", "data", "tool", "status",
-                ])
-                .map_err(|_| "invalid_request".to_owned())?,
-                updated_at: now.clone(),
-            });
-        } else {
-            for protocol in &mut candidate.protocols {
-                let mut facets: Vec<String> =
-                    serde_json::from_str(&protocol.facets_json).unwrap_or_default();
-                if !facets.iter().any(|facet| facet == "status") {
-                    facets.push("status".into());
-                    protocol.facets_json =
-                        serde_json::to_string(&facets).map_err(|_| "invalid_request".to_owned())?;
-                    protocol.updated_at = now.clone();
-                }
-            }
-        }
-        for tag in BUILTIN_TAGS {
-            if let Some(entry) = candidate.entries.iter_mut().find(|entry| entry.tag == *tag) {
-                entry.facet = "status".into();
-                entry.source = "builtin".into();
-                entry.deprecated = 0;
-                entry.replacement.clear();
-                entry.updated_at = now.clone();
-            } else {
-                candidate.entries.push(TagVocabularyEntryRecord {
-                    tag: (*tag).into(),
-                    facet: "status".into(),
-                    note: String::new(),
-                    source: "builtin".into(),
-                    deprecated: 0,
-                    replacement: String::new(),
-                    aliases_json: "[]".into(),
-                    abbrev_json: "[]".into(),
-                    usage_count: 0,
-                    last_synced_at: String::new(),
-                    created_at: now.clone(),
-                    updated_at: now.clone(),
-                });
-            }
-        }
-        candidate
-            .entries
-            .sort_by(|left, right| left.tag.cmp(&right.tag));
-        candidate.state.singleton_id = 1;
-        candidate.state.vocabulary_hash = canonical_json_hash(&serde_json::json!({
-            "entries":candidate.entries,
-            "aliases":candidate.aliases,
-            "abbrevs":candidate.abbrevs,
-            "protocols":candidate.protocols,
-            "warnings":candidate.warnings,
-        }))?;
-        candidate.state.index_stale = 1;
-        candidate.state.updated_at = now;
-        serde_json::to_value(self.tags.save(expected_hash.as_deref(), &candidate))
-            .map_err(|_| "serialization_failed".to_owned())
     }
 }
 

@@ -30,8 +30,10 @@ import type {
   SynthesisTagAuditReplaceRequest,
   SynthesisTagCommandResult,
   SynthesisTagSelectionRequest,
+  SynthesisTagSuggestionStageRequest,
   SynthesisTagStagedSuggestion,
   SynthesisTagVocabularySnapshot,
+  SynthesisTagVocabularySaveRequest,
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
   SynthesisWorkflowItemSnapshot,
@@ -640,10 +642,14 @@ export interface WorkflowSynthesisApi {
     request: SynthesisPaperArtifactsRequest,
   ): Promise<SynthesisPaperArtifactsResult>;
   loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot>;
-  saveTagVocabulary(request: SynthesisJsonObject): Promise<SynthesisJsonValue>;
+  saveTagVocabulary(
+    request: SynthesisTagVocabularySaveRequest,
+  ): Promise<SynthesisJsonValue>;
   exportTagVocabularyForRegulator(): Promise<string[]>;
   listStagedTagSuggestions(): Promise<SynthesisTagStagedSuggestion[]>;
-  stageTagSuggestions(request: SynthesisJsonObject): Promise<SynthesisJsonValue>;
+  stageTagSuggestions(
+    request: SynthesisTagSuggestionStageRequest,
+  ): Promise<SynthesisJsonValue>;
   discardStagedTagSuggestions(
     request: SynthesisTagSelectionRequest,
   ): Promise<SynthesisTagCommandResult>;

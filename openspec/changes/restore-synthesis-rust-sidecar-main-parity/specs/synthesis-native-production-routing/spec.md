@@ -92,3 +92,22 @@ The Citation layout engine SHALL validate every supplied edge against the graph 
 - **WHEN** a valid Citation layout request contains an endpoint-closed self-loop
 - **THEN** every supported layout algorithm returns the same coordinates it would return without that self-loop
 - **AND** the result preserves the request graph hash and complete node set
+
+### Requirement: Tag routes SHALL preserve the public vocabulary contract
+
+Tag production routes SHALL deserialize the grouped client's public vocabulary and staged-suggestion DTOs rather than repository records. Vocabulary replacement, entry update/delete, staged add/update/discard, and promotion semantics SHALL be owned by the Tag application service. Public reads SHALL return JSON-safe public fields and MUST NOT expose repository revision, serialized-column, or timestamp bookkeeping fields as required client inputs.
+
+#### Scenario: Workflow saves a loaded vocabulary
+- **WHEN** the Tag Regulator loads a vocabulary and saves its public entries, aliases, abbreviations, and protocol
+- **THEN** the native route accepts that public DTO without requiring repository state or record timestamps
+- **AND** reopening the vocabulary returns the saved public projection
+
+#### Scenario: Workflow stages suggestions
+- **WHEN** the Tag Regulator stages suggestions containing `tag`, optional `facet` and `note`, `source_flow`, and `parent_bindings`
+- **THEN** the application merges them case-insensitively with current staged state
+- **AND** listing staged suggestions returns the public projection without serialized repository columns
+
+#### Scenario: Tag mutation is behaviorally accepted
+- **WHEN** save, stage, update, discard, delete, or promote is claimed ready
+- **THEN** a real production-route test supplies the grouped-client DTO and verifies the resulting read projection after reopen
+- **AND** an expected `invalid_request` fixture cannot count as readiness evidence for a valid request

@@ -11,6 +11,10 @@ import {
 import { isSynthesisLibraryReadModelInvalidationEvent } from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
 import {
+  notifySynthesisWorkbenchSidecarChanged,
+  registerSynthesisWorkbenchSidecarChangeListener,
+} from "../../src/modules/synthesisWorkbenchInvalidation";
+import {
   classifySynthesisWorkbenchGraphMutationResult,
   createSynthesisWorkbenchGraphLayoutFailure,
   resolveSynthesisWorkbenchGraphLayoutStatus,
@@ -4617,7 +4621,7 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(filterBlock, "getDefaultSynthesisService");
   });
 
-  it("invalidates Index and Graph after workflow sidecar apply without marking Review dirty", async function () {
+  it("routes explicit workflow invalidation to the affected Workbench surfaces", async function () {
     const host = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -4626,21 +4630,11 @@ describe("Synthesis tab UI model", function () {
       "src/workflows/hostApi.ts",
       "utf8",
     );
-    const workflowHostClient = await fs.readFile(
-      "src/modules/synthesisClient/workflowHostClient.ts",
-      "utf8",
-    );
-    const invalidationEvents = await fs.readFile(
-      "src/modules/synthesisWorkbenchInvalidation.ts",
-      "utf8",
-    );
-
     const invalidationBlock = extractFunctionBlock(
       host,
       "handleSynthesisWorkbenchSidecarChanged",
     );
-    assert.include(invalidationBlock, '"index", "graph"');
-    assert.notInclude(invalidationBlock, '"review"');
+    assert.include(invalidationBlock, "args.invalidatedSurfaces");
     assert.include(invalidationBlock, "markSurfaceDirty(runtime, surface)");
     assert.include(invalidationBlock, "scheduleLibraryReadModelSurfaceRefresh");
     assert.include(
@@ -4648,18 +4642,22 @@ describe("Synthesis tab UI model", function () {
       "sendChrome(runtime, { refreshFromService: true })",
     );
     assert.include(host, "registerSynthesisWorkbenchSidecarChangeListener");
-
-    const hostApiBlock = extractFunctionBlock(
-      workflowHostClient,
-      "createWorkflowSynthesisHostApi",
-    );
     assert.include(workflowHostApi, "createWorkflowSynthesisHostApi()");
-    assert.include(hostApiBlock, "applyLiteratureDigestSidecar");
-    assert.include(hostApiBlock, "notifySynthesisWorkbenchSidecarChanged");
-    assert.include(hostApiBlock, 'reason: "literature_digest_apply"');
-    assert.include(hostApiBlock, "graphMayHaveChanged: true");
-    assert.include(invalidationEvents, "sidecarChangeListeners");
-    assert.include(invalidationEvents, '["index", "graph"]');
+
+    const observed: string[][] = [];
+    const unregister = registerSynthesisWorkbenchSidecarChangeListener(
+      (event) => observed.push(event.invalidatedSurfaces),
+    );
+    try {
+      const result = notifySynthesisWorkbenchSidecarChanged({
+        invalidatedSurfaces: ["tags", "tags"],
+        reason: "tag_suggestions_stage",
+      });
+      assert.deepEqual(result.invalidatedSurfaces, ["tags"]);
+      assert.deepEqual(observed, [["tags"]]);
+    } finally {
+      unregister();
+    }
   });
 
   it("classifies Zotero item notifications for library read-model invalidation", function () {

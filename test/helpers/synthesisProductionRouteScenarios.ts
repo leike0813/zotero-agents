@@ -248,7 +248,9 @@ const GROUPED_INVOCATIONS: Record<
     client.tags.isBuiltinTagPolicyInitialized(),
   "client.loadTagVocabulary": (client) => client.tags.loadTagVocabulary(),
   "client.saveTagVocabulary": (client) =>
-    client.tags.saveTagVocabulary({ entries: [] }),
+    client.tags.saveTagVocabulary({
+      entries: [{ tag: "topic:scenario", facet: "topic" }],
+    }),
   "client.validateTagVocabulary": (client) =>
     client.tags.validateTagVocabulary(),
   "client.rebuildTagVocabularyIndex": (client) =>
@@ -258,29 +260,38 @@ const GROUPED_INVOCATIONS: Record<
   "client.listStagedTagSuggestions": (client) =>
     client.tags.listStagedTagSuggestions(),
   "client.stageTagSuggestions": (client) =>
-    client.tags.stageTagSuggestions({ suggestions: [] }),
+    client.tags.stageTagSuggestions({
+      entries: [
+        { tag: "method:scenario", facet: "method" },
+        { tag: "method:discard", facet: "method" },
+      ],
+    }),
   "client.updateStagedTagSuggestion": (client) =>
     client.tags.updateStagedTagSuggestion({
-      originalTag: "scenario",
-      tag: "scenario-updated",
-      facet: "topic",
+      originalTag: "method:scenario",
+      tag: "method:scenario-updated",
+      facet: "method",
       note: "fixture",
       sourceFlow: "production-route",
       parentBindings: [],
     }),
   "client.updateTagVocabularyEntry": (client) =>
     client.tags.updateTagVocabularyEntry({
-      originalTag: "scenario",
-      tag: "scenario-updated",
+      originalTag: "topic:scenario",
+      tag: "topic:scenario-updated",
       facet: "topic",
       note: "fixture",
     }),
   "client.deleteTagVocabularyEntry": (client) =>
-    client.tags.deleteTagVocabularyEntry({ originalTag: "scenario" }),
+    client.tags.deleteTagVocabularyEntry({
+      originalTag: "topic:scenario-updated",
+    }),
   "client.promoteStagedTagSuggestions": (client) =>
-    client.tags.promoteStagedTagSuggestions({ tags: ["scenario"] }),
+    client.tags.promoteStagedTagSuggestions({
+      tags: ["method:scenario-updated"],
+    }),
   "client.discardStagedTagSuggestions": (client) =>
-    client.tags.discardStagedTagSuggestions({ tags: ["scenario"] }),
+    client.tags.discardStagedTagSuggestions({ tags: ["method:discard"] }),
   "client.clearStagedTagSuggestions": (client) =>
     client.tags.clearStagedTagSuggestions(),
   "client.previewTagVocabularyImport": (client) =>

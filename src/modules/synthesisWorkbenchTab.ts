@@ -671,8 +671,7 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
 function handleSynthesisWorkbenchSidecarChanged(
   args: SynthesisWorkbenchSidecarChangeEvent,
 ) {
-  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
-    args.graphMayHaveChanged === false ? ["index"] : ["index", "graph"];
+  const invalidatedSurfaces = args.invalidatedSurfaces;
   for (const runtime of synthesisWorkbenchRuntimes) {
     if (invalidatedSurfaces.includes("graph")) {
       runtime.graphGeneration += 1;

@@ -47,3 +47,17 @@ Workbench DTOs SHALL preserve the fixed baseline's stable fields, readiness dist
 #### Scenario: Workbench read is compared before and after
 - **WHEN** a surface read completes without an explicit mutation
 - **THEN** repository facts, cache bases, operations, canonical files, and Host effects remain unchanged
+
+### Requirement: External domain mutations SHALL invalidate their Workbench surfaces
+
+Successful mutations performed through a workflow or another Workbench-external Host consumer SHALL publish the exact affected surface set. The Workbench SHALL mark those surfaces dirty and immediately reload the active surface when it is affected, without refreshing unrelated content surfaces.
+
+#### Scenario: Workflow mutates Tag vocabulary state
+- **WHEN** a workflow successfully saves the controlled Tag vocabulary, stages suggestions, or discards staged suggestions
+- **THEN** the Host SHALL invalidate the Tags surface
+- **AND** an open Tags surface SHALL reload from Synthesis state so staged count, rows, and available actions reflect the committed mutation
+
+#### Scenario: Tags surface is not active
+- **WHEN** a successful workflow Tag mutation occurs while another Workbench surface is active
+- **THEN** the Tags surface SHALL remain dirty until it is selected
+- **AND** Index, Graph, Review, and other unrelated content surfaces SHALL NOT reload solely because of that Tag mutation
