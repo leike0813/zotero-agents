@@ -720,11 +720,49 @@ function renderCommandCard(args: {
           : []),
       ]),
   );
+  const paperArtifactGuidance = (() => {
+    if (
+      ![
+        "synthesis artifact manifest",
+        "synthesis artifact read",
+        "synthesis artifact export-filtered",
+      ].includes(args.command.command)
+    ) {
+      return [];
+    }
+    const shared = [
+      "## Paper artifact contract",
+      "",
+      "- The complete paper artifact set is `digest`, `references`, `citation_analysis`, and `literature_score`. Omit `artifact_types` only when all four are intended; pass an explicit subset for a filtered operation.",
+      "- Complete coverage requires all four statuses to be available. A missing score is `missing`; a decode or schema failure is `error` and yields an invalid quality snapshot. Both are unavailable for coverage.",
+      "- `literature_quality` is the compact frozen score snapshot. Preserve its status, schema/rubric identity, paper type, scores, confidence, quality prior, payload hash, and diagnostics; do not replace it with a subjective quality label.",
+      "- Missing or invalid score snapshots use neutral `quality_prior=0.5` and retain `literature_score_missing` or `literature_score_invalid`. Reference-sidecar refresh does not create or repair scores.",
+      "",
+    ];
+    if (args.command.command === "synthesis artifact manifest") {
+      shared.push(
+        "The response is paged by paper under `data.papers[]`; each paper owns its artifact status rows. Iterate `nextCursor` while `hasMore=true` before claiming the requested manifest scope is complete.",
+        "",
+      );
+    } else if (args.command.command === "synthesis artifact read") {
+      shared.push(
+        "This command returns decoded payload content. Treat an `error/decode_error` row as unusable evidence and preserve its diagnostics instead of interpreting raw note markup.",
+        "",
+      );
+    } else {
+      shared.push(
+        "The filtered export writes the full decoded literature-score payload when selected and carries the compact `literature_quality` snapshot in its versioned manifest. For remote delivery, download and verify the returned bundle handle before reading workspace paths.",
+        "",
+      );
+    }
+    return shared;
+  })();
   return [
     `# \`zotero-bridge ${args.command.command}\``,
     "",
     args.command.summary,
     "",
+    ...paperArtifactGuidance,
     "## Usage",
     "",
     "```console",

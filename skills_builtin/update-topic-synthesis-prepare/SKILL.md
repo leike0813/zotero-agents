@@ -96,7 +96,7 @@ violations、`retryable`、`stateChange`、`handleConsumption` 和
 
 - 基于 runtime update audit report 判断 cancel 或 continue。
 - continue 时设计只增不改的 resolver proposal。
-- 按 runtime 指定 workset 做 per-paper triage：relevance、quality、core_digest、caveats。
+- 按 runtime 指定 workset 做 per-paper triage：relevance、core_digest、caveats；质量使用 manifest 固化的 literature_quality。
 
 必须由脚本/runtime 完成：
 
@@ -280,7 +280,7 @@ Payload JSON 示例（可提交结构样例）：
 语义处理步骤：
 
 1. 先读取 `runtime/payloads/paper-artifacts-manifest-batch-1.json`。
-2. 按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。
+2. 按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；文献评分使用同一 paper row 中的 `literature_quality`快照；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。
 3. 逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。
 4. 如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。
 5. 按 gate 指令和 runtime audit 判断需要 triage 的 paper refs；create 通常覆盖所有 resolved papers，update 使用 gate 暴露的 `triage_required_refs`。
@@ -288,7 +288,7 @@ Payload JSON 示例（可提交结构样例）：
 7. 如果 update 没有可复用 triage，gate 会要求对 updated resolve 中全部 papers 写 assessment。
 8. 每条 assessment 判断只限该 paper 与 topic 的关系。
 9. 用 `core_digest` 提炼该 paper 对 topic window 的贡献。
-10. 提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。
+10. 提交后由 runtime 根据 triage、四件套 artifact manifest、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。
 
 上下文获取方式：
 
@@ -298,7 +298,7 @@ Payload JSON 示例（可提交结构样例）：
 材料使用说明：
 
 - `runtime/payloads/paper-artifacts-manifest-batch-1.json` 是 artifact 索引真源；具体文件以每条 artifact 的 `content_file` 为准。
-- `runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。
+- `runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是 relevance、core_digest 和 caveats 的判断依据；文献内在质量只使用 manifest 固化的 `literature_quality`；不要依赖大段附件路径。
 - LLM 不手写 cross-paper context 或 external-literature context；这些 view 必须由 runtime 从已校验输入生成。
 - payload 路径：runtime/payloads/prepare-analysis-context.json
 - schema 文件：assets/schemas/stage-30-prepare-analysis-context.schema.json
@@ -308,15 +308,13 @@ Payload JSON 示例（可提交结构样例）：
 - `assessments`：一篇 resolved paper 一条 assessment，`paper_ref` 必须来自当前 workset。
 - `relevance_level`：`core` 是主题核心证据；`related` 是相关背景或变体；`external` 主要用于覆盖/补充判断；`irrelevant` 是误召回；`unknown` 是材料不足。
 - `relevance_reason`：说明该 paper 与 topic 边界的关系。
-- `paper_quality_level`：评价可用证据质量，不等于引用量排序。
-- `paper_quality_reason`：说明实验、方法、综述、benchmark 或证据完整性。
 - `core_digest`：一到三句说明该 paper 对 topic 的贡献，保持 paper-local。
 - `caveats`：记录训练效率、实验范围、artifact 缺失、适用边界等限制。
 
 硬性约束：
 
 - paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。
-- 脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。
+- 脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 `literature_quality`。
 
 Subagent 委派建议：
 
@@ -347,8 +345,6 @@ Subagent 委派建议：
 - paper_ref：必须使用分配给你的 paper_ref。
 - relevance_level：core / related / external / irrelevant / unknown。
 - relevance_reason：说明该 paper 与 topic 边界的关系。
-- paper_quality_level：high / medium / low / unknown。
-- paper_quality_reason：说明证据质量。
 - core_digest：一到三句 paper-local 贡献摘要。
 - caveats：数组，记录证据限制或适用边界。
 ```
@@ -372,8 +368,6 @@ Payload JSON 示例（可提交结构样例）：
       "paper_ref": "1:DETR2020",
       "relevance_level": "core",
       "relevance_reason": "该论文把 object-query set prediction 建立为本 topic 的基线公式。",
-      "paper_quality_level": "high",
-      "paper_quality_reason": "该论文给出模型公式，并提供支撑该路线的 benchmark evidence。",
       "core_digest": "提出面向目标检测的 transformer-based set prediction，使 object queries 与 bipartite matching 成为后续 DETR-family 工作的核心概念。",
       "caveats": ["训练效率限制会影响后续改进工作的解释方式。"]
     }

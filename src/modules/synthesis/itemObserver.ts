@@ -99,6 +99,19 @@ function isLiteratureScoreChildChange(
   return parentID > 0 && isLiteratureScoreNote(resolveItem(parentID));
 }
 
+export function isSynthesisLiteratureScoreInvalidationEvent(args: {
+  type: string;
+  ids?: Array<string | number>;
+  extraData?: Record<string, unknown>;
+}) {
+  if (cleanString(args.type) !== "item") {
+    return false;
+  }
+  return (args.ids || []).some((id) =>
+    isLiteratureScoreChildChange(id, extraRowForId(args.extraData, id)),
+  );
+}
+
 export function isSynthesisLibraryReadModelInvalidationEvent(args: {
   event: string;
   type: string;

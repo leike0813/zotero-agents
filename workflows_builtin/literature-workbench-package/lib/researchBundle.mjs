@@ -33,12 +33,13 @@ function boundedInteger(value, fallback, minimum, maximum) {
 }
 export function computeResearchPaperScore(args = {}) {
   const semantic = number(args.semantic);
+  const quality = number(args.quality, 0.5);
   const topic = number(args.topic);
   const readiness = number(args.readiness);
   if (args.graphAvailable === false) {
-    return semantic * 0.8 + topic * 0.15 + readiness * 0.05;
+    return semantic * 0.65 + quality * 0.15 + topic * 0.15 + readiness * 0.05;
   }
-  return semantic * 0.6 + number(args.graph) * 0.2 + topic * 0.15 + readiness * 0.05;
+  return semantic * 0.5 + quality * 0.15 + number(args.graph) * 0.15 + topic * 0.15 + readiness * 0.05;
 }
 
 function isTopicMandatoryPaper(entry) {
@@ -80,12 +81,13 @@ export function normalizeResearchSelection(value) {
     seen.add(paperRef);
     const computedScore = computeResearchPaperScore({
       semantic,
+      quality: entry?.literature_quality?.quality_prior,
       graph: entry?.graph_importance,
       topic: entry?.topic_coverage,
       readiness: entry?.material_readiness,
       graphAvailable: entry?.graph_available !== false,
     });
-    if (entry?.score !== undefined && (!Number.isFinite(Number(entry.score)) || Math.abs(Number(entry.score) - computedScore) > 0.000001)) {
+    if (entry?.selection_score !== undefined && (!Number.isFinite(Number(entry.selection_score)) || Math.abs(Number(entry.selection_score) - computedScore) > 0.000001)) {
       throw new Error(`research paper score does not match policy: ${paperRef}`);
     }
     return {
@@ -93,9 +95,9 @@ export function normalizeResearchSelection(value) {
       paper_ref: paperRef,
       role: entry?.role === "core" ? "core" : "related",
       semantic_relevance: semantic,
-      score: computedScore,
+      selection_score: computedScore,
     };
-  }).sort((left, right) => right.score - left.score || left.paper_ref.localeCompare(right.paper_ref));
+  }).sort((left, right) => right.selection_score - left.selection_score || left.paper_ref.localeCompare(right.paper_ref));
   const coreCount = papers.filter((entry) => entry.role === "core").length;
   const optionalCount = papers.filter((entry) => !isTopicMandatoryPaper(entry)).length;
   if (optionalCount > limits.max_related_papers || coreCount > limits.max_core_papers) {
@@ -106,7 +108,7 @@ export function normalizeResearchSelection(value) {
   }
   return {
     schema_id: RESEARCH_SELECTION_SCHEMA,
-    schema_version: "1.0.0",
+    schema_version: "2.0.0",
     intent: {
       paper_title: text(intent.paper_title),
       article_type: text(intent.article_type) || "original research",
@@ -234,7 +236,7 @@ export async function buildResearchProduct(args) {
         source = { kind: "pdf", path: sourcePath, assets: [] };
       } else warnings.push({ code: "core_source_missing", paper_ref: selected.paper_ref });
     }
-    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, title: text(item.getField?.("title")), role: selected.role, score: selected.score, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
+    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, title: text(item.getField?.("title")), role: selected.role, selection_score: selected.selection_score, literature_quality: selected.literature_quality, artifact_manifest: selected.artifact_manifest, selection_components: selected.selection_components, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
   }
 
   const bibliographyExport = await exportBundleBibliography({

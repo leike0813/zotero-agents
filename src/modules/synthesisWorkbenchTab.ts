@@ -52,6 +52,7 @@ import {
   BUILTIN_STATUS_FACET,
   isBuiltinStatusTag,
 } from "./synthesis/builtinTagPolicy";
+import { isSynthesisLiteratureScoreInvalidationEvent } from "./synthesis/itemObserver";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -567,7 +568,10 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
   extraData?: Record<string, unknown>;
 }) {
   synthesisLibraryReadModelRevision += 1;
-  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"];
+  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
+    isSynthesisLiteratureScoreInvalidationEvent(args)
+      ? ["index", "topics", "home"]
+      : ["index"];
   for (const runtime of synthesisWorkbenchRuntimes) {
     runtime.libraryReadModelRevision = synthesisLibraryReadModelRevision;
     invalidatedSurfaces.forEach((surface) =>

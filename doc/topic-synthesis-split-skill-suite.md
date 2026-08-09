@@ -333,11 +333,24 @@ Payload 只表达语义判断和结构化业务内容。SQLite、handoff、conte
 - `assessments[].paper_ref`：resolver workset 中的 paper ref。
 - `assessments[].relevance_level`：相关性等级，取值为 `core`、`related`、`external`、`irrelevant` 或 `unknown`。
 - `assessments[].relevance_reason`：相关性判断理由。
-- `assessments[].paper_quality_level`：论文质量等级，取值为 `high`、`medium`、`low` 或 `unknown`。
-- `assessments[].paper_quality_reason`：质量判断理由。
+- 文献内在质量来自四件套 manifest 中固化的 `literature_quality`；Stage 30 不再生成主观质量等级或理由。
 - update route 中，runtime 通过 `triage_required_refs` 指定必须提交的 paper refs；没有可复用 triage 时该集合等于 updated resolve 的全部 paper refs。
 - `assessments[].core_digest`：供 core context 使用的短摘要。
 - `assessments[].caveats`：证据使用注意事项。
+
+Runtime 先把相关性映射为 `core=1`、`related=0.65`、`external=0.3`、`irrelevant=0`、`unknown=0.5`，再计算：
+
+```text
+context_selection_score =
+  relevance × 0.45 +
+  quality_prior × 0.20 +
+  artifact_availability × 0.20 +
+  graph × 0.15
+```
+
+其中 `quality_prior = 0.5 + confidence × (overall_score / 100 - 0.5)`；评分缺失或无效时回退为 `0.5`。`artifact_availability` 按 digest、references、citation analysis、literature score 四件套计算。只有 `core` 和 `related` 可以进入核心上下文；`external` 和 `unknown` 仅作为外部上下文，`irrelevant` 不进入上下文。
+
+Topic dependency snapshot 保存评分状态和 payload hash。评分新增、删除、失效或内容变化都会产生专用 freshness reason，并触发 `update_full`，因为上下文选择结果可能整体变化。
 
 `stage_40_core_synthesis`：
 
@@ -396,7 +409,8 @@ Agent-facing 论文引用字段为：
 - `year`
 - `summary`
 - `synthesis_role`
-- `quality`
+- `literature_quality`
+- `context_selection_score`
 - `digest_ref`
 
 业务 sections 中需要关联论文的对象通过 `source_paper_refs` 指向 `source_papers[].paper_ref`。
@@ -541,9 +555,10 @@ Manifest sidecar entry 形态：
 - `year`
 - `summary`
 - `synthesis_role`
-- `quality`
+- `literature_quality`
+- `context_selection_score`
 - `digest_ref`
-- `triage`
+- `caveats`
 
 `digest_ref` 至少能定位来源论文：
 

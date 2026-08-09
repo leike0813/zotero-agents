@@ -2802,20 +2802,37 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_GET_MANIFEST,
     title: "Get Synthesis paper artifact manifest",
     description:
-      "Return host-computed availability for digest, references, and citation-analysis artifacts for topic synthesis papers. Missing artifacts are reported as status rows, not errors.",
+      "Return host-computed availability for the paper artifact set: digest, references, citation-analysis, and literature-score. Literature-score rows include a compact quality snapshot; missing artifacts are reported as status rows, not errors.",
     method: "getPaperArtifactManifest",
     properties: {
       paper_refs: { type: "array" },
       paperRefs: { type: "array" },
       paper_ref: { type: "string" },
       paperRef: { type: "string" },
+      artifact_types: { type: "array" },
+      artifactTypes: { type: "array" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_READ,
+    title: "Read Synthesis paper artifacts",
+    description:
+      "Read one or more papers' decoded digest, references, citation-analysis, and literature-score payloads. Omit artifact_types to read the complete four-artifact set; explicit filtering remains supported.",
+    method: "readPaperArtifacts",
+    properties: {
+      paper_refs: { type: "array" },
+      paperRefs: { type: "array" },
+      paper_ref: { type: "string" },
+      paperRef: { type: "string" },
+      artifact_types: { type: "array" },
+      artifactTypes: { type: "array" },
     },
   }),
   synthesisTool({
     name: ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED,
     title: "Export filtered Synthesis paper artifacts",
     description:
-      "Read one or more papers' digest, references, and citation-analysis artifacts through the host decoder and write a filtered manifest plus bounded content files into the ACP skill run workspace.",
+      "Read one or more papers' digest, references, citation-analysis, and literature-score artifacts through the host decoder and write a filtered manifest plus bounded content files into the ACP skill run workspace. Omit artifact_types to export the complete four-artifact set.",
     method: "exportFilteredPaperArtifacts",
     properties: {
       run_root: { type: "string" },

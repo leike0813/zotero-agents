@@ -2711,7 +2711,7 @@ th {
 
 .registry-artifact-badges {
   display: inline-grid;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(4, max-content);
   gap: 4px;
   align-items: center;
   justify-content: center;

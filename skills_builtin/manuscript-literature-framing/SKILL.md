@@ -109,6 +109,7 @@ descriptor 不一致时停止并报告 release identity 漂移。
 - `synthesis graph get-metrics`：识别 core / foundation / frontier papers。
 - `synthesis graph get-slice`：检查局部引用邻域。
 - `synthesis artifact resolve-topic-digest`：核验特定 topic evidence digest。
+- `synthesis artifact manifest`：为确认范围内每篇论文读取四件套状态和 `literature_quality` 快照。
 - `library items list`、`library item search`、`library item get`：直接查询 Zotero 文献库。
 - `library item notes`、`library note payloads`、`library note payload`：检查选定论文 notes 与 workflow payload。
 - `library item attachments`：检查原文附件是否存在以及可用的下载句柄。
@@ -135,7 +136,11 @@ Cancel payload 示例：
 }
 ```
 
-Done when：用户确认 topic ids 和资料边界，且 `evidence_inventory` 已写入。
+`evidence_inventory` 必须使用 `writing.manuscript_evidence_inventory` `1.0.0`，并为确认范围内每篇论文写入 `paper_ref`、Host 返回的完整 `literature_quality` 快照、`evidence_role`、理由和 caveats。`evidence_role` 只能是 `primary`、`supporting`、`background`、`counterevidence` 或 `limitation`。
+
+文献质量用于校准主证据、辅助证据、背景、反证和局限材料的措辞强度。不得按质量生成综合排名，也不得仅因低分排除论文。`persist_evidence_inventory` 成功后，该快照就是后续分析与写作的内在质量真源；Stage 3–5 不得重新主观评分。
+
+Done when：用户确认 topic ids 和资料边界，且上述正式 `evidence_inventory` 已写入。
 
 ### Stage 3: Multi-angle framing analysis
 
@@ -154,6 +159,7 @@ Actions：
 - 时间角度：只在时间演化能解释领域现状时使用，识别 foundation、turning point、frontier 与 timely rationale。
 - gap 对齐角度：每个 gap 必须绑定数据、方法、场景、评价、理论或集成边界中的至少一类具体差距。
 - framing synthesis：总结 Introduction 功能链、Related Work 组织轴、survey-of-surveys 决策、引用平衡风险与本文贡献对应关系。
+- 所有质量相关判断只使用 Stage 2 固化的 `evidence_inventory.papers[].literature_quality`，不得重新评价文献内在质量。
 
 Done when：四个 analysis payload 都已写入。
 
@@ -194,6 +200,7 @@ Action：
 LLM 必须：
 
 - 先回读 `intent_brief`、`evidence_inventory`、`framing_analysis` 和 `writing_plan`。
+- 证据角色和措辞强度必须服从固化的 evidence inventory；不得在草稿阶段按主观质量重新排序或硬过滤论文。
 - 按 confirmed writing plan 的结构写出连续、可投稿方向的 LaTeX 段落。
 - 在必要时将 plan 中的要点转化为自然论证，而不是逐条复述。
 - 用 Topic Synthesis 支撑领域判断，用 intent brief 支撑本文贡献主张。

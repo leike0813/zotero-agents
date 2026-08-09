@@ -98,6 +98,15 @@ else if (command === "synthesis topic get-context") {
     : { topic: { topic_id: input.topicId, markdown: "# Graph Evidence" }, resolved_paper_set: { papers: [{ paper_ref: "1:AAAA1111" }] }, diagnostics: { warnings: [] } };
 }
 else if (command === "synthesis index reference get") data = { entries: [], nextCursor: "", hasMore: false, returned: 0, total: 0, limit: Number(input.limit || 25), diagnostics: { stale: false, warnings: [] } };
+else if (command === "synthesis artifact manifest") {
+  const papers = (input.paper_refs || []).map((paper_ref, index) => ({ paper_ref, artifacts: [
+    { artifact_type: "digest", payload_type: "digest-markdown", status: "available" },
+    { artifact_type: "references", payload_type: "references-json", status: "available" },
+    { artifact_type: "citation_analysis", payload_type: "citation-analysis-json", status: "available" },
+    { artifact_type: "literature_score", payload_type: "literature-score-json", status: "available", literature_quality: { status: "available", schema: "literature_score.v1", rubric_id: "rubric.v1", paper_type: "empirical", overall_score: index ? 60 : 90, confidence: 0.8, confidence_adjusted_score: index ? 58 : 85, quality_prior: index ? 0.58 : 0.82, payload_hash: "sha256:score-" + index, diagnostics: [] } }
+  ] }));
+  data = { papers, total: papers.length, returned: papers.length, limit: 100, nextCursor: "", hasMore: false, diagnostics: [] };
+}
 else if (command === "synthesis artifact export-filtered") {
   const refs = input.paper_refs || [];
   const manifest_file = "runtime/payloads/paper-artifacts-manifest.json";
@@ -138,6 +147,7 @@ console.log(JSON.stringify(data));
       "library item search",
       "synthesis topic get-context",
       "synthesis index reference get",
+      "synthesis artifact manifest",
       "synthesis artifact export-filtered",
       "library item get",
       "synthesis graph get-metrics",
@@ -319,10 +329,21 @@ describe("export research bundle skill runtime", function () {
       [...selection.papers]
         .sort(
           (a: any, b: any) =>
-            b.score - a.score || a.paper_ref.localeCompare(b.paper_ref),
+            b.selection_score - a.selection_score ||
+            a.paper_ref.localeCompare(b.paper_ref),
         )
         .map((row: any) => row.paper_ref),
     );
+    assert.equal(selection.schema_version, "2.0.0");
+    assert.equal(selection.papers[0].literature_quality.status, "available");
+    assert.lengthOf(selection.papers[0].artifact_manifest, 4);
+    assert.containsAllKeys(selection.papers[0].selection_components, [
+      "semantic_relevance",
+      "quality_prior",
+      "graph",
+      "topic_coverage",
+      "material_readiness",
+    ]);
     const bridgeCalls = (
       await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
     )

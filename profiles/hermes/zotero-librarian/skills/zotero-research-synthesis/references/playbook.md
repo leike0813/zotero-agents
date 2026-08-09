@@ -88,6 +88,10 @@ Examples of discriminating choices:
 - choose artifact manifest before artifact read, and read before export when content selection matters;
 - choose attention queue only to prioritize review candidates, then diagnose the owning model before proposing maintenance.
 
+For paper artifacts, the manifest boundary is the four-item set `digest + references + citation_analysis + literature_score`. Preserve every row's `available`, `missing`, or `error` state. A `literature_score` decode/schema failure is unavailable evidence and must remain distinguishable from absence through the invalid snapshot and diagnostics. When a manifest or filtered export is requested without `artifact_types`, expect all four items; when filtering, record the explicit subset so a partial read is not mistaken for complete paper coverage.
+
+The compact `literature_quality` snapshot is sufficient for selection and evidence-role calibration. Its neutral prior is `0.5` when the score is missing or invalid; an available score uses the host-computed confidence-adjusted prior. Preserve the snapshot and payload hash through downstream work instead of reassessing intrinsic paper quality. Continue to evaluate relevance and evidentiary fit independently: a strong score cannot move an external, unknown, or irrelevant paper into a topic's core context, cannot bypass a Research Bundle relevance threshold, and cannot justify excluding a confirmed manuscript source without an evidence-role decision.
+
 Record rejected alternatives only when they were plausible and would have changed the interpretation. This keeps the decision auditable without turning every simple read into a planning artifact.
 
 ## Maintenance preconditions and receipts

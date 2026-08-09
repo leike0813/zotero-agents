@@ -7,7 +7,10 @@ import {
   getSynthesisUiOperationKey,
   normalizeSynthesisUiSnapshot,
 } from "../../src/modules/synthesis/uiModel";
-import { isSynthesisLibraryReadModelInvalidationEvent } from "../../src/modules/synthesis/itemObserver";
+import {
+  isSynthesisLibraryReadModelInvalidationEvent,
+  isSynthesisLiteratureScoreInvalidationEvent,
+} from "../../src/modules/synthesis/itemObserver";
 import { isTransientStorageBusyError } from "../../src/modules/guardedSqlite";
 
 describe("Synthesis tab UI model", function () {
@@ -852,7 +855,7 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
-  it("preserves bounded literature ratings and analysis routing on Index rows", function () {
+  it("preserves bounded literature ratings while analysis routing follows four-artifact coverage", function () {
     const snapshot = buildSynthesisUiSnapshot({
       libraryId: 1,
       registry: {
@@ -862,15 +865,13 @@ describe("Synthesis tab UI model", function () {
             title: "Rated Paper",
             artifactCoverage: "complete",
             missing_artifacts: [],
-            literatureAnalysisMode: "unavailable",
             ratingScore: 65,
           },
           {
             paper_ref: "1:REPAIR",
             title: "Repair Score",
-            artifactCoverage: "complete",
-            missing_artifacts: [],
-            literatureAnalysisMode: "score-only",
+            artifactCoverage: "partial",
+            missing_artifacts: ["literature_score"],
             ratingScore: 101,
           },
         ],
@@ -883,11 +884,9 @@ describe("Synthesis tab UI model", function () {
     const repair = snapshot.registry.rows.find(
       (row) => row.paper_ref === "1:REPAIR",
     );
-    assert.deepInclude(rated, {
-      literatureAnalysisMode: "unavailable",
-      ratingScore: 65,
-    });
-    assert.equal(repair?.literatureAnalysisMode, "score-only");
+    assert.equal(rated?.ratingScore, 65);
+    assert.notProperty(rated || {}, "literatureAnalysisMode");
+    assert.deepEqual(repair?.missing_artifacts, ["literature_score"]);
     assert.isUndefined(repair?.ratingScore);
   });
 
@@ -3048,8 +3047,10 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(
       invalidationBlock,
-      'invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"]',
+      "isSynthesisLiteratureScoreInvalidationEvent",
     );
+    assert.include(invalidationBlock, '["index", "topics", "home"]');
+    assert.include(invalidationBlock, ': ["index"]');
     assert.include(invalidationBlock, "markSurfaceDirty(runtime, surface)");
     assert.include(invalidationBlock, "scheduleLibraryReadModelSurfaceRefresh");
     assert.notInclude(invalidationBlock, "refreshReferenceSidecarNow");
@@ -3162,7 +3163,7 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
-  it("invalidates the Index when a literature score note changes", async function () {
+  it("invalidates Index, Topics, and Home when a literature score note changes", async function () {
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Score invalidation parent");
     await parent.saveTx();
@@ -3176,6 +3177,13 @@ describe("Synthesis tab UI model", function () {
     assert.isTrue(
       isSynthesisLibraryReadModelInvalidationEvent({
         event: "modify",
+        type: "item",
+        ids: [note.id],
+        extraData: { [note.id]: { itemType: "note" } },
+      }),
+    );
+    assert.isTrue(
+      isSynthesisLiteratureScoreInvalidationEvent({
         type: "item",
         ids: [note.id],
         extraData: { [note.id]: { itemType: "note" } },
@@ -4405,11 +4413,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "icon_artifact_digest.svg");
     assert.include(source, "icon_artifact_references.svg");
     assert.include(source, "icon_artifact_citation_analysis.svg");
+    assert.include(source, "icon_artifact_literature_score.svg");
     assert.include(source, "registry-artifact-icon");
     assert.include(source, "registry-artifact-icon-shell");
     assert.include(source, '"Digest artifact"');
     assert.include(source, '"References artifact"');
     assert.include(source, '"Citation analysis artifact"');
+    assert.include(source, '"Literature score artifact"');
     const registryArtifactsBlock = extractFunctionBlock(
       source,
       "renderRegistryArtifacts",
@@ -4544,7 +4554,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".registry-reference-target-cell");
     assert.include(css, ".registry-column-header-subtitle");
     assert.include(css, ".registry-reference-count");
-    assert.include(css, "grid-template-columns: repeat(3, max-content);");
+    assert.include(css, "grid-template-columns: repeat(4, max-content);");
     assert.include(css, "table-layout: fixed;");
     assert.include(css, ".badge.blue");
     assert.include(css, ".reference-target-overlay");
@@ -4733,7 +4743,7 @@ describe("Synthesis tab UI model", function () {
       "compactRegistryRowSignature",
     );
     assert.include(registryRowSignatureBlock, "row.ratingScore");
-    assert.include(registryRowSignatureBlock, "row.literatureAnalysisMode");
+    assert.notInclude(registryRowSignatureBlock, "row.literatureAnalysisMode");
     assert.include(app, "compactReferenceProposalSignature");
     const renderSurfaceBlock = extractFunctionBlock(app, "renderSurface");
     assert.notInclude(renderSurfaceBlock, "clear(root)");

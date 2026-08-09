@@ -525,6 +525,31 @@ describe("Synthesis MCP tools", function () {
       "## Digest Five",
       "Should be removed",
     ].join("\n");
+    const scorePayload = {
+      literature_score: {
+        schema: "literature_score.v1",
+        rubric_id: "literature-analysis-rubric.v1",
+        paper_type: "empirical",
+        paper_type_reason: "The paper reports an empirical study.",
+        overall_score: 80,
+        confidence: 0.75,
+        confidence_adjusted_score: 72,
+        dimensions: [
+          "methodological_rigor",
+          "evidence_completeness",
+          "reproducibility",
+          "innovation_signals",
+          "research_impact_potential",
+          "writing_quality",
+        ].map((dimensionKey) => ({
+          dimension_key: dimensionKey,
+          name: dimensionKey,
+          score: 80,
+          confidence: 0.75,
+          summary: `${dimensionKey} assessment`,
+        })),
+      },
+    };
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -582,6 +607,14 @@ describe("Synthesis MCP tools", function () {
                 },
               }),
             },
+            {
+              key: "N4",
+              title: "Literature Score",
+              html: renderPayloadBlock({
+                payloadType: "literature-score-json",
+                payload: scorePayload,
+              }),
+            },
           ],
         },
         {
@@ -598,7 +631,6 @@ describe("Synthesis MCP tools", function () {
         request(30, "paper_artifacts.export_filtered", {
           run_root: runRoot,
           paper_refs: ["1:ABCD1234", "1:EMPTY000"],
-          artifact_types: ["digest", "references", "citation_analysis"],
         }),
         { resolveSynthesisService: () => service },
       );
@@ -618,6 +650,7 @@ describe("Synthesis MCP tools", function () {
         "synthesis.filtered_paper_artifacts_manifest",
       );
       assert.equal(manifest.exported_by, "paper_artifacts.export_filtered");
+      assert.equal(manifest.schema_version, "1.1.0");
       assert.notInclude(manifestText, "decoded_text");
       assert.notInclude(manifestText, 'content":"');
       assert.notInclude(manifestText, '"markdown":');
@@ -632,6 +665,9 @@ describe("Synthesis MCP tools", function () {
       );
       const citationEntry = paper.artifacts.find(
         (entry: any) => entry.artifact_type === "citation_analysis",
+      );
+      const scoreEntry = paper.artifacts.find(
+        (entry: any) => entry.artifact_type === "literature_score",
       );
       const emptyPaper = manifest.papers.find(
         (entry: any) => entry.paper_ref === "1:EMPTY000",
@@ -650,11 +686,15 @@ describe("Synthesis MCP tools", function () {
         path.join(runRoot, citationEntry.content_file),
         "utf8",
       );
+      const score = JSON.parse(
+        await fs.readFile(path.join(runRoot, scoreEntry.content_file), "utf8"),
+      );
 
       assert.includeMembers(digestEntry.payload_types_seen, [
         "digest-markdown",
         "references-json",
         "citation-analysis-json",
+        "literature-score-json",
       ]);
       assert.deepEqual(emptyDigestEntry.payload_types_seen, []);
       assert.include(digestMd, "#### Digest One");
@@ -676,6 +716,10 @@ describe("Synthesis MCP tools", function () {
         citationEntry.removed_trailing_section_heading,
         "Trailing Section",
       );
+      assert.deepEqual(score, scorePayload);
+      assert.equal(paper.literature_quality.status, "available");
+      assert.equal(paper.literature_quality.overall_score, 80);
+      assert.equal(paper.literature_quality.quality_prior, 0.725);
 
       const remoteResult: any = await service.exportFilteredPaperArtifacts(
         {

@@ -170,7 +170,7 @@ Import supported external analysis files and upsert their generated Zotero notes
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
-- External resource requirements: `[{"id":"digest","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".md"]}},{"id":"references","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"citation-analysis","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"custom-notes","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"extensions":[".md"]}}]`.
+- External resource requirements: `[{"id":"digest","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".md"]}},{"id":"references","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"citation-analysis","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"literature-score","direction":"input","kind":"file","cardinality":"one","required":false,"accept":{"extensions":[".json"]}},{"id":"custom-notes","direction":"input","kind":"file","cardinality":"many","required":false,"accept":{"extensions":[".md"]}}]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"exact":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
@@ -222,20 +222,20 @@ Produce and apply a detailed, evidence-grounded deep-reading analysis for one li
 
 **Literature Analysis**
 
-Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.
+Analyze one literature source and apply its digest, structured references, citation analysis, literature score, and optional normalized tags to Zotero.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
-- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-kinds-absent","phase":"availability","noteKinds":["digest","references","citation-analysis"]}]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-readiness","phase":"availability","artifacts":[{"id":"digest","noteKinds":["digest"]},{"id":"references","noteKinds":["references"]},{"id":"citation-analysis","noteKinds":["citation-analysis"]},{"id":"score","noteKinds":["literature-score"],"payload":{"type":"literature-score-json","requirements":[{"pointer":"/literature_score/schema","const":"literature_score.v1"},{"pointer":"/literature_score/overall_score","type":"number","minimum":0,"maximum":100},{"pointer":"/literature_score/confidence","type":"number","minimum":0,"maximum":1},{"pointer":"/literature_score/confidence_adjusted_score","type":"number","minimum":0,"maximum":100},{"pointer":"/literature_score/dimensions","type":"array","length":6}]}}],"modes":[{"id":"unavailable","allAvailable":["digest","references","citation-analysis","score"]},{"id":"score-only","allAvailable":["digest","references","citation-analysis"],"allUnavailable":["score"]},{"id":"full","default":true}],"acceptModes":["full","score-only"]}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
   - `auto_tag_regulator`: `{"type":"boolean","title":"Auto Tag Regulator","default":true}`.
   - `auto_tag_infer_tag`: `{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`.
-- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
+- Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json","artifacts/literature_score.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `literature-analysis`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 - External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 

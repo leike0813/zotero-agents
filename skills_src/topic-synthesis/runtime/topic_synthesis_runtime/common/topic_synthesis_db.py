@@ -126,7 +126,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 ],
                 "hard_rules": [
                     "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 assessments。",
-                    "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。",
+                    "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 literature_quality。",
                 ],
                 "subagent_delegation": {
                     "recommendation": "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 assessments payload。",
@@ -135,7 +135,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                         "subagent 只返回 assessment row 草案，不写文件、不运行脚本、不调用 gate。",
                         "主 agent 必须检查每个 row 的 paper_ref、枚举值、理由和 core_digest，再写入 runtime/payloads/prepare-analysis-context.json。",
                     ],
-                    "prompt": "你是 topic synthesis Stage 30 的 paper triage subagent。请只处理分配给你的 paper_ref 和对应 artifact 内容。逐篇阅读 digest、references 和 citation-analysis；只判断该 paper 与当前 topic 的关系；不做跨文献综合；不编写或运行脚本；不写文件；不调用 gate。只返回 JSON 数组，每个对象包含 paper_ref、relevance_level、relevance_reason、paper_quality_level、paper_quality_reason、core_digest 和 caveats。",
+                    "prompt": "你是 topic synthesis Stage 30 的 paper triage subagent。请只处理分配给你的 paper_ref 和对应 artifact 内容。逐篇阅读 digest、references 和 citation-analysis；只判断该 paper 与当前 topic 的关系；不做跨文献综合；不编写或运行脚本；不写文件；不调用 gate。只返回 JSON 数组，每个对象包含 paper_ref、relevance_level、relevance_reason、core_digest 和 caveats。",
                 },
             },
         ],
@@ -174,7 +174,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 ],
                 "hard_rules": [
                     "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 assessments。",
-                    "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。",
+                    "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。文献内在质量只读取 manifest 固化的 literature_quality。",
                 ],
                 "subagent_delegation": {
                     "recommendation": "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 assessments payload。",
@@ -183,7 +183,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                         "subagent 只返回 assessment row 草案，不写文件、不运行脚本、不调用 gate。",
                         "主 agent 必须检查每个 row 的 paper_ref、枚举值、理由和 core_digest，再写入 runtime/payloads/prepare-analysis-context.json。",
                     ],
-                    "prompt": "你是 topic synthesis Stage 30 的 paper triage subagent。请只处理分配给你的 paper_ref 和对应 artifact 内容。逐篇阅读 digest、references 和 citation-analysis；只判断该 paper 与当前 topic 的关系；不做跨文献综合；不编写或运行脚本；不写文件；不调用 gate。只返回 JSON 数组，每个对象包含 paper_ref、relevance_level、relevance_reason、paper_quality_level、paper_quality_reason、core_digest 和 caveats。",
+                    "prompt": "你是 topic synthesis Stage 30 的 paper triage subagent。请只处理分配给你的 paper_ref 和对应 artifact 内容。逐篇阅读 digest、references 和 citation-analysis；只判断该 paper 与当前 topic 的关系；不做跨文献综合；不编写或运行脚本；不写文件；不调用 gate。只返回 JSON 数组，每个对象包含 paper_ref、relevance_level、relevance_reason、core_digest 和 caveats。",
                 },
             },
         ],
@@ -1779,15 +1779,8 @@ CONTEXT_SELECTION_CONSTANTS = {
 RELEVANCE_WEIGHTS = {
     "core": 1.0,
     "related": 0.65,
-    "peripheral": 0.3,
-    "excluded": 0.0,
-    "unknown": 0.5,
-}
-
-QUALITY_WEIGHTS = {
-    "high": 1.0,
-    "medium": 0.7,
-    "low": 0.35,
+    "external": 0.3,
+    "irrelevant": 0.0,
     "unknown": 0.5,
 }
 
@@ -2035,13 +2028,37 @@ def paper_title_year(entry: dict) -> tuple[str, str]:
 
 
 def artifact_availability_score(artifacts: dict[str, dict]) -> float:
-    expected = ("digest", "references", "citation_analysis")
+    expected = ("digest", "references", "citation_analysis", "literature_score")
     available = sum(
         1
         for key in expected
         if clean_text(artifacts.get(key, {}).get("status"), "missing") == "available"
     )
     return available / len(expected)
+
+
+def literature_quality_snapshot(paper: dict) -> dict:
+    quality = as_dict(paper.get("literature_quality"))
+    status = clean_text(quality.get("status"), "missing")
+    if status not in {"available", "missing", "invalid"}:
+        status = "invalid"
+    try:
+        quality_prior = float(quality.get("quality_prior", 0.5))
+    except (TypeError, ValueError):
+        quality_prior = 0.5
+    if status != "available" or not 0.0 <= quality_prior <= 1.0:
+        quality_prior = 0.5
+    diagnostics = as_list(quality.get("diagnostics"))
+    if status == "missing" and "literature_score_missing" not in diagnostics:
+        diagnostics.append("literature_score_missing")
+    if status == "invalid" and "literature_score_invalid" not in diagnostics:
+        diagnostics.append("literature_score_invalid")
+    return {
+        **quality,
+        "status": status,
+        "quality_prior": round(quality_prior, 6),
+        "diagnostics": diagnostics,
+    }
 
 
 def build_context_selection(
@@ -2056,12 +2073,13 @@ def build_context_selection(
     for entry in entries:
         paper_ref = clean_text(entry.get("paper_ref"))
         triage = triage_by_ref.get(paper_ref, {})
-        artifacts = artifacts_by_ref.get(paper_ref, {})
+        artifact_paper = artifacts_by_ref.get(paper_ref, {})
+        artifacts = as_dict(artifact_paper.get("artifacts"))
         metric = metrics_by_ref.get(paper_ref, {})
         relevance_level = triage_level(triage, "relevance_level", "topic_relevance")
-        quality_level = triage_level(triage, "paper_quality_level", "paper_quality")
+        literature_quality = literature_quality_snapshot(artifact_paper)
         relevance_score = RELEVANCE_WEIGHTS.get(relevance_level, 0.5)
-        quality_score = QUALITY_WEIGHTS.get(quality_level, 0.5)
+        quality_prior = float(literature_quality.get("quality_prior", 0.5))
         graph_score = max(
             metric_float(metric, "foundation_score"),
             metric_float(metric, "frontier_score"),
@@ -2075,46 +2093,48 @@ def build_context_selection(
         )
         score = (
             relevance_score * 0.45
-            + quality_score * 0.20
+            + quality_prior * 0.20
             + artifact_availability_score(artifacts) * 0.20
             + min(graph_score, 1.0) * 0.15
         )
         rows.append(
             {
                 "paper_ref": paper_ref,
-                "score": round(score, 6),
+                "context_selection_score": round(score, 6),
                 "topic_relevance": relevance_level or "unknown",
-                "paper_quality": quality_level or "unknown",
+                "literature_quality": literature_quality,
                 "artifact_availability_score": round(artifact_availability_score(artifacts), 6),
                 "graph_score": round(graph_score, 6),
                 "external_signal": external_signal,
                 "role_hints": metric_role_hints(metric),
             }
         )
-    rows.sort(key=lambda row: (float(row.get("score") or 0), str(row.get("paper_ref") or "")), reverse=True)
+    rows.sort(key=lambda row: (-float(row.get("context_selection_score") or 0), str(row.get("paper_ref") or "")))
     core_limit = int(CONTEXT_SELECTION_CONSTANTS["core_analysis_full_context_slot_count"])
     external_limit = int(CONTEXT_SELECTION_CONSTANTS["external_literature_full_context_slot_count"])
     external_ranked = sorted(
         rows,
         key=lambda row: (
-            int(row.get("external_signal") or 0),
-            float(row.get("score") or 0),
+            -int(row.get("external_signal") or 0),
+            -float(row.get("context_selection_score") or 0),
             str(row.get("paper_ref") or ""),
         ),
-        reverse=True,
     )
     external_refs = {
         clean_text(row.get("paper_ref"))
         for row in external_ranked[:external_limit]
-        if int(row.get("external_signal") or 0) > 0
+        if int(row.get("external_signal") or 0) > 0 and row.get("topic_relevance") != "irrelevant"
     }
     for index, row in enumerate(rows):
         row["rank"] = index + 1
-        row["core_full_context"] = index < core_limit and row.get("topic_relevance") != "excluded"
+        row["core_full_context"] = (
+            row.get("topic_relevance") in {"core", "related"}
+            and sum(1 for candidate in rows[: index + 1] if candidate.get("topic_relevance") in {"core", "related"}) <= core_limit
+        )
         row["external_full_context"] = clean_text(row.get("paper_ref")) in external_refs
     return {
         "schema_id": "synthesis.runtime_paper_context_selection",
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "constants": CONTEXT_SELECTION_CONSTANTS,
         "selected_core_refs": [row["paper_ref"] for row in rows if row.get("core_full_context")],
         "selected_external_refs": [row["paper_ref"] for row in rows if row.get("external_full_context")],
@@ -2152,14 +2172,11 @@ def paper_heading(paper_ref: str, title: str, year: str) -> str:
 
 def render_triage_markdown(triage: dict) -> str:
     relevance = triage_level(triage, "relevance_level", "topic_relevance")
-    quality = triage_level(triage, "paper_quality_level", "paper_quality")
     core_digest = first_text(triage.get("core_digest"), triage.get("coreDigest"))
     lines = [
         "### Paper Triage",
         f"- Topic relevance: {relevance or 'unknown'}",
         f"- Relevance reason: {triage_reason(triage, 'relevance_reason', 'topic_relevance') or 'unknown'}",
-        f"- Paper quality: {quality or 'unknown'}",
-        f"- Quality reason: {triage_reason(triage, 'paper_quality_reason', 'paper_quality') or 'unknown'}",
         f"- Core digest: {core_digest or 'unknown'}",
     ]
     caveats = as_list(triage.get("caveats"))
@@ -2183,8 +2200,12 @@ def build_prepare_context_views(conn: sqlite3.Connection, run_root: Path) -> dic
 
     for entry in entries:
         paper_ref = clean_text(entry.get("paper_ref"))
-        artifacts = artifact_map(paper_artifacts.get(paper_ref, {}))
-        artifacts_by_ref[paper_ref] = artifacts
+        artifact_paper = paper_artifacts.get(paper_ref, {})
+        artifacts = artifact_map(artifact_paper)
+        artifacts_by_ref[paper_ref] = {
+            "artifacts": artifacts,
+            "literature_quality": literature_quality_snapshot(artifact_paper),
+        }
         references_by_ref[paper_ref] = references_from_artifact(run_root, artifacts.get("references", {}))
         citation_reports_by_ref[paper_ref] = citation_report_from_artifact(run_root, artifacts.get("citation_analysis", {}))
         digest_text, digest_filter = filter_digest_for_cross_paper_context(
@@ -2206,7 +2227,7 @@ def build_prepare_context_views(conn: sqlite3.Connection, run_root: Path) -> dic
                     default=f"{title or paper_ref} belongs to the resolved topic workset.",
                 ),
                 "relevance_level": triage_level(triage, "relevance_level", "topic_relevance"),
-                "paper_quality_level": triage_level(triage, "paper_quality_level", "paper_quality"),
+                "literature_quality": literature_quality_snapshot(artifact_paper),
                 "digest_ref": digest_locator_from_artifact(paper_ref, artifacts.get("digest", {})),
             }
         )
@@ -2254,11 +2275,33 @@ def build_prepare_context_views(conn: sqlite3.Connection, run_root: Path) -> dic
         paper_ref = clean_text(entry.get("paper_ref"))
         title, year = paper_title_year(entry)
         triage = triage_by_ref.get(paper_ref, {})
-        artifacts = artifacts_by_ref.get(paper_ref, {})
+        artifact_context = artifacts_by_ref.get(paper_ref, {})
+        artifacts = as_dict(artifact_context.get("artifacts"))
         metric = metrics_by_ref.get(paper_ref, {"paper_ref": paper_ref, "status": "missing"})
         selection_row = selection_by_ref.get(paper_ref, {})
         refs = references_by_ref.get(paper_ref, [])
         report_md = citation_reports_by_ref.get(paper_ref, "")
+        hints = metric_role_hints(metric)
+        if selection_row.get("topic_relevance") == "irrelevant":
+            paper_manifest.append(
+                {
+                    "paper_ref": paper_ref,
+                    "title": title,
+                    "year": year,
+                    "digest_status": clean_text(artifacts.get("digest", {}).get("status"), "missing"),
+                    "references_status": clean_text(artifacts.get("references", {}).get("status"), "missing"),
+                    "citation_analysis_status": clean_text(artifacts.get("citation_analysis", {}).get("status"), "missing"),
+                    "literature_score_status": clean_text(artifacts.get("literature_score", {}).get("status"), "missing"),
+                    "literature_quality": artifact_context.get("literature_quality", {}),
+                    "reference_count": len(refs),
+                    "citation_report_present": bool(report_md),
+                    "digest_filter": digest_filter_by_ref.get(paper_ref, {}),
+                    "citation_graph_metrics_status": clean_text(metric.get("status"), "missing"),
+                    "citation_graph_role_hints": hints,
+                    "context_selection": selection_row,
+                }
+            )
+            continue
         main_lines.extend(
             [
                 "",
@@ -2267,7 +2310,7 @@ def build_prepare_context_views(conn: sqlite3.Connection, run_root: Path) -> dic
                 f"- Paper ref: {paper_ref}",
                 f"- Title: {title or 'unknown'}",
                 f"- Year: {year or 'unknown'}",
-                f"- Runtime context rank: {selection_row.get('rank', 'unranked')} score={selection_row.get('score', 'unknown')}",
+                f"- Runtime context rank: {selection_row.get('rank', 'unranked')} context_selection_score={selection_row.get('context_selection_score', 'unknown')}",
                 f"- Core full context: {str(bool(selection_row.get('core_full_context'))).lower()}",
                 "",
                 "### Citation Graph Metrics",
@@ -2293,7 +2336,6 @@ def build_prepare_context_views(conn: sqlite3.Connection, run_root: Path) -> dic
                 "",
             ]
         )
-        hints = metric_role_hints(metric)
         if hints or int(metric.get("external_reference_count") or 0) or int(metric.get("unresolved_reference_count") or 0):
             external_lines.extend(
                 [
@@ -2333,6 +2375,8 @@ def build_prepare_context_views(conn: sqlite3.Connection, run_root: Path) -> dic
                 "digest_status": clean_text(artifacts.get("digest", {}).get("status"), "missing"),
                 "references_status": clean_text(artifacts.get("references", {}).get("status"), "missing"),
                 "citation_analysis_status": clean_text(artifacts.get("citation_analysis", {}).get("status"), "missing"),
+                "literature_score_status": clean_text(artifacts.get("literature_score", {}).get("status"), "missing"),
+                "literature_quality": artifact_context.get("literature_quality", {}),
                 "reference_count": len(refs),
                 "citation_report_present": bool(report_md),
                 "digest_filter": digest_filter_by_ref.get(paper_ref, {}),
@@ -2931,12 +2975,24 @@ def artifact_manifest_paper(artifact_manifest: dict, paper_ref: str) -> dict:
 def normalize_source_papers(conn: sqlite3.Connection, run_root: Path) -> list[dict]:
     artifact_manifest = load_artifact_manifest(conn, run_root)
     triage = triage_entries(conn)
+    context_manifest_entry = artifact_entry(conn, "cross_paper_context_manifest")
+    context_manifest = (
+        read_json(resolve_run_path(run_root, context_manifest_entry["path"]))
+        if context_manifest_entry and resolve_run_path(run_root, context_manifest_entry["path"]).exists()
+        else {}
+    )
+    selection_by_ref = {
+        clean_text(row.get("paper_ref")): row
+        for row in as_list(as_dict(as_dict(context_manifest).get("context_selection")).get("papers"))
+        if isinstance(row, dict)
+    }
     source_papers: list[dict] = []
     for entry in workset_entries(conn):
         paper_ref = str(entry["paper_ref"])
         paper_triage = triage.get(paper_ref, {})
         metadata = as_dict(entry.get("metadata"))
         artifact_paper = artifact_manifest_paper(artifact_manifest, paper_ref)
+        selection_row = selection_by_ref.get(paper_ref, {})
         year = paper_year_from_metadata(entry, metadata, artifact_paper)
         source_papers.append(
             {
@@ -2950,7 +3006,8 @@ def normalize_source_papers(conn: sqlite3.Connection, run_root: Path) -> list[di
                     default=f"{entry.get('title', paper_ref)} is part of the resolved topic workset.",
                 ),
                 "synthesis_role": clean_text(paper_triage.get("relevance_level"), "supporting"),
-                "quality": clean_text(paper_triage.get("paper_quality_level"), "unknown"),
+                "literature_quality": literature_quality_snapshot(artifact_paper),
+                "context_selection_score": selection_row.get("context_selection_score", 0.0),
                 "caveats": as_list(paper_triage.get("caveats")),
                 "digest_ref": digest_ref_for_paper(run_root, paper_ref, artifact_manifest),
             }

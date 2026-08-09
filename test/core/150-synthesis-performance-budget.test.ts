@@ -293,7 +293,6 @@ describe("Synthesis performance budgets", function () {
       });
     }
     Object.assign(pageInputs[0], {
-      literatureAnalysisMode: "unavailable",
       literatureScore: { overallScore: 86 },
     });
     let pageReadCount = 0;

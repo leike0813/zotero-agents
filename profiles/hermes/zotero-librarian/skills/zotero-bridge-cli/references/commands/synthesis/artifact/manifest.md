@@ -2,6 +2,15 @@
 
 Read paper artifact manifest metadata
 
+## Paper artifact contract
+
+- The complete paper artifact set is `digest`, `references`, `citation_analysis`, and `literature_score`. Omit `artifact_types` only when all four are intended; pass an explicit subset for a filtered operation.
+- Complete coverage requires all four statuses to be available. A missing score is `missing`; a decode or schema failure is `error` and yields an invalid quality snapshot. Both are unavailable for coverage.
+- `literature_quality` is the compact frozen score snapshot. Preserve its status, schema/rubric identity, paper type, scores, confidence, quality prior, payload hash, and diagnostics; do not replace it with a subjective quality label.
+- Missing or invalid score snapshots use neutral `quality_prior=0.5` and retain `literature_score_missing` or `literature_score_invalid`. Reference-sidecar refresh does not create or repair scores.
+
+The response is paged by paper under `data.papers[]`; each paper owns its artifact status rows. Iterate `nextCursor` while `hasMore=true` before claiming the requested manifest scope is complete.
+
 ## Usage
 
 ```console
@@ -50,8 +59,44 @@ Required: `false`.
 ```json
 {
   "additionalProperties": true,
+  "properties": {
+    "artifact_types": {
+      "items": {
+        "enum": [
+          "digest",
+          "references",
+          "citation_analysis",
+          "literature_score"
+        ]
+      },
+      "type": "array"
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "type": [
+        "integer",
+        "string"
+      ]
+    },
+    "paper_ref": {
+      "type": "string"
+    },
+    "paper_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
   "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
@@ -60,8 +105,44 @@ Required: `false`.
 ```json
 {
   "additionalProperties": true,
+  "properties": {
+    "artifact_types": {
+      "items": {
+        "enum": [
+          "digest",
+          "references",
+          "citation_analysis",
+          "literature_score"
+        ]
+      },
+      "type": "array"
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "type": [
+        "integer",
+        "string"
+      ]
+    },
+    "paper_ref": {
+      "type": "string"
+    },
+    "paper_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
   "type": "object",
-  "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+  "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
 }
 ```
 
@@ -220,8 +301,44 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "requiredWhen": [],
       "schema": {
         "additionalProperties": true,
+        "properties": {
+          "artifact_types": {
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            },
+            "type": "array"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "paper_ref": {
+            "type": "string"
+          },
+          "paper_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
         "type": "object",
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
       },
       "schemaSource": "target-capability",
       "token": "--query"
@@ -263,8 +380,44 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "pagination": "cursor",
   "payloadSchema": {
     "additionalProperties": true,
+    "properties": {
+      "artifact_types": {
+        "items": {
+          "enum": [
+            "digest",
+            "references",
+            "citation_analysis",
+            "literature_score"
+          ]
+        },
+        "type": "array"
+      },
+      "cursor": {
+        "type": [
+          "string",
+          "number"
+        ]
+      },
+      "limit": {
+        "maximum": 100,
+        "minimum": 1,
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "paper_ref": {
+        "type": "string"
+      },
+      "paper_refs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
     "type": "object",
-    "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+    "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object."
   },
   "recovery": [
     {

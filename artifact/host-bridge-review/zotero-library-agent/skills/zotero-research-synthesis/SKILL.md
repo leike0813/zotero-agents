@@ -66,6 +66,10 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 2. Select the derived model that actually answers the question. Record its identity, scope, paging completion, freshness status, and any missing source coverage before interpreting it.
 3. Distinguish direct source claims, current Zotero facts, notes/annotations, computed relationships, workflow-produced interpretation, your inference, disagreement, and evidence gaps.
 
+对论文级综合材料，将 `digest`、`references`、`citation_analysis` 和 `literature_score` 视为一组四件套工件。在读取或导出 payload 前先检查 `paper_artifacts.get_manifest`。只有在确实需要完整集合时才省略 `artifact_types`；任务只需较少工件时使用明确过滤器。只有四行全部可用时，论文工件才算完整。即使其他三行可用，缺失或无效的 literature score 仍使覆盖保持 partial。
+
+Manifest 中的 `literature_quality` 快照记录评分状态、schema/rubric 身份、论文类型、分数、置信度、中性化质量先验、payload hash 和诊断。将该固化快照用作论文内在质量证据，不要以新的主观质量标签取代它。评分缺失或无效时使用中性先验，并在诊断中明确保留。Topic 相关性、Research Bundle 候选资格、证据角色、分歧和 claim 支持仍需要任务特定判断；质量不得扩展选定的来源边界，也不能单独成为硬过滤依据。
+
 ### Separate read, workflow, and maintenance
 
 4. Synthesize directly from supported reads when no reusable execution contract is needed. Use a live-described workflow when it owns the requested provider execution or multi-artifact output; validate workflow input and provider profile separately.
@@ -86,6 +90,8 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 4. Separate direct evidence, bibliographic relation, computed structure, workflow output, and your inference.
 5. State coverage gaps and whether they reflect missing sources, inaccessible content, stale derived state, or a supported research gap.
 6. Verify every requested artifact, Product asset, topic report, graph result, or export.
+
+评分变化后，将 Topic context selection 及依赖它的 topic synthesis 视为 stale，直到所属 workflow 完成刷新。Reference-sidecar refresh 只维护 reference index，不会创建或修复 literature score。如果三个非评分工件完整且只缺评分，修复路径是 literature-analysis score-only；如果 digest、references 或 citation analysis 任一不可用，使用完整 literature-analysis 路径。
 
 When a workflow is used, preserve the live workflow description, selection, provider profile, options, run handle, expected result evidence, and inspection outcome. When maintenance is used, preserve the diagnosed model, pre-state, scope, operation ID, receipt, post-state, and basis hash if declared.
 

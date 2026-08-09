@@ -615,15 +615,23 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.equal(secondIndexPage.returned, 1);
     assert.equal(secondIndexPage.index_hash, firstIndexPage.index_hash);
     assert.match(firstIndexPage.page_hash || "", /^sha256:/);
-    assert.lengthOf(artifactManifest.artifacts, 3);
-    assert.deepInclude(artifactManifest.artifacts[0], {
+    assert.lengthOf(artifactManifest.papers, 1);
+    assert.lengthOf(artifactManifest.papers[0].artifacts, 4);
+    assert.deepInclude(artifactManifest.papers[0].artifacts[0], {
       paper_ref: `${alpha.libraryID}:${alpha.key}`,
       artifact_type: "digest",
       status: "available",
       payload_type: "digest-markdown",
     });
-    assert.notProperty(artifactManifest.artifacts[0], "markdown");
-    assert.notProperty(artifactManifest.artifacts[0], "payload");
+    assert.notProperty(artifactManifest.papers[0].artifacts[0], "markdown");
+    assert.notProperty(artifactManifest.papers[0].artifacts[0], "payload");
+    const scoreManifest = artifactManifest.papers[0].artifacts.find(
+      (artifact) => artifact.artifact_type === "literature_score",
+    );
+    assert.deepInclude(scoreManifest?.literature_quality, {
+      status: "missing",
+      quality_prior: 0.5,
+    });
     assert.equal(registry.total, 2);
     const alphaRow = registry.rows.find((row) => row.item_key === alpha.key);
     assert.equal(alphaRow?.artifacts.digest.status, "available");

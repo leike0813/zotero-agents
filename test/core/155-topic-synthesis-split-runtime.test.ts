@@ -200,7 +200,8 @@ function assertStage30HardRules(gateInstruction: any) {
   const hardRules = gateInstruction.hard_rules.join("\n");
   assert.include(hardRules, "逐篇阅读 runtime 导出的 paper artifacts");
   assert.include(hardRules, "不得编写或运行脚本");
-  assert.include(hardRules, "relevance、quality、core_digest 和 caveats");
+  assert.include(hardRules, "relevance、core_digest 和 caveats");
+  assert.include(hardRules, "literature_quality");
   assert.isObject(gateInstruction.subagent_delegation);
   assert.include(
     gateInstruction.subagent_delegation.recommendation,
@@ -435,8 +436,6 @@ if (command === "synthesis topic get-context") {
         paper_ref: "1:DETR",
         relevance_level: "core",
         relevance_reason: "Original topic anchor.",
-        paper_quality_level: "high",
-        paper_quality_reason: "Fixture quality.",
         core_digest: "DETR remains the update anchor.",
         caveats: []
       }
@@ -703,8 +702,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DINO",
             relevance_level: "core",
             relevance_reason: "Representative update candidate.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DINO adds update evidence.",
             caveats: [],
           },
@@ -1185,8 +1182,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "primary",
             relevance_reason: "Invalid enum fixture.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DETR baseline.",
             caveats: [],
           },
@@ -1220,8 +1215,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "core",
             relevance_reason: "Baseline.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DETR baseline.",
             caveats: [],
           },
@@ -1229,8 +1222,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "related",
             relevance_reason: "Duplicate fixture.",
-            paper_quality_level: "medium",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "Duplicate DETR.",
             caveats: [],
           },
@@ -1265,8 +1256,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DETR",
             relevance_level: "core",
             relevance_reason: "Baseline.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DETR baseline.",
             caveats: [],
           },
@@ -1274,8 +1263,6 @@ describe("topic synthesis split skill runtime", function () {
             paper_ref: "1:DINO",
             relevance_level: "core",
             relevance_reason: "Training improvement.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
             core_digest: "DINO improves DETR training.",
             caveats: [],
           },
@@ -1944,7 +1931,9 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(detrSourcePaper?.summary, "DETR baseline.");
     assert.equal(detrSourcePaper?.synthesis_role, "core");
-    assert.equal(detrSourcePaper?.quality, "high");
+    assert.equal(detrSourcePaper?.literature_quality?.status, "missing");
+    assert.equal(detrSourcePaper?.literature_quality?.quality_prior, 0.5);
+    assert.notProperty(detrSourcePaper, "quality");
     assert.deepEqual(detrSourcePaper?.caveats, []);
     assert.notProperty(detrSourcePaper, "triage");
     assert.deepEqual((sections.statistics as any).time_span, {

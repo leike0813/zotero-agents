@@ -88,6 +88,10 @@ follow_on_read:
 - 在 artifact read 前选择 artifact manifest；内容选择会影响结果时，在 export 前先 read；
 - 仅使用 attention queue 排定 review candidate 优先级，提出 maintenance 前先诊断所属模型。
 
+对论文工件，manifest 边界是四项集合 `digest + references + citation_analysis + literature_score`。保留每行的 `available`、`missing` 或 `error` 状态。`literature_score` 解码/schema 失败属于不可用证据，必须通过 invalid snapshot 和诊断与缺失区分。请求 manifest 或 filtered export 时如果省略 `artifact_types`，应得到全部四项；过滤时记录明确子集，防止将 partial read 误认为完整论文覆盖。
+
+紧凑的 `literature_quality` 快照足以用于 selection 和 evidence-role calibration。评分缺失或无效时，其中性先验为 `0.5`；评分可用时，使用 Host 计算的 confidence-adjusted prior。在下游工作中保留快照和 payload hash，不要重新评判论文内在质量。继续独立评估相关性和证据契合度：高评分不能将 external、unknown 或 irrelevant 论文移入 Topic 核心上下文，不能绕过 Research Bundle 相关性阈值，也不能在没有 evidence-role 决策时成为排除已确认 manuscript source 的理由。
+
 只有备选方案确实合理且会改变解释时才记录被拒方案。这样既能审计决策，也不会把每次简单读取都变成 planning artifact。
 
 ## Maintenance 前置条件与 receipt

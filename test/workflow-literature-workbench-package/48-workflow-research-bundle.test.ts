@@ -69,7 +69,7 @@ describe("export research bundle workflow", function () {
   it("validates bounded selection and core subset invariants", function () {
     const selection = normalizeResearchSelection({
       schema_id: "research_bundle.selection",
-      schema_version: "1.0.0",
+      schema_version: "2.0.0",
       intent: {
         paper_title: "Graph-grounded review",
         article_type: "original research",
@@ -147,22 +147,24 @@ describe("export research bundle workflow", function () {
     assert.closeTo(
       computeResearchPaperScore({
         semantic: 0.8,
+        quality: 0.9,
         graph: 0.6,
         topic: 0.4,
         readiness: 1,
       }),
-      0.71,
+      0.735,
       0.0001,
     );
     assert.closeTo(
       computeResearchPaperScore({
         semantic: 0.8,
+        quality: 0.9,
         graph: 0,
         topic: 0.4,
         readiness: 1,
         graphAvailable: false,
       }),
-      0.75,
+      0.765,
       0.0001,
     );
   });
@@ -244,7 +246,7 @@ describe("export research bundle workflow", function () {
           logical_id: "paper-001",
           paper_ref: "1:AAAA1111",
           role: "core",
-          score: 0.9,
+          selection_score: 0.9,
           metadata_path: "papers/paper-001/metadata.json",
           source: { kind: "markdown", path: "papers/paper-001/source.md" },
           payloads: [

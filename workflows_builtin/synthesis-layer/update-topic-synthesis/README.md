@@ -10,6 +10,9 @@
 - 新增了相关文献（已执行 Literature Analysis + Tag Regulator）
 - 引文图谱有显著变化（执行了 Advance Matching）
 - 受控词表有更新
+- 文献评分新增、删除、失效或内容变化
+
+评分变化会影响上下文选择，因此 freshness 检测会要求完整更新。更新过程继续使用 digest、references、citation analysis 和 literature score 四件套；缺失或无效评分使用中性质量先验，不改变 Topic 相关性边界。
 
 ## 怎么输入？
 

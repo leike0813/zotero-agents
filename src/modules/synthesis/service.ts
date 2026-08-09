@@ -63,12 +63,18 @@ import {
   type SynthesisTagUsageCount,
 } from "./libraryAdapter";
 import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
-import type { LiteratureScoreSummary } from "../../shared/literatureScore";
+import {
+  buildLiteratureQualitySnapshot,
+  type LiteratureQualitySnapshot,
+  type LiteratureScoreSummary,
+} from "../../shared/literatureScore";
 import {
   buildReferenceSidecarIndexRow,
   buildReferenceSidecarIndexRows,
   buildReferenceSidecarMetadataFingerprintPayload,
-  type ReferenceSidecarArtifactType,
+  PAPER_ARTIFACT_PAYLOAD_TYPES,
+  PAPER_ARTIFACT_TYPES,
+  type PaperArtifactType,
   type ReferenceSidecarFacets,
   type ReferenceSidecarIndexRow,
   type ReferenceSidecarInput,
@@ -784,7 +790,7 @@ type TopicDependencySnapshot = {
   registry_row_hashes: Record<string, string>;
   paper_artifacts: Record<
     string,
-    Record<ReferenceSidecarArtifactType, TopicArtifactDependency>
+    Record<PaperArtifactType, TopicArtifactDependency>
   >;
   missing_artifacts: string[];
   graph_hash: string;
@@ -841,19 +847,8 @@ type ReferenceSidecarReferenceFact = ReturnType<
   SynthesisRepository["listReferenceFacts"]
 >[number];
 
-const REGISTRY_ARTIFACT_TYPES: ReferenceSidecarArtifactType[] = [
-  "digest",
-  "references",
-  "citation_analysis",
-];
-const REGISTRY_ARTIFACT_PAYLOAD_TYPES: Record<
-  ReferenceSidecarArtifactType,
-  string
-> = {
-  digest: "digest-markdown",
-  references: "references-json",
-  citation_analysis: "citation-analysis-json",
-};
+const REGISTRY_ARTIFACT_TYPES = PAPER_ARTIFACT_TYPES;
+const REGISTRY_ARTIFACT_PAYLOAD_TYPES = PAPER_ARTIFACT_PAYLOAD_TYPES;
 const LIBRARY_INDEX_PAGE_LIMIT_DEFAULT = 100;
 const LIBRARY_INDEX_PAGE_LIMIT_MAX = 250;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT = 100;
@@ -1560,6 +1555,16 @@ async function writeFilteredArtifactContent(args: {
       content_file: relativePath,
       content_hash: hashMarkdown(result.markdown),
       removed_trailing_section_heading: result.removedTrailingSectionHeading,
+      diagnostics,
+    };
+  }
+  if (artifactType === "literature_score") {
+    const text = `${JSON.stringify(args.artifact.payload, null, 2)}\n`;
+    const relativePath = `${directory}/literature-score.json`;
+    await writeRuntimeTextFile(joinPath(args.runRoot, relativePath), text);
+    return {
+      content_file: relativePath,
+      content_hash: hashMarkdown(text),
       diagnostics,
     };
   }
@@ -2405,17 +2410,16 @@ function graphForPapers(papers: CitationGraphPaperInput[] | undefined) {
 }
 
 type WorkbenchAnalysisInput = ReferenceSidecarInput & {
-  literatureAnalysisMode?: "full" | "score-only" | "unavailable";
   literatureAnalysisArtifacts?: {
     digest: boolean;
     references: boolean;
     citationAnalysis: boolean;
+    literatureScore: "available" | "missing" | "invalid";
   };
   literatureScore?: LiteratureScoreSummary;
 };
 
 type WorkbenchRegistryRow = ReferenceSidecarIndexRow & {
-  literatureAnalysisMode: "full" | "score-only" | "unavailable";
   literatureScore?: LiteratureScoreSummary;
 };
 
@@ -2460,19 +2464,25 @@ function applyLiteratureAnalysisArtifactProjection(
     return;
   }
   const availability = {
-    digest: projection.digest,
-    references: projection.references,
-    citation_analysis: projection.citationAnalysis,
+    digest: projection.digest ? "available" : "missing",
+    references: projection.references ? "available" : "missing",
+    citation_analysis: projection.citationAnalysis ? "available" : "missing",
+    literature_score:
+      projection.literatureScore === "invalid"
+        ? "error"
+        : projection.literatureScore,
   } as const;
-  for (const [artifactType, available] of Object.entries(availability)) {
-    if (!available) {
-      continue;
-    }
+  for (const [artifactType, status] of Object.entries(availability)) {
     const type = artifactType as keyof typeof row.artifacts;
     row.artifacts[type] = {
       ...row.artifacts[type],
-      status: "available",
-      diagnostics: [],
+      status,
+      hash:
+        type === "literature_score" && input?.literatureScore
+          ? hashCanonicalJson(input.literatureScore)
+          : row.artifacts[type].hash,
+      diagnostics:
+        status === "available" ? [] : row.artifacts[type].diagnostics,
     };
   }
   refreshArtifactDerivedFields(row);
@@ -2489,15 +2499,8 @@ function registryRowsForInputs(
     const input = inputByPaperRef.get(row.paper_ref) as
       | WorkbenchAnalysisInput
       | undefined;
-    const mode = input?.literatureAnalysisMode;
     const workbenchRow: WorkbenchRegistryRow = {
       ...row,
-      literatureAnalysisMode:
-        mode === "full" || mode === "score-only" || mode === "unavailable"
-          ? mode
-          : row.artifactCoverage === "complete"
-            ? "score-only"
-            : "full",
       literatureScore: input?.literatureScore,
     };
     applyLiteratureAnalysisArtifactProjection(workbenchRow, input);
@@ -3698,7 +3701,6 @@ function registryRowsToUi(
       title: row.title,
       year: row.year,
       artifactCoverage: row.artifactCoverage,
-      literatureAnalysisMode: workbenchRow.literatureAnalysisMode,
       ratingScore: workbenchRow.literatureScore?.overallScore,
       missing_artifacts: Object.values(row.artifacts)
         .filter((artifact) => artifact.status !== "available")
@@ -4373,7 +4375,7 @@ function registryByPaperRef(rows: ReferenceSidecarIndexRow[]) {
 
 function artifactDependencyForRow(
   row: ReferenceSidecarIndexRow | undefined,
-  type: ReferenceSidecarArtifactType,
+  type: PaperArtifactType,
 ): TopicArtifactDependency {
   const artifact = row?.artifacts?.[type];
   if (!artifact) {
@@ -4392,7 +4394,7 @@ function buildArtifactDependencies(
   const byRef = registryByPaperRef(registryRows);
   const dependencies: Record<
     string,
-    Record<ReferenceSidecarArtifactType, TopicArtifactDependency>
+    Record<PaperArtifactType, TopicArtifactDependency>
   > = {};
   const registryHashes: Record<string, string> = {};
   const missingArtifacts: string[] = [];
@@ -4404,7 +4406,7 @@ function buildArtifactDependencies(
         type,
         artifactDependencyForRow(row, type),
       ]),
-    ) as Record<ReferenceSidecarArtifactType, TopicArtifactDependency>;
+    ) as Record<PaperArtifactType, TopicArtifactDependency>;
     for (const type of REGISTRY_ARTIFACT_TYPES) {
       if (dependencies[paperRef][type].status !== "available") {
         missingArtifacts.push(`${paperRef}:${type}`);
@@ -4501,6 +4503,10 @@ function changedSectionsForReason(reasonCode: string) {
   return [];
 }
 
+function isLiteratureScoreFreshnessReason(reasonCode: string) {
+  return reasonCode.startsWith("literature_score_");
+}
+
 function deriveTopicUpdateIntent(args: {
   topicId: string;
   language?: string;
@@ -4510,7 +4516,10 @@ function deriveTopicUpdateIntent(args: {
   const language =
     cleanString(args.language) || cleanString(args.row?.language) || "auto";
   const reasons = args.state?.reasons || [];
-  const firstReason = reasons[0];
+  const firstReason =
+    reasons.find((entry) =>
+      isLiteratureScoreFreshnessReason(cleanString(entry.code)),
+    ) || reasons[0];
   let reasonCode =
     cleanString(firstReason?.code) ||
     cleanString(args.state?.freshness) ||
@@ -4536,6 +4545,10 @@ function deriveTopicUpdateIntent(args: {
   } else if (args.state?.freshness === "failed") {
     mode = "update_full";
     scope = "repair";
+    changedSections = [];
+  } else if (isLiteratureScoreFreshnessReason(reasonCode)) {
+    mode = "update_full";
+    scope = "literature_quality";
     changedSections = [];
   } else if (
     args.state?.source_materials_status &&
@@ -4656,6 +4669,12 @@ function collectStaleReasons(
   let changedCount = 0;
   let missingCount = 0;
   let availableCount = 0;
+  const scoreReasonCounts = {
+    literature_score_available: 0,
+    literature_score_missing: 0,
+    literature_score_invalid: 0,
+    literature_score_changed: 0,
+  };
   const paperRefs = sortedUniqueStrings([
     ...Object.keys(baseline.paper_artifacts),
     ...Object.keys(current.paper_artifacts),
@@ -4670,6 +4689,28 @@ function collectStaleReasons(
         status: "missing",
         hash: "",
       };
+      if (type === "literature_score") {
+        if (after.status === "error") {
+          scoreReasonCounts.literature_score_invalid += 1;
+        } else if (
+          before.status === "available" &&
+          after.status !== "available"
+        ) {
+          scoreReasonCounts.literature_score_missing += 1;
+        } else if (
+          before.status !== "available" &&
+          after.status === "available"
+        ) {
+          scoreReasonCounts.literature_score_available += 1;
+        } else if (
+          before.status === "available" &&
+          after.status === "available" &&
+          before.hash !== after.hash
+        ) {
+          scoreReasonCounts.literature_score_changed += 1;
+        }
+        continue;
+      }
       if (before.status === "available" && after.status !== "available") {
         missingCount += 1;
       } else if (
@@ -4685,6 +4726,18 @@ function collectStaleReasons(
         changedCount += 1;
       }
     }
+  }
+  for (const [code, count] of Object.entries(scoreReasonCounts)) {
+    if (!count) {
+      continue;
+    }
+    reasons.push(
+      reason({
+        code,
+        message: `Literature score dependency changed (${code}).`,
+        details: { count },
+      }),
+    );
   }
   if (changedCount) {
     reasons.push(
@@ -5999,7 +6052,14 @@ function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
               cleanString(paper.summary) ||
               `${paperRef} belongs to this topic source set.`,
             synthesis_role: "source",
-            quality: "unknown",
+            literature_quality: isObject(paper.literature_quality)
+              ? paper.literature_quality
+              : buildLiteratureQualitySnapshot({ missing: true }),
+            context_selection_score: Number.isFinite(
+              Number(paper.context_selection_score),
+            )
+              ? Number(paper.context_selection_score)
+              : 0.5,
             digest_ref: {
               paper_ref: paperRef,
               payload_type: "digest-markdown",
@@ -6233,7 +6293,7 @@ async function loadCompleteManifestAndSections(args: {
     return {
       manifest: {
         schema_id: "synthesis.topic_analysis_manifest",
-        schema_version: "3.0.0",
+        schema_version: "4.0.0",
         operation:
           args.bundle.operation ||
           (args.bundle.mode === "create" ? "create" : "update_full"),
@@ -9524,22 +9584,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return registryInputsForService(options);
   }
 
-  function artifactPayloadType(type: ReferenceSidecarArtifactType) {
-    return type === "digest"
-      ? "digest-markdown"
-      : type === "references"
-        ? "references-json"
-        : "citation-analysis-json";
+  function artifactPayloadType(type: PaperArtifactType) {
+    return PAPER_ARTIFACT_PAYLOAD_TYPES[type];
   }
 
-  function artifactMissingMessage(type: ReferenceSidecarArtifactType) {
+  function artifactMissingMessage(type: PaperArtifactType) {
     return type === "citation_analysis"
       ? "citation analysis payload is missing"
       : `${type} payload is missing`;
   }
 
   function artifactDiagnosticsForOverlay(args: {
-    artifactType: ReferenceSidecarArtifactType;
+    artifactType: PaperArtifactType;
     status: "available" | "missing" | "error";
     previousDiagnostics?: ReferenceSidecarIndexRow["diagnostics"];
   }): ReferenceSidecarIndexRow["diagnostics"] {
@@ -10972,7 +11028,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       if (!row) {
         continue;
       }
-      const artifactType = sidecar.artifactType as ReferenceSidecarArtifactType;
+      const artifactType = sidecar.artifactType as PaperArtifactType;
       if (
         artifactType !== "digest" &&
         artifactType !== "references" &&
@@ -20171,10 +20227,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           cleanString(paper.synthesis_role) ||
           cleanString(legacyTriage.relevance_level),
         relevance_reason: summary || cleanString(legacyTriage.relevance_reason),
-        paper_quality_level:
-          cleanString(paper.quality) ||
-          cleanString(legacyTriage.paper_quality_level),
-        paper_quality_reason: cleanString(legacyTriage.paper_quality_reason),
         core_digest: summary || cleanString(legacyTriage.core_digest),
         caveats: Array.isArray(paper.caveats)
           ? paper.caveats
@@ -20182,6 +20234,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             ? legacyTriage.caveats
             : [],
       };
+      delete (triage as Record<string, unknown>).paper_quality_level;
+      delete (triage as Record<string, unknown>).paper_quality_reason;
       sourcePaperTriage[paperRef] = {
         ...triage,
         paper_ref: cleanString(triage.paper_ref) || paperRef,
@@ -20748,8 +20802,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           required_fields: [
             "paper_ref",
             "topic_relevance",
-            "paper_quality",
+            "relevance_reason",
             "core_digest",
+            "caveats",
           ],
         },
         {
@@ -20798,8 +20853,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ],
       enum_definitions: {
         operation: ["create", "update_full", "update_patch"],
-        paper_quality: ["high", "medium", "low", "unknown"],
-        topic_relevance: ["core", "related", "peripheral", "excluded"],
+        topic_relevance: [
+          "core",
+          "related",
+          "external",
+          "irrelevant",
+          "unknown",
+        ],
         graph_cluster_policy: [
           "source_only",
           "include_external",
@@ -21250,14 +21310,37 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const artifacts = (
       Array.isArray(result.artifacts) ? result.artifacts : []
     ).map((entry) => {
+      const row = entry as PaperArtifactReadResult;
       const { payload, markdown, decoded_text, ...manifestEntry } =
         entry as any;
-      return manifestEntry;
+      if (row.artifact_type !== "literature_score") {
+        return manifestEntry;
+      }
+      return {
+        ...manifestEntry,
+        literature_quality: buildLiteratureQualitySnapshot({
+          payload: row.status === "available" ? payload : undefined,
+          payloadHash: cleanString(row.payload_hash || row.hash),
+          missing: row.status === "missing",
+        }),
+      };
     });
+    const paperRefs = Array.from(
+      new Set(
+        artifacts
+          .map((entry) => cleanString((entry as any).paper_ref))
+          .filter(Boolean),
+      ),
+    );
     return {
-      artifacts,
+      papers: paperRefs.map((paperRef) => ({
+        paper_ref: paperRef,
+        artifacts: artifacts.filter(
+          (entry) => cleanString((entry as any).paper_ref) === paperRef,
+        ),
+      })),
       diagnostics: Array.isArray(result.diagnostics) ? result.diagnostics : [],
-      total: artifacts.length,
+      total: paperRefs.length,
     };
   }
 
@@ -21265,7 +21348,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const request = {
       ...args,
       artifact_types: (args.artifact_types || args.artifactTypes) as
-        | ReferenceSidecarArtifactType[]
+        | PaperArtifactType[]
         | undefined,
     };
     if (options.libraryAdapter) {
@@ -21298,7 +21381,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const result = await readPaperArtifacts({
       paper_refs: uniquePaperRefs,
       artifact_types: (args.artifact_types || args.artifactTypes) as
-        | ReferenceSidecarArtifactType[]
+        | PaperArtifactType[]
         | undefined,
     });
     const artifacts = Array.isArray(result.artifacts)
@@ -21359,9 +21442,23 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         }
         manifestArtifacts.push(manifestEntry);
       }
+      const scoreArtifact = paperArtifacts.find(
+        (artifact) =>
+          cleanString(artifact.artifact_type) === "literature_score",
+      );
+      const scoreStatus = cleanString(scoreArtifact?.status);
+      const literatureQuality = buildLiteratureQualitySnapshot({
+        payload:
+          scoreStatus === "available" ? scoreArtifact?.payload : undefined,
+        payloadHash: cleanString(
+          scoreArtifact?.payload_hash || scoreArtifact?.hash,
+        ),
+        missing: !scoreArtifact || scoreStatus === "missing",
+      });
       papers.push({
         paper_ref: paperRef,
         artifacts: manifestArtifacts,
+        literature_quality: literatureQuality,
         diagnostics: paperDiagnostics,
       });
     }
@@ -21369,7 +21466,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       "runtime/payloads/paper-artifacts-manifest.json";
     const manifest = {
       schema_id: "synthesis.filtered_paper_artifacts_manifest",
-      schema_version: "1.0.0",
+      schema_version: "1.1.0",
       exported_by: "paper_artifacts.export_filtered",
       exported_at: exportedAt,
       paper_refs: uniquePaperRefs,

@@ -66,6 +66,10 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 2. Select the derived model that actually answers the question. Record its identity, scope, paging completion, freshness status, and any missing source coverage before interpreting it.
 3. Distinguish direct source claims, current Zotero facts, notes/annotations, computed relationships, workflow-produced interpretation, your inference, disagreement, and evidence gaps.
 
+For paper-level synthesis material, treat `digest`, `references`, `citation_analysis`, and `literature_score` as one four-artifact set. Inspect `paper_artifacts.get_manifest` before reading or exporting payloads. Omit `artifact_types` only when the complete set is intended; use an explicit filter when the task needs fewer artifacts. A paper is artifact-complete only when all four rows are available. A missing or invalid literature score keeps coverage partial even when the other three rows are available.
+
+The manifest's `literature_quality` snapshot records the score status, schema/rubric identity, paper type, scores, confidence, neutralized quality prior, payload hash, and diagnostics. Use that frozen snapshot as the paper's intrinsic-quality evidence. Do not replace it with a new subjective quality label. Missing or invalid scoring uses the neutral prior and remains visible in diagnostics. Topic relevance, Research Bundle eligibility, evidence role, disagreement, and claim support still require task-specific judgment; quality does not widen the selected source boundary or justify a hard filter by itself.
+
 ### Separate read, workflow, and maintenance
 
 4. Synthesize directly from supported reads when no reusable execution contract is needed. Use a live-described workflow when it owns the requested provider execution or multi-artifact output; validate workflow input and provider profile separately.
@@ -86,6 +90,8 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 4. Separate direct evidence, bibliographic relation, computed structure, workflow output, and your inference.
 5. State coverage gaps and whether they reflect missing sources, inaccessible content, stale derived state, or a supported research gap.
 6. Verify every requested artifact, Product asset, topic report, graph result, or export.
+
+When a score changes, treat Topic context selection and dependent topic synthesis as stale until the owning workflow refreshes them. Reference-sidecar refresh maintains reference indexing only; it does not create or repair literature scores. If the three non-score artifacts are complete and only the score is absent, the repair route is literature-analysis score-only. If any of digest, references, or citation analysis is unavailable, use the full literature-analysis route.
 
 When a workflow is used, preserve the live workflow description, selection, provider profile, options, run handle, expected result evidence, and inspection outcome. When maintenance is used, preserve the diagnosed model, pre-state, scope, operation ID, receipt, post-state, and basis hash if declared.
 

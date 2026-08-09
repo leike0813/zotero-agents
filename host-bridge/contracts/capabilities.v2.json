@@ -2791,11 +2791,27 @@
     },
     "paper_artifacts.export_filtered": {
       "category": "paper_artifacts",
-      "summary": "Export bounded filtered paper artifacts into the ACP run workspace.",
+      "summary": "Export bounded decoded digest, references, citation-analysis, and literature-score artifacts; omitting artifact_types exports the complete four-artifact set.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object.",
+        "properties": {
+          "paper_refs": { "type": "array", "items": { "type": "string" } },
+          "paper_ref": { "type": "string" },
+          "artifact_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            }
+          },
+          "run_root": { "type": "string" }
+        }
       },
       "outputSchema": {
         "type": "object",
@@ -2874,11 +2890,32 @@
     },
     "paper_artifacts.get_manifest": {
       "category": "paper_artifacts",
-      "summary": "Return available Synthesis paper artifact descriptors for selected paper references.",
+      "summary": "Return per-paper availability for digest, references, citation-analysis, and literature-score, including compact literature-quality snapshots.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object.",
+        "properties": {
+          "paper_refs": { "type": "array", "items": { "type": "string" } },
+          "paper_ref": { "type": "string" },
+          "artifact_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            }
+          },
+          "cursor": { "type": ["string", "number"] },
+          "limit": {
+            "type": ["integer", "string"],
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
       },
       "outputSchema": {
         "type": "object",
@@ -2923,11 +2960,26 @@
     },
     "paper_artifacts.read": {
       "category": "paper_artifacts",
-      "summary": "Read bounded Synthesis paper artifacts for selected paper references.",
+      "summary": "Read bounded decoded digest, references, citation-analysis, and literature-score payloads; omitting artifact_types reads the complete four-artifact set.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The selected domain service owns this capability input vocabulary; the capability boundary still requires a JSON object."
+        "x-openPropertiesReason": "The selected domain service owns aliases for this capability input vocabulary; the capability boundary still requires a JSON object.",
+        "properties": {
+          "paper_refs": { "type": "array", "items": { "type": "string" } },
+          "paper_ref": { "type": "string" },
+          "artifact_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "digest",
+                "references",
+                "citation_analysis",
+                "literature_score"
+              ]
+            }
+          }
+        }
       },
       "outputSchema": {
         "type": "object",

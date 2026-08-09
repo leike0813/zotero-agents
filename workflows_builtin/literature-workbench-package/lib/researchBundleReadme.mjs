@@ -161,7 +161,7 @@ export function renderResearchBundleReadme(args = {}) {
     "",
     `| ID | ${copy.paperRef} | ${copy.role} | ${copy.score} | ${copy.metadata} | ${copy.source} | ${copy.payloads} |`,
     "| --- | --- | --- | --- | --- | --- | --- |",
-    ...papers.map((paper) => `| ${escapeCell(paper.logical_id)} | ${escapeCell(paper.paper_ref)} | ${escapeCell(paper.role)} | ${score(paper.score)} | ${codePath(paper.metadata_path)} | ${paper.source?.path ? codePath(paper.source.path) : copy.unavailable} | ${(paper.payloads || []).map((payload) => codePath(payload.path)).join(", ") || "-"} |`),
+    ...papers.map((paper) => `| ${escapeCell(paper.logical_id)} | ${escapeCell(paper.paper_ref)} | ${escapeCell(paper.role)} | ${score(paper.selection_score)} | ${codePath(paper.metadata_path)} | ${paper.source?.path ? codePath(paper.source.path) : copy.unavailable} | ${(paper.payloads || []).map((payload) => codePath(payload.path)).join(", ") || "-"} |`),
     "",
     `## ${copy.researchContent}`,
     "",

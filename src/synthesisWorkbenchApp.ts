@@ -7498,6 +7498,11 @@ const registryArtifactBadges = [
     "Citation analysis artifact",
     "icon_artifact_citation_analysis.svg",
   ],
+  [
+    "literature_score",
+    "Literature score artifact",
+    "icon_artifact_literature_score.svg",
+  ],
 ] as const;
 
 function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
@@ -7916,7 +7921,7 @@ function renderRegistryRowActions(row: Record<string, unknown>) {
         args: { libraryId, itemKey, workflowId: "literature-analysis" },
       },
       false,
-      row.literatureAnalysisMode === "unavailable",
+      textValue(row.artifactCoverage) === "complete",
     ),
   );
   actions.appendChild(
@@ -14957,7 +14962,6 @@ function compactRegistryRowSignature(row: Record<string, unknown>) {
     row.missing_artifacts,
     row.artifacts,
     row.ratingScore,
-    row.literatureAnalysisMode,
     row.index_scope,
     row.reference_count,
     row.unbound_reference_count,

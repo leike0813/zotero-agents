@@ -1138,10 +1138,68 @@ def graph_importance(metric: dict[str, Any]) -> float:
     )
 
 
-def paper_score(semantic: float, graph: float, topic: float, readiness: float, graph_available: bool) -> float:
+def paper_score(semantic: float, quality: float, graph: float, topic: float, readiness: float, graph_available: bool) -> float:
     if not graph_available:
-        return semantic * 0.80 + topic * 0.15 + readiness * 0.05
-    return semantic * 0.60 + graph * 0.20 + topic * 0.15 + readiness * 0.05
+        return semantic * 0.65 + quality * 0.15 + topic * 0.15 + readiness * 0.05
+    return semantic * 0.50 + quality * 0.15 + graph * 0.15 + topic * 0.15 + readiness * 0.05
+
+
+def normalize_literature_quality(value: Any) -> dict[str, Any]:
+    quality = value if isinstance(value, dict) else {}
+    status = clean(quality.get("status")) or "missing"
+    if status not in {"available", "missing", "invalid"}:
+        status = "invalid"
+    prior = clamp01(quality.get("quality_prior", 0.5))
+    diagnostics = [clean(value) for value in quality.get("diagnostics", []) if clean(value)]
+    if status != "available":
+        prior = 0.5
+        code = "literature_score_missing" if status == "missing" else "literature_score_invalid"
+        if code not in diagnostics:
+            diagnostics.append(code)
+    return {**quality, "status": status, "quality_prior": prior, "diagnostics": diagnostics}
+
+
+def paper_artifact_manifests(run_root: Path, refs: list[str]) -> dict[str, dict[str, Any]]:
+    result = run_bridge_query(
+        run_root,
+        ["synthesis", "artifact", "manifest"],
+        {"paper_refs": refs},
+        "stage60-paper-artifact-manifest",
+    )
+    paper_rows = result.get("papers", []) if isinstance(result, dict) else []
+    by_ref: dict[str, list[dict[str, Any]]] = {ref: [] for ref in refs}
+    for paper in paper_rows:
+        if not isinstance(paper, dict):
+            continue
+        paper_ref = clean(paper.get("paper_ref"))
+        if paper_ref not in by_ref:
+            continue
+        for artifact in paper.get("artifacts", []):
+            if isinstance(artifact, dict):
+                by_ref[paper_ref].append(artifact)
+    manifests: dict[str, dict[str, Any]] = {}
+    for ref in refs:
+        artifacts = sorted(
+            by_ref.get(ref, []),
+            key=lambda row: clean(row.get("artifact_type")),
+        )
+        score = next(
+            (row for row in artifacts if clean(row.get("artifact_type")) == "literature_score"),
+            {},
+        )
+        manifests[ref] = {
+            "artifacts": [
+                {
+                    "artifact_type": clean(row.get("artifact_type")),
+                    "payload_type": clean(row.get("payload_type")),
+                    "status": clean(row.get("status")) or "missing",
+                    "payload_hash": clean(row.get("payload_hash") or row.get("hash")),
+                }
+                for row in artifacts
+            ],
+            "literature_quality": normalize_literature_quality(score.get("literature_quality")),
+        }
+    return manifests
 
 
 def topic_mandatory_paper(paper: dict[str, Any]) -> bool:
@@ -1254,6 +1312,15 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             details={"status": graph_status},
         )
 
+    try:
+        artifact_manifests = paper_artifact_manifests(run_root, refs) if refs else {}
+    except Exception as exc:  # noqa: BLE001
+        artifact_manifests = {
+            ref: {"artifacts": [], "literature_quality": normalize_literature_quality({})}
+            for ref in refs
+        }
+        add_diagnostic(conn, "paper_artifact_manifest_unavailable", str(exc))
+
     topic_ids = {row[0] for row in conn.execute("SELECT topic_id FROM selected_topics")}
     papers: list[dict[str, Any]] = []
     for ordinal, row in enumerate(rows, start=1):
@@ -1279,7 +1346,20 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         matched_topics = sorted((source_topics | semantic_topics) & topic_ids)
         topic_coverage = len(matched_topics) / len(topic_ids) if topic_ids else 0.0
         semantic = float(row["semantic_relevance"])
-        score = paper_score(semantic, importance, topic_coverage, material, per_paper_graph)
+        paper_artifacts = artifact_manifests.get(
+            ref,
+            {"artifacts": [], "literature_quality": normalize_literature_quality({})},
+        )
+        literature_quality = normalize_literature_quality(paper_artifacts.get("literature_quality"))
+        quality_prior = float(literature_quality["quality_prior"])
+        score = paper_score(
+            semantic,
+            quality_prior,
+            importance,
+            topic_coverage,
+            material,
+            per_paper_graph,
+        )
         papers.append(
             {
                 "paper_ref": ref,
@@ -1294,7 +1374,16 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
                 "graph_metrics": metric if per_paper_graph else {},
                 "material_readiness": material,
                 "readiness_evidence": readiness_evidence,
-                "score": score,
+                "artifact_manifest": paper_artifacts.get("artifacts", []),
+                "literature_quality": literature_quality,
+                "selection_components": {
+                    "semantic_relevance": semantic,
+                    "quality_prior": quality_prior,
+                    "graph": importance,
+                    "topic_coverage": topic_coverage,
+                    "material_readiness": material,
+                },
+                "selection_score": score,
                 "reason": row["reason"],
                 "evidence_basis": json.loads(row["evidence_basis_json"]),
                 "caveats": json.loads(row["caveats_json"]),
@@ -1323,7 +1412,7 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             ),
         )
     conn.commit()
-    papers.sort(key=lambda row: (-row["score"], row["paper_ref"]))
+    papers.sort(key=lambda row: (-row["selection_score"], row["paper_ref"]))
     limits = get_meta(conn, "limits", {})
     related_limit = int(limits.get("max_related_papers", 80))
     selected_topic_ids = {
@@ -1338,7 +1427,7 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     optional = [paper for paper in papers if paper not in mandatory]
     papers = sorted(
         mandatory + optional[:related_limit],
-        key=lambda row: (-row["score"], row["paper_ref"]),
+        key=lambda row: (-row["selection_score"], row["paper_ref"]),
     )
     max_core = int(limits.get("max_core_papers", 20))
     for index, paper in enumerate(papers):
@@ -1349,7 +1438,7 @@ def run_stage_60(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     ]
     selection = {
         "schema_id": "research_bundle.selection",
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "intent": get_meta(conn, "intent", {}),
         "limits": limits,
         "query_plan": get_meta(conn, "query_plan", {}),
@@ -1406,7 +1495,7 @@ def validate_selection(selection: Any) -> None:
             raise ValueError("selection papers must be objects")
         ref = clean(paper.get("paper_ref"))
         semantic = require_finite(paper.get("semantic_relevance"), "semantic_relevance")
-        score = float(paper.get("score"))
+        score = float(paper.get("selection_score"))
         mandatory = topic_mandatory_paper(paper)
         if (
             not ref
@@ -1414,7 +1503,7 @@ def validate_selection(selection: Any) -> None:
             or (semantic < RELATED_THRESHOLD and not mandatory)
             or not math.isfinite(score)
         ):
-            raise ValueError("selection paper identity, threshold, or score is invalid")
+            raise ValueError("selection paper identity, threshold, or selection_score is invalid")
         refs.add(ref)
         key = (-score, ref)
         if prior_key is not None and key < prior_key:

@@ -30,6 +30,23 @@ export type LiteratureScoreSummary = {
   dimensions: LiteratureScoreDimension[];
 };
 
+export type LiteratureQualityDiagnostic =
+  | "literature_score_missing"
+  | "literature_score_invalid";
+
+export type LiteratureQualitySnapshot = {
+  status: "available" | "missing" | "invalid";
+  schema?: typeof LITERATURE_SCORE_SCHEMA;
+  rubric_id?: string;
+  paper_type?: string;
+  overall_score?: number;
+  confidence?: number;
+  confidence_adjusted_score?: number;
+  quality_prior: number;
+  payload_hash?: string;
+  diagnostics: LiteratureQualityDiagnostic[];
+};
+
 export type LiteratureStarModel = {
   rating: number;
   fills: Array<0 | 0.5 | 1>;
@@ -112,8 +129,8 @@ export function parseLiteratureScore(
       !dimensionKey ||
       !name ||
       !summary ||
-      dimensionScore === null && dimension?.score !== null ||
-      dimensionConfidence === null && dimension?.confidence !== null ||
+      (dimensionScore === null && dimension?.score !== null) ||
+      (dimensionConfidence === null && dimension?.confidence !== null) ||
       !LITERATURE_SCORE_DIMENSION_KEYS.includes(
         dimensionKey as (typeof LITERATURE_SCORE_DIMENSION_KEYS)[number],
       ) ||
@@ -147,6 +164,53 @@ export function parseLiteratureScore(
     confidence,
     confidenceAdjustedScore,
     dimensions,
+  };
+}
+
+export function literatureQualityPrior(
+  overallScore: number,
+  confidence: number,
+) {
+  const boundedScore = Math.max(0, Math.min(100, overallScore));
+  const boundedConfidence = Math.max(0, Math.min(1, confidence));
+  return Number(
+    (0.5 + boundedConfidence * (boundedScore / 100 - 0.5)).toFixed(6),
+  );
+}
+
+export function buildLiteratureQualitySnapshot(args: {
+  payload?: unknown;
+  payloadHash?: string;
+  missing?: boolean;
+}): LiteratureQualitySnapshot {
+  const payloadHash = nonEmptyString(args.payloadHash) || undefined;
+  if (args.missing) {
+    return {
+      status: "missing",
+      quality_prior: 0.5,
+      diagnostics: ["literature_score_missing"],
+    };
+  }
+  const score = parseLiteratureScore(args.payload);
+  if (!score) {
+    return {
+      status: "invalid",
+      quality_prior: 0.5,
+      payload_hash: payloadHash,
+      diagnostics: ["literature_score_invalid"],
+    };
+  }
+  return {
+    status: "available",
+    schema: score.schema,
+    rubric_id: score.rubricId,
+    paper_type: score.paperType,
+    overall_score: score.overallScore,
+    confidence: score.confidence,
+    confidence_adjusted_score: score.confidenceAdjustedScore,
+    quality_prior: literatureQualityPrior(score.overallScore, score.confidence),
+    payload_hash: payloadHash,
+    diagnostics: [],
   };
 }
 

@@ -804,7 +804,7 @@ export function assembleTopicArtifact(args: {
 }) {
   const artifact = {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "3.0.0",
+    schema_version: "4.0.0",
     language: cleanString(args.manifest.language) || "auto",
     ...args.sections,
   };
