@@ -1,8 +1,8 @@
 {
   "schema": "host-bridge.plugin-skill-bundle.v1",
   "cli": {
-    "version": "0.5.3",
-    "buildFingerprint": "a0a211f9a722ee50e783e2ebb5664a4fc1cdce63cb57d99fb2e904d02c48fcca",
+    "version": "0.5.4",
+    "buildFingerprint": "85fbaa0d37d30345420c92336b3b574405e56b6328d1fe321aadf12218547635",
     "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
   },
   "surfaces": [
@@ -14,7 +14,7 @@
     {
       "id": "zotero-library-agent",
       "kind": "generic-agent",
-      "version": "0.5.3"
+      "version": "0.5.4"
     }
   ],
   "skills": [
@@ -26,32 +26,32 @@
     {
       "id": "zotero-library-agent",
       "mount": "skills/zotero-library-agent",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-library-query",
       "mount": "skills/zotero-library-query",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-literature-acquisition",
       "mount": "skills/zotero-literature-acquisition",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-literature-analysis",
       "mount": "skills/zotero-literature-analysis",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-research-synthesis",
       "mount": "skills/zotero-research-synthesis",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-library-curation",
       "mount": "skills/zotero-library-curation",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     }
   ],
   "files": [
@@ -743,7 +743,7 @@
     {
       "path": "zotero-library-agent/assets/runner.json",
       "bytes": 772,
-      "sha256": "ffb5ad187641fb82761546cc8c236b9bd869609cbfe6e2bfc4d398432b62f2f0"
+      "sha256": "1689f77de7b35fecfbe30567502d7958c42850473a3ec69f525c3a5299735adb"
     },
     {
       "path": "zotero-library-agent/references/research-task-model.md",
@@ -768,7 +768,7 @@
     {
       "path": "zotero-library-curation/assets/runner.json",
       "bytes": 1105,
-      "sha256": "376b1072413c65f788a804d88de5dd4421718d40a6d97bdc0d396cc4534e3255"
+      "sha256": "3ce5f50b1e0c1996130b11128380f74000f0a2a11680ad34e257a21577f0bc0e"
     },
     {
       "path": "zotero-library-curation/references/playbook.md",
@@ -788,7 +788,7 @@
     {
       "path": "zotero-library-query/assets/runner.json",
       "bytes": 1103,
-      "sha256": "3f9a5a7e5632b4d657b9d265192c7a98edb46dbccf05d8f65e21cece1fc20a08"
+      "sha256": "a7b966b7db82d5f738f40b6ac03a60632287611cc1be7e043551a87a9373e390"
     },
     {
       "path": "zotero-library-query/references/playbook.md",
@@ -808,7 +808,7 @@
     {
       "path": "zotero-literature-acquisition/assets/runner.json",
       "bytes": 1110,
-      "sha256": "d0c72017da5eb13f82ee06d45da3938f15a9a93e21b3ea7869e61696fc10e929"
+      "sha256": "62c60dc3955ec9b2c04a6e19237fd58dfa9d31e22b34ef2d9514e2ba71361090"
     },
     {
       "path": "zotero-literature-acquisition/references/playbook.md",
@@ -828,7 +828,7 @@
     {
       "path": "zotero-literature-analysis/assets/runner.json",
       "bytes": 1138,
-      "sha256": "f9ee0945c117aafa0887bdf7560465d8486f1313ae38fd5f6c0dcbfa4082045d"
+      "sha256": "281b0b823e0ef73a37d62bf0fc1bce67c972a93774b322cfdab1a370392b1ff3"
     },
     {
       "path": "zotero-literature-analysis/references/playbook.md",
@@ -848,7 +848,7 @@
     {
       "path": "zotero-research-synthesis/assets/runner.json",
       "bytes": 1115,
-      "sha256": "936173f01dedaf931b7073039d99b784a33564615a767063e3bb18b62319ec31"
+      "sha256": "aff52e309c9091b3656193e1dc4412f5856fc7755d3322d86c5b8a50f4b70bbf"
     },
     {
       "path": "zotero-research-synthesis/references/playbook.md",
@@ -861,5 +861,5 @@
       "sha256": "8283c905e2cfd83f6f51d53b46d4ffe427bd6a8fcaf34af93c369ebc0db7af89"
     }
   ],
-  "aggregateSha256": "d6aed377f826861cb792819ac334b047b93659a63f46e32e623643f84ee598ef"
+  "aggregateSha256": "721bd384dc4304a73341b95533aeea016d38cbde5f29c7e63b82813eebaa2c60"
 }
