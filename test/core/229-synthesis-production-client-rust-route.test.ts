@@ -319,6 +319,19 @@ function topicApplyRequest(topicId: string) {
               evidence: [{ paper_ref: sourcePaperRef }],
               relations: [],
             },
+            {
+              label: "Production review concept",
+              aliases: [],
+              concept_type: "method",
+              domain: "information-science",
+              short_definition: "A low-confidence review fixture.",
+              definition:
+                "A Concept proposal that must remain pending until reviewed.",
+              topic_relevance: "Exercises the native Concept review route.",
+              confidence: "low",
+              evidence: [{ paper_ref: sourcePaperRef }],
+              relations: [],
+            },
           ],
         }),
       },
@@ -1246,6 +1259,118 @@ describe("Synthesis Rust production client route", function () {
         1,
       );
 
+      const conceptReviewProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "review",
+            {
+              reviews: {
+                activeTab: "concepts",
+                status: "open",
+                kind: "all",
+                confidence: "all",
+                search: "",
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(conceptReviewProjection.status, 200);
+      assert.property(conceptReviewProjection.body.data, "concepts");
+      assert.notNestedProperty(
+        conceptReviewProjection.body.data,
+        "reviews.concept",
+      );
+      assert.lengthOf(
+        conceptReviewProjection.body.data.concepts.reviewItems,
+        1,
+      );
+      assert.lengthOf(
+        buildSynthesisUiSnapshot(conceptReviewProjection.body.data).concepts
+          .reviewItems,
+        1,
+      );
+
+      const topicGraphReviewProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "review",
+            {
+              reviews: {
+                activeTab: "topic_graph",
+                status: "open",
+                kind: "all",
+                confidence: "all",
+                search: "",
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(topicGraphReviewProjection.status, 200);
+      assert.property(topicGraphReviewProjection.body.data, "topicGraph");
+      assert.notNestedProperty(
+        topicGraphReviewProjection.body.data,
+        "reviews.topicGraph",
+      );
+      assert.lengthOf(
+        buildSynthesisUiSnapshot(topicGraphReviewProjection.body.data)
+          .topicGraph.nodes,
+        0,
+      );
+      assert.equal(
+        topicGraphReviewProjection.body.data.reviews.summary.conceptCount,
+        1,
+      );
+
+      const missingConceptReview = await call(
+        port,
+        "client.applyConceptReviewAction",
+        { args: [{ reviewId: "review:missing", action: "reject" }] },
+      );
+      assert.equal(missingConceptReview.status, 200);
+      assert.equal(
+        missingConceptReview.body.data.diagnostic?.code,
+        "concept_review_item_missing",
+      );
+
+      const missingReferenceReview = await call(
+        port,
+        "client.applyReferenceMatchProposalAction",
+        { args: [{ proposalId: "proposal:missing", action: "accept" }] },
+      );
+      assert.equal(missingReferenceReview.status, 200);
+      assert.equal(
+        missingReferenceReview.body.data.diagnostic?.code,
+        "reference_match_proposal_missing",
+      );
+
+      const missingTopicGraphEdge = await call(
+        port,
+        "client.acceptTopicGraphRelation",
+        { args: [{ edgeId: "edge:missing" }] },
+      );
+      assert.equal(missingTopicGraphEdge.status, 200);
+      assert.equal(
+        missingTopicGraphEdge.body.data.diagnostic?.code,
+        "topic_graph_edge_missing",
+      );
+
+      const missingTopicGraphReview = await call(
+        port,
+        "client.applyTopicGraphReviewAction",
+        { args: [{ reviewId: "review:missing", action: "reject" }] },
+      );
+      assert.equal(missingTopicGraphReview.status, 200);
+      assert.equal(
+        missingTopicGraphReview.body.data.diagnostic?.code,
+        "topic_graph_review_missing",
+      );
+
       reverseHostCalls.length = 0;
       const deleted = await call(port, "client.deleteTopicArtifact", {
         args: [{ topicId }],
@@ -1775,6 +1900,66 @@ describe("Synthesis Rust production client route", function () {
         matchingCompleted.receipt.status,
         "promoted",
         JSON.stringify(matchingCompleted),
+      );
+
+      const referenceReviewSurface = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "review",
+            {
+              reviews: {
+                activeTab: "reference_matching",
+                status: "open",
+                kind: "all",
+                confidence: "all",
+                search: "",
+                limit: 25,
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(referenceReviewSurface.status, 200);
+      assert.isArray(referenceReviewSurface.body.data.registry.matchProposals);
+      assert.isArray(
+        referenceReviewSurface.body.data.registry.cleanupProposals,
+      );
+      assert.notNestedProperty(
+        referenceReviewSurface.body.data,
+        "reviews.reference",
+      );
+      referenceReviewSurface.body.data.registry.matchProposals.forEach(
+        (proposal: Record<string, unknown>) => {
+          assert.isString(proposal.proposal_id);
+          assert.notProperty(proposal, "proposalId");
+        },
+      );
+
+      const indexReviewSurface = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            {
+              registry: {
+                scope: "library",
+                expandedSourceRefs: [],
+              },
+            },
+          ],
+        },
+      );
+      assert.equal(indexReviewSurface.status, 200);
+      assert.deepEqual(
+        indexReviewSurface.body.data.registry.matchProposals.map(
+          (proposal: Record<string, unknown>) => proposal.proposal_id,
+        ),
+        referenceReviewSurface.body.data.registry.matchProposals.map(
+          (proposal: Record<string, unknown>) => proposal.proposal_id,
+        ),
       );
 
       const chrome = await call(

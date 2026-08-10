@@ -321,6 +321,8 @@ The flow is:
 5. Store accepted/rejected decisions with provenance, confidence, evidence summary, and affected Zotero binding or canonical redirect refs.
 6. Trigger a separate graph incremental refresh for accepted binding/redirect fact changes where supported; do not rebuild layout inside review. A separate related-items sync may run after Advanced Matching fact changes, and it must not depend on graph cache success.
 
+Batch review is item-independent: every valid decision gets its own transaction and result even when another proposal is missing or invalid. A completed action receipt records the proposal status before and after that transition. It can be replayed only while the current status still matches the recorded after-state, which preserves same-state idempotency without swallowing Accept → Reopen → Accept or equivalent reversible sequences.
+
 Fuzzy external dedupe is review-only in this version. It runs after deterministic dedupe clusters are formed and compares unresolved singleton canonical references against deterministic cluster representatives and remaining singleton targets under block and pair budgets.
 
 Rejected or accepted decisions are durable sidecar facts, not ordinary cache rows.

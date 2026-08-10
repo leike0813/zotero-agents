@@ -1,7 +1,8 @@
-use crate::{OperationRecord, Repository, row_integer};
+use crate::{OperationRecord, Repository, ReviewPageQuery, row_integer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -396,6 +397,118 @@ impl Repository {
         })
     }
 
+    pub fn refresh_topic_discovery_projections(
+        &mut self,
+        updated_at: &str,
+    ) -> Result<usize, String> {
+        self.transaction(|repository| {
+            let projections = repository
+                .query(
+                    "SELECT * FROM synt_topic_application_projection ORDER BY topic_id",
+                    &[],
+                )?
+                .into_iter()
+                .map(decode)
+                .collect::<Result<Vec<crate::TopicApplicationProjectionRecord>, _>>()?;
+            let children = repository
+                .list_topic_graph_edges()?
+                .into_iter()
+                .filter(|edge| edge.relation == "broader_than" && edge.status == "confirmed")
+                .fold(
+                    std::collections::BTreeMap::<String, Vec<String>>::new(),
+                    |mut grouped, edge| {
+                        grouped
+                            .entry(edge.source_topic_id)
+                            .or_default()
+                            .push(edge.target_topic_id);
+                        grouped
+                    },
+                );
+            let hints = repository
+                .query(
+                    "SELECT payload_json FROM synt_topic_discovery_hint ORDER BY hint_id",
+                    &[],
+                )?
+                .into_iter()
+                .filter_map(|row| {
+                    row.get("payload_json")
+                        .and_then(Value::as_str)
+                        .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
+                })
+                .collect::<Vec<_>>();
+            let mut updated = 0;
+            for mut projection in projections {
+                let mut cascade = BTreeSet::from([projection.topic_id.clone()]);
+                let mut pending = vec![projection.topic_id.clone()];
+                while let Some(topic_id) = pending.pop() {
+                    for child in children.get(&topic_id).into_iter().flatten() {
+                        if cascade.insert(child.clone()) {
+                            pending.push(child.clone());
+                        }
+                    }
+                }
+                let mut open = BTreeSet::new();
+                let mut rejected = BTreeSet::new();
+                let visible_hints = hints
+                    .iter()
+                    .filter(|hint| {
+                        hint.get("topic_id")
+                            .or_else(|| hint.get("topicId"))
+                            .and_then(Value::as_str)
+                            .is_some_and(|topic_id| cascade.contains(topic_id))
+                    })
+                    .filter_map(|hint| {
+                        let literature_id = hint
+                            .get("literature_item_id")
+                            .or_else(|| hint.get("literatureItemId"))
+                            .and_then(Value::as_str)?;
+                        match hint.get("status").and_then(Value::as_str) {
+                            Some("open") => {
+                                open.insert(literature_id.to_owned());
+                                rejected.remove(literature_id);
+                            }
+                            Some("rejected") if !open.contains(literature_id) => {
+                                rejected.insert(literature_id.to_owned());
+                            }
+                            _ => {}
+                        }
+                        Some(hint.clone())
+                    })
+                    .take(25)
+                    .collect::<Vec<_>>();
+                let mut discovery = serde_json::from_str::<Value>(&projection.discovery_json)
+                    .ok()
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
+                discovery.insert(
+                    "cascade_topic_ids".into(),
+                    json!(cascade.into_iter().collect::<Vec<_>>()),
+                );
+                discovery.insert("candidate_count".into(), json!(open.len()));
+                discovery.insert(
+                    "discovery_status".into(),
+                    json!(if !open.is_empty() {
+                        "candidates"
+                    } else if !rejected.is_empty() {
+                        "rejected"
+                    } else {
+                        "none"
+                    }),
+                );
+                discovery.insert("hints".into(), json!(visible_hints));
+                let next = serde_json::to_string(&Value::Object(discovery))
+                    .map_err(|_| "topic_discovery_projection_invalid".to_owned())?;
+                if next != projection.discovery_json {
+                    projection.discovery_json = next;
+                    projection.updated_at = updated_at.into();
+                    repository.upsert_topic_application_projection(&projection)?;
+                    updated += 1;
+                }
+            }
+            Ok(updated)
+        })
+    }
+
     pub fn get_tag_application_state(&self) -> Result<Option<TagApplicationStateRecord>, String> {
         one(
             self,
@@ -695,6 +808,66 @@ impl Repository {
         )
     }
 
+    pub fn load_concept_review_page(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<(ConceptKbReplacement, usize), String> {
+        validate_domain_review_query(query)?;
+        let (clause, mut values) = concept_review_clause(query);
+        let total = domain_review_count(self, "synt_concept_review_item", &clause, &values)?;
+        values.extend([json!(query.limit), json!(query.offset)]);
+        let reviews = self
+            .query(
+                &format!(
+                    "SELECT * FROM synt_concept_review_item {clause}
+                     ORDER BY updated_at DESC,review_id ASC LIMIT ? OFFSET ?"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .map(decode)
+            .collect::<Result<Vec<ConceptReviewItemRecord>, _>>()?;
+        let concept_ids = reviews
+            .iter()
+            .flat_map(|review| {
+                let mut ids =
+                    serde_json::from_str::<Vec<String>>(&review.candidate_concept_ids_json)
+                        .unwrap_or_default();
+                if !review.target_concept_id.is_empty() {
+                    ids.push(review.target_concept_id.clone());
+                }
+                ids
+            })
+            .collect::<BTreeSet<_>>();
+        let concepts = if concept_ids.is_empty() {
+            Vec::new()
+        } else {
+            let placeholders = std::iter::repeat_n("?", concept_ids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let values = concept_ids.iter().map(|id| json!(id)).collect::<Vec<_>>();
+            self.query(
+                &format!(
+                    "SELECT * FROM synt_concept WHERE concept_id IN ({placeholders})
+                     ORDER BY concept_id ASC"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .map(decode)
+            .collect::<Result<Vec<ConceptRecord>, _>>()?
+        };
+        Ok((
+            ConceptKbReplacement {
+                state: self.get_concept_application_state()?.unwrap_or_default(),
+                concepts,
+                reviews,
+                ..ConceptKbReplacement::default()
+            },
+            total,
+        ))
+    }
+
     pub fn list_topic_concept_links(&self) -> Result<Vec<TopicConceptLinkRecord>, String> {
         many(
             self,
@@ -840,6 +1013,88 @@ impl Repository {
             self,
             "SELECT * FROM synt_topic_graph_review_item ORDER BY review_id",
         )
+    }
+
+    pub fn load_topic_graph_review_page(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<(TopicGraphReplacement, usize, usize), String> {
+        validate_domain_review_query(query)?;
+        let (edge_clause, mut edge_values) = topic_graph_edge_review_clause(query);
+        let edge_total =
+            domain_review_count(self, "synt_topic_graph_edge", &edge_clause, &edge_values)?;
+        edge_values.extend([json!(query.limit), json!(query.offset)]);
+        let edges = self
+            .query(
+                &format!(
+                    "SELECT * FROM synt_topic_graph_edge {edge_clause}
+                     ORDER BY updated_at DESC,edge_id ASC LIMIT ? OFFSET ?"
+                ),
+                &edge_values,
+            )?
+            .into_iter()
+            .map(decode)
+            .collect::<Result<Vec<TopicGraphEdgeRecord>, _>>()?;
+        let (review_clause, mut review_values) = topic_graph_review_clause(query);
+        let review_total = domain_review_count(
+            self,
+            "synt_topic_graph_review_item",
+            &review_clause,
+            &review_values,
+        )?;
+        review_values.extend([json!(query.limit), json!(query.offset)]);
+        let reviews = self
+            .query(
+                &format!(
+                    "SELECT * FROM synt_topic_graph_review_item {review_clause}
+                     ORDER BY updated_at DESC,review_id ASC LIMIT ? OFFSET ?"
+                ),
+                &review_values,
+            )?
+            .into_iter()
+            .map(decode)
+            .collect::<Result<Vec<TopicGraphReviewItemRecord>, _>>()?;
+        let topic_ids = edges
+            .iter()
+            .flat_map(|edge| [&edge.source_topic_id, &edge.target_topic_id])
+            .chain(
+                reviews
+                    .iter()
+                    .flat_map(|review| [&review.source_topic_id, &review.target_topic_id]),
+            )
+            .filter(|id| !id.is_empty())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let nodes = if topic_ids.is_empty() {
+            Vec::new()
+        } else {
+            let placeholders = std::iter::repeat_n("?", topic_ids.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let values = topic_ids.iter().map(|id| json!(id)).collect::<Vec<_>>();
+            self.query(
+                &format!(
+                    "SELECT * FROM synt_topic_graph_node WHERE topic_id IN ({placeholders})
+                     ORDER BY topic_id ASC"
+                ),
+                &values,
+            )?
+            .into_iter()
+            .map(decode)
+            .collect::<Result<Vec<TopicGraphNodeRecord>, _>>()?
+        };
+        Ok((
+            TopicGraphReplacement {
+                state: self
+                    .get_topic_graph_application_state()?
+                    .unwrap_or_default(),
+                nodes,
+                edges,
+                reviews,
+            },
+            edge_total,
+            review_total,
+        ))
     }
 
     pub fn load_topic_graph_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {
@@ -1137,6 +1392,176 @@ fn put_tag_alias(repository: &Repository, row: &TagAliasRecord) -> Result<(), St
         ],
     )?;
     Ok(())
+}
+
+fn validate_domain_review_query(query: &ReviewPageQuery) -> Result<(), String> {
+    if query.limit == 0
+        || query.limit > 100
+        || query.offset > 100_000
+        || query.search.chars().count() > 500
+        || !matches!(
+            query.status.as_str(),
+            "all" | "open" | "accepted" | "rejected" | "superseded" | "retargeted"
+        )
+        || !matches!(
+            query.kind.as_str(),
+            "all" | "zotero_binding" | "canonical_merge" | "canonical_revision"
+        )
+        || !matches!(
+            query.confidence.as_str(),
+            "all" | "deterministic" | "high" | "medium" | "low" | "review"
+        )
+    {
+        return Err("review_page_query_invalid".into());
+    }
+    Ok(())
+}
+
+fn concept_review_clause(query: &ReviewPageQuery) -> (String, Vec<Value>) {
+    let mut conditions = review_status_conditions(&query.status, ReviewStatusDomain::Concept);
+    let mut values = Vec::new();
+    push_confidence_condition(&mut conditions, &query.confidence);
+    push_domain_search_condition(
+        &mut conditions,
+        &mut values,
+        &query.search,
+        &[
+            "review_id",
+            "reason",
+            "topic_id",
+            "topic_path_id",
+            "label",
+            "candidate_concept_ids_json",
+            "proposal_json",
+        ],
+    );
+    (domain_where_clause(&conditions), values)
+}
+
+fn topic_graph_edge_review_clause(query: &ReviewPageQuery) -> (String, Vec<Value>) {
+    let mut conditions = review_status_conditions(&query.status, ReviewStatusDomain::TopicEdge);
+    let mut values = Vec::new();
+    push_confidence_condition(&mut conditions, &query.confidence);
+    push_domain_search_condition(
+        &mut conditions,
+        &mut values,
+        &query.search,
+        &[
+            "edge_id",
+            "source_topic_id",
+            "target_topic_id",
+            "relation",
+            "provenance_json",
+            "evidence_refs_json",
+        ],
+    );
+    (domain_where_clause(&conditions), values)
+}
+
+fn topic_graph_review_clause(query: &ReviewPageQuery) -> (String, Vec<Value>) {
+    let mut conditions = review_status_conditions(&query.status, ReviewStatusDomain::TopicReview);
+    let mut values = Vec::new();
+    push_confidence_condition(&mut conditions, &query.confidence);
+    push_domain_search_condition(
+        &mut conditions,
+        &mut values,
+        &query.search,
+        &[
+            "review_id",
+            "source_topic_id",
+            "target_topic_id",
+            "target_title",
+            "relation",
+            "provenance_json",
+            "evidence_refs_json",
+        ],
+    );
+    (domain_where_clause(&conditions), values)
+}
+
+#[derive(Clone, Copy)]
+enum ReviewStatusDomain {
+    Concept,
+    TopicEdge,
+    TopicReview,
+}
+
+fn review_status_conditions(status: &str, domain: ReviewStatusDomain) -> Vec<String> {
+    let condition = match (domain, status) {
+        (_, "all") => "status<>'deleted'",
+        (ReviewStatusDomain::Concept, "accepted") => "status IN ('approved','merged')",
+        (ReviewStatusDomain::Concept, "superseded") => "status IN ('stale','superseded')",
+        (ReviewStatusDomain::TopicEdge, "open") => "status='suggested'",
+        (ReviewStatusDomain::TopicEdge, "accepted") => "status IN ('accepted','confirmed')",
+        (ReviewStatusDomain::TopicEdge, "superseded") => "status IN ('stale','superseded')",
+        (ReviewStatusDomain::TopicReview, "accepted") => "status='approved'",
+        (ReviewStatusDomain::TopicReview, "superseded") => "status IN ('stale','superseded')",
+        (_, other) => match other {
+            "open" => "status='open'",
+            "rejected" => "status='rejected'",
+            "retargeted" => "status='retargeted'",
+            _ => "1=0",
+        },
+    };
+    vec![condition.to_owned()]
+}
+
+fn push_confidence_condition(conditions: &mut Vec<String>, confidence: &str) {
+    let condition = match confidence {
+        "all" => return,
+        "deterministic" => "confidence>=1.0",
+        "high" => "confidence>=0.8 AND confidence<1.0",
+        "medium" => "confidence>=0.5 AND confidence<0.8",
+        "low" => "confidence<0.5",
+        "review" => "confidence<0.8",
+        _ => "1=0",
+    };
+    conditions.push(condition.into());
+}
+
+fn push_domain_search_condition(
+    conditions: &mut Vec<String>,
+    values: &mut Vec<Value>,
+    search: &str,
+    columns: &[&str],
+) {
+    let search = search.trim().to_lowercase();
+    if search.is_empty() {
+        return;
+    }
+    let pattern = format!("%{search}%");
+    let condition = columns
+        .iter()
+        .map(|column| format!("lower({column}) LIKE ?"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    conditions.push(format!("({condition})"));
+    values.extend(columns.iter().map(|_| json!(pattern)));
+}
+
+fn domain_where_clause(conditions: &[String]) -> String {
+    if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    }
+}
+
+fn domain_review_count(
+    repository: &Repository,
+    table: &str,
+    clause: &str,
+    values: &[Value],
+) -> Result<usize, String> {
+    let row = repository
+        .query(
+            &format!("SELECT COUNT(*) AS total FROM {table} {clause}"),
+            values,
+        )?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "repository_typed_row_invalid".to_owned())?;
+    usize::try_from(row_integer(&row, "total")?).map_err(|_| "repository_typed_row_invalid".into())
 }
 
 fn put_tag_abbrev(repository: &Repository, row: &TagAbbrevRecord) -> Result<(), String> {
@@ -1750,6 +2175,92 @@ mod tests {
         );
         assert_eq!(reopened.list_topic_graph_nodes().expect("nodes").len(), 1);
         drop(reopened);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn confirmed_broader_relations_refresh_discovery_cascade_projection() {
+        let (root, mut repository) = open("topic-discovery-cascade");
+        for topic_id in ["topic:parent", "topic:child"] {
+            repository
+                .upsert_topic_application_projection(&crate::TopicApplicationProjectionRecord {
+                    topic_id: topic_id.into(),
+                    topic_graph_json: "{}".into(),
+                    concepts_json: "{}".into(),
+                    interest_metadata_json: "{}".into(),
+                    discovery_json: "{\"source_paper_refs\":[]}".into(),
+                    updated_at: "before".into(),
+                })
+                .expect("projection");
+        }
+        let graph = TopicGraphReplacement {
+            state: TopicGraphApplicationStateRecord {
+                singleton_id: 1,
+                manifest_hash: "graph:discovery".into(),
+                index_json: "{}".into(),
+                updated_at: "before".into(),
+                ..TopicGraphApplicationStateRecord::default()
+            },
+            nodes: ["parent", "child"]
+                .into_iter()
+                .map(|id| TopicGraphNodeRecord {
+                    topic_id: format!("topic:{id}"),
+                    title: id.into(),
+                    aliases_json: "[]".into(),
+                    node_type: "topic".into(),
+                    created_at: "before".into(),
+                    updated_at: "before".into(),
+                    ..TopicGraphNodeRecord::default()
+                })
+                .collect(),
+            edges: vec![TopicGraphEdgeRecord {
+                edge_id: "edge:broader".into(),
+                source_topic_id: "topic:parent".into(),
+                target_topic_id: "topic:child".into(),
+                relation: "broader_than".into(),
+                status: "confirmed".into(),
+                provenance_json: "[]".into(),
+                evidence_refs_json: "[]".into(),
+                created_at: "before".into(),
+                updated_at: "before".into(),
+                ..TopicGraphEdgeRecord::default()
+            }],
+            reviews: Vec::new(),
+        };
+        assert!(
+            repository
+                .replace_topic_graph_application_state(None, &graph)
+                .expect("graph")
+        );
+        repository
+            .execute(
+                "INSERT INTO synt_topic_discovery_hint(hint_id,payload_json,updated_at)
+                 VALUES(?1,?2,?3)",
+                &[
+                    json!("hint:child"),
+                    json!("{\"topic_id\":\"topic:child\",\"literature_item_id\":\"1:ABC\",\"status\":\"open\"}"),
+                    json!("before"),
+                ],
+            )
+            .expect("hint");
+        assert_eq!(
+            repository
+                .refresh_topic_discovery_projections("after")
+                .expect("refresh"),
+            2
+        );
+        let parent = repository
+            .get_topic_application_projection("topic:parent")
+            .expect("parent")
+            .expect("parent projection");
+        let discovery: Value = serde_json::from_str(&parent.discovery_json).expect("discovery");
+        assert_eq!(
+            discovery["cascade_topic_ids"],
+            json!(["topic:child", "topic:parent"])
+        );
+        assert_eq!(discovery["candidate_count"], 1);
+        assert_eq!(discovery["discovery_status"], "candidates");
+        drop(repository);
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -10217,7 +10217,8 @@ function reviewStatusMatches(status: unknown, filter: unknown) {
     return (
       normalizedStatus === "accepted" ||
       normalizedStatus === "approved" ||
-      normalizedStatus === "confirmed"
+      normalizedStatus === "confirmed" ||
+      normalizedStatus === "merged"
     );
   }
   if (normalizedFilter === "superseded") {

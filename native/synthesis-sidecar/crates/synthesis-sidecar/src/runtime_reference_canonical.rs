@@ -9,8 +9,7 @@ use synthesis_application::PromotionCheckpoint;
 use synthesis_application::RepositoryPort;
 use synthesis_application::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchingApplication, ReferenceMatchingPrepareRequest,
-    ReferenceMatchingStatus, ReferenceReviewAction, ReferenceReviewBatchResult,
-    ReferenceReviewDecision,
+    ReferenceMatchingStatus, ReferenceReviewAction, ReferenceReviewDecision,
 };
 use synthesis_application::reference_refresh::{
     REFERENCE_REFRESH_MATERIALIZED_MAX_BYTES, REFERENCE_REFRESH_MATERIALIZED_MAX_JSON_NODES,
@@ -22,9 +21,10 @@ use synthesis_application::reference_refresh::{
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    LiteratureMatchingMetadataRecord, OperationRecord, RawReferenceRecord, ReferenceArtifactRecord,
-    ReferenceBindingFactRecord, ReferenceMatchProposalRecord, ReferenceRedirectFactRecord,
-    Repository,
+    CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
+    RawReferenceRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
+    ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, ReferenceRevisionReviewRecord,
+    Repository, ReviewPageQuery,
 };
 
 use crate::runtime_deadline::bounded_timeout;
@@ -848,6 +848,101 @@ impl ReferenceCanonicalApplication {
         }))
     }
 
+    pub(crate) fn workbench_review(&self, state: &Value, library_id: i64) -> Result<Value, String> {
+        let review_state = state.get("reviews").unwrap_or(state);
+        let query = review_page_query(review_state)?;
+        let cache_status = self.reference_cache_status()?;
+        let repository = self.repository.owner();
+        let repository = repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        let cleanup_page = repository.list_reference_revision_reviews_for_review(&query)?;
+        let match_page = repository.list_reference_match_proposals_for_review(&query)?;
+        let cleanup_proposals = cleanup_page
+            .records
+            .iter()
+            .cloned()
+            .map(reference_revision_review_wire)
+            .collect::<Vec<_>>();
+        let match_proposals = match_page
+            .records
+            .iter()
+            .map(reference_match_proposal_wire)
+            .collect::<Result<Vec<_>, _>>()?;
+        let canonical_ids = match_page
+            .records
+            .iter()
+            .flat_map(|proposal| {
+                [
+                    proposal.source_canonical_reference_id.as_str(),
+                    proposal.target_canonical_reference_id.as_str(),
+                ]
+            })
+            .chain(
+                cleanup_page
+                    .records
+                    .iter()
+                    .map(|review| review.canonical_reference_id.as_str()),
+            )
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        let canonical_context = repository.list_canonical_references_by_ids(&canonical_ids)?;
+        let canonical_rows = canonical_context
+            .iter()
+            .cloned()
+            .map(canonical_reference_workbench_wire)
+            .collect::<Result<Vec<_>, _>>()?;
+        let match_target_candidates = repository
+            .list_active_canonical_reference_candidates(100)?
+            .into_iter()
+            .map(canonical_reference_target_candidate_wire)
+            .collect::<Vec<_>>();
+        let open_query = ReviewPageQuery {
+            status: "open".into(),
+            kind: "all".into(),
+            confidence: "all".into(),
+            limit: 1,
+            ..ReviewPageQuery::default()
+        };
+        let reference_open = repository
+            .list_reference_match_proposals_for_review(&open_query)?
+            .total;
+        let cleanup_open = repository
+            .list_reference_revision_reviews_for_review(&open_query)?
+            .total;
+        let total = match_page.total.max(cleanup_page.total);
+        let next = query.offset.saturating_add(query.limit);
+        Ok(json!({
+            "libraryId":library_id,
+            "registry":{
+                "rows":[],
+                "cleanupProposals":cleanup_proposals,
+                "matchProposals":match_proposals,
+                "matchTargetCandidates":match_target_candidates,
+                "canonicalRows":canonical_rows,
+                "cacheStatus":cache_status,
+                "reviewPage":{
+                    "cursor":query.offset.to_string(),
+                    "next_cursor":if next < total { next.to_string() } else { String::new() },
+                    "has_more":next < total,
+                    "limit":query.limit,
+                    "match_total":match_page.total,
+                    "cleanup_total":cleanup_page.total,
+                },
+            },
+            "reviews":{
+                "summary":{
+                    "openCount":reference_open + cleanup_open,
+                    "indexCount":cleanup_open,
+                    "referenceMatchingCount":reference_open,
+                    "conceptCount":0,
+                    "topicGraphCount":0,
+                },
+            },
+        }))
+    }
+
     pub(crate) fn start_refresh_with_checkpoint(
         &self,
         request: &Value,
@@ -915,6 +1010,43 @@ impl ReferenceCanonicalApplication {
         if decisions.is_empty() {
             return Err("invalid_request".into());
         }
+        if decisions.len() == 1 {
+            return self.apply_proposal_action_locked(&decisions[0]);
+        }
+        let results = decisions
+            .iter()
+            .map(|decision| self.apply_proposal_action_locked(decision))
+            .collect::<Result<Vec<_>, _>>()?;
+        let failed_count = results
+            .iter()
+            .filter(|result| result.get("ok").and_then(Value::as_bool) != Some(true))
+            .count();
+        let skipped_count = results
+            .iter()
+            .filter(|result| result.get("idempotent").and_then(Value::as_bool) == Some(true))
+            .count();
+        let mut result = json!({
+            "ok":failed_count == 0,
+            "applied_count":results.len() - failed_count - skipped_count,
+            "skipped_count":skipped_count,
+            "failed_count":failed_count,
+            "results":results,
+        });
+        if failed_count > 0 {
+            result["diagnostic"] = json!({
+                "code":"reference_match_proposal_batch_partial",
+                "message":"One or more Reference review decisions could not be applied.",
+                "details":{"failed_count":failed_count},
+            });
+        }
+        Ok(result)
+    }
+
+    fn apply_proposal_action_locked(
+        &self,
+        decision: &ReferenceReviewDecision,
+    ) -> Result<Value, String> {
+        let decisions = std::slice::from_ref(decision);
         let request = serde_json::to_value(decisions).map_err(|_| "invalid_request")?;
         let operation_id = operation_id("reference-proposal-review", &request)?;
         {
@@ -922,48 +1054,45 @@ impl ReferenceCanonicalApplication {
             let repository = repository
                 .lock()
                 .map_err(|_| "repository_unavailable".to_owned())?;
-            if let Some(result) = receipt_result(&repository, &operation_id)? {
+            let current_source_hash =
+                proposal_review_state_hash(&repository, decisions, ProposalReviewState::Current)?;
+            if let Some(result) =
+                receipt_result_at_source(&repository, &operation_id, &current_source_hash)?
+            {
                 return Ok(with_idempotent(result));
             }
         }
-        let results = decisions
-            .iter()
-            .map(|decision| {
-                json!({
-                    "ok":true,
-                    "status":public_review_status(decision.action),
-                    "proposal_id":decision.proposal_id,
-                })
-            })
-            .collect::<Vec<_>>();
-        let success_result = if decisions.len() == 1 {
-            results[0].clone()
-        } else {
-            json!({
-                "ok":true,
-                "applied_count":decisions.len(),
-                "skipped_count":0,
-                "failed_count":0,
-                "results":results,
-            })
-        };
-        let basis = {
+        let success_result = json!({
+            "ok":true,
+            "status":public_review_status(decision.action),
+            "proposal_id":decision.proposal_id,
+        });
+        let (basis, source_hash) = {
             let repository = self.repository.owner();
             let repository = repository
                 .lock()
                 .map_err(|_| "repository_unavailable".to_owned())?;
-            reference_basis_hash(&repository)?
+            (
+                proposal_review_state_hash(&repository, decisions, ProposalReviewState::Current)?,
+                proposal_review_state_hash(
+                    &repository,
+                    decisions,
+                    ProposalReviewState::AfterDecision,
+                )?,
+            )
         };
-        let receipt = completed_receipt(
+        let mut receipt = completed_receipt(
             &operation_id,
             "reference_proposal_review",
             &basis,
             &success_result,
         )?;
+        receipt.basis_kind = "reference_matching_review_chain.v1".into();
+        receipt.source_hash = source_hash;
         let review = self.matching.review_with_receipt(decisions, Some(&receipt));
         if review.status == ReferenceMatchingStatus::ReviewApplied {
             Ok(success_result)
-        } else if decisions.len() == 1 {
+        } else {
             let status = review
                 .results
                 .first()
@@ -980,10 +1109,8 @@ impl ReferenceCanonicalApplication {
                 } else {
                     "reference_match_proposal_action_failed"
                 },
-                json!({"proposalId":decisions[0].proposal_id}),
+                json!({"proposalId":decision.proposal_id}),
             ))
-        } else {
-            Ok(review_failure_result(&review))
         }
     }
 
@@ -2539,6 +2666,18 @@ fn page_query(
     Ok(PageQuery { cursor, limit })
 }
 
+fn review_page_query(request: &Value) -> Result<ReviewPageQuery, String> {
+    let page = page_query(request, 25, 100)?;
+    Ok(ReviewPageQuery {
+        status: string_field_optional(request, &["status"]).unwrap_or_else(|| "open".into()),
+        kind: string_field_optional(request, &["kind"]).unwrap_or_else(|| "all".into()),
+        confidence: string_field_optional(request, &["confidence"]).unwrap_or_else(|| "all".into()),
+        search: string_field_optional(request, &["search"]).unwrap_or_default(),
+        offset: page.cursor,
+        limit: page.limit,
+    })
+}
+
 fn page_query_without_cursor(
     request: &Value,
     default_limit: usize,
@@ -2893,6 +3032,93 @@ fn workbench_reference_row(reference: &ReferenceIndexFactReference) -> Value {
         "target_paper_ref":target_paper_ref,
         "target_binding":if reference.binding.is_some() { "library" } else { "none" },
         "binding_status":reference.binding.as_ref().map(|binding|binding.status.as_str()).unwrap_or("unbound"),
+    })
+}
+
+fn json_string_list(value: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
+}
+
+fn json_array(value: &str) -> Vec<Value> {
+    serde_json::from_str::<Vec<Value>>(value).unwrap_or_default()
+}
+
+fn reference_match_proposal_wire(proposal: &ReferenceMatchProposalRecord) -> Result<Value, String> {
+    let evidence =
+        serde_json::from_str::<Value>(&proposal.evidence_json).unwrap_or_else(|_| json!({}));
+    Ok(json!({
+        "proposal_id":proposal.proposal_id,
+        "kind":proposal.kind,
+        "status":proposal.status,
+        "source_canonical_reference_id":proposal.source_canonical_reference_id,
+        "source_effective_canonical_reference_id":proposal.source_canonical_reference_id,
+        "source_raw_reference_ids":json_string_list(&proposal.source_raw_reference_ids_json),
+        "target_canonical_reference_id":proposal.target_canonical_reference_id,
+        "target_effective_canonical_reference_id":proposal.target_canonical_reference_id,
+        "target_library_id":proposal.target_library_id,
+        "target_item_key":proposal.target_item_key,
+        "confidence":proposal.confidence,
+        "score":proposal.score,
+        "reasons":json_string_list(&proposal.reasons_json),
+        "evidence":evidence,
+        "diagnostics":json_array(&proposal.diagnostics_json),
+        "updated_at":proposal.updated_at,
+    }))
+}
+
+fn reference_revision_review_wire(review: ReferenceRevisionReviewRecord) -> Value {
+    json!({
+        "proposal_id":review.review_id,
+        "status":review.status,
+        "kind":"canonical_revision",
+        "review_kind":"canonical_revision",
+        "priority":0,
+        "source_paper_ref":review.source_ref,
+        "target_work_id":review.canonical_reference_id,
+        "reason":review.reason,
+        "diagnostics":json_array(&review.payload_json),
+        "updated_at":review.updated_at,
+    })
+}
+
+fn canonical_reference_workbench_wire(
+    canonical: CanonicalReferenceRecord,
+) -> Result<Value, String> {
+    let authors =
+        serde_json::from_str::<Value>(&canonical.authors_json).unwrap_or_else(|_| json!([]));
+    let identifiers =
+        serde_json::from_str::<Value>(&canonical.identifiers_json).unwrap_or_else(|_| json!({}));
+    Ok(json!({
+        "row_id":canonical.canonical_reference_id,
+        "effective_canonical_id":canonical.canonical_reference_id,
+        "projected_literature_item_id":canonical.canonical_reference_id,
+        "title":canonical.title,
+        "normalized_title":canonical.normalized_title,
+        "year":canonical.year,
+        "authors":authors,
+        "identifiers":identifiers,
+        "physical_canonical_ids":[canonical.canonical_reference_id],
+        "effective_canonical_ids":[canonical.canonical_reference_id],
+        "raw_reference_count":0,
+        "raw_reference_samples":[],
+        "incoming_redirects":[],
+        "outgoing_redirects":[],
+        "related_proposals":[],
+        "duplicate_peers":[],
+        "incoming_redirect_count":0,
+        "outgoing_redirect_count":0,
+        "proposal_count":0,
+        "open_proposal_count":0,
+    }))
+}
+
+fn canonical_reference_target_candidate_wire(canonical: CanonicalReferenceRecord) -> Value {
+    json!({
+        "kind":"canonical_reference",
+        "canonicalReferenceId":canonical.canonical_reference_id,
+        "title":canonical.title,
+        "year":canonical.year,
+        "rawReferenceIds":[],
     })
 }
 
@@ -3317,6 +3543,59 @@ fn completed_receipt(
     })
 }
 
+#[derive(Clone, Copy)]
+enum ProposalReviewState {
+    Current,
+    AfterDecision,
+}
+
+fn proposal_review_state_hash(
+    repository: &Repository,
+    decisions: &[ReferenceReviewDecision],
+    state: ProposalReviewState,
+) -> Result<String, String> {
+    let rows = decisions
+        .iter()
+        .map(|decision| {
+            let proposal = repository.get_reference_match_proposal(&decision.proposal_id)?;
+            let status = proposal.as_ref().map(|proposal| match state {
+                ProposalReviewState::Current => proposal.status.as_str(),
+                ProposalReviewState::AfterDecision => persisted_review_status(decision.action),
+            });
+            Ok(json!({
+                "proposal_id":decision.proposal_id,
+                "status":status,
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    canonical_json_hash(&json!({"proposals":rows}))
+}
+
+fn persisted_review_status(action: ReferenceReviewAction) -> &'static str {
+    match action {
+        ReferenceReviewAction::Accept => "accepted",
+        ReferenceReviewAction::Reverse
+        | ReferenceReviewAction::Delete
+        | ReferenceReviewAction::Retarget => "superseded",
+        ReferenceReviewAction::Reject => "rejected",
+        ReferenceReviewAction::Reopen => "open",
+    }
+}
+
+fn receipt_result_at_source(
+    repository: &Repository,
+    operation_id: &str,
+    source_hash: &str,
+) -> Result<Option<Value>, String> {
+    let Some(receipt) = repository.get_operation(operation_id)? else {
+        return Ok(None);
+    };
+    if receipt.source_hash != source_hash {
+        return Ok(None);
+    }
+    receipt_result(repository, operation_id)
+}
+
 fn receipt_result(repository: &Repository, operation_id: &str) -> Result<Option<Value>, String> {
     let Some(receipt) = repository.get_operation(operation_id)? else {
         return Ok(None);
@@ -3344,14 +3623,16 @@ fn proposal_id_for_merge(source: &str, target: &str) -> Result<String, String> {
 }
 
 fn command_error(status: &str, code: &str, details: Value) -> Value {
+    let diagnostic = json!({
+        "code":code,
+        "severity":"error",
+        "details":details,
+    });
     json!({
         "ok":false,
         "status":status,
-        "diagnostics":[{
-            "code":code,
-            "severity":"error",
-            "details":details,
-        }],
+        "diagnostic":diagnostic,
+        "diagnostics":[diagnostic],
     })
 }
 
@@ -3390,17 +3671,6 @@ fn batch_merge_error(count: usize, code: impl Into<String>) -> Value {
             "code":code,
             "severity":"error",
         }],
-    })
-}
-
-fn review_failure_result(review: &ReferenceReviewBatchResult) -> Value {
-    json!({
-        "ok":false,
-        "applied_count":0,
-        "skipped_count":0,
-        "failed_count":review.results.len(),
-        "results":review.results,
-        "status":review.status,
     })
 }
 
@@ -3814,7 +4084,7 @@ mod tests {
     }
 
     #[test]
-    fn pages_host_inputs_retries_worker_and_keeps_proposal_batch_atomic() {
+    fn pages_host_inputs_retries_worker_and_applies_proposal_batch_independently() {
         let root = test_root("jobs");
         let host = Arc::new(FakeHost::new());
         let fail = Arc::new(AtomicBool::new(true));
@@ -3875,13 +4145,16 @@ mod tests {
             ])
             .expect("atomic batch result");
         assert_eq!(rejected_batch["ok"], false);
+        assert_eq!(rejected_batch["applied_count"], 1);
+        assert_eq!(rejected_batch["failed_count"], 1);
         let repository = app.repository.owner();
         let repository = repository.lock().expect("repository");
-        assert!(
+        assert_eq!(
             repository
                 .list_reference_bindings()
                 .expect("bindings")
-                .is_empty()
+                .len(),
+            1
         );
         assert_eq!(
             repository
@@ -3889,9 +4162,19 @@ mod tests {
                 .expect("proposal")
                 .expect("proposal row")
                 .status,
-            "open"
+            "accepted"
         );
         drop(repository);
+        let reopened_before_process_restart = app
+            .apply_proposal_actions(&[ReferenceReviewDecision {
+                proposal_id: proposal_id.clone(),
+                action: ReferenceReviewAction::Reopen,
+                target_canonical_reference_id: String::new(),
+                target_library_id: 0,
+                target_item_key: String::new(),
+            }])
+            .expect("reopen accepted batch decision");
+        assert_eq!(reopened_before_process_restart["status"], "open");
         drop(app);
 
         let reopened = application(&root, host, fail);
@@ -3903,6 +4186,101 @@ mod tests {
                 .expect("items")
                 .len(),
             1
+        );
+        let review_projection = reopened
+            .workbench_review(
+                &json!({
+                    "reviews":{
+                        "status":"open",
+                        "kind":"all",
+                        "confidence":"all",
+                        "search":"",
+                        "limit":25,
+                    },
+                }),
+                1,
+            )
+            .expect("review projection");
+        assert_eq!(
+            review_projection["registry"]["matchProposals"]
+                .as_array()
+                .expect("match proposals")
+                .len(),
+            1
+        );
+        assert_eq!(
+            review_projection["registry"]["matchProposals"][0]["proposal_id"],
+            proposal_id
+        );
+        assert!(
+            review_projection["registry"]["matchProposals"][0]
+                .get("proposalId")
+                .is_none()
+        );
+        assert_eq!(
+            review_projection["reviews"]["summary"]["referenceMatchingCount"],
+            1
+        );
+        let accept = ReferenceReviewDecision {
+            proposal_id: proposal_id.clone(),
+            action: ReferenceReviewAction::Accept,
+            target_canonical_reference_id: String::new(),
+            target_library_id: 0,
+            target_item_key: String::new(),
+        };
+        let accepted = reopened
+            .apply_proposal_actions(std::slice::from_ref(&accept))
+            .expect("accept proposal");
+        assert_eq!(accepted["status"], "accepted");
+        assert!(accepted.get("idempotent").is_none());
+        let replayed_accept = reopened
+            .apply_proposal_actions(std::slice::from_ref(&accept))
+            .expect("replay accept proposal");
+        assert_eq!(replayed_accept["idempotent"], true);
+        let reopened_result = reopened
+            .apply_proposal_actions(&[ReferenceReviewDecision {
+                action: ReferenceReviewAction::Reopen,
+                ..accept.clone()
+            }])
+            .expect("reopen proposal");
+        assert_eq!(reopened_result["status"], "open");
+        let accepted_again = reopened
+            .apply_proposal_actions(&[accept])
+            .expect("accept reopened proposal");
+        assert_eq!(accepted_again["status"], "accepted");
+        assert!(accepted_again.get("idempotent").is_none());
+        let accepted_projection = reopened
+            .workbench_review(
+                &json!({
+                    "reviews":{
+                        "status":"accepted",
+                        "kind":"all",
+                        "confidence":"all",
+                        "search":proposal_id,
+                        "limit":1,
+                    },
+                }),
+                1,
+            )
+            .expect("accepted review projection");
+        assert_eq!(
+            accepted_projection["registry"]["matchProposals"]
+                .as_array()
+                .expect("accepted proposals")
+                .len(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .repository
+                .owner()
+                .lock()
+                .expect("repository")
+                .get_reference_match_proposal(&proposal_id)
+                .expect("proposal")
+                .expect("proposal row")
+                .status,
+            "accepted"
         );
         let _ = std::fs::remove_dir_all(root);
     }
@@ -4071,6 +4449,37 @@ mod tests {
                 })
                 .expect("review");
         }
+        let review_projection = app
+            .workbench_review(
+                &json!({
+                    "reviews":{
+                        "status":"open",
+                        "kind":"canonical_revision",
+                        "confidence":"all",
+                        "search":"protected",
+                        "limit":10,
+                    },
+                }),
+                1,
+            )
+            .expect("canonical revision review projection");
+        assert_eq!(
+            review_projection["registry"]["cleanupProposals"]
+                .as_array()
+                .expect("cleanup proposals")
+                .len(),
+            1
+        );
+        assert!(
+            review_projection["registry"]["matchProposals"]
+                .as_array()
+                .expect("match proposals")
+                .is_empty()
+        );
+        assert_eq!(
+            review_projection["registry"]["canonicalRows"][0]["effective_canonical_id"],
+            "f"
+        );
 
         let invalid = app
             .merge_canonical_batch(CanonicalMergeBatchRequest {

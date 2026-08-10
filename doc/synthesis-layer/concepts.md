@@ -93,7 +93,7 @@ Concept review actions map to Concept-owned durable effects:
 | accept topic-concept link | Concept-owned link fact or review outcome |
 | reject topic-concept link | rejected proposal outcome |
 
-These actions may mark Concept overlay/cache projections stale or recommend explicit Concept maintenance. They must not rewrite topic artifacts or topic graph relations. If a concept merge/delete changes overlay results, Topics observe it on the next overlay read.
+These actions mark the rebuildable Concept index stale and leave rebuild as an explicit maintenance operation. Review state itself remains readable from canonical SQLite facts, so an already-stale index does not hide pending decisions. They must not rewrite topic artifacts or topic graph relations. If a concept merge/delete changes overlay results, Topics observe it on the next overlay read.
 
 ## Failure Semantics
 

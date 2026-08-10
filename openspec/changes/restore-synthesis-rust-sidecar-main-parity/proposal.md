@@ -14,6 +14,7 @@ The sidecar therefore cannot enter acceptance or authorize removal of the retain
 - Replace the monolithic Rust compatibility dispatcher with typed domain adapters and restore Topic, Workbench, Reference, Citation, Tag, Concept, Topic Graph, durable, WebDAV, maintenance, and debug semantics from the fixed baseline.
 - Replace full-library materialization and N+1 reads with bounded pages, keyed delta queries, short transactions, batched Host effects, and repository-owned read concurrency.
 - Preserve durable user facts through registered forward migration while invalidating only rebuildable caches.
+- Restore every Review path as one bounded public projection: Reference binding/merge and canonical revisions, Concept decisions, and Topic Graph suggested/review relations must remain visible, actionable, diagnostic, reversible, and durable through the real Rust production route.
 - Establish 10k full-experience and 25k bounded-degradation production-route gates before acceptance can resume.
 
 ## Capabilities

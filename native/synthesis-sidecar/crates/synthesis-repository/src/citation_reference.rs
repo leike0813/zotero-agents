@@ -4,7 +4,9 @@
 //! the narrow state and replacement DTOs needed by private applications; SQL table
 //! selection is internal and fixed so callers cannot turn this into a generic store.
 
-use crate::{Repository, row_integer, row_text, validate_identity_part};
+use crate::{
+    Repository, ReviewPage, ReviewPageQuery, row_integer, row_text, validate_identity_part,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -1226,6 +1228,94 @@ impl Repository {
         .collect()
     }
 
+    pub fn list_canonical_references_by_ids(
+        &self,
+        canonical_ids: &BTreeSet<String>,
+    ) -> Result<Vec<CanonicalReferenceRecord>, String> {
+        if canonical_ids.len() > 300 {
+            return Err("canonical_reference_context_limit_invalid".into());
+        }
+        if canonical_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = std::iter::repeat_n("?", canonical_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let values = canonical_ids.iter().map(|id| json!(id)).collect::<Vec<_>>();
+        self.query(
+            &format!(
+                "SELECT * FROM synt_reference_canonical
+                 WHERE canonical_reference_id IN ({placeholders})
+                 ORDER BY canonical_reference_id ASC"
+            ),
+            &values,
+        )?
+        .into_iter()
+        .map(canonical_reference_record)
+        .collect()
+    }
+
+    pub fn list_active_canonical_reference_candidates(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<CanonicalReferenceRecord>, String> {
+        if limit == 0 || limit > 100 {
+            return Err("canonical_reference_candidate_limit_invalid".into());
+        }
+        self.query(
+            "SELECT * FROM synt_reference_canonical WHERE status='active'
+             ORDER BY updated_at DESC,canonical_reference_id ASC LIMIT ?1",
+            &[json!(limit)],
+        )?
+        .into_iter()
+        .map(canonical_reference_record)
+        .collect()
+    }
+
+    pub fn list_reference_revision_reviews_for_review(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<ReviewPage<ReferenceRevisionReviewRecord>, String> {
+        validate_review_page_query(query)?;
+        let mut conditions = Vec::new();
+        let mut values = Vec::new();
+        if query.kind != "all" && query.kind != "canonical_revision" {
+            conditions.push("1=0".to_owned());
+        }
+        if query.confidence != "all" {
+            conditions.push("1=0".to_owned());
+        }
+        push_review_status_condition(&mut conditions, &mut values, &query.status, true, "status");
+        push_review_search_condition(
+            &mut conditions,
+            &mut values,
+            &query.search,
+            &[
+                "review_id",
+                "source_ref",
+                "canonical_reference_id",
+                "reason",
+                "payload_json",
+            ],
+        );
+        let clause = review_where_clause(&conditions);
+        let total = review_count(self, "synt_reference_revision_review", &clause, &values)?;
+        let mut page_values = values;
+        page_values.extend([json!(query.limit), json!(query.offset)]);
+        let records = self
+            .query(
+                &format!(
+                    "SELECT * FROM synt_reference_revision_review {clause}
+                     ORDER BY updated_at DESC,review_id ASC LIMIT ? OFFSET ?"
+                ),
+                &page_values,
+            )?
+            .into_iter()
+            .map(reference_review_record)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ReviewPage { records, total })
+    }
+
     pub fn upsert_reference_revision_review_record(
         &self,
         record: &ReferenceRevisionReviewRecord,
@@ -1893,6 +1983,55 @@ impl Repository {
         Ok((records, has_more))
     }
 
+    pub fn list_reference_match_proposals_for_review(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<ReviewPage<ReferenceMatchProposalRecord>, String> {
+        validate_review_page_query(query)?;
+        let mut conditions = Vec::new();
+        let mut values = Vec::new();
+        if query.kind == "canonical_revision" {
+            conditions.push("1=0".to_owned());
+        } else if query.kind != "all" {
+            conditions.push("kind=?".to_owned());
+            values.push(json!(query.kind));
+        }
+        if query.confidence != "all" {
+            conditions.push("confidence=?".to_owned());
+            values.push(json!(query.confidence));
+        }
+        push_review_status_condition(&mut conditions, &mut values, &query.status, false, "status");
+        push_review_search_condition(
+            &mut conditions,
+            &mut values,
+            &query.search,
+            &[
+                "proposal_id",
+                "kind",
+                "source_canonical_reference_id",
+                "target_canonical_reference_id",
+                "target_item_key",
+                "reasons_json",
+            ],
+        );
+        let clause = review_where_clause(&conditions);
+        let total = review_count(self, "synt_reference_match_proposal", &clause, &values)?;
+        let mut page_values = values;
+        page_values.extend([json!(query.limit), json!(query.offset)]);
+        let records = self
+            .query(
+                &format!(
+                    "SELECT * FROM synt_reference_match_proposal {clause}
+                     ORDER BY updated_at DESC,proposal_id ASC LIMIT ? OFFSET ?"
+                ),
+                &page_values,
+            )?
+            .into_iter()
+            .map(proposal_record)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ReviewPage { records, total })
+    }
+
     pub fn upsert_reference_match_proposal(
         &self,
         record: &ReferenceMatchProposalRecord,
@@ -2119,6 +2258,93 @@ fn reference_state_record(row: Value) -> Result<ReferenceApplicationStateRecord,
         related_items_ready: row_integer(&row, "related_items_ready")? != 0,
         updated_at: row_text(&row, "updated_at")?,
     })
+}
+
+fn validate_review_page_query(query: &ReviewPageQuery) -> Result<(), String> {
+    if query.limit == 0
+        || query.limit > 100
+        || query.offset > 100_000
+        || query.search.chars().count() > 500
+        || !matches!(
+            query.status.as_str(),
+            "all" | "open" | "accepted" | "rejected" | "superseded" | "retargeted"
+        )
+        || !matches!(
+            query.kind.as_str(),
+            "all" | "zotero_binding" | "canonical_merge" | "canonical_revision"
+        )
+        || !matches!(
+            query.confidence.as_str(),
+            "all" | "deterministic" | "high" | "medium" | "low" | "review"
+        )
+    {
+        return Err("review_page_query_invalid".into());
+    }
+    Ok(())
+}
+
+fn push_review_status_condition(
+    conditions: &mut Vec<String>,
+    values: &mut Vec<Value>,
+    status: &str,
+    canonical_revision: bool,
+    column: &str,
+) {
+    if status == "all" {
+        return;
+    }
+    let stored = if canonical_revision && status == "accepted" {
+        "approved"
+    } else {
+        status
+    };
+    conditions.push(format!("{column}=?"));
+    values.push(json!(stored));
+}
+
+fn push_review_search_condition(
+    conditions: &mut Vec<String>,
+    values: &mut Vec<Value>,
+    search: &str,
+    columns: &[&str],
+) {
+    let search = search.trim().to_lowercase();
+    if search.is_empty() {
+        return;
+    }
+    let pattern = format!("%{search}%");
+    let condition = columns
+        .iter()
+        .map(|column| format!("lower({column}) LIKE ?"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    conditions.push(format!("({condition})"));
+    values.extend(columns.iter().map(|_| json!(pattern)));
+}
+
+fn review_where_clause(conditions: &[String]) -> String {
+    if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    }
+}
+
+fn review_count(
+    repository: &Repository,
+    table: &str,
+    clause: &str,
+    values: &[Value],
+) -> Result<usize, String> {
+    let row = repository
+        .query(
+            &format!("SELECT COUNT(*) AS total FROM {table} {clause}"),
+            values,
+        )?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "repository_typed_row_invalid".to_owned())?;
+    usize::try_from(row_integer(&row, "total")?).map_err(|_| "repository_typed_row_invalid".into())
 }
 
 fn row_bool(row: &Value, key: &str) -> Result<bool, String> {

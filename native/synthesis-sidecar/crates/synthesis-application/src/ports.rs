@@ -16,7 +16,8 @@ use synthesis_canonical_store::{
 };
 use synthesis_repository::{
     CacheBasisRecord, DeletedTopicArtifactRecord, OperationQuery, OperationRecord, Repository,
-    TopicApplicationProjectionRecord, TopicApplicationRecordPage, TopicApplicationStateRecord,
+    ReviewPageQuery, TopicApplicationProjectionRecord, TopicApplicationRecordPage,
+    TopicApplicationStateRecord,
 };
 use synthesis_repository::{
     CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
@@ -190,6 +191,12 @@ pub trait TagVocabularyRepositoryPort: Send + Sync {
 pub trait ConceptKbRepositoryPort: Send + Sync {
     fn get_state(&self) -> Result<Option<ConceptApplicationStateRecord>, String>;
     fn load(&self) -> Result<ConceptKbReplacement, String>;
+    fn load_review_page(
+        &self,
+        _query: &ReviewPageQuery,
+    ) -> Result<(ConceptKbReplacement, usize), String> {
+        Err("review_page_query_unsupported".into())
+    }
     fn replace(
         &self,
         expected_manifest_hash: Option<&str>,
@@ -225,6 +232,12 @@ pub trait ConceptKbRepositoryPort: Send + Sync {
 pub trait TopicGraphRepositoryPort: Send + Sync {
     fn get_state(&self) -> Result<Option<TopicGraphApplicationStateRecord>, String>;
     fn load(&self) -> Result<TopicGraphReplacement, String>;
+    fn load_review_page(
+        &self,
+        _query: &ReviewPageQuery,
+    ) -> Result<(TopicGraphReplacement, usize, usize), String> {
+        Err("review_page_query_unsupported".into())
+    }
     fn load_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {
         let mut snapshot = self.load()?;
         snapshot.nodes.truncate(limit);
@@ -620,6 +633,13 @@ impl ConceptKbRepositoryPort for RepositoryPort {
         })
     }
 
+    fn load_review_page(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<(ConceptKbReplacement, usize), String> {
+        self.with_reader(|repository| repository.load_concept_review_page(query))
+    }
+
     fn replace(
         &self,
         expected_manifest_hash: Option<&str>,
@@ -697,6 +717,13 @@ impl TopicGraphRepositoryPort for RepositoryPort {
                 reviews: repository.list_topic_graph_reviews()?,
             })
         })
+    }
+
+    fn load_review_page(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<(TopicGraphReplacement, usize, usize), String> {
+        self.with_reader(|repository| repository.load_topic_graph_review_page(query))
     }
 
     fn load_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {

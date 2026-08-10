@@ -25,6 +25,22 @@ const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
 const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReviewPageQuery {
+    pub status: String,
+    pub kind: String,
+    pub confidence: String,
+    pub search: String,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReviewPage<T> {
+    pub records: Vec<T>,
+    pub total: usize,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RepositorySqlObservation {
     pub query_count: u64,

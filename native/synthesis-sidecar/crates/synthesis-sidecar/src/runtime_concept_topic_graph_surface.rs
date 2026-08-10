@@ -4,8 +4,8 @@ use synthesis_application::concept_kb::{
     ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptReviewAction, ConceptReviewRequest,
 };
 use synthesis_application::topic_graph::{
-    TopicGraphRelationDecisionRequest, TopicGraphRelationStatus, TopicGraphReviewAction,
-    TopicGraphReviewRequest,
+    TopicGraphMutationStatus, TopicGraphRelationDecisionRequest, TopicGraphRelationStatus,
+    TopicGraphReviewAction, TopicGraphReviewRequest,
 };
 
 use crate::runtime_production_ports::ProductionApplications;
@@ -333,14 +333,32 @@ fn decide_relation(
     status: TopicGraphRelationStatus,
 ) -> Result<Value, String> {
     let request = one_object(args, &["edgeId"])?;
-    wire(
-        apps.topic_graph
-            .decide_relation(&TopicGraphRelationDecisionRequest {
-                expected_manifest_hash: topic_graph_basis(apps)?,
-                edge_id: required(&request, "edgeId")?,
-                status,
-            }),
-    )
+    let edge_id = required(&request, "edgeId")?;
+    let refresh_discovery = status == TopicGraphRelationStatus::Confirmed
+        && apps.topic_graph.load()?.edges.iter().any(|edge| {
+            edge.edge_id == edge_id && edge.status == "suggested" && edge.relation == "broader_than"
+        });
+    let mut result = apps
+        .topic_graph
+        .decide_relation(&TopicGraphRelationDecisionRequest {
+            expected_manifest_hash: topic_graph_basis(apps)?,
+            edge_id,
+            status,
+        });
+    if result.status == TopicGraphMutationStatus::Committed && refresh_discovery {
+        let refreshed = apps
+            .repository
+            .owner()
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .refresh_topic_discovery_projections(&synthesis_protocol::utc_now_iso8601());
+        if let Err(error) = refreshed {
+            result
+                .warnings
+                .push(format!("topic_discovery_projection_failed:{error}"));
+        }
+    }
+    wire(result)
 }
 
 fn review_topic_graph(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {

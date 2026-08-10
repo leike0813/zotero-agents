@@ -70,6 +70,16 @@ Production routing SHALL limit the central dispatcher to authentication, manifes
 - **WHEN** a request cannot be rebuilt as its strict operation DTO
 - **THEN** it fails before repository, canonical, worker, or Host side effects
 
+#### Scenario: Review result crosses the production boundary
+- **WHEN** a typed Reference, Concept, or Topic Graph review application commits or rejects a command
+- **THEN** the adapter maps the domain result to the existing public review result and stable diagnostic contract
+- **AND** it does not substitute a success-shaped generic mutation status
+
+#### Scenario: Reversible Reference action is repeated after another transition
+- **WHEN** a proposal is accepted, reopened, and accepted again
+- **THEN** receipt reuse is allowed only when the current monotonic transition basis equals the completed receipt after-basis
+- **AND** the second acceptance restores its binding or redirect in a new transaction
+
 ### Requirement: Production wire policy SHALL distinguish control data from content
 
 Ordinary metadata and page DTOs SHALL target no more than 768 KiB and MUST NOT exceed 1 MiB. Valid large Topic assets, artifact bodies, review inputs, and exports SHALL use the existing authenticated locator, transfer, or delivery path and MUST NOT be rejected solely because their content cannot fit the general JSON envelope.

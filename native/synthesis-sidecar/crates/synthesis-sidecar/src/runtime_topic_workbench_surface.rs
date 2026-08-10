@@ -9,7 +9,7 @@ use synthesis_application::{
 };
 use synthesis_repository::{
     ConceptAliasRecord, ConceptKbReplacement, ConceptRecord, ConceptRelationRecord,
-    ConceptReviewItemRecord, ConceptSenseRecord, DeletedTopicArtifactRecord,
+    ConceptReviewItemRecord, ConceptSenseRecord, DeletedTopicArtifactRecord, ReviewPageQuery,
     TopicConceptLinkRecord, TopicGraphEdgeRecord, TopicGraphNodeRecord, TopicGraphReplacement,
     TopicGraphReviewItemRecord,
 };
@@ -57,6 +57,54 @@ fn ensure_allowed(object: &Map<String, Value>, allowed: &[&str]) -> Result<(), S
     } else {
         Err("invalid_request".into())
     }
+}
+
+fn review_page_query(state: &Value) -> Result<ReviewPageQuery, String> {
+    let reviews = state.get("reviews").unwrap_or(state);
+    let object = reviews
+        .as_object()
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    let offset = object
+        .get("cursor")
+        .map(|value| match value {
+            Value::String(value) => value.parse::<usize>().map_err(|_| "invalid_request"),
+            Value::Number(value) => value
+                .as_u64()
+                .map(|value| value as usize)
+                .ok_or("invalid_request"),
+            _ => Err("invalid_request"),
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let limit = object
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(25);
+    Ok(ReviewPageQuery {
+        status: object
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("open")
+            .into(),
+        kind: object
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("all")
+            .into(),
+        confidence: object
+            .get("confidence")
+            .and_then(Value::as_str)
+            .unwrap_or("all")
+            .into(),
+        search: object
+            .get("search")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        offset,
+        limit,
+    })
 }
 
 fn required_string(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
@@ -681,6 +729,49 @@ impl ProductionWorkbenchSurfaces<'_> {
             },
         }))
     }
+
+    fn review_summary(&self) -> Result<Value, String> {
+        let query = ReviewPageQuery {
+            status: "open".into(),
+            kind: "all".into(),
+            confidence: "all".into(),
+            limit: 1,
+            ..ReviewPageQuery::default()
+        };
+        let (reference_matching_count, index_count) = {
+            let owner = self.apps.repository.owner();
+            let repository = owner
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            (
+                repository
+                    .list_reference_match_proposals_for_review(&query)?
+                    .total,
+                repository
+                    .list_reference_revision_reviews_for_review(&query)?
+                    .total,
+            )
+        };
+        let (_, concept_count) = self.apps.concepts.load_review_page(&query)?;
+        let (_, suggested_edge_count, topic_review_count) =
+            self.apps.topic_graph.load_review_page(&query)?;
+        let topic_graph_count = suggested_edge_count + topic_review_count;
+        Ok(json!({
+            "openCount":reference_matching_count + index_count + concept_count + topic_graph_count,
+            "indexCount":index_count,
+            "referenceMatchingCount":reference_matching_count,
+            "conceptCount":concept_count,
+            "topicGraphCount":topic_graph_count,
+        }))
+    }
+
+    fn attach_review_summary(&self, mut projection: Value) -> Result<Value, String> {
+        let object = projection
+            .as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        object.insert("reviews".into(), json!({"summary":self.review_summary()?}));
+        Ok(projection)
+    }
 }
 
 impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
@@ -701,31 +792,93 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 
     fn index(&self, state: &Value) -> Result<Value, String> {
-        self.apps
+        let mut projection = self
+            .apps
             .reference_canonical
-            .workbench_index(state, self.apps.library_id())
+            .workbench_index(state, self.apps.library_id())?;
+        let review = self.apps.reference_canonical.workbench_review(
+            &json!({
+                "reviews":{
+                    "status":"open",
+                    "kind":"all",
+                    "confidence":"all",
+                    "search":"",
+                    "limit":25,
+                },
+            }),
+            self.apps.library_id(),
+        )?;
+        let registry = projection
+            .get_mut("registry")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        let review_registry = review
+            .get("registry")
+            .and_then(Value::as_object)
+            .ok_or_else(|| "production_projection_invalid".to_owned())?;
+        for field in [
+            "cleanupProposals",
+            "matchProposals",
+            "matchTargetCandidates",
+            "canonicalRows",
+            "reviewPage",
+        ] {
+            if let Some(value) = review_registry.get(field) {
+                registry.insert(field.into(), value.clone());
+            }
+        }
+        self.attach_review_summary(projection)
     }
 
     fn reference_review(&self, state: &Value) -> Result<Value, String> {
-        Ok(json!({
+        let projection = self
+            .apps
+            .reference_canonical
+            .workbench_review(state, self.apps.library_id())?;
+        self.attach_review_summary(projection)
+    }
+
+    fn topic_graph_review(&self, state: &Value) -> Result<Value, String> {
+        let query = review_page_query(state)?;
+        let (snapshot, edge_total, review_total) =
+            self.apps.topic_graph.load_review_page(&query)?;
+        let mut topic_graph = topic_graph_projection(snapshot)?;
+        topic_graph
+            .as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .insert(
+                "reviewPage".into(),
+                json!({
+                    "cursor":query.offset.to_string(),
+                    "limit":query.limit,
+                    "edge_total":edge_total,
+                    "review_total":review_total,
+                }),
+            );
+        self.attach_review_summary(json!({
             "libraryId":self.apps.library_id(),
-            "reviews":{"reference":self.apps.reference_canonical.review_input(state)?},
+            "topicGraph":topic_graph,
         }))
     }
 
-    fn topic_graph_review(&self, _state: &Value) -> Result<Value, String> {
-        let topic_graph = topic_graph_projection(self.apps.topic_graph.load()?)?;
-        Ok(json!({
+    fn concept_review(&self, state: &Value) -> Result<Value, String> {
+        let query = review_page_query(state)?;
+        let (snapshot, total) = self.apps.concepts.load_review_page(&query)?;
+        let mut concepts = concept_projection(snapshot)?;
+        concepts
+            .as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .insert(
+                "reviewPage".into(),
+                json!({
+                    "cursor":query.offset.to_string(),
+                    "limit":query.limit,
+                    "total":total,
+                }),
+            );
+        self.attach_review_summary(json!({
             "libraryId":self.apps.library_id(),
-            "reviews":{"topicGraph":topic_graph.get("reviewItems").cloned().unwrap_or_else(|| json!([]))},
-        }))
-    }
-
-    fn concept_review(&self, _state: &Value) -> Result<Value, String> {
-        let concepts = concept_projection(self.apps.concepts.load()?)?;
-        Ok(json!({
-            "libraryId":self.apps.library_id(),
-            "reviews":{"concept":concepts.get("reviewItems").cloned().unwrap_or_else(|| json!([]))},
+            "concepts":concepts,
         }))
     }
 

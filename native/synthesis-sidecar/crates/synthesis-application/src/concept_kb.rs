@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     ConceptAliasRecord, ConceptKbReplacement, ConceptRecord, ConceptRelationRecord,
-    ConceptReviewItemRecord, ConceptSenseRecord, TopicConceptLinkRecord,
+    ConceptReviewItemRecord, ConceptSenseRecord, ReviewPageQuery, TopicConceptLinkRecord,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,12 +21,23 @@ pub enum ConceptMutationStatus {
     Committed,
     Unchanged,
     NotFound,
+    ReviewItemClosed,
+    ReviewTargetMissing,
     BasisMismatch,
     ConceptKbBusy,
     InvalidRequest,
     WorkerFailed,
     Stopping,
     RepairRequired,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConceptDiagnostic {
+    pub code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub details: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +49,8 @@ pub struct ConceptMutationResult {
     pub changed_concept_ids: Vec<String>,
     pub review_ids: Vec<String>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<ConceptDiagnostic>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -307,6 +320,13 @@ impl ConceptKbApplication {
         self.repository.load()
     }
 
+    pub fn load_review_page(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<(ConceptKbReplacement, usize), String> {
+        self.repository.load_review_page(query)
+    }
+
     pub fn replace_snapshot(
         &self,
         expected_manifest_hash: Option<&str>,
@@ -484,31 +504,64 @@ impl ConceptKbApplication {
         let mut snapshot = match self.repository.load() {
             Ok(snapshot) => snapshot,
             Err(_) => {
-                return self.result(
+                return self.diagnostic_result(
                     ConceptMutationStatus::RepairRequired,
                     Vec::new(),
                     Vec::new(),
+                    "concept_review_repair_required",
+                    "Concept review state is unavailable.",
+                    [("review_id", request.review_id.as_str())],
                 );
             }
         };
         if snapshot.state.manifest_hash != request.expected_manifest_hash {
-            return self.result(ConceptMutationStatus::BasisMismatch, Vec::new(), Vec::new());
+            return self.diagnostic_result(
+                ConceptMutationStatus::BasisMismatch,
+                Vec::new(),
+                Vec::new(),
+                "concept_review_basis_mismatch",
+                "Concept review state changed before the decision was applied.",
+                [("review_id", request.review_id.as_str())],
+            );
         }
         let Some(index) = snapshot
             .reviews
             .iter()
-            .position(|review| review.review_id == request.review_id && review.status == "open")
+            .position(|review| review.review_id == request.review_id)
         else {
-            return self.result(ConceptMutationStatus::NotFound, Vec::new(), Vec::new());
+            return self.diagnostic_result(
+                ConceptMutationStatus::NotFound,
+                Vec::new(),
+                Vec::new(),
+                "concept_review_item_missing",
+                "Concept review item does not exist.",
+                [("review_id", request.review_id.as_str())],
+            );
         };
+        if snapshot.reviews[index].status != "open" {
+            return self.diagnostic_result(
+                ConceptMutationStatus::ReviewItemClosed,
+                Vec::new(),
+                Vec::new(),
+                "concept_review_item_closed",
+                "Concept review item is already resolved.",
+                [
+                    ("review_id", request.review_id.as_str()),
+                    ("status", snapshot.reviews[index].status.as_str()),
+                ],
+            );
+        }
         let proposal =
             match serde_json::from_str::<ConceptProposal>(&snapshot.reviews[index].proposal_json) {
                 Ok(proposal) => proposal,
                 Err(_) => {
-                    return self.result(
+                    return self.diagnostic_result(
                         ConceptMutationStatus::RepairRequired,
                         Vec::new(),
                         Vec::new(),
+                        "concept_review_payload_invalid",
+                        "Concept review payload cannot be decoded.",
+                        [("review_id", request.review_id.as_str())],
                     );
                 }
             };
@@ -526,10 +579,13 @@ impl ConceptKbApplication {
             }
             ConceptReviewAction::Merge => {
                 let Some(target) = request.target_concept_id.as_deref() else {
-                    return self.result(
-                        ConceptMutationStatus::InvalidRequest,
+                    return self.diagnostic_result(
+                        ConceptMutationStatus::ReviewTargetMissing,
                         Vec::new(),
                         Vec::new(),
+                        "concept_review_target_missing",
+                        "Concept review merge target is required.",
+                        [("review_id", request.review_id.as_str())],
                     );
                 };
                 if !snapshot
@@ -537,7 +593,17 @@ impl ConceptKbApplication {
                     .iter()
                     .any(|concept| concept.concept_id == target)
                 {
-                    return self.result(ConceptMutationStatus::NotFound, Vec::new(), Vec::new());
+                    return self.diagnostic_result(
+                        ConceptMutationStatus::ReviewTargetMissing,
+                        Vec::new(),
+                        Vec::new(),
+                        "concept_review_target_missing",
+                        "Concept review merge target does not exist.",
+                        [
+                            ("review_id", request.review_id.as_str()),
+                            ("target_concept_id", target),
+                        ],
+                    );
                 }
                 let topic_id = snapshot.reviews[index].topic_id.clone();
                 let concept_id =
@@ -550,14 +616,28 @@ impl ConceptKbApplication {
         snapshot.reviews[index].status = status.into();
         snapshot.reviews[index].updated_at = now.clone();
         snapshot.reviews[index].resolved_at = now;
+        snapshot.state.index_stale = 1;
         if set_concept_manifest(&mut snapshot).is_err() {
-            return self.result(
+            return self.diagnostic_result(
                 ConceptMutationStatus::RepairRequired,
                 Vec::new(),
                 Vec::new(),
+                "concept_review_projection_failed",
+                "Concept review state could not be finalized.",
+                [("review_id", request.review_id.as_str())],
             );
         }
-        self.apply_replacement(Some(&request.expected_manifest_hash), &snapshot)
+        let mut result = self.apply_replacement(Some(&request.expected_manifest_hash), &snapshot);
+        if result.status != ConceptMutationStatus::Committed && result.diagnostic.is_none() {
+            result.diagnostic = Some(ConceptDiagnostic {
+                code: "concept_review_commit_failed".into(),
+                message: "Concept review decision was not committed.".into(),
+                details: [("review_id".into(), request.review_id.clone())]
+                    .into_iter()
+                    .collect(),
+            });
+        }
+        result
     }
 
     pub fn update_display_text(
@@ -843,7 +923,29 @@ impl ConceptKbApplication {
             changed_concept_ids,
             review_ids,
             warnings: Vec::new(),
+            diagnostic: None,
         }
+    }
+
+    fn diagnostic_result<const N: usize>(
+        &self,
+        status: ConceptMutationStatus,
+        changed_concept_ids: Vec<String>,
+        review_ids: Vec<String>,
+        code: &str,
+        message: &str,
+        details: [(&str, &str); N],
+    ) -> ConceptMutationResult {
+        let mut result = self.result(status, changed_concept_ids, review_ids);
+        result.diagnostic = Some(ConceptDiagnostic {
+            code: code.into(),
+            message: message.into(),
+            details: details
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+        });
+        result
     }
 }
 
@@ -1406,6 +1508,115 @@ mod tests {
             query.join().expect("query thread"),
             Err("worker_canceled".into())
         );
+        drop(app);
+        drop(owner);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn review_reports_diagnostics_marks_index_stale_and_reads_filtered_page() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = ConceptKbApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute {
+                query_started: Mutex::new(None),
+            }),
+            Arc::new(|| "reviewed".into()),
+        );
+        let proposal = ConceptProposal {
+            label: "Review concept".into(),
+            aliases: Vec::new(),
+            concept_type: "method".into(),
+            domain: "test".into(),
+            short_definition: String::new(),
+            definition: String::new(),
+            disambiguation: String::new(),
+            topic_relevance: String::new(),
+            confidence: ConceptConfidence::Low,
+            evidence: Vec::new(),
+            relations: Vec::new(),
+        };
+        let mut initial = snapshot("concept:review");
+        initial.state.index_stale = 0;
+        initial.reviews.push(ConceptReviewItemRecord {
+            review_id: "review:one".into(),
+            status: "open".into(),
+            reason: "low_confidence".into(),
+            topic_id: "topic:one".into(),
+            topic_path_id: "topic-one".into(),
+            label: proposal.label.clone(),
+            confidence: "low".into(),
+            candidate_concept_ids_json: "[\"concept:one\"]".into(),
+            proposal_json: serde_json::to_string(&proposal).expect("proposal"),
+            created_at: "fixed".into(),
+            updated_at: "fixed".into(),
+            ..ConceptReviewItemRecord::default()
+        });
+        assert_eq!(
+            app.replace_snapshot(None, &initial).status,
+            ConceptMutationStatus::Committed
+        );
+        let missing = app.review(&ConceptReviewRequest {
+            expected_manifest_hash: "concept:review".into(),
+            review_id: "missing".into(),
+            action: ConceptReviewAction::Approve,
+            target_concept_id: None,
+        });
+        assert_eq!(
+            missing.diagnostic.expect("missing diagnostic").code,
+            "concept_review_item_missing"
+        );
+        let missing_target = app.review(&ConceptReviewRequest {
+            expected_manifest_hash: "concept:review".into(),
+            review_id: "review:one".into(),
+            action: ConceptReviewAction::Merge,
+            target_concept_id: Some("concept:missing".into()),
+        });
+        assert_eq!(
+            missing_target.diagnostic.expect("target diagnostic").code,
+            "concept_review_target_missing"
+        );
+        let committed = app.review(&ConceptReviewRequest {
+            expected_manifest_hash: "concept:review".into(),
+            review_id: "review:one".into(),
+            action: ConceptReviewAction::Approve,
+            target_concept_id: None,
+        });
+        assert_eq!(committed.status, ConceptMutationStatus::Committed);
+        let current = app.load().expect("current");
+        assert_eq!(current.state.index_stale, 1);
+        let closed = app.review(&ConceptReviewRequest {
+            expected_manifest_hash: current.state.manifest_hash,
+            review_id: "review:one".into(),
+            action: ConceptReviewAction::Approve,
+            target_concept_id: None,
+        });
+        assert_eq!(
+            closed.diagnostic.expect("closed diagnostic").code,
+            "concept_review_item_closed"
+        );
+        let (page, total) = app
+            .load_review_page(&ReviewPageQuery {
+                status: "accepted".into(),
+                kind: "all".into(),
+                confidence: "all".into(),
+                search: "review concept".into(),
+                limit: 10,
+                ..ReviewPageQuery::default()
+            })
+            .expect("review page");
+        assert_eq!(total, 1);
+        assert_eq!(page.reviews[0].status, "approved");
         drop(app);
         drop(owner);
         let _ = std::fs::remove_dir_all(root);

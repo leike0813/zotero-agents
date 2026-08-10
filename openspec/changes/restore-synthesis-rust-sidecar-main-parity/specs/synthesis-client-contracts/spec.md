@@ -34,3 +34,17 @@ The TypeScript native composition SHALL translate public large-content inputs an
 - **WHEN** a native result contains an internal transfer or locator descriptor
 - **THEN** composition resolves or maps it to the public result contract
 - **AND** it does not expose internal authority fields
+
+### Requirement: Review commands SHALL preserve structured domain outcomes
+
+Reference, Concept, and Topic Graph review commands SHALL preserve the fixed baseline's successful result fields and structured diagnostics. A non-commit domain outcome MUST NOT be represented as a success-shaped result without a singular diagnostic, and the Workbench SHALL continue to consume those failures through the shared diagnostic path rather than operation-specific status switches.
+
+#### Scenario: Review command cannot commit
+- **WHEN** a review target is missing, closed, invalid for the action, stale against its basis, busy, stopping, or repair-required
+- **THEN** the grouped client result carries the stable structured diagnostic for that outcome
+- **AND** the Workbench command is not reported as completed
+
+#### Scenario: Review batch contains independent failures
+- **WHEN** a Reference proposal decision batch contains valid decisions and one invalid or missing decision
+- **THEN** successful independent decisions remain committed
+- **AND** the result reports bounded applied, skipped, failed, and diagnostic fields

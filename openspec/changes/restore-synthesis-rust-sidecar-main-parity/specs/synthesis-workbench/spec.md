@@ -108,3 +108,27 @@ Topic freshness and source-material readiness SHALL be derived from persisted To
 - **WHEN** an existing Topic cannot reconstruct a complete dependency baseline
 - **THEN** the native projection reports a deterministic dirty or missing state with structured reasons
 - **AND** it does not report `unknown` solely because a public DTO field was omitted
+
+### Requirement: Review SHALL compose bounded public domain projections
+
+The native Review surface SHALL publish Reference content through `registry`, Concept content through `concepts`, Topic Graph content through `topicGraph`, and aggregate counts through `reviews.summary`. It MUST NOT place actionable review rows under parallel domain-specific fields inside `reviews`. Status, kind, confidence, search, cursor, and limit filters SHALL be applied before repository materialization.
+
+#### Scenario: Reference reviews are opened
+- **WHEN** the Review Center or Index review subview requests Reference binding, canonical merge, or canonical revision rows
+- **THEN** the response contains bounded `registry.matchProposals`, `registry.cleanupProposals`, and only their required canonical and target context
+- **AND** proposal fields use the existing public snake-case DTO
+
+#### Scenario: Concept reviews are opened
+- **WHEN** the Review Center requests Concept review rows
+- **THEN** the response contains bounded `concepts.reviewItems` and the candidate Concept context required by those rows
+- **AND** review state is read from canonical facts rather than the stale rebuildable Concept index
+
+#### Scenario: Topic Graph reviews are opened
+- **WHEN** the Review Center requests Topic Graph relation review
+- **THEN** `topicGraph.edges` contains bounded suggested relations and `topicGraph.reviewItems` contains bounded low-confidence review rows with their endpoint nodes
+- **AND** the existing UI can merge both row kinds without reading a second payload shape
+
+#### Scenario: Review action refreshes the active surface
+- **WHEN** a review mutation commits or returns a structured diagnostic
+- **THEN** the affected Review and domain surfaces are invalidated with their existing scopes
+- **AND** an active Review reread reflects the canonical state without rebuilding an unrelated index

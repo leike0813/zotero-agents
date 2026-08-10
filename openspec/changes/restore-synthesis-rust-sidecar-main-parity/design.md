@@ -118,6 +118,20 @@ Alternative: synthesize readiness defaults in the Workbench adapter. Rejected be
 
 Alternative: derive Topics Graph from each Topic's `topic_graph_json`. Rejected because it would create a second graph fact source and bypass Topic Graph review and relation rules.
 
+### 13. Keep Review facts domain-owned and publish one Workbench DTO
+
+Reference, Concept, and Topic Graph applications remain the sole owners of their proposal, review, binding, redirect, concept, and relation facts. The Workbench Review surface composes those facts into the existing public `registry`, `concepts`, and `topicGraph` DTOs and uses `reviews` only for aggregate summary state. The production adapter must not expose a parallel `reviews.reference`, `reviews.concept`, or `reviews.topicGraph` content model.
+
+Review queries apply the existing status, kind, confidence, search, cursor, and limit request before repository materialization. Reference projections include only the canonical rows and target candidates required by the visible proposal page; Concept and Topic Graph projections include only the candidate concepts or endpoint nodes required by their visible review rows. Aggregate counts use repository count queries rather than draining full review collections.
+
+Short review mutations return the fixed baseline's structured singular diagnostic for missing, closed, invalid-target, stale-basis, busy, stopping, repair-required, and other non-commit outcomes. TypeScript retains the shared `failOnDiagnostic` consumer instead of learning domain status enums. Successful Concept and Topic Graph decisions mark their rebuildable indexes stale without starting a rebuild; Reference fact changes similarly mark Graph and Related Items stale.
+
+Reference review idempotency is scoped to a concrete transition. A completed receipt may be reused only while the current monotonic matching/repository basis equals the receipt's committed after-basis. Reopen, retarget, reverse, reject, or any other intervening transition advances that basis, so a later identical action executes a new transaction rather than replaying an obsolete receipt. The receipt keeps its transition bases in existing receipt metadata and requires no schema migration.
+
+Low-confidence Topic Graph review approval remains two-stage: approval creates a suggested edge, and a later edge decision confirms it. Confirmed `broader_than` changes refresh the existing Topic discovery projection; a downstream projection failure is reported without rolling back the committed relation.
+
+Alternative: teach the UI to consume both the erroneous nested Review payload and the public domain DTOs. Rejected because it would create two wire contracts and preserve the projection drift.
+
 ## Risks / Trade-offs
 
 - [The fixed baseline contains behavior later judged undesirable] → Preserve it unless an explicit spec and user-approved disposition changes that behavior; do not silently reinterpret it during migration.

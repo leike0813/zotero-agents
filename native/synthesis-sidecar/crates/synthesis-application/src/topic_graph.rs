@@ -3,7 +3,7 @@ use crate::admission::{AdmissionError, SingleFlightAdmission};
 use crate::ports::TopicGraphRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -11,7 +11,8 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    TopicGraphEdgeRecord, TopicGraphNodeRecord, TopicGraphReplacement, TopicGraphReviewItemRecord,
+    ReviewPageQuery, TopicGraphEdgeRecord, TopicGraphNodeRecord, TopicGraphReplacement,
+    TopicGraphReviewItemRecord,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,6 +31,15 @@ pub enum TopicGraphMutationStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TopicGraphDiagnostic {
+    pub code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub details: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TopicGraphMutationResult {
     pub status: TopicGraphMutationStatus,
     pub manifest_hash: Option<String>,
@@ -38,6 +48,8 @@ pub struct TopicGraphMutationResult {
     pub changed_edge_ids: Vec<String>,
     pub review_ids: Vec<String>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<TopicGraphDiagnostic>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,6 +236,13 @@ impl TopicGraphApplication {
             return Err("invalid_request".into());
         }
         self.repository.load_window(limit)
+    }
+
+    pub fn load_review_page(
+        &self,
+        query: &ReviewPageQuery,
+    ) -> Result<(TopicGraphReplacement, usize, usize), String> {
+        self.repository.load_review_page(query)
     }
 
     pub fn replace_snapshot(
@@ -505,79 +524,113 @@ impl TopicGraphApplication {
         let mut snapshot = match self.repository.load() {
             Ok(snapshot) => snapshot,
             Err(_) => {
-                return self.result(
+                return self.diagnostic_result(
                     TopicGraphMutationStatus::RepairRequired,
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
+                    "topic_graph_review_repair_required",
+                    "Topic graph review state is unavailable.",
+                    [("edge_id", request.edge_id.as_str())],
                 );
             }
         };
         if snapshot.state.manifest_hash != request.expected_manifest_hash {
-            return self.result(
+            return self.diagnostic_result(
                 TopicGraphMutationStatus::BasisMismatch,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+                "topic_graph_review_basis_mismatch",
+                "Topic graph review state changed before the decision was applied.",
+                [("edge_id", request.edge_id.as_str())],
             );
         }
-        let Some(edge) = snapshot
+        let Some(index) = snapshot
             .edges
-            .iter_mut()
-            .find(|edge| edge.edge_id == request.edge_id && edge.status == "suggested")
+            .iter()
+            .position(|edge| edge.edge_id == request.edge_id)
         else {
-            return self.result(
+            return self.diagnostic_result(
                 TopicGraphMutationStatus::NotFound,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+                "topic_graph_edge_missing",
+                "Topic graph edge does not exist.",
+                [("edge_id", request.edge_id.as_str())],
             );
         };
-        edge.status = request.status.as_str().into();
-        edge.updated_at = (self.now)();
-        if set_topic_graph_manifest(&mut snapshot).is_err() {
-            return self.result(
-                TopicGraphMutationStatus::RepairRequired,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+        if snapshot.edges[index].status != "suggested" {
+            return self.diagnostic_result(
+                TopicGraphMutationStatus::Unchanged,
+                "topic_graph_edge_not_suggested",
+                "Only suggested topic graph edges can be reviewed.",
+                [
+                    ("edge_id", request.edge_id.as_str()),
+                    ("status", snapshot.edges[index].status.as_str()),
+                ],
             );
         }
-        self.apply_replacement(Some(&request.expected_manifest_hash), &snapshot)
+        let edge = &mut snapshot.edges[index];
+        edge.status = request.status.as_str().into();
+        edge.updated_at = (self.now)();
+        snapshot.state.index_stale = 1;
+        if set_topic_graph_manifest(&mut snapshot).is_err() {
+            return self.diagnostic_result(
+                TopicGraphMutationStatus::RepairRequired,
+                "topic_graph_review_projection_failed",
+                "Topic graph relation decision could not be finalized.",
+                [("edge_id", request.edge_id.as_str())],
+            );
+        }
+        let mut result = self.apply_replacement(Some(&request.expected_manifest_hash), &snapshot);
+        if result.status != TopicGraphMutationStatus::Committed && result.diagnostic.is_none() {
+            result.diagnostic = Some(TopicGraphDiagnostic {
+                code: "topic_graph_review_commit_failed".into(),
+                message: "Topic graph relation decision was not committed.".into(),
+                details: [("edge_id".into(), request.edge_id.clone())]
+                    .into_iter()
+                    .collect(),
+            });
+        }
+        result
     }
 
     pub fn review(&self, request: &TopicGraphReviewRequest) -> TopicGraphMutationResult {
         let mut snapshot = match self.repository.load() {
             Ok(snapshot) => snapshot,
             Err(_) => {
-                return self.result(
+                return self.diagnostic_result(
                     TopicGraphMutationStatus::RepairRequired,
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
+                    "topic_graph_review_repair_required",
+                    "Topic graph review state is unavailable.",
+                    [("review_id", request.review_id.as_str())],
                 );
             }
         };
         if snapshot.state.manifest_hash != request.expected_manifest_hash {
-            return self.result(
+            return self.diagnostic_result(
                 TopicGraphMutationStatus::BasisMismatch,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+                "topic_graph_review_basis_mismatch",
+                "Topic graph review state changed before the decision was applied.",
+                [("review_id", request.review_id.as_str())],
             );
         }
         let Some(index) = snapshot
             .reviews
             .iter()
-            .position(|review| review.review_id == request.review_id && review.status == "open")
+            .position(|review| review.review_id == request.review_id)
         else {
-            return self.result(
+            return self.diagnostic_result(
                 TopicGraphMutationStatus::NotFound,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+                "topic_graph_review_missing",
+                "Topic graph review item does not exist.",
+                [("review_id", request.review_id.as_str())],
             );
         };
+        if snapshot.reviews[index].status != "open" {
+            return self.diagnostic_result(
+                TopicGraphMutationStatus::Unchanged,
+                "topic_graph_review_closed",
+                "Topic graph review item is already resolved.",
+                [
+                    ("review_id", request.review_id.as_str()),
+                    ("status", snapshot.reviews[index].status.as_str()),
+                ],
+            );
+        }
         let now = (self.now)();
         if request.action == TopicGraphReviewAction::ApproveSuggested {
             let review = &snapshot.reviews[index];
@@ -589,11 +642,11 @@ impl TopicGraphApplication {
             if snapshot.edges.iter().any(|edge| {
                 edge.edge_id == edge_id && matches!(edge.status.as_str(), "confirmed" | "rejected")
             }) {
-                return self.result(
+                return self.diagnostic_result(
                     TopicGraphMutationStatus::Unchanged,
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
+                    "topic_graph_user_decision_preserved",
+                    "An existing user relation decision is preserved.",
+                    [("review_id", request.review_id.as_str())],
                 );
             }
             let review = snapshot.reviews[index].clone();
@@ -616,15 +669,26 @@ impl TopicGraphApplication {
         }
         snapshot.reviews[index].updated_at = now.clone();
         snapshot.reviews[index].resolved_at = now;
+        snapshot.state.index_stale = 1;
         if set_topic_graph_manifest(&mut snapshot).is_err() {
-            return self.result(
+            return self.diagnostic_result(
                 TopicGraphMutationStatus::RepairRequired,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
+                "topic_graph_review_projection_failed",
+                "Topic graph review decision could not be finalized.",
+                [("review_id", request.review_id.as_str())],
             );
         }
-        self.apply_replacement(Some(&request.expected_manifest_hash), &snapshot)
+        let mut result = self.apply_replacement(Some(&request.expected_manifest_hash), &snapshot);
+        if result.status != TopicGraphMutationStatus::Committed && result.diagnostic.is_none() {
+            result.diagnostic = Some(TopicGraphDiagnostic {
+                code: "topic_graph_review_commit_failed".into(),
+                message: "Topic graph review decision was not committed.".into(),
+                details: [("review_id".into(), request.review_id.clone())]
+                    .into_iter()
+                    .collect(),
+            });
+        }
+        result
     }
 
     pub fn mark_topic_relations_deleted(
@@ -1040,7 +1104,27 @@ impl TopicGraphApplication {
             changed_edge_ids,
             review_ids,
             warnings: Vec::new(),
+            diagnostic: None,
         }
+    }
+
+    fn diagnostic_result<const N: usize>(
+        &self,
+        status: TopicGraphMutationStatus,
+        code: &str,
+        message: &str,
+        details: [(&str, &str); N],
+    ) -> TopicGraphMutationResult {
+        let mut result = self.result(status, Vec::new(), Vec::new(), Vec::new());
+        result.diagnostic = Some(TopicGraphDiagnostic {
+            code: code.into(),
+            message: message.into(),
+            details: details
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
+        });
+        result
     }
 }
 
@@ -1396,6 +1480,98 @@ mod tests {
         let current = app.load().expect("current");
         assert_eq!(current.edges.len(), 1);
         assert_eq!(current.reviews.len(), 1);
+        drop(app);
+        drop(owner);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn review_is_two_stage_diagnostic_filtered_and_marks_index_stale() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile".into(),
+                    data_root_id: "data".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let app = TopicGraphApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(|| "reviewed".into()),
+        );
+        let mut initial = snapshot("graph:review", false);
+        initial.state.index_stale = 0;
+        initial.edges.clear();
+        initial.reviews.push(TopicGraphReviewItemRecord {
+            review_id: "review:relation".into(),
+            status: "open".into(),
+            source_topic_id: "topic:one".into(),
+            target_topic_id: "topic:two".into(),
+            target_title: "two".into(),
+            relation: "broader_than".into(),
+            confidence: Some(0.4),
+            provenance_json: "[]".into(),
+            evidence_refs_json: "[]".into(),
+            created_at: "fixed".into(),
+            updated_at: "fixed".into(),
+            ..TopicGraphReviewItemRecord::default()
+        });
+        assert_eq!(
+            app.replace_snapshot(None, &initial).status,
+            TopicGraphMutationStatus::Committed
+        );
+        let missing = app.review(&TopicGraphReviewRequest {
+            expected_manifest_hash: "graph:review".into(),
+            review_id: "missing".into(),
+            action: TopicGraphReviewAction::ApproveSuggested,
+        });
+        assert_eq!(
+            missing.diagnostic.expect("missing diagnostic").code,
+            "topic_graph_review_missing"
+        );
+        let approved = app.review(&TopicGraphReviewRequest {
+            expected_manifest_hash: "graph:review".into(),
+            review_id: "review:relation".into(),
+            action: TopicGraphReviewAction::ApproveSuggested,
+        });
+        assert_eq!(approved.status, TopicGraphMutationStatus::Committed);
+        let suggested = app.load().expect("suggested");
+        assert_eq!(suggested.state.index_stale, 1);
+        assert_eq!(suggested.reviews[0].status, "approved");
+        assert_eq!(suggested.edges[0].status, "suggested");
+        let (open_page, open_edges, open_reviews) = app
+            .load_review_page(&ReviewPageQuery {
+                status: "open".into(),
+                kind: "all".into(),
+                confidence: "all".into(),
+                search: "broader_than".into(),
+                limit: 10,
+                ..ReviewPageQuery::default()
+            })
+            .expect("open review page");
+        assert_eq!((open_edges, open_reviews), (1, 0));
+        assert_eq!(open_page.nodes.len(), 2);
+        let confirmed = app.decide_relation(&TopicGraphRelationDecisionRequest {
+            expected_manifest_hash: suggested.state.manifest_hash,
+            edge_id: suggested.edges[0].edge_id.clone(),
+            status: TopicGraphRelationStatus::Confirmed,
+        });
+        assert_eq!(confirmed.status, TopicGraphMutationStatus::Committed);
+        let current = app.load().expect("confirmed");
+        assert_eq!(current.edges[0].status, "confirmed");
+        let closed = app.review(&TopicGraphReviewRequest {
+            expected_manifest_hash: current.state.manifest_hash,
+            review_id: "review:relation".into(),
+            action: TopicGraphReviewAction::ApproveSuggested,
+        });
+        assert_eq!(
+            closed.diagnostic.expect("closed diagnostic").code,
+            "topic_graph_review_closed"
+        );
         drop(app);
         drop(owner);
         let _ = std::fs::remove_dir_all(root);
