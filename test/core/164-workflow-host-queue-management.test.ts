@@ -577,6 +577,55 @@ describe("workflow Host submission queue", function () {
     assert.deepEqual(executed, ["admit-first"]);
   });
 
+  it("releases identity once when terminal observation wins before late provider completion", async function () {
+    const queue = createQueue();
+    const terminal = deferred<WorkflowExecutionUnitOutcome>();
+    const lateProvider = deferred<void>();
+    let providerCompletions = 0;
+    const handle = queue.enqueueSubmission(
+      createConfig([{ id: "terminal-first" }], async () => {
+        void lateProvider.promise.then(() => {
+          providerCompletions += 1;
+        });
+        return terminal.promise;
+      }),
+    );
+    await flushMicrotasks();
+    assert.isTrue(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "item:terminal-first",
+      }),
+    );
+
+    terminal.resolve({ status: "failed", terminalState: "canceled" });
+    const completion = await handle.completion;
+    assert.equal(completion.failed, 1);
+    assert.isFalse(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "item:terminal-first",
+      }),
+    );
+
+    const retry = queue.enqueueSubmission(
+      createConfig([{ id: "terminal-first" }], async () => ({
+        status: "succeeded",
+      })),
+    );
+    assert.equal((await retry.completion).succeeded, 1);
+
+    lateProvider.resolve();
+    await flushMicrotasks();
+    assert.equal(providerCompletions, 1);
+    assert.isFalse(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "item:terminal-first",
+      }),
+    );
+  });
+
   it("publishes immutable sanitized snapshots without polling", async function () {
     const queue = createQueue();
     const events: string[] = [];

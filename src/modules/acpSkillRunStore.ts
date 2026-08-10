@@ -33,6 +33,13 @@ import type {
 import { normalizeAcpPromptInterruptState } from "./acpTypes";
 import { AcpPermissionQueue } from "./acpPermissionQueue";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import { waitForPromiseSettlement } from "../utils/wait";
+import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
+import {
+  getSequenceRunStateByStepRequest,
+  getSequenceStepIndexByRequestId,
+  recordSequenceStepTerminal,
+} from "./workflowExecution/sequenceStateStore";
 import type { HostBridgePluginSkillBundleIdentity } from "../shared/hostBridgePluginSkillBundleContract";
 import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
 import {
@@ -687,15 +694,17 @@ async function waitForAcpSkillRunShutdownTask(
   if (timeoutMs <= 0) {
     return { timedOut: true as const };
   }
-  return Promise.race([
-    task.then(
-      () => ({ timedOut: false as const }),
-      (error) => ({ timedOut: false as const, error }),
-    ),
-    new Promise<{ timedOut: true }>((resolve) => {
-      setTimeout(() => resolve({ timedOut: true }), timeoutMs);
-    }),
-  ]);
+  const result = await waitForPromiseSettlement(task, {
+    phase: "acp-skill-run-cleanup",
+    timeoutMs,
+  });
+  if (result.status === "timed-out") {
+    return { timedOut: true as const };
+  }
+  if (result.status === "rejected") {
+    return { timedOut: false as const, error: result.error };
+  }
+  return { timedOut: false as const };
 }
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
@@ -887,7 +896,39 @@ function syncAcpSkillRunActiveIndex(record: AcpSkillRunRecord) {
   }
 }
 
+function propagateAcpSkillRunTerminalState(record: AcpSkillRunRecord) {
+  if (record.status !== "failed" && record.status !== "canceled") {
+    return;
+  }
+  const sequence = getSequenceRunStateByStepRequest(record.requestId);
+  if (!sequence) {
+    return;
+  }
+  const stepIndex = getSequenceStepIndexByRequestId(sequence, record.requestId);
+  if (stepIndex < 0) {
+    return;
+  }
+  recordSequenceStepTerminal({
+    sequenceRunId: sequence.sequenceRunId,
+    stepIndex,
+    requestId: record.requestId,
+    status: record.status,
+    error: record.error,
+  });
+  if (sequence.rootRequestId) {
+    updateWorkflowTaskStateByRequest({
+      backendId: record.backendId,
+      backendType: record.backendType,
+      requestId: sequence.rootRequestId,
+      state: record.status,
+      backendStatus: record.status,
+      error: record.error,
+    });
+  }
+}
+
 function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
+  const previous = runRecords.get(record.requestId);
   const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
   const next = {
     ...record,
@@ -915,6 +956,12 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   delete (next as Record<string, unknown>).transcriptItems;
   delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
+  if (
+    (next.status === "failed" || next.status === "canceled") &&
+    previous?.status !== next.status
+  ) {
+    propagateAcpSkillRunTerminalState(next);
+  }
   if (isTerminalAcpSkillRunStatus(next.status)) {
     setupControllers.delete(record.requestId);
   }
@@ -2107,6 +2154,17 @@ export function registerAcpSkillRunController(
   return true;
 }
 
+export function unregisterAcpSkillRunController(
+  requestIdRaw: string,
+  controller: AcpSkillRunController,
+) {
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId || controllers.get(requestId) !== controller) {
+    return false;
+  }
+  return registerAcpSkillRunController(requestId, null);
+}
+
 export function registerAcpSkillRunSetupController(
   requestIdRaw: string,
   controller: AcpSkillRunSetupController | null,
@@ -2553,43 +2611,13 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
     requestId,
     "run_cancelled_with_pending_permission",
   );
-  let controller = controllers.get(requestId);
+  const controller = controllers.get(requestId);
   const setupController = setupControllers.get(requestId);
-  if (!controller) {
-    const existing = getAcpSkillRunRecord(requestId);
-    if (!existing) {
-      throw new Error("No ACP skill run record is available for cancellation.");
-    }
-    if (isTerminalAcpSkillRunStatus(existing.status)) {
-      return;
-    }
-    if (setupController) {
-      await setupController.cancel();
-      controller = controllers.get(requestId);
-    }
+  const existing = getAcpSkillRunRecord(requestId);
+  if (!existing) {
+    throw new Error("No ACP skill run record is available for cancellation.");
   }
-  if (!controller) {
-    upsertAcpSkillRun({
-      requestId,
-      status: "canceled",
-      statusReason: "cancel_task",
-      activePrompt: false,
-      conversationState: "ended",
-      conversationRecoveryState: "unavailable",
-      connectionActionState: "idle",
-      removedAt: nowIso(),
-      event: {
-        stage: "canceled",
-        message:
-          "ACP skill run canceled from the panel; no live controller was available.",
-        level: "warn",
-      },
-    });
-    return;
-  }
-  await controller.cancel();
-  const afterCancel = getAcpSkillRunRecord(requestId);
-  if (afterCancel && isTerminalAcpSkillRunStatus(afterCancel.status)) {
+  if (isTerminalAcpSkillRunStatus(existing.status)) {
     return;
   }
   upsertAcpSkillRun({
@@ -2605,6 +2633,38 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
       stage: "canceled",
       message: "ACP skill run cancellation requested.",
       level: "warn",
+    },
+  });
+  const cleanupTask = setupController?.cancel() || controller?.cancel();
+  if (!cleanupTask) {
+    return;
+  }
+  const cleanup = await waitForAcpSkillRunShutdownTask(cleanupTask);
+  if (controller) {
+    unregisterAcpSkillRunController(requestId, controller);
+  }
+  if (!cleanup.timedOut && !("error" in cleanup)) {
+    return;
+  }
+  upsertAcpSkillRun({
+    requestId,
+    event: {
+      stage: cleanup.timedOut
+        ? "cancel-cleanup-timeout"
+        : "cancel-cleanup-error",
+      message: cleanup.timedOut
+        ? "ACP skill run cleanup exceeded the local detach timeout."
+        : "ACP skill run cleanup failed after terminal cancellation.",
+      level: "warn",
+      details: {
+        timeoutMs: cleanup.timedOut
+          ? ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS
+          : undefined,
+        error:
+          "error" in cleanup && cleanup.error
+            ? errorText(cleanup.error)
+            : undefined,
+      },
     },
   });
 }
@@ -3209,6 +3269,13 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
     await recoveryHandler({ requestId, reason: "connect" });
     const recovered = getAcpSkillRunRecord(requestId);
     if (
+      recovered &&
+      isTerminalAcpSkillRunStatus(recovered.status) &&
+      !controllers.has(requestId)
+    ) {
+      return;
+    }
+    if (
       !controllers.has(requestId) &&
       recovered?.conversationState === "closed" &&
       recovered?.conversationRecoveryState === "available"
@@ -3230,6 +3297,10 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
       },
     });
   } catch (error) {
+    const current = getAcpSkillRunRecord(requestId);
+    if (current && isTerminalAcpSkillRunStatus(current.status)) {
+      return;
+    }
     const detail =
       error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
@@ -3265,7 +3336,16 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
   });
   try {
     if (controller?.disconnect) {
-      await controller.disconnect();
+      const result = await waitForAcpSkillRunShutdownTask(
+        controller.disconnect(),
+      );
+      if (result.timedOut) {
+        disconnectError = new Error(
+          `ACP skill run disconnect timed out after ${ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS} ms`,
+        );
+      } else if ("error" in result) {
+        disconnectError = result.error;
+      }
     }
   } catch (error) {
     disconnectError = error;
@@ -3273,7 +3353,7 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
     const currentController = controllers.get(requestId);
     if (controller) {
       if (currentController === controller) {
-        registerAcpSkillRunController(requestId, null);
+        unregisterAcpSkillRunController(requestId, controller);
       }
     } else if (!currentController) {
       registerAcpSkillRunController(requestId, null);

@@ -102,12 +102,13 @@ function getJobResultStatus(job?: { result?: unknown }) {
   return String(result?.status || "").trim();
 }
 
-function resolveDeferredTerminalOutcome(args: {
-  runState: WorkflowRunState;
+export function resolveProviderTerminalOutcome(args: {
+  queue: WorkflowRunState["queue"];
+  runId: string;
   jobId: string;
   requestId: string;
 }) {
-  const job = args.runState.queue.getJob(args.jobId);
+  const job = args.queue.getJob(args.jobId);
   let terminalRequestId = args.requestId;
   const requestKind =
     job?.request &&
@@ -116,9 +117,7 @@ function resolveDeferredTerminalOutcome(args: {
       ? String((job.request as { kind?: unknown }).kind || "").trim()
       : "";
   if (requestKind === "skillrunner.sequence.v1") {
-    const sequenceState = getSequenceRunState(
-      `${args.runState.runId}-${args.jobId}`,
-    );
+    const sequenceState = getSequenceRunState(`${args.runId}-${args.jobId}`);
     if (
       sequenceState?.status === "failed" ||
       sequenceState?.status === "canceled"
@@ -432,6 +431,51 @@ export async function runWorkflowApplySeam(
     const taskLabel = resolveTaskNameFromRequest(args.runState.requests[i], i);
     const jobId = args.runState.jobIds[i];
     const job = args.runState.queue.getJob(jobId);
+    const providerRequestId = String(
+      job?.meta.requestId ||
+        (job?.result as RunResultLike | undefined)?.requestId ||
+        "",
+    ).trim();
+    const externalTerminal =
+      job && job.state !== "succeeded"
+        ? resolveProviderTerminalOutcome({
+            queue: args.runState.queue,
+            runId: args.runState.runId,
+            jobId,
+            requestId: providerRequestId,
+          })
+        : null;
+    if (externalTerminal) {
+      if (externalTerminal.status === "succeeded") {
+        succeeded += 1;
+        jobOutcomes.push({
+          index: i,
+          taskLabel,
+          succeeded: true,
+          terminalState: "succeeded",
+          jobId,
+          requestId: providerRequestId || undefined,
+        });
+      } else {
+        failed += 1;
+        const reason = externalTerminal.reason || "provider execution failed";
+        failureReasons.push(
+          providerRequestId
+            ? `job-${i} (request_id=${providerRequestId}): ${reason}`
+            : `job-${i}: ${reason}`,
+        );
+        jobOutcomes.push({
+          index: i,
+          taskLabel,
+          succeeded: false,
+          terminalState: externalTerminal.terminalState,
+          reason,
+          jobId,
+          requestId: providerRequestId || undefined,
+        });
+      }
+      continue;
+    }
     if (!job || job.state !== "succeeded") {
       const recoverableRequestId = getSkillRunnerRequestIdFromJob(job as any);
       const jobResultStatus = getJobResultStatus(job as any);
@@ -548,8 +592,9 @@ export async function runWorkflowApplySeam(
         continue;
       }
       if (resultStatus === "deferred") {
-        const terminalOutcome = resolveDeferredTerminalOutcome({
-          runState: args.runState,
+        const terminalOutcome = resolveProviderTerminalOutcome({
+          queue: args.runState.queue,
+          runId: args.runState.runId,
           jobId: job.id,
           requestId: result.requestId,
         });

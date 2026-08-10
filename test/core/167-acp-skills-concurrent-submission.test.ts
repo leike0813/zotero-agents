@@ -111,21 +111,27 @@ function createAdapter(args: {
   promptStarted: (id: string) => void;
   releasePrompt: Promise<void>;
   closeCalls?: { value: number };
+  stageGates?: Partial<
+    Record<"initialize" | "newSession" | "setMode", Promise<void>>
+  >;
 }) {
   let updateListener: ((event: unknown) => void | Promise<void>) | null = null;
   const closeCalls = args.closeCalls || { value: 0 };
   const adapter: AcpConnectionAdapter = {
-    initialize: async () => ({
-      authMethods: [],
-      agentName: "fake",
-      agentVersion: "1",
-      commandLabel: "fake",
-      commandLine: "fake",
-      canLoadSession: true,
-      canResumeSession: true,
-      canUseHttpMcp: true,
-      canUseSseMcp: false,
-    }),
+    initialize: async () => {
+      await args.stageGates?.initialize;
+      return {
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      };
+    },
     onUpdate: (listener) => {
       updateListener = listener;
       return () => {
@@ -135,7 +141,19 @@ function createAdapter(args: {
     onClose: () => () => undefined,
     onDiagnostics: () => () => undefined,
     onPermissionRequest: () => () => undefined,
-    newSession: async () => ({ sessionId: `session-${args.id}` }),
+    newSession: async () => {
+      await args.stageGates?.newSession;
+      return {
+        sessionId: `session-${args.id}`,
+        modes: {
+          currentModeId: "default",
+          availableModes: [
+            { id: "default", name: "Default" },
+            { id: "plan", name: "Plan" },
+          ],
+        },
+      };
+    },
     loadSession: async ({ sessionId }) => ({ sessionId }),
     resumeSession: async ({ sessionId }) => ({ sessionId }),
     prompt: async ({ sessionId }) => {
@@ -154,7 +172,9 @@ function createAdapter(args: {
       return { stopReason: "end_turn" };
     },
     cancel: async () => undefined,
-    setMode: async () => undefined,
+    setMode: async () => {
+      await args.stageGates?.setMode;
+    },
     setModel: async () => undefined,
     authenticate: async () => undefined,
     close: async () => {
@@ -195,6 +215,7 @@ function execute(args: {
     submissionId?: string;
     submissionUnitId?: string;
   };
+  providerOptions?: Record<string, unknown>;
 }) {
   return executeAcpSkillRunnerJob({
     requestKind: ACP_SKILL_RUN_REQUEST_KIND,
@@ -210,6 +231,7 @@ function execute(args: {
     },
     dependencies: args.dependencies,
     orchestrationContext: args.orchestrationContext,
+    providerOptions: args.providerOptions,
   });
 }
 
@@ -479,6 +501,59 @@ describe("ACP Skills concurrent setup lifecycle", function () {
     }
   });
 
+  it("keeps setup non-connected and prevents late startup stages from reviving canceled runs", async function () {
+    this.timeout(20_000);
+    for (const stage of ["initialize", "newSession", "setMode"] as const) {
+      const root = await fs.mkdtemp(
+        path.join(os.tmpdir(), `zs-acp-stage-${stage}-`),
+      );
+      const entry = await createSkill(root);
+      const gate = deferred<void>();
+      let promptCalls = 0;
+      try {
+        const execution = execute({
+          backend: createBackend(),
+          providerOptions: { acpModeId: "plan" },
+          dependencies: createDependencies({
+            root,
+            entry,
+            createAdapter: async () =>
+              createAdapter({
+                id: stage,
+                promptStarted: () => {
+                  promptCalls += 1;
+                },
+                releasePrompt: Promise.resolve(),
+                stageGates: { [stage]: gate.promise },
+              }),
+          }),
+        });
+        const requestId = await waitFor(
+          () => listAcpSkillRuns()[0]?.requestId,
+          `${stage} setup run`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        assert.notEqual(
+          getAcpSkillRunRecord(requestId)?.conversationRecoveryState,
+          "connected",
+          `${stage} must not publish connected before readiness`,
+        );
+
+        await cancelAcpSkillRun(requestId);
+        assert.equal(getAcpSkillRunRecord(requestId)?.status, "canceled");
+        gate.resolve();
+        const result = await execution;
+        assert.equal(result.status, "canceled");
+        assert.equal(getAcpSkillRunRecord(requestId)?.status, "canceled");
+        assert.equal(promptCalls, 0);
+        assert.isFalse(hasAcpSkillRunController(requestId));
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+        resetAcpSkillRunsForTests();
+      }
+    }
+  });
+
   it("does not let stale setup cleanup remove a live controller", async function () {
     upsertAcpSkillRun({
       requestId: "controller-identity-test",
@@ -508,7 +583,7 @@ describe("ACP Skills concurrent setup lifecycle", function () {
     registerAcpSkillRunController("controller-identity-test", null);
   });
 
-  it("routes setup cancellation to a controller promoted while cancellation waits", async function () {
+  it("rejects live-controller promotion after setup cancellation wins", async function () {
     upsertAcpSkillRun({
       requestId: "controller-cancel-race-test",
       status: "queued",
@@ -533,16 +608,21 @@ describe("ACP Skills concurrent setup lifecycle", function () {
     const cancellation = cancelAcpSkillRun("controller-cancel-race-test");
     await setupCancelEntered.promise;
     let liveCancelCalls = 0;
-    registerAcpSkillRunController("controller-cancel-race-test", {
-      cancel: async () => {
-        liveCancelCalls += 1;
-        registerAcpSkillRunController("controller-cancel-race-test", null);
-      },
-    });
+    assert.isFalse(
+      registerAcpSkillRunController(
+        "controller-cancel-race-test",
+        {
+          cancel: async () => {
+            liveCancelCalls += 1;
+          },
+        },
+        setupController,
+      ),
+    );
     releaseSetupCancel.resolve();
     await cancellation;
 
-    assert.equal(liveCancelCalls, 1);
+    assert.equal(liveCancelCalls, 0);
     assert.isFalse(hasAcpSkillRunController("controller-cancel-race-test"));
     assert.equal(
       getAcpSkillRunRecord("controller-cancel-race-test")?.status,

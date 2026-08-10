@@ -58,11 +58,15 @@ import {
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   registerAcpSkillRunController,
+  registerAcpSkillRunSetupController,
   recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
   resolveAcpSkillRunPermissionRequest,
   upsertAcpSkillRun,
+  unregisterAcpSkillRunController,
+  unregisterAcpSkillRunSetupController,
   type AcpSkillRunReplyRequest,
+  type AcpSkillRunSetupController,
 } from "./acpSkillRunStore";
 import { finishAcpSequenceStep } from "./workflowExecution/acpSequenceStepLifecycle";
 import {
@@ -90,9 +94,14 @@ import {
 } from "../shared/hostBridgePluginSkillBundleContract";
 import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
 import {
+  BoundedWaitError,
+  waitForBoundedPromise,
   watchPromiseSettlement,
+  type BoundedWaitStartupOptions,
   type PromiseSettlementWatchdog,
 } from "../utils/wait";
+
+const ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS = 60_000;
 import {
   getSequenceRunStateByStepRequest,
   getSequenceStepIndexByRequestId,
@@ -829,13 +838,22 @@ async function attachRecoveredSession(args: {
   requestId: string;
   sessionId: string;
   backend: BackendInstance;
+  startup?: BoundedWaitStartupOptions;
 }) {
-  const initialized = await args.adapter.initialize();
+  const startup = {
+    timeoutMs: args.startup?.timeoutMs ?? ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS,
+    signal: args.startup?.signal,
+  };
+  const initialized = await waitForBoundedPromise(args.adapter.initialize(), {
+    phase: "acp-recovery-initialize",
+    ...startup,
+  });
   if (initialized.canResumeSession) {
     try {
-      const session = await args.adapter.resumeSession({
-        sessionId: args.sessionId,
-      });
+      const session = await waitForBoundedPromise(
+        args.adapter.resumeSession({ sessionId: args.sessionId }),
+        { phase: "acp-session-resume", ...startup },
+      );
       refreshAcpSkillRunRuntimeCatalogFromSession({
         requestId: args.requestId,
         backend: args.backend,
@@ -843,6 +861,9 @@ async function attachRecoveredSession(args: {
       });
       return "resumed";
     } catch (error) {
+      if (error instanceof BoundedWaitError) {
+        throw error;
+      }
       upsertAcpSkillRun({
         requestId: args.requestId,
         event: {
@@ -857,9 +878,10 @@ async function attachRecoveredSession(args: {
     }
   }
   if (initialized.canLoadSession) {
-    const session = await args.adapter.loadSession({
-      sessionId: args.sessionId,
-    });
+    const session = await waitForBoundedPromise(
+      args.adapter.loadSession({ sessionId: args.sessionId }),
+      { phase: "acp-session-load", ...startup },
+    );
     refreshAcpSkillRunRuntimeCatalogFromSession({
       requestId: args.requestId,
       backend: args.backend,
@@ -1016,10 +1038,33 @@ export async function recoverAcpSkillRunConversation(args: {
       zoteroMajor: resolveAcpProfileZoteroMajor(),
     });
   }
+  const setupAbortController = new AbortController();
+  let recoveryCanceled = false;
+  const setupAdapterRef: { current?: AcpConnectionAdapter } = {};
+  const setupController: AcpSkillRunSetupController = {
+    cancel: async () => {
+      recoveryCanceled = true;
+      setupAbortController.abort();
+      void setupAdapterRef.current?.close().catch(() => undefined);
+    },
+  };
+  if (!postTerminalConversation) {
+    registerAcpSkillRunSetupController(requestId, setupController);
+  }
+  const throwIfRecoveryCanceled = () => {
+    if (recoveryCanceled || setupAbortController.signal.aborted) {
+      throw new BoundedWaitError({
+        kind: "canceled",
+        phase: "acp-session-recovery",
+      });
+    }
+  };
   await hydrateAcpSkillRunTranscriptMirror(requestId);
+  throwIfRecoveryCanceled();
   const recoveredContext = await readAcpSkillRunContextPayload(
     record.runtimeDir,
   );
+  throwIfRecoveryCanceled();
   const contextRequest =
     recoveredContext?.requestPayload &&
     isJsonObject(recoveredContext.requestPayload)
@@ -1088,6 +1133,7 @@ export async function recoverAcpSkillRunConversation(args: {
     },
   });
   const backend = await resolveBackendForRecoveredRun(record.backendId);
+  throwIfRecoveryCanceled();
   rememberAcpSkillRunRuntimeCatalog({ requestId, backend });
   const runnerJson = record.runnerJson || contextRunnerJson || {};
   const effectiveRecoveredRequest =
@@ -1117,6 +1163,7 @@ export async function recoverAcpSkillRunConversation(args: {
       backend,
       dependencies: args.dependencies,
     });
+    throwIfRecoveryCanceled();
   } catch (error) {
     const message =
       error instanceof Error
@@ -1147,6 +1194,7 @@ export async function recoverAcpSkillRunConversation(args: {
     mode: "probe-and-wrap",
     probe: args.dependencies?.dependencyProbe,
   });
+  throwIfRecoveryCanceled();
   if (dependencyPlan.diagnostic?.level === "error") {
     const message = `${dependencyPlan.diagnostic.code}: ${dependencyPlan.diagnostic.message}`;
     upsertAcpSkillRun({
@@ -1173,6 +1221,10 @@ export async function recoverAcpSkillRunConversation(args: {
     workspaceDir,
     runtimeDir,
     performanceProfileRequestId: requestId,
+    startup: {
+      signal: setupAbortController.signal,
+      timeoutMs: ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS,
+    },
     diagnosticCapture: detailedAuditEnabled
       ? {
           bridgeAuditFile: normalizeString(auditFiles.bridge),
@@ -1185,6 +1237,8 @@ export async function recoverAcpSkillRunConversation(args: {
         }
       : undefined,
   });
+  setupAdapterRef.current = adapter;
+  throwIfRecoveryCanceled();
   let cleanupDone = false;
   let captureAssistantText = false;
   let currentTurnObservedAcpActivity = false;
@@ -1195,6 +1249,9 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredInterruptionRequested = false;
   let recoveredInterruptionForced = false;
   let recoveredDisconnectRequested = false;
+  let recoveredController: NonNullable<
+    Parameters<typeof registerAcpSkillRunController>[1]
+  > | null = null;
   let recoveredPromptTimeoutDrain: Promise<unknown> | null = null;
   let recoveredInterruptWatchdog: PromiseSettlementWatchdog | null = null;
   let unsubscribePermission: () => void = () => undefined;
@@ -1221,7 +1278,9 @@ export async function recoverAcpSkillRunConversation(args: {
     recoveredHardTimeoutMonitor?.clear();
     recoveredInterruptWatchdog?.clear();
     recoveredInterruptWatchdog = null;
-    registerAcpSkillRunController(requestId, null);
+    if (recoveredController) {
+      unregisterAcpSkillRunController(requestId, recoveredController);
+    }
     upsertAcpSkillRun({
       requestId,
       activePrompt: false,
@@ -2019,7 +2078,9 @@ export async function recoverAcpSkillRunConversation(args: {
       stderrText,
       transportLifecycle: event?.transportLifecycle,
     });
-    registerAcpSkillRunController(requestId, null);
+    if (recoveredController) {
+      unregisterAcpSkillRunController(requestId, recoveredController);
+    }
   });
   try {
     const attachKind = await attachRecoveredSession({
@@ -2027,8 +2088,12 @@ export async function recoverAcpSkillRunConversation(args: {
       requestId,
       sessionId,
       backend,
+      startup: {
+        signal: setupAbortController.signal,
+        timeoutMs: ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS,
+      },
     });
-    const recoveredController = {
+    recoveredController = {
       cancel: async () => {
         recoveredCancellationRequested = true;
         await adapter.cancel({ sessionId: liveSessionId });
@@ -2201,12 +2266,32 @@ export async function recoverAcpSkillRunConversation(args: {
     } satisfies NonNullable<
       Parameters<typeof registerAcpSkillRunController>[1]
     >;
-    registerAcpSkillRunController(
+    await waitForBoundedPromise(
+      applyAcpSkillRunRuntimeSelection({
+        adapter,
+        backend,
+        requestId,
+        sessionId: liveSessionId,
+      }),
+      {
+        phase: "acp-recovery-runtime-configuration",
+        signal: setupAbortController.signal,
+        timeoutMs: ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS,
+      },
+    );
+    throwIfRecoveryCanceled();
+    const controllerRegistered = registerAcpSkillRunController(
       requestId,
       recoveredController,
-      undefined,
+      postTerminalConversation ? undefined : setupController,
       postTerminalConversation ? "post-terminal-conversation" : "workflow",
     );
+    if (!controllerRegistered) {
+      throw new BoundedWaitError({
+        kind: "canceled",
+        phase: "acp-recovery-controller-promotion",
+      });
+    }
     upsertAcpSkillRun({
       requestId,
       sessionId,
@@ -2223,12 +2308,6 @@ export async function recoverAcpSkillRunConversation(args: {
           sessionId,
         },
       },
-    });
-    await applyAcpSkillRunRuntimeSelection({
-      adapter,
-      backend,
-      requestId,
-      sessionId: liveSessionId,
     });
     upsertAcpSkillRun({
       requestId,
@@ -2305,6 +2384,11 @@ export async function recoverAcpSkillRunConversation(args: {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     await detach("error", message).catch(() => undefined);
+    unregisterAcpSkillRunSetupController(requestId, setupController);
+    const current = getAcpSkillRunRecord(requestId);
+    if (current?.status === "canceled") {
+      return;
+    }
     upsertAcpSkillRun({
       requestId,
       conversationRecoveryState: /does not support session resume\/load/i.test(

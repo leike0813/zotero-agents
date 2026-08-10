@@ -68,6 +68,7 @@ import {
   subscribeSequenceRunStateStore,
 } from "./sequenceStateStore";
 import { isDebugModeEnabled } from "../debugMode";
+import { resolveProviderTerminalOutcome } from "./applySeam";
 import {
   beginAcpRuntimeSemanticTraceClaimAttempt,
   claimAcpRuntimeSemanticTraceRoot,
@@ -305,6 +306,18 @@ function observeWorkflowRunTerminal(args: {
       const job = args.queue.getJob(jobId);
       if (!job) {
         return false;
+      }
+      const providerTerminal = resolveProviderTerminalOutcome({
+        queue: args.queue,
+        runId: args.runId,
+        jobId,
+        requestId: normalizeText(
+          job.meta.requestId ||
+            (job.result as { requestId?: unknown } | undefined)?.requestId,
+        ),
+      });
+      if (providerTerminal) {
+        return true;
       }
       const resultStatus = normalizeText(
         (job.result as { status?: unknown } | undefined)?.status,

@@ -37,6 +37,7 @@ import {
 import {
   getAcpSkillRunRecord,
   resetAcpSkillRunsForTests,
+  upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNotificationInbox";
@@ -2858,6 +2859,125 @@ describe("workflow execution seams", function () {
     assert.deepEqual(capturedSequence.steps[1].resultContext.resultJson, {
       add_tags: ["topic:sequence"],
     });
+  });
+
+  it("settles a running ACP job from the canonical canceled run state", async function () {
+    resetAcpSkillRunsForTests();
+    const providerStarted = deferred<void>();
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-acp-running-terminal",
+              label: "ACP Running Terminal",
+              provider: "acp",
+              request: { kind: "acp.skill-run.v1" },
+            },
+          } as any,
+          requests: [{ kind: "acp.skill-run.v1", skill_id: "demo" }],
+          candidateSkipped: 0,
+          executionContext: {
+            providerId: "acp",
+            requestKind: "acp.skill-run.v1",
+            providerOptions: {},
+            backend: {
+              id: "acp-running-terminal",
+              type: "acp",
+              baseUrl: "local://acp-running-terminal",
+            },
+          },
+        },
+      },
+      {
+        executeWithProvider: async ({ onProgress }) => {
+          onProgress?.({
+            type: "request-created",
+            requestId: "acp-running-request",
+          });
+          providerStarted.resolve();
+          return new Promise(() => undefined);
+        },
+        openAssistantWorkspaceSidebar: () => undefined,
+        selectAcpSkillRun: () => undefined,
+      },
+    );
+    await providerStarted.promise;
+    upsertAcpSkillRun({
+      requestId: "acp-running-request",
+      status: "canceled",
+      backendId: "acp-running-terminal",
+      backendType: "acp",
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+    });
+
+    await Promise.race([
+      runState.terminalPromise,
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("terminal observer did not settle")),
+          500,
+        ),
+      ),
+    ]);
+  });
+
+  it("skips apply when a running ACP job is already canonically canceled", async function () {
+    resetAcpSkillRunsForTests();
+    let applyCalls = 0;
+    upsertAcpSkillRun({
+      requestId: "acp-apply-canceled-request",
+      status: "canceled",
+      backendId: "acp-apply-canceled",
+      backendType: "acp",
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+    });
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: {
+          workflow: {
+            manifest: {
+              id: "seam-acp-apply-canceled",
+              label: "ACP Apply Canceled",
+              provider: "acp",
+              request: { kind: "acp.skill-run.v1" },
+              hooks: { applyResult: "hooks/applyResult.js" },
+            },
+          } as any,
+          requests: [{ kind: "acp.skill-run.v1", skill_id: "demo" }],
+          queue: {
+            getJob: () => ({
+              id: "job-1",
+              state: "running",
+              request: { kind: "acp.skill-run.v1" },
+              meta: {
+                backendId: "acp-apply-canceled",
+                backendType: "acp",
+                requestId: "acp-apply-canceled-request",
+              },
+            }),
+          } as any,
+          jobIds: ["job-1"],
+          runId: "run-acp-apply-canceled",
+          totalJobs: 1,
+          idlePromise: new Promise(() => undefined),
+        },
+        messageFormatter: createLocalizedMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: () => undefined,
+        executeApplyResult: async () => {
+          applyCalls += 1;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(applyCalls, 0);
+    assert.equal(summary.failed, 1);
+    assert.equal(summary.jobOutcomes[0]?.terminalState, "canceled");
   });
 
   it("applies preflight short-circuit records through the apply seam", async function () {

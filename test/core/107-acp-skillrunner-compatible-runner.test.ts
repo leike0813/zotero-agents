@@ -3136,6 +3136,42 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("publishes canceled before a stalled controller cleanup finishes", async function () {
+    this.timeout(5000);
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-cancel-stalled-controller",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-cancel-stalled-controller",
+      activePrompt: true,
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+    });
+    registerAcpSkillRunController("run-cancel-stalled-controller", {
+      cancel: async () => new Promise(() => undefined),
+    });
+
+    const startedAt = Date.now();
+    const cancellation = cancelAcpSkillRun("run-cancel-stalled-controller");
+    assert.equal(
+      getAcpSkillRunRecord("run-cancel-stalled-controller")?.status,
+      "canceled",
+    );
+    await cancellation;
+
+    assert.isBelow(Date.now() - startedAt, 2800);
+    const record = getAcpSkillRunRecord("run-cancel-stalled-controller");
+    assert.equal(record?.conversationState, "ended");
+    assert.equal(record?.conversationRecoveryState, "unavailable");
+    assert.isFalse(hasAcpSkillRunController("run-cancel-stalled-controller"));
+    assert.include(
+      (record?.events || []).map((event) => event.stage),
+      "cancel-cleanup-timeout",
+    );
+  });
+
   it("ignores stale assistant text returned after current turn cancel", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
@@ -11777,6 +11813,40 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isFalse(hasAcpSkillRunController("run-disconnect-reject"));
     assert.equal(detachError?.level, "warn");
     assert.equal(detachError?.details?.error, "adapter close failed");
+  });
+
+  it("bounds a stalled disconnect and preserves remote recovery", async function () {
+    this.timeout(5000);
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-disconnect-stalled",
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-disconnect-stalled",
+      activePrompt: false,
+      connectionActionState: "idle",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+    });
+    registerAcpSkillRunController("run-disconnect-stalled", {
+      cancel: async () => undefined,
+      disconnect: async () => new Promise(() => undefined),
+    });
+
+    const startedAt = Date.now();
+    await disconnectAcpSkillRun("run-disconnect-stalled");
+
+    assert.isBelow(Date.now() - startedAt, 2800);
+    const record = getAcpSkillRunRecord("run-disconnect-stalled");
+    assert.equal(record?.status, "waiting_user");
+    assert.equal(record?.conversationState, "closed");
+    assert.equal(record?.conversationRecoveryState, "available");
+    assert.isFalse(hasAcpSkillRunController("run-disconnect-stalled"));
+    assert.include(
+      (record?.events || []).map((event) => event.stage),
+      "disconnect-detach-error",
+    );
   });
 
   it("does not mark connect succeeded after recovery already detached the session", async function () {

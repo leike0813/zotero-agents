@@ -1976,6 +1976,70 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.isUndefined(state?.steps[2]?.status);
   });
 
+  it("preserves canonical ACP terminal state when provider dispatch settles late", async function () {
+    for (const status of ["failed", "canceled"] as const) {
+      const sequenceRunId = `workflow-run-acp-terminal-${status}`;
+      const launched: string[] = [];
+      try {
+        await executeSkillRunnerSequence({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            steps: [
+              {
+                id: "prepare",
+                skill_id: "prepare-skill",
+                mode: "auto",
+                workspace: "new",
+              },
+              {
+                id: "finalize",
+                skill_id: "finalize-skill",
+                mode: "auto",
+                workspace: "reuse-workflow",
+              },
+            ],
+            final_step_id: "finalize",
+          },
+          backend: {
+            id: "acp-backend",
+            type: "acp",
+            baseUrl: "local://acp",
+            auth: { kind: "none" },
+          },
+          workflowId: "sequence-workflow",
+          workflowRunId: sequenceRunId,
+          jobId: `job-acp-terminal-${status}`,
+          appendRuntimeLog: () => {},
+          executeWithProvider: async ({ request, onProgress }) => {
+            const skillId = String(
+              (request as { skill_id?: unknown }).skill_id,
+            );
+            launched.push(skillId);
+            const requestId = `${status}-request`;
+            onProgress?.({ type: "request-created", requestId });
+            upsertAcpSkillRun({
+              requestId,
+              status,
+              backendId: "acp-backend",
+              backendType: "acp",
+              error: status === "failed" ? "startup failed" : "",
+            });
+            throw new Error("late provider rejection");
+          },
+        });
+        assert.fail("expected terminal ACP step to stop sequence");
+      } catch (error) {
+        assert.include(String(error), "late provider rejection");
+      }
+
+      const state = getSequenceRunState(sequenceRunId);
+      assert.deepEqual(launched, ["prepare-skill"]);
+      assert.equal(state?.status, status);
+      assert.equal(state?.steps[0]?.status, status);
+      assert.notEqual(state?.steps[0]?.detachReason, "observer_failure");
+    }
+  });
+
   it("marks the final request root apply skipped when foreground continuation sees final step apply_result", async function () {
     const backend = {
       id: "skillrunner-backend",

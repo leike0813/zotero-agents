@@ -32,6 +32,7 @@ import {
 import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
 import { isNonRecoverableSkillRunnerFailure } from "../skillRunnerRecoverableState";
 import { isDebugModeEnabled } from "../debugMode";
+import { getAcpSkillRunRecord } from "../acpSkillRunStore";
 
 export type ExecuteWithProvider = (args: {
   requestKind: string;
@@ -1384,7 +1385,71 @@ async function executeSequenceFromState(args: {
       });
     } catch (error) {
       const message = stringifyUnknownError(error);
-      if (progressRequestId && !isNonRecoverableSkillRunnerFailure(error)) {
+      if (
+        normalizeString(args.backend.type) === ACP_BACKEND_TYPE &&
+        progressRequestId
+      ) {
+        const acpRecord = getAcpSkillRunRecord(progressRequestId);
+        if (
+          acpRecord?.status === "failed" ||
+          acpRecord?.status === "canceled"
+        ) {
+          recordSequenceStepTerminal({
+            sequenceRunId: args.state.sequenceRunId,
+            stepIndex: index,
+            requestId: progressRequestId,
+            status: acpRecord.status,
+            error: acpRecord.error || message,
+          });
+          args.onProgress?.({
+            type:
+              acpRecord.status === "canceled"
+                ? "sequence-step-canceled"
+                : "sequence-step-failed",
+            requestId: progressRequestId,
+            error: acpRecord.error || message,
+            ...stepProgressContext,
+          });
+          throw error;
+        }
+        if (acpRecord?.status === "failed_retriable") {
+          const recoveryResult = buildSequenceDeferredResult({
+            state: args.state,
+            step,
+            stepIndex: index,
+            requestId: progressRequestId,
+            stepResult: {
+              status: "deferred",
+              requestId: progressRequestId,
+              fetchType: "bundle",
+              backendStatus: "running",
+              detachReason: "waiting",
+              continuationOwner: "recovery",
+            },
+            outputsByStep,
+          });
+          recordSequenceStepWaiting({
+            sequenceRunId: args.state.sequenceRunId,
+            stepIndex: index,
+            requestId: progressRequestId,
+            result: recoveryResult,
+          });
+          args.onProgress?.({
+            type: "sequence-step-deferred",
+            requestId: progressRequestId,
+            backendStatus: "running",
+            detachReason: "waiting",
+            error: acpRecord.error || message,
+            ...stepProgressContext,
+          });
+          return recoveryResult;
+        }
+      }
+      if (
+        normalizeString(args.backend.type) === DEFAULT_BACKEND_TYPE &&
+        progressRequestId &&
+        !isNonRecoverableSkillRunnerFailure(error)
+      ) {
         const observerFailureResult = buildSequenceDeferredResult({
           state: args.state,
           step,

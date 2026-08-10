@@ -273,6 +273,15 @@ a newer controller. Task cancellation during setup stops later setup stages,
 closes an adapter that arrives late, and settles the run without starting a
 session or prompt.
 
+Setup consists of managed npx lease acquisition, transport launch, ACP
+initialize, session new/load/resume, and initial mode/model/configuration.
+Each stage has an independent 60-second limit. `connected` is published only
+after the session and its initial runtime selection are usable. Timeout is a
+terminal startup failure with the stage and timeout recorded in diagnostics;
+cancel or timeout also revokes ownership, so a late lease, transport, RPC
+response, or configuration result must be discarded and cannot install a live
+controller or start a prompt.
+
 Every controller installed by initial workflow execution has `workflow`
 purpose for its entire lifetime, including the interval between terminal apply
 settlement and asynchronous detach. Only explicit Connect may install a
@@ -448,6 +457,8 @@ new state axis.
 - The initial run starts timeout monitoring only after ACP session creation,
   mode/model/config setup, and session preparation have reached the prompt-ready
   boundary. Session setup time is not counted as agent execution time.
+- The independent 60-second startup-stage limits remain active before that
+  boundary. They do not consume or shorten the configured prompt hard timeout.
 - Auto execution uses one continuous prompt execution window. Interactive
   execution uses one window per agent turn; entering `waiting_user` clears the
   timer, and a later user reply starts a fresh window.
@@ -572,6 +583,11 @@ Canceling the task terminates the ACP Skills job.
   closed without creating a session or prompt.
 - With a live controller, stops the active prompt through the task-level cancel
   controller, not through current-turn `interruptTurn`, then closes the adapter.
+- Publishes the terminal canceled record, cancels sequence resumption, updates
+  the active sequence step and parent, and notifies Host terminal observers
+  before waiting for backend cleanup. Controller cancel and adapter detach use
+  the two-second local cleanup watchdog; timeout is diagnostic and cannot retain
+  a Host slot or duplicate-submission identity.
 - Final state is `status = "canceled"`, `activePrompt = false`,
   `conversationState = "ended"`, `conversationRecoveryState = "unavailable"`,
   and `connectionActionState = "idle"`.
@@ -594,7 +610,8 @@ Canceling the task terminates the ACP Skills job.
 2. **Task cancellation and disconnect have different terminality.** — Cancel
    Task is terminal across queued, setup, live, detached, and
    resumption-pending phases. Ordinary Disconnect only detaches the local
-   attachment and must not terminalize the run.
+   attachment and must not terminalize the run. Disconnect cleanup is bounded
+   by the same two-second watchdog and preserves recoverable remote identity.
 
 3. **Output convergence is allowed only for text returned by a live,
    non-stopped prompt turn.** — Text captured after interrupt or disconnect is

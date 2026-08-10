@@ -152,6 +152,39 @@ describe("ACP npx launch cache", function () {
     }
   });
 
+  it("removes a canceled waiter without blocking the next lease", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-npx-cancel-"));
+    try {
+      const input = {
+        backendId: "shared-cancel",
+        command: "npx",
+        args: ["agent-package", "acp"],
+        cacheRoot: root,
+      };
+      const first = await acquireAcpNpxLaunchCacheLease(input);
+      const controller = new AbortController();
+      const canceledPromise = acquireAcpNpxLaunchCacheLease({
+        ...input,
+        startup: { signal: controller.signal },
+      }).then(
+        () => null,
+        (error) => error,
+      );
+      const thirdPromise = acquireAcpNpxLaunchCacheLease(input);
+
+      controller.abort();
+      const cancellation = await canceledPromise;
+      assert.match(String(cancellation), /canceled/i);
+
+      first?.release();
+      const third = await thirdPromise;
+      assert.isNotNull(third);
+      third?.release();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("classifies only npm _npx rename ENOTEMPTY or EEXIST conflicts", function () {
     assert.equal(
       classifyAcpNpxCacheRenameConflict(
