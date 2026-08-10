@@ -9,6 +9,10 @@ import {
 import { joinPath, normalizeNativeLocalPath } from "../utils/path";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { sha256Hex } from "../utils/sha256";
+import {
+  digestRuntimeFileSource,
+  inspectRuntimeFileSource,
+} from "../modules/runtimeFileTransfer";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 const dynamicImport: DynamicImport = new Function(
@@ -242,6 +246,17 @@ async function hashBytes(bytes: Uint8Array) {
   return digest;
 }
 
+async function measureLocalFile(path: string) {
+  const source = await inspectRuntimeFileSource(
+    normalizeNativeLocalPath(path),
+  );
+  const digest = await digestRuntimeFileSource(source);
+  return {
+    size: source.size,
+    sha256: digest.sha256.replace(/^sha256:/, ""),
+  };
+}
+
 async function readLocalBytes(path: string) {
   return new Uint8Array(
     await readRuntimeBytes(normalizeNativeLocalPath(path)),
@@ -307,8 +322,7 @@ async function writeZipInGecko(
         sourcePath = joinPath(materializedRoot, `${index}.bin`);
         await writeLocalBytes(sourcePath, asBytes(entry.text ?? entry.bytes!));
       }
-      const bytes = await readLocalBytes(sourcePath);
-      files[entry.name] = { size: bytes.length, sha256: await hashBytes(bytes) };
+      files[entry.name] = await measureLocalFile(sourcePath);
       writer.addEntryFile(
         entry.name,
         runtime.interfaceId.COMPRESSION_DEFAULT,
@@ -440,13 +454,15 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
       const entries = validateEntries(entriesInput || []);
       const files: Record<string, WorkflowArchiveFileIntegrity> = {};
       for (const entry of entries) {
-        const bytes = entry.sourcePath
-          ? await readLocalBytes(entry.sourcePath)
-          : asBytes(entry.text ?? entry.bytes!);
-        files[entry.name] = {
-          size: bytes.length,
-          sha256: await hashBytes(bytes),
-        };
+        if (entry.sourcePath) {
+          files[entry.name] = await measureLocalFile(entry.sourcePath);
+        } else {
+          const bytes = asBytes(entry.text ?? entry.bytes!);
+          files[entry.name] = {
+            size: bytes.length,
+            sha256: await hashBytes(bytes),
+          };
+        }
       }
       return { files };
     },
@@ -484,11 +500,7 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
                 `Extracted archive measurement entry is unavailable: ${entryName}`,
               );
             }
-            const bytes = await readLocalBytes(resolvePath(entryName));
-            files[entryName] = {
-              size: bytes.length,
-              sha256: await hashBytes(bytes),
-            };
+            files[entryName] = await measureLocalFile(resolvePath(entryName));
           }
           return { files };
         };

@@ -175,12 +175,13 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v10 broker domains without removing legacy APIs", async function () {
+  it("exposes v11 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 10);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 11);
+    assert.isFunction(hostApi.researchBundles.materializePapers);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);

@@ -20,32 +20,32 @@ use crate::{
         ContextCollectionCommand, ContextCollectionOpenArgs, ContextCommand, ContextItemCommand,
         ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
         ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-        DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs,
-        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs,
-        ItemRefArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
-        MutationArgs, MutationCollectionArgs, MutationCollectionCommand, MutationCommand,
-        MutationItemArgs, MutationItemCommand, MutationNoteArgs, MutationNoteCommand,
-        MutationTagArgs, MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
-        NotificationWaitArgs, OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs,
-        PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs, ProductCommand,
-        ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
-        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
-        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
-        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
-        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
-        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
-        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
-        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
-        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
-        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
-        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
-        WorkflowDefaultsArgs, WorkflowProfileArgs, WorkflowProfileCommand,
-        WorkflowProfileDescribeArgs,
-        WorkflowProfileValidateArgs, WorkflowQueueArgs, WorkflowQueueCancelArgs,
-        WorkflowQueueCommand, WorkflowQueueListArgs, WorkflowRequirementsArgs, WorkflowRunArgs,
-        WorkflowSubmissionArgs, WorkflowSubmissionCommand, WorkflowSubmissionGetArgs,
-        WorkflowSubmitArgs, WorkflowValidateArgs,
+        DebugSynthesisCommand, DirectPaperResearchBundleArgs, DirectTopicResearchBundleArgs,
+        FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
+        ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs, LibraryArgs,
+        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationArgs,
+        MutationCollectionArgs, MutationCollectionCommand, MutationCommand, MutationItemArgs,
+        MutationItemCommand, MutationNoteArgs, MutationNoteCommand, MutationTagArgs,
+        MutationTagCommand, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
+        NotificationAckArgs, NotificationCommand, NotificationListArgs, NotificationWaitArgs,
+        OperationArgs, OperationCommand, PageArgs, PaperArtifactsArgs, PaperArtifactsCommand,
+        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductGetArgs,
+        ProductIdArgs, ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
+        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
+        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
+        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
+        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
+        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs,
+        WorkflowAgentBundleArgs, WorkflowAgentBundleCommand, WorkflowAgentBundleInspectArgs,
+        WorkflowAgentResultArgs, WorkflowAgentResultCommand, WorkflowAgentResultValidateArgs,
+        WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs, WorkflowArgs, WorkflowCancelArgs,
+        WorkflowCommand, WorkflowDefaultsArgs, WorkflowDescribeArgs, WorkflowProfileArgs,
+        WorkflowProfileCommand, WorkflowProfileDescribeArgs, WorkflowProfileValidateArgs,
+        WorkflowQueueArgs, WorkflowQueueCancelArgs, WorkflowQueueCommand, WorkflowQueueListArgs,
+        WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmissionArgs,
+        WorkflowSubmissionCommand, WorkflowSubmissionGetArgs, WorkflowSubmitArgs,
+        WorkflowValidateArgs,
     },
     client,
     config::BridgeConfig,
@@ -154,6 +154,10 @@ pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliErr
             LibraryItemsCommand::List(input) => {
                 call_structured(config, "query", bridge_query(input)?)
             }
+            LibraryItemsCommand::ExportResearchBundle(input) => client::call_current(
+                config,
+                direct_paper_research_bundle_arguments(input, config.connection_mode.as_deref())?,
+            ),
         },
         LibraryCommand::Item(args) => item(config, args),
         LibraryCommand::Note(args) => note(config, args),
@@ -349,9 +353,103 @@ fn product_download_arguments(args: ProductDownloadArgs) -> Map<String, Value> {
     arguments
 }
 
+fn validate_direct_bundle_output_mode(
+    output_dir: Option<&Path>,
+    connection_mode: Option<&str>,
+) -> Result<(), CliError> {
+    if connection_mode == Some("remote") {
+        if output_dir.is_some() {
+            return Err(CliError::validation(
+                "remote_output_dir_forbidden",
+                "Remote research bundle export returns a download handle and cannot accept --output-dir",
+            ));
+        }
+        return Ok(());
+    }
+    if output_dir.is_none() {
+        return Err(CliError::validation(
+            "missing_output_dir",
+            "Local research bundle export requires --output-dir",
+        ));
+    }
+    Ok(())
+}
+
+fn direct_paper_research_bundle_arguments(
+    args: DirectPaperResearchBundleArgs,
+    connection_mode: Option<&str>,
+) -> Result<Map<String, Value>, CliError> {
+    validate_direct_bundle_output_mode(args.output_dir.as_deref(), connection_mode)?;
+    let items = read_json_arg(Some(&args.items))?;
+    let Some(items) = items.as_array() else {
+        return Err(CliError::validation(
+            "invalid_research_bundle_selector",
+            "--items must resolve to a JSON array",
+        ));
+    };
+    if items.is_empty() || items.len() > 100 {
+        return Err(CliError::validation(
+            if items.is_empty() {
+                "invalid_research_bundle_selector"
+            } else {
+                "research_bundle_limit_exceeded"
+            },
+            "--items must contain between one and 100 Zotero item refs",
+        ));
+    }
+    let mut arguments = Map::from_iter([("items".to_string(), Value::Array(items.clone()))]);
+    if let Some(output_dir) = args.output_dir {
+        arguments.insert(
+            "output_dir".to_string(),
+            Value::String(output_dir.display().to_string()),
+        );
+    }
+    Ok(arguments)
+}
+
+fn direct_topic_research_bundle_arguments(
+    args: DirectTopicResearchBundleArgs,
+    connection_mode: Option<&str>,
+) -> Result<Map<String, Value>, CliError> {
+    validate_direct_bundle_output_mode(args.output_dir.as_deref(), connection_mode)?;
+    let mut topic_ids = Vec::new();
+    for raw in args.topic_ids {
+        let topic_id = raw.trim();
+        if !topic_id.is_empty() && !topic_ids.iter().any(|entry| entry == topic_id) {
+            topic_ids.push(topic_id.to_string());
+        }
+    }
+    if topic_ids.is_empty() || topic_ids.len() > 20 {
+        return Err(CliError::validation(
+            if topic_ids.is_empty() {
+                "invalid_research_bundle_selector"
+            } else {
+                "research_bundle_limit_exceeded"
+            },
+            "--topic-id must provide between one and 20 distinct Topic ids",
+        ));
+    }
+    let mut arguments = Map::from_iter([("topic_ids".to_string(), json!(topic_ids))]);
+    if let Some(output_dir) = args.output_dir {
+        arguments.insert(
+            "output_dir".to_string(),
+            Value::String(output_dir.display().to_string()),
+        );
+    }
+    Ok(arguments)
+}
+
 pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
-    let input = bridge_query(topics_input(args.command))?;
-    call_structured(config, "query", input)
+    match args.command {
+        TopicsCommand::ExportResearchBundle(input) => client::call_current(
+            config,
+            direct_topic_research_bundle_arguments(input, config.connection_mode.as_deref())?,
+        ),
+        command => {
+            let input = bridge_query(topics_input(command))?;
+            call_structured(config, "query", input)
+        }
+    }
 }
 
 pub fn schemas(config: &BridgeConfig, args: SchemasArgs) -> Result<Value, CliError> {
@@ -1208,6 +1306,9 @@ fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
         | TopicsCommand::GetContext(args)
         | TopicsCommand::GetReport(args)
         | TopicsCommand::GetReviewInput(args) => args,
+        TopicsCommand::ExportResearchBundle(_) => {
+            unreachable!("direct Topic bundle commands use argument binding")
+        }
     }
 }
 
@@ -2574,7 +2675,8 @@ fn read_contract_json_arg(argument_id: &str, input: Option<&str>) -> Result<Valu
 mod tests {
     use super::*;
     use crate::args::{
-        BridgeInputArgs, BridgeQueryArgs, ItemSearchArgs, LiteratureIngestArgs,
+        BridgeInputArgs, BridgeQueryArgs, DirectPaperResearchBundleArgs,
+        DirectTopicResearchBundleArgs, ItemSearchArgs, LiteratureIngestArgs,
         MutationCollectionItemsArgs, MutationItemAttachFileArgs, MutationItemUpdateArgs,
         MutationNoteCreateArgs, MutationTagsArgs,
     };
@@ -3880,6 +3982,60 @@ mod tests {
         assert_eq!(payload["retried"], true);
         assert!(payload.get("output").is_none());
         assert!(!payload.to_string().contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn builds_direct_paper_bundle_arguments_from_item_ref_array() {
+        let arguments = direct_paper_research_bundle_arguments(
+            DirectPaperResearchBundleArgs {
+                items: "[{\"key\":\"ABC\",\"libraryId\":1}]".to_string(),
+                output_dir: Some(PathBuf::from("bundle")),
+            },
+            Some("local"),
+        )
+        .unwrap();
+        assert_eq!(
+            arguments["items"],
+            json!([{ "key": "ABC", "libraryId": 1 }])
+        );
+        assert_eq!(arguments["output_dir"], "bundle");
+    }
+
+    #[test]
+    fn builds_remote_topic_bundle_arguments_without_output_path() {
+        let arguments = direct_topic_research_bundle_arguments(
+            DirectTopicResearchBundleArgs {
+                topic_ids: vec!["topic-one".to_string(), "topic-two".to_string()],
+                output_dir: None,
+            },
+            Some("remote"),
+        )
+        .unwrap();
+        assert_eq!(arguments["topic_ids"], json!(["topic-one", "topic-two"]));
+        assert!(arguments.get("output_dir").is_none());
+    }
+
+    #[test]
+    fn rejects_direct_bundle_output_mode_mismatches() {
+        let local_error = direct_topic_research_bundle_arguments(
+            DirectTopicResearchBundleArgs {
+                topic_ids: vec!["topic-one".to_string()],
+                output_dir: None,
+            },
+            Some("local"),
+        )
+        .unwrap_err();
+        assert_eq!(local_error.code, "missing_output_dir");
+
+        let remote_error = direct_paper_research_bundle_arguments(
+            DirectPaperResearchBundleArgs {
+                items: "[{\"id\":1}]".to_string(),
+                output_dir: Some(PathBuf::from("bundle")),
+            },
+            Some("remote"),
+        )
+        .unwrap_err();
+        assert_eq!(remote_error.code, "remote_output_dir_forbidden");
     }
 
     #[test]

@@ -60,6 +60,14 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 
 ## Workflow
 
+### Choose synthesis or direct delivery
+
+Use the direct research-bundle branch when the user wants portable files for already identified Zotero papers or existing Topics and does not ask for a new research selection, manuscript-oriented Product, analysis generation, or model refresh. Paper bundles aggregate the requested items and include portable metadata, preferred source Markdown with its valid local images or PDF fallback, and each available digest, references, citation-analysis, and literature-score artifact. Topic bundles include each current report and one globally deduplicated digest per associated canonical `libraryId:itemKey`; the exported report copy links validated bibliography markers to those digest paths without changing the stored Topic report.
+
+Stable item refs or Topic IDs are required. If the request supplies titles, a fuzzy phrase, or an ambiguous selection, hand identity resolution to Query and continue only with its verified ordered selectors. Do not use the direct branch to discover papers, produce missing analysis, refresh a stale Topic, or create the broader manuscript-oriented Research Bundle Product. Missing optional source/artifact content is a manifest warning; an unresolved selector is a request failure.
+
+For a local Host connection, require an absent or empty destination directory and verify the resulting `manifest.json`, `index.md`, requested report/paper inventory, and diagnostics. For a remote connection, do not send a client-local output path: retain the returned bridge-download handle, execute the supplied download step, verify returned size/checksum evidence, and unpack only after byte verification. Do not report completion from handle issuance alone. On expiry, repeat the read-only export with the same verified selectors; on a non-empty local destination, choose a new or emptied destination rather than overwriting it.
+
 ### Establish source and model boundary
 
 1. State the research question, inclusion and exclusion rule, required freshness, and intended deliverable. Resolve every source ref and the exact topic, graph, index, resolver selector, artifact, Product, or schema used.
@@ -136,6 +144,7 @@ Output:
 - Themes, claims, relationships, gaps, and disagreements trace to evidence.
 - Missing coverage is distinguished from a supported research gap.
 - Every promised Product or artifact is inspected and, when requested, downloaded and verified.
+- A direct bundle names its selector scope, delivery mode, manifest inventory, warning set, and verified local directory or downloaded file; missing optional entries are not reported as generated.
 - Persistence or apply-back has its own authority and receipt.
 
 Near misses:

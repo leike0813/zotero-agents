@@ -111,6 +111,10 @@ active/recent 列表仅用于发现。使用返回的 `skillRunId` 定位 reply 
 5. Topic synthesis：对新 seed 选择创建，对已识别 topic 选择更新；随后验证 topic ID 和请求报告，而不只验证 run 终态。
 6. Research-bundle export：验证预期 Product，下载所选 asset，并保留文件元数据或 digest。
 
+直接研究包交付是阶段 6 的另一条独立路径，并非 Product 工作流的缩短版。当用户想获得已选 Zotero 论文的可移植元数据、优先 Markdown 正文或 PDF 回退，以及已经存在的 digest/references/citation-analysis/literature-score 工件时，使用论文交付。当用户想获得一份或多份当前 Topic 报告及按规范 `libraryId:itemKey` 路由、全局去重的 digest 集合时，使用 Topic 交付。稳定选择器可直接进入该分支；含糊标题、“这些论文”等指代表达或不确定的 Topic 身份必须先交给有界 Query 解析。
+
+不得仅因直接研究包报告内容缺失就安排 acquisition、analysis、sidecar refresh、graph update、Topic 再生成或 curation。这些是不同的用户结果和权限边界。选择器无法解析会使请求失败；不可用的可选来源或工件会记录在已交付 manifest 和可见摘要中。本地交付只有检查目标清单后才完成。远程交付只有下载 bridge handle 并验证返回的大小/checksum 证据后才完成。handle 过期时，针对相同且已经验证的选择器重新执行只读导出；不得猜测 Host 路径。
+
 每项 approval 只属于相应阶段。sidecar 完成不等于 graph 完成；graph 完成不等于 topic 完成；topic 完成不构成 export 证据。从首个缺少稳定完成证据的阶段恢复，不重放更早的变更阶段。
 
 ## 恢复与易错边界
@@ -139,6 +143,7 @@ active/recent 列表仅用于发现。使用返回的 `skillRunId` 定位 reply 
 |新的或更新的 Zotero 来源|带有写入阶段的采集 |
 |摘要、摘录、翻译或比较 |分析|
 |跨源索赔图、差距分析、主题、图表解释或导出 | Synthesis |
+|指定 Zotero 论文或当前 Topic 报告的可移植副本 |在 Query 解析所有含糊身份后执行 Synthesis 直接交付 |
 |更改的元数据、标签、注释、集合、文件、链接或应用的结果 |整理|
 |定期报告或持续监督 |任何有限任务之后的托管方面 |
 

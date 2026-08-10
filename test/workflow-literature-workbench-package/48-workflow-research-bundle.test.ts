@@ -16,6 +16,57 @@ import {
   renderResearchBundleReadme,
   resolveResearchBundleReadmeLocale,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
+
+function metadataOnlyResearchBundles(
+  options: {
+    missing?: boolean;
+    coreSourceMissing?: boolean;
+  } = {},
+) {
+  return {
+    async materializePapers(args: {
+      papers: Array<{ paperRef: string }>;
+      sourcePaperRefs?: string[];
+    }) {
+      if (options.missing) {
+        return {
+          entries: [],
+          papers: [],
+          warnings: args.papers.map((paper) => ({
+            code: "paper_missing",
+            paper_ref: paper.paperRef,
+          })),
+        };
+      }
+      const entries: any[] = [];
+      const papers = args.papers.map((paper) => {
+        const [libraryId, itemKey] = paper.paperRef.split(":");
+        const root = `papers/${libraryId}/${itemKey}`;
+        entries.push({
+          path: `${root}/metadata.json`,
+          contentType: "application/json",
+          text: `${JSON.stringify({ itemType: "journalArticle", key: itemKey })}\n`,
+        });
+        return {
+          paper_ref: paper.paperRef,
+          metadata_path: `${root}/metadata.json`,
+          source: null,
+          artifacts: [],
+        };
+      });
+      return {
+        entries,
+        papers,
+        warnings: options.coreSourceMissing
+          ? (args.sourcePaperRefs || []).map((paperRef) => ({
+              code: "core_source_missing",
+              paper_ref: paperRef,
+            }))
+          : [],
+      };
+    },
+  };
+}
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 import { applyResult as applyResearchBundleResult } from "../../workflows_builtin/literature-workbench-package/export-research-bundle/hooks/applyResult.mjs";
 
@@ -380,6 +431,96 @@ describe("export research bundle workflow", function () {
               };
             },
           },
+          researchBundles: {
+            async materializePapers() {
+              const paperOne = "papers/1/AAAA1111";
+              const paperTwo = "papers/1/BBBB2222";
+              const paperThree = "papers/1/CCCC3333";
+              return {
+                entries: [
+                  {
+                    path: `${paperOne}/metadata.json`,
+                    contentType: "application/json",
+                    text: '{"itemType":"journalArticle","key":"AAAA1111"}\n',
+                  },
+                  {
+                    path: `${paperOne}/source.md`,
+                    contentType: "text/markdown",
+                    text: await fs.readFile(markdownPath, "utf8"),
+                  },
+                  {
+                    path: `${paperOne}/figures/a b.png`,
+                    contentType: "image/png",
+                    sourcePath: nestedImagePath,
+                  },
+                  {
+                    path: `${paperOne}/figure.png`,
+                    contentType: "image/png",
+                    sourcePath: imagePath,
+                  },
+                  {
+                    path: `${paperTwo}/metadata.json`,
+                    contentType: "application/json",
+                    text: '{"itemType":"journalArticle","key":"BBBB2222"}\n',
+                  },
+                  {
+                    path: `${paperTwo}/source.pdf`,
+                    contentType: "application/pdf",
+                    sourcePath: pdfPath,
+                  },
+                  {
+                    path: `${paperThree}/metadata.json`,
+                    contentType: "application/json",
+                    text: '{"itemType":"journalArticle","key":"CCCC3333"}\n',
+                  },
+                ],
+                papers: [
+                  {
+                    paper_ref: "1:AAAA1111",
+                    metadata_path: `${paperOne}/metadata.json`,
+                    source: {
+                      kind: "markdown",
+                      path: `${paperOne}/source.md`,
+                      assets: [
+                        `${paperOne}/figures/a b.png`,
+                        `${paperOne}/figure.png`,
+                      ],
+                    },
+                    artifacts: [],
+                  },
+                  {
+                    paper_ref: "1:BBBB2222",
+                    metadata_path: `${paperTwo}/metadata.json`,
+                    source: {
+                      kind: "pdf",
+                      path: `${paperTwo}/source.pdf`,
+                      assets: [],
+                    },
+                    artifacts: [],
+                  },
+                  {
+                    paper_ref: "1:CCCC3333",
+                    metadata_path: `${paperThree}/metadata.json`,
+                    source: null,
+                    artifacts: [],
+                  },
+                ],
+                warnings: [
+                  {
+                    code: "markdown_image_outside_source_tree",
+                    path: outsideImagePath,
+                    paper_ref: "1:AAAA1111",
+                  },
+                  {
+                    code: "markdown_image_missing",
+                    path: path.join(root, "missing.png"),
+                    reason: "probe_failed",
+                    paper_ref: "1:AAAA1111",
+                  },
+                ],
+              };
+            },
+          },
           synthesis: {
             async getTopicReport() {
               return { markdown: "# Topic report" };
@@ -564,6 +705,7 @@ describe("export research bundle workflow", function () {
               }),
               exportText: async () => exportResult,
             },
+            researchBundles: metadataOnlyResearchBundles(),
             archive: createWorkflowArchiveApi(),
           },
         },
@@ -672,6 +814,7 @@ describe("export research bundle workflow", function () {
               throw new Error("must not be called");
             },
           },
+          researchBundles: metadataOnlyResearchBundles({ missing: true }),
           archive: createWorkflowArchiveApi(),
         },
       },
@@ -756,6 +899,9 @@ describe("export research bundle workflow", function () {
               };
             },
           },
+          researchBundles: metadataOnlyResearchBundles({
+            coreSourceMissing: true,
+          }),
           library: { getItemAttachments: async () => [] },
           file: {
             exists: async () => false,

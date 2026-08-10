@@ -118,6 +118,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge library item get` | Get detailed metadata for one Zotero item | [Open card](commands/library/item/get.md) |
 | `zotero-bridge library item notes` | List child notes for one Zotero item | [Open card](commands/library/item/notes.md) |
 | `zotero-bridge library item search` | Search Zotero library items | [Open card](commands/library/item/search.md) |
+| `zotero-bridge library items export-research-bundle` | 将一篇或多篇论文导出为研究包 | [打开卡片](commands/library/items/export-research-bundle.md) |
 | `zotero-bridge library items list` | List compact Zotero library item summaries | [Open card](commands/library/items/list.md) |
 | `zotero-bridge library note get` | Read one Zotero note body chunk | [Open card](commands/library/note/get.md) |
 | `zotero-bridge library note payload` | Read one embedded workflow payload from a Zotero note | [Open card](commands/library/note/payload.md) |
@@ -316,6 +317,7 @@ Select one command below, then read its linked command card. Each card contains 
 | `zotero-bridge synthesis insight attention-queue` | Read aggregate graph/artifact/reference attention items | [Open card](commands/synthesis/insight/attention-queue.md) |
 | `zotero-bridge synthesis resolver resolve` | Resolve a topic resolver into a paper set | [Open card](commands/synthesis/resolver/resolve.md) |
 | `zotero-bridge synthesis schema get` | Read Synthesis Layer schema metadata | [Open card](commands/synthesis/schema/get.md) |
+| `zotero-bridge synthesis topic export-research-bundle` | 导出一个或多个 Topic 研究包 | [打开卡片](commands/synthesis/topic/export-research-bundle.md) |
 | `zotero-bridge synthesis topic find-by-paper-ref` | Find active topic synthesis topics by paper_ref | [Open card](commands/synthesis/topic/find-by-paper-ref.md) |
 | `zotero-bridge synthesis topic get-context` | Read one topic synthesis context | [Open card](commands/synthesis/topic/get-context.md) |
 | `zotero-bridge synthesis topic get-report` | Read one topic synthesis report markdown body | [Open card](commands/synthesis/topic/get-report.md) |

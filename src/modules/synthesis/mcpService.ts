@@ -70,6 +70,8 @@ export type SynthesisMcpService = {
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   exportFilteredPaperArtifacts?: SynthesisMcpServiceMethodHandler;
+  exportPaperResearchBundle?: SynthesisMcpServiceMethodHandler;
+  exportTopicResearchBundle?: SynthesisMcpServiceMethodHandler;
   resolveTopicPaperDigest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

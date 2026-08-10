@@ -76,6 +76,8 @@ export const ZOTERO_MCP_TOOL_TOPICS_LIST = "topics.list";
 export const ZOTERO_MCP_TOOL_TOPICS_FIND_BY_PAPER_REF =
   "topics.find_by_paper_ref";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT = "topics.get_context";
+export const ZOTERO_MCP_TOOL_TOPICS_EXPORT_RESEARCH_BUNDLE =
+  "topics.export_research_bundle";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT =
   "topics.get_review_input";
 export const ZOTERO_MCP_TOOL_SCHEMAS_GET = "schemas.get";
@@ -102,6 +104,8 @@ export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_GET_MANIFEST =
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_READ = "paper_artifacts.read";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED =
   "paper_artifacts.export_filtered";
+export const ZOTERO_MCP_TOOL_ITEMS_EXPORT_RESEARCH_BUNDLE =
+  "items.export_research_bundle";
 export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_RESOLVE_TOPIC_DIGEST =
   "paper_artifacts.resolve_topic_digest";
 export const ZOTERO_MCP_TOOL_INSIGHTS_GET_ATTENTION_QUEUE =
@@ -2845,6 +2849,50 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       artifactTypes: { type: "array" },
     },
     required: ["run_root"],
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_ITEMS_EXPORT_RESEARCH_BUNDLE,
+    title: "Export paper research bundles",
+    description:
+      "Export one or more resolved Zotero papers as a portable research bundle containing metadata, Markdown with local images or PDF fallback, and the available digest, references, citation-analysis, and literature-score artifacts. Local calls require output_dir; remote Host Bridge calls return a downloadable ZIP handle.",
+    method: "exportPaperResearchBundle",
+    properties: {
+      items: {
+        type: "array",
+        minItems: 1,
+        maxItems: 100,
+        items: {
+          type: "object",
+          oneOf: [{ required: ["id"] }, { required: ["key"] }],
+        },
+      },
+      output_dir: { type: "string" },
+      outputDir: { type: "string" },
+    },
+    required: ["items"],
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_TOPICS_EXPORT_RESEARCH_BUNDLE,
+    title: "Export Topic research bundles",
+    description:
+      "Export one or more Topic reports with a globally deduplicated digest set keyed by canonical Zotero libraryId:itemKey refs. Report copies link bibliography refs to bundled digests when their structure validates. Local calls require output_dir; remote Host Bridge calls return a downloadable ZIP handle.",
+    method: "exportTopicResearchBundle",
+    properties: {
+      topic_ids: {
+        type: "array",
+        minItems: 1,
+        maxItems: 20,
+        items: { type: "string" },
+      },
+      topicIds: {
+        type: "array",
+        minItems: 1,
+        maxItems: 20,
+        items: { type: "string" },
+      },
+      output_dir: { type: "string" },
+      outputDir: { type: "string" },
+    },
   }),
   synthesisTool({
     name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_OVERVIEW,

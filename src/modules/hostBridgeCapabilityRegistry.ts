@@ -1567,6 +1567,10 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),
   synthesisCapability("topics.get_report", "getTopicReport"),
+  synthesisCapability(
+    "topics.export_research_bundle",
+    "exportTopicResearchBundle",
+  ),
   synthesisCapability("schemas.get", "getSchemas"),
   synthesisCapability("concepts.query", "queryConceptKb"),
   synthesisCapability(
@@ -1606,6 +1610,10 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getPaperArtifactManifest",
   ),
   synthesisCapability("paper_artifacts.read", "readPaperArtifacts"),
+  synthesisCapability(
+    "items.export_research_bundle",
+    "exportPaperResearchBundle",
+  ),
   synthesisCapability(
     "paper_artifacts.export_filtered",
     "exportFilteredPaperArtifacts",

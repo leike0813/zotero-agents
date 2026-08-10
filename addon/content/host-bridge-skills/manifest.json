@@ -3,7 +3,7 @@
   "cli": {
     "version": "0.5.3",
     "buildFingerprint": "a0a211f9a722ee50e783e2ebb5664a4fc1cdce63cb57d99fb2e904d02c48fcca",
-    "commandCatalogChecksum": "f5482a23d1b20cb4264d6dd5083122885f64506f32a2875b97bb08a08bf5d9f0"
+    "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984"
   },
   "surfaces": [
     {
@@ -57,8 +57,8 @@
   "files": [
     {
       "path": "zotero-bridge-cli/assets/agent-surface.json",
-      "bytes": 891699,
-      "sha256": "abd9e686bbcadbeb1dff9df9dfba71e159182132e41bf20210e261331b90c1a6"
+      "bytes": 913177,
+      "sha256": "7edf51cb5ad9961e9211cf1d3e25d1b2e1567ff9bd81e724f34ebeb78a7b3b53"
     },
     {
       "path": "zotero-bridge-cli/assets/output.schema.json",
@@ -77,8 +77,8 @@
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
-      "bytes": 34176,
-      "sha256": "9c731e48f9adef3c325cce65025ef4d3d77120e405b3d5425c1544d1653a652e"
+      "bytes": 34515,
+      "sha256": "9910635ceeb00a30ab2850908e4f792b715622b73fcd2b24b7453522f533bfd9"
     },
     {
       "path": "zotero-bridge-cli/references/commands/bridge/backend/list.md",
@@ -244,6 +244,11 @@
       "path": "zotero-bridge-cli/references/commands/library/item/search.md",
       "bytes": 12790,
       "sha256": "5673fb5d82bc10eac1e93e8fc65caa50782ceb0b3d79d2be1a1c5bdbb9ab587e"
+    },
+    {
+      "path": "zotero-bridge-cli/references/commands/library/items/export-research-bundle.md",
+      "bytes": 21616,
+      "sha256": "684c1684339df9145c01e10d0343d3735a2cc5db6c3e150e7266dc2145999da5"
     },
     {
       "path": "zotero-bridge-cli/references/commands/library/items/list.md",
@@ -591,6 +596,11 @@
       "sha256": "0b6b5bed2af12a857754af57ba16310314e13d47438983c1292af3b64b4de7c9"
     },
     {
+      "path": "zotero-bridge-cli/references/commands/synthesis/topic/export-research-bundle.md",
+      "bytes": 19394,
+      "sha256": "00e8c1e1a5f15aeb157f40bce9bc48fc6f8a30b3b5c452f7377c81a26362912d"
+    },
+    {
       "path": "zotero-bridge-cli/references/commands/synthesis/topic/find-by-paper-ref.md",
       "bytes": 11161,
       "sha256": "8fe2aa3c43b29d0db2e8d8c11a4666a97471d7d4caaaae650fc6fe6b99830756"
@@ -737,8 +747,8 @@
     },
     {
       "path": "zotero-library-agent/references/research-task-model.md",
-      "bytes": 22764,
-      "sha256": "a9d1b2ec1ab9a92bedfd7c10f79f15965b00103dca74231ec9187e939a223beb"
+      "bytes": 24297,
+      "sha256": "6454aa3db3aa7e94699610dfe2f4476476e2f0280ef5933c82504ee21449fd29"
     },
     {
       "path": "zotero-library-agent/references/workflow-catalog.md",
@@ -747,8 +757,8 @@
     },
     {
       "path": "zotero-library-agent/SKILL.md",
-      "bytes": 16210,
-      "sha256": "c96c658ae85bd38df997d8c2873739a6913b5caecd995cc1bbf8131ae0c6c23b"
+      "bytes": 17708,
+      "sha256": "0468700a66e97f55446cf6f3691abe5765cf1184ad12e7402c7d72bd4f4824c6"
     },
     {
       "path": "zotero-library-curation/assets/output.schema.json",
@@ -787,8 +797,8 @@
     },
     {
       "path": "zotero-library-query/SKILL.md",
-      "bytes": 13045,
-      "sha256": "226413d75a39491b38b01f3cbcbd5cfd4ee247d112b9fdbd8c65261ba501fa6a"
+      "bytes": 14054,
+      "sha256": "befffed74b1664ea4a4ce8b8ccf0b4e2d425a042411c9572c405bf27add50623"
     },
     {
       "path": "zotero-literature-acquisition/assets/output.schema.json",
@@ -842,14 +852,14 @@
     },
     {
       "path": "zotero-research-synthesis/references/playbook.md",
-      "bytes": 18382,
-      "sha256": "fc1f5c502773548797b414ef9d66389c9932e1f2910eb9e07845b46c573786ae"
+      "bytes": 21292,
+      "sha256": "a47400537e481a45617f2c8a9eb83c6bb53251f89382caff5cdf06b090aeebfa"
     },
     {
       "path": "zotero-research-synthesis/SKILL.md",
-      "bytes": 14907,
-      "sha256": "b2088e1f20b04477dac21dfb413f2676f492ff212daaea7ca0267bd9a3107cdd"
+      "bytes": 16993,
+      "sha256": "8283c905e2cfd83f6f51d53b46d4ffe427bd6a8fcaf34af93c369ebc0db7af89"
     }
   ],
-  "aggregateSha256": "232be1ca591903f87b9cb0d06ca3d375a034b203097ea06c84245ffe3379a956"
+  "aggregateSha256": "d6aed377f826861cb792819ac334b047b93659a63f46e32e623643f84ee598ef"
 }

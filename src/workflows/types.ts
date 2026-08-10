@@ -562,6 +562,16 @@ export type WorkflowHostApi = {
       args: ZoteroHostMetadataTranslateIdentifierArgs,
     ) => Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
   };
+  researchBundles: {
+    materializePapers: (args: {
+      papers: Array<{ paperRef: string }>;
+      sourcePaperRefs?: string[];
+    }) => Promise<{
+      entries: import("../modules/researchBundleService").ResearchBundleEntry[];
+      warnings: import("../modules/researchBundleService").ResearchBundleWarning[];
+      papers: Record<string, unknown>[];
+    }>;
+  };
   prefs: {
     get: (key: string, global?: boolean) => unknown;
     set: (key: string, value: unknown, global?: boolean) => void;

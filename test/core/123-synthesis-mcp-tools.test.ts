@@ -38,6 +38,82 @@ async function makeAcpRunRoot() {
   return runRoot;
 }
 
+function directBundleArtifactNotes() {
+  return [
+    {
+      key: "N-DIGEST",
+      title: "Digest",
+      html: renderPayloadBlock({
+        payloadType: "digest-markdown",
+        payload: "## Direct Digest\n\nDigest body.",
+        payloadFormat: "text",
+      }),
+    },
+    {
+      key: "N-REFERENCES",
+      title: "References",
+      html: renderPayloadBlock({
+        payloadType: "references-json",
+        payload: {
+          references: [
+            {
+              id: "ref-1",
+              year: "2024",
+              authors: ["Alpha Author"],
+              title: "Referenced Work",
+            },
+          ],
+        },
+      }),
+    },
+    {
+      key: "N-CITATIONS",
+      title: "Citation analysis",
+      html: renderPayloadBlock({
+        payloadType: "citation-analysis-json",
+        payload: {
+          citation_analysis: {
+            report_md:
+              "## Citation Analysis\n\n### Mapped Citations\nMapped body.",
+          },
+        },
+      }),
+    },
+    {
+      key: "N-SCORE",
+      title: "Literature score",
+      html: renderPayloadBlock({
+        payloadType: "literature-score-json",
+        payload: {
+          literature_score: {
+            schema: "literature_score.v1",
+            rubric_id: "literature-analysis-rubric.v1",
+            paper_type: "empirical",
+            paper_type_reason: "The paper reports an empirical study.",
+            overall_score: 82,
+            confidence: 0.75,
+            confidence_adjusted_score: 75,
+            dimensions: [
+              "methodological_rigor",
+              "evidence_completeness",
+              "reproducibility",
+              "innovation_signals",
+              "research_impact_potential",
+              "writing_quality",
+            ].map((dimensionKey) => ({
+              dimension_key: dimensionKey,
+              name: dimensionKey,
+              score: 82,
+              confidence: 0.75,
+              summary: `${dimensionKey} assessment`,
+            })),
+          },
+        },
+      }),
+    },
+  ];
+}
+
 describe("Synthesis MCP tools", function () {
   it("lists synthesis job-time tools", async function () {
     const response: any = await handleZoteroMcpRequestForTests({
@@ -67,6 +143,8 @@ describe("Synthesis MCP tools", function () {
       "citation_graph.rank_library_papers",
       "paper_artifacts.get_manifest",
       "paper_artifacts.export_filtered",
+      "items.export_research_bundle",
+      "topics.export_research_bundle",
       "paper_artifacts.resolve_topic_digest",
       "concepts.query",
       "citation_graph.query_cluster",
@@ -754,6 +832,330 @@ describe("Synthesis MCP tools", function () {
     } finally {
       resetHostBridgeFileRegistryForTests();
       await fs.rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("exports direct paper bundles with portable content and missing diagnostics", async function () {
+    const root = await makeRoot();
+    const sourceRoot = path.join(root, "source");
+    const markdownPath = path.join(sourceRoot, "paper.md");
+    const imagePath = path.join(sourceRoot, "images", "chart.png");
+    const pdfPath = path.join(sourceRoot, "paper.pdf");
+    const outputDir = path.join(root, "paper-bundle");
+    await fs.mkdir(path.dirname(imagePath), { recursive: true });
+    await fs.writeFile(markdownPath, "# Paper\n\n![Chart](images/chart.png)\n");
+    await fs.writeFile(imagePath, new Uint8Array([1, 2, 3]));
+    await fs.writeFile(pdfPath, new Uint8Array([4, 5, 6]));
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "ABCD1234",
+          title: "Alpha Paper",
+          notes: directBundleArtifactNotes(),
+        },
+        {
+          libraryId: 1,
+          itemKey: "EMPTY000",
+          title: "Empty Paper",
+          notes: [],
+        },
+      ],
+      researchBundleHost: {
+        async resolveItems() {
+          return [
+            {
+              paperRef: "1:ABCD1234",
+              libraryId: 1,
+              itemKey: "ABCD1234",
+              title: "Alpha Paper",
+              metadata: { key: "ABCD1234", libraryId: 1, title: "Alpha Paper" },
+              attachments: [
+                {
+                  path: markdownPath,
+                  filename: "paper.md",
+                  contentType: "text/markdown",
+                },
+                {
+                  path: pdfPath,
+                  filename: "paper.pdf",
+                  contentType: "application/pdf",
+                },
+              ],
+            },
+            {
+              paperRef: "1:EMPTY000",
+              libraryId: 1,
+              itemKey: "EMPTY000",
+              title: "Empty Paper",
+              metadata: { key: "EMPTY000", libraryId: 1, title: "Empty Paper" },
+              attachments: [],
+            },
+          ];
+        },
+      },
+    });
+
+    try {
+      const result: any = await service.exportPaperResearchBundle?.(
+        {
+          items: [
+            { key: "ABCD1234", libraryId: 1 },
+            { key: "EMPTY000", libraryId: 1 },
+          ],
+          outputDir,
+        },
+        { hostBridge: { connectionMode: "local" } },
+      );
+      assert.equal(result.delivery.mode, "local");
+      assert.equal(result.manifest_file, "manifest.json");
+      assert.equal(
+        await fs.readFile(
+          path.join(outputDir, "papers", "1", "ABCD1234", "source.md"),
+          "utf8",
+        ),
+        "# Paper\n\n![Chart](images/chart.png)\n",
+      );
+      assert.deepEqual(
+        new Uint8Array(
+          await fs.readFile(
+            path.join(
+              outputDir,
+              "papers",
+              "1",
+              "ABCD1234",
+              "images",
+              "chart.png",
+            ),
+          ),
+        ),
+        new Uint8Array([1, 2, 3]),
+      );
+      assert.isFalse(
+        await fs
+          .access(path.join(outputDir, "papers", "1", "ABCD1234", "source.pdf"))
+          .then(
+            () => true,
+            () => false,
+          ),
+      );
+      for (const name of [
+        "digest.md",
+        "references.json",
+        "citation-analysis.md",
+        "literature-score.json",
+        "metadata.json",
+      ]) {
+        await fs.access(path.join(outputDir, "papers", "1", "ABCD1234", name));
+      }
+      const manifest = JSON.parse(
+        await fs.readFile(path.join(outputDir, "manifest.json"), "utf8"),
+      );
+      assert.equal(manifest.schema_id, "research_bundle.direct_export");
+      assert.equal(manifest.kind, "papers");
+      assert.include(
+        manifest.warnings.map((entry: any) => entry.code),
+        "source_missing",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails the whole direct export when a requested selector is unresolved", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      researchBundleHost: {
+        async resolveItems() {
+          return [
+            {
+              paperRef: "1:ABCD1234",
+              libraryId: 1,
+              itemKey: "ABCD1234",
+              title: "Alpha Paper",
+              metadata: { key: "ABCD1234", libraryId: 1 },
+              attachments: [],
+            },
+          ];
+        },
+        async resolveTopics() {
+          return [];
+        },
+      },
+    });
+
+    try {
+      for (const run of [
+        () =>
+          service.exportPaperResearchBundle?.(
+            {
+              items: [
+                { key: "ABCD1234", libraryId: 1 },
+                { key: "MISSING0", libraryId: 1 },
+              ],
+              outputDir: path.join(root, "paper-bundle"),
+            },
+            { hostBridge: { connectionMode: "local" } },
+          ),
+        () =>
+          service.exportTopicResearchBundle?.(
+            {
+              topicIds: ["topic-missing"],
+              outputDir: path.join(root, "topic-bundle"),
+            },
+            { hostBridge: { connectionMode: "local" } },
+          ),
+      ]) {
+        let failure: any;
+        try {
+          await run();
+        } catch (error) {
+          failure = error;
+        }
+        assert.equal(failure?.code, "invalid_research_bundle_selector");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("exports Topic report copies that link globally deduplicated digests", async function () {
+    const root = await makeRoot();
+    const outputDir = path.join(root, "topic-bundle");
+    const report = [
+      "# Topic report",
+      "",
+      "Evidence [\\[1\\]](#ref-1).",
+      "",
+      "## References",
+      "",
+      '- <a id="ref-1"></a>[1] *Alpha Paper* (2024) {1:ABCD1234}',
+    ].join("\n");
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "ABCD1234",
+          title: "Alpha Paper",
+          notes: directBundleArtifactNotes(),
+        },
+      ],
+      researchBundleHost: {
+        async resolveItems() {
+          return [
+            {
+              paperRef: "1:ABCD1234",
+              libraryId: 1,
+              itemKey: "ABCD1234",
+              title: "Alpha Paper",
+              metadata: { key: "ABCD1234", libraryId: 1 },
+              attachments: [],
+            },
+          ];
+        },
+        async resolveTopics(topicIds) {
+          return topicIds.map((topicId) => ({
+            topicId,
+            title: topicId,
+            report,
+            sourcePapers: [{ paperRef: "1:ABCD1234", title: "Alpha Paper" }],
+          }));
+        },
+      },
+    });
+
+    try {
+      const result: any = await service.exportTopicResearchBundle?.(
+        { topicIds: ["topic-one", "topic-two"], outputDir },
+        { hostBridge: { connectionMode: "local" } },
+      );
+      assert.equal(result.delivery.mode, "local");
+      const digestPath = path.join(
+        outputDir,
+        "papers",
+        "1",
+        "ABCD1234",
+        "digest.md",
+      );
+      await fs.access(digestPath);
+      const exportedReport = await fs.readFile(
+        path.join(outputDir, "topics", "topic-one", "report.md"),
+        "utf8",
+      );
+      assert.include(
+        exportedReport,
+        "[{1:ABCD1234}](../../papers/1/ABCD1234/digest.md)",
+      );
+      const manifest = JSON.parse(
+        await fs.readFile(path.join(outputDir, "manifest.json"), "utf8"),
+      );
+      assert.equal(manifest.kind, "topics");
+      assert.equal(Object.keys(manifest.papers_by_ref).length, 1);
+      assert.deepEqual(
+        manifest.topics.map((entry: any) => entry.paper_refs),
+        [["1:ABCD1234"], ["1:ABCD1234"]],
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an opaque remote download handle for a paper research bundle", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "ABCD1234",
+          title: "Alpha Paper",
+          notes: directBundleArtifactNotes(),
+        },
+      ],
+      researchBundleHost: {
+        async resolveItems() {
+          return [
+            {
+              paperRef: "1:ABCD1234",
+              libraryId: 1,
+              itemKey: "ABCD1234",
+              title: "Alpha Paper",
+              metadata: { key: "ABCD1234", libraryId: 1 },
+              attachments: [],
+            },
+          ];
+        },
+      },
+    });
+
+    try {
+      const result: any = await service.exportPaperResearchBundle?.(
+        { items: [{ key: "ABCD1234", libraryId: 1 }] },
+        { hostBridge: { connectionMode: "remote" } },
+      );
+      assert.equal(result.delivery.mode, "bridge-download");
+      assert.match(result.delivery.bundle.fileId, /^file-/);
+      assert.include(
+        result.delivery.downloadCommand,
+        "zotero-bridge file download",
+      );
+      assert.notInclude(JSON.stringify(result), root);
+      const downloaded = await resolveHostBridgeFileDownload(
+        result.delivery.bundle.fileId,
+      );
+      const zip = Buffer.from(await fs.readFile(downloaded.source.path));
+      assert.include(zip.toString("utf8"), "manifest.json");
+      assert.include(zip.toString("utf8"), "papers/1/ABCD1234/digest.md");
+    } finally {
+      resetHostBridgeFileRegistryForTests();
+      await fs.rm(root, { recursive: true, force: true });
     }
   });
 

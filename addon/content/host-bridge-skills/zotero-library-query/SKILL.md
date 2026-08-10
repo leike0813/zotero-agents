@@ -28,6 +28,7 @@ Translate conversational wording into a bounded live read before choosing comman
 | “What is missing analysis?” | Readiness query | Define the readiness category and requested scope; do not remediate |
 | “What does the graph say about X?” | Derived Synthesis read | Select the exact model, scope, and freshness before interpretation |
 | “Has workflow Y finished?” | Run query | Require the typed run identity; terminal state does not prove output delivery |
+| “Bundle these papers/topics” when identities are unclear | Selector-resolution query | Resolve exact Zotero item refs or stable Topic IDs, then hand the verified selectors to Synthesis direct delivery |
 
 Clarify when:
 
@@ -55,6 +56,8 @@ There is no safe default for an absent current selection, ambiguous item identit
 1. State the bounded question, required freshness, source depth, result limit, and evidence format. Decide whether it depends on current UI context, a known object, candidate discovery, or an exhaustive bounded inventory.
 2. Resolve deictic context first. For a known ref, read the live object; for a title, citation, or description, search candidates and choose only after stable identity evidence; for an inventory, preserve the complete filter and paging boundary.
 3. Keep note, attachment, parent item, collection, topic, Product, artifact, run, and operation identities distinct. Derive a top-level parent only when the selected read contract requires it.
+
+When Query precedes direct research-bundle delivery, its output boundary is identity, not file creation. Return the ordered, deduplicated stable selectors that the user actually chose: item refs must resolve to one live Zotero item each, and Topic selectors must be current Topic IDs rather than titles or report headings. Keep rejected candidates and unresolved phrases visible. Do not fetch missing literature, run analysis, refresh Synthesis models, or invoke bundle delivery while material identity is still ambiguous.
 
 ### Collect live evidence
 
@@ -131,6 +134,7 @@ If one of these checks fails, repair the read boundary or return the exact limit
 - Hand a resolved external-literature need to acquisition, not to a library mutation.
 - Hand a question requiring sustained interpretation of source text to analysis with exact source refs and evidence depth.
 - Hand a cross-source claim, gap, graph, or topic question to synthesis with the verified source boundary.
+- Hand direct paper/Topic bundle delivery to synthesis with the verified ordered selectors, the user's aggregation intent, and any declared local-versus-remote delivery requirement. Query completion proves selector identity only; it does not prove bundle content or delivery.
 - Hand a requested note, tag, collection, metadata, or attachment change to curation with the read evidence but no implied authority.
 - Hand persistent monitoring to the hosted facet only after returning the finite query result.
 

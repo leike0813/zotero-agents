@@ -15,6 +15,21 @@ import {
 } from "../runtimePersistence";
 import { appendRuntimeLog, type RuntimeLogInput } from "../runtimeLogManager";
 import { registerHostBridgeExportFile } from "../hostBridgeFileRegistry";
+import {
+  DirectResearchBundleError,
+  formatResearchBundleArtifact,
+  materializeResearchBundlePapers,
+  paperBundleDirectory,
+  publishDirectResearchBundle,
+  rewriteTopicReportDigestLinks,
+  validateDirectResearchBundleScope,
+  type DirectResearchBundleHost,
+  type DirectResearchBundlePaper,
+  type DirectResearchBundleTopic,
+  type DirectResearchBundleTopicSource,
+  type ResearchBundleEntry,
+  type ResearchBundleWarning,
+} from "../researchBundleService";
 import { createStoreZipBytes, type StoreZipEntry } from "../zipStore";
 import type { SynthesisMcpServiceContext } from "./mcpService";
 import { clearPluginTaskRowEntries } from "../pluginStateStore";
@@ -590,6 +605,7 @@ export type SynthesisServiceOptions = {
   synthesisRepository?: SynthesisRepository;
   shardSize?: number;
   writeLock?: LibraryWriteLock;
+  researchBundleHost?: DirectResearchBundleHost;
 };
 
 type SynthesisRuntimeLogAppender = (input: RuntimeLogInput) => unknown;
@@ -1391,118 +1407,6 @@ function literatureMatchingMetadataPayloadFromInput(
   return null;
 }
 
-function demoteMarkdownHeadings(markdown: string, levels: number) {
-  return String(markdown || "")
-    .split(/\r?\n/)
-    .map((line) => {
-      const match = line.match(/^(#{1,6})(\s+.*)$/);
-      if (!match) {
-        return line;
-      }
-      const depth = Math.min(6, match[1].length + levels);
-      return `${"#".repeat(depth)}${match[2]}`;
-    })
-    .join("\n");
-}
-
-function filterDigestExportMarkdown(markdown: string) {
-  const lines = String(markdown || "").split(/\r?\n/);
-  const kept: string[] = [];
-  let topLevelIndex = 0;
-  let keepCurrent = true;
-  for (const line of lines) {
-    if (/^##\s+/.test(line)) {
-      topLevelIndex += 1;
-      keepCurrent = topLevelIndex <= 4;
-    }
-    if (keepCurrent) {
-      kept.push(line);
-    }
-  }
-  return demoteMarkdownHeadings(kept.join("\n").trim(), 2).trim() + "\n";
-}
-
-function removeCitationWrapperAndTrailingSection(report: string) {
-  const lines = String(report || "").split(/\r?\n/);
-  let body = lines;
-  if (body[0] && /^##\s+/.test(body[0])) {
-    body = body.slice(1);
-    while (body[0] !== undefined && !body[0].trim()) {
-      body = body.slice(1);
-    }
-  }
-  const sectionIndexes = body
-    .map((line, index) => (/^###\s+/.test(line) ? index : -1))
-    .filter((index) => index >= 0);
-  let removedTrailingSectionHeading = "";
-  if (sectionIndexes.length >= 2) {
-    const removeFrom = sectionIndexes[sectionIndexes.length - 1];
-    removedTrailingSectionHeading =
-      body[removeFrom]?.replace(/^#+\s*/, "").trim() || "";
-    body = body.slice(0, removeFrom);
-  }
-  return {
-    markdown: demoteMarkdownHeadings(body.join("\n").trim(), 1).trim() + "\n",
-    removedTrailingSectionHeading,
-  };
-}
-
-function compactAuthors(value: unknown) {
-  const authors = Array.isArray(value)
-    ? value.map(cleanString).filter(Boolean)
-    : cleanString(value)
-      ? [cleanString(value)]
-      : [];
-  if (authors.length > 2) {
-    return `${authors.slice(0, 2).join("; ")}; et al.`;
-  }
-  return authors.join("; ");
-}
-
-function compactReferenceRows(payload: unknown) {
-  const refs =
-    isObject(payload) && Array.isArray(payload.references)
-      ? payload.references
-      : [];
-  return refs.filter(isObject).map((reference) => ({
-    id: cleanString(reference.id || reference.ref_id || reference.key),
-    year: cleanString(reference.year),
-    authors: compactAuthors(reference.author || reference.authors),
-    title: cleanString(reference.title),
-  }));
-}
-
-function artifactMarkdown(artifact: Record<string, unknown>) {
-  if (cleanString(artifact.status || "available") !== "available") {
-    return "";
-  }
-  if (typeof artifact.markdown === "string") {
-    return artifact.markdown;
-  }
-  const payload = artifact.payload;
-  if (isObject(payload) && typeof payload.content === "string") {
-    return payload.content;
-  }
-  return "";
-}
-
-function citationReportMarkdown(artifact: Record<string, unknown>) {
-  if (cleanString(artifact.status || "available") !== "available") {
-    return "";
-  }
-  const payload = artifact.payload;
-  if (isObject(payload)) {
-    const citation = payload.citation_analysis;
-    if (isObject(citation) && typeof citation.report_md === "string") {
-      return citation.report_md;
-    }
-    if (typeof payload.report_md === "string") {
-      return payload.report_md;
-    }
-  }
-  return "";
-}
-
 async function writeFilteredArtifactContent(args: {
   runRoot: string;
   paperRef: string;
@@ -1512,60 +1416,24 @@ async function writeFilteredArtifactContent(args: {
     args.artifact.artifact_type || args.artifact.artifactType,
   );
   const safeRef = safeFileSegment(args.paperRef, "paper");
-  const diagnostics: string[] = [];
   const directory = `runtime/payloads/artifacts/${safeRef}`;
-  if (artifactType === "digest") {
-    const markdown = filterDigestExportMarkdown(
-      artifactMarkdown(args.artifact),
-    );
-    const relativePath = `${directory}/digest.md`;
-    await writeRuntimeTextFile(joinPath(args.runRoot, relativePath), markdown);
-    return {
-      content_file: relativePath,
-      content_hash: hashMarkdown(markdown),
-      diagnostics,
-    };
-  }
-  if (artifactType === "references") {
-    const references = compactReferenceRows(args.artifact.payload);
-    const text = `${JSON.stringify({ references }, null, 2)}\n`;
-    const relativePath = `${directory}/references.json`;
-    await writeRuntimeTextFile(joinPath(args.runRoot, relativePath), text);
-    return {
-      content_file: relativePath,
-      content_hash: hashMarkdown(text),
-      diagnostics,
-    };
-  }
-  if (artifactType === "citation_analysis") {
-    const result = removeCitationWrapperAndTrailingSection(
-      citationReportMarkdown(args.artifact),
-    );
-    const relativePath = `${directory}/citation-analysis.md`;
+  const presentation = formatResearchBundleArtifact(args.artifact);
+  if (presentation) {
+    const relativePath = `${directory}/${presentation.filename}`;
     await writeRuntimeTextFile(
       joinPath(args.runRoot, relativePath),
-      result.markdown,
+      presentation.text,
     );
-    if (result.removedTrailingSectionHeading) {
-      diagnostics.push(
-        `removed_trailing_section_heading:${result.removedTrailingSectionHeading}`,
-      );
-    }
     return {
       content_file: relativePath,
-      content_hash: hashMarkdown(result.markdown),
-      removed_trailing_section_heading: result.removedTrailingSectionHeading,
-      diagnostics,
-    };
-  }
-  if (artifactType === "literature_score") {
-    const text = `${JSON.stringify(args.artifact.payload, null, 2)}\n`;
-    const relativePath = `${directory}/literature-score.json`;
-    await writeRuntimeTextFile(joinPath(args.runRoot, relativePath), text);
-    return {
-      content_file: relativePath,
-      content_hash: hashMarkdown(text),
-      diagnostics,
+      content_hash: hashMarkdown(presentation.text),
+      ...(presentation.removedTrailingSectionHeading
+        ? {
+            removed_trailing_section_heading:
+              presentation.removedTrailingSectionHeading,
+          }
+        : {}),
+      diagnostics: presentation.diagnostics,
     };
   }
   return {
@@ -21360,6 +21228,470 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
+  function normalizeDirectPaperSelectors(value: unknown) {
+    const selectors = normalizeArray(value);
+    const normalized: Record<string, unknown>[] = [];
+    const seen = new Set<string>();
+    for (const selector of selectors) {
+      if (!isObject(selector)) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Each paper selector must be an object containing id or key",
+        );
+      }
+      const id = cleanString(selector.id);
+      const key = cleanString(selector.key);
+      if ((!id && !key) || (id && key)) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Each paper selector must contain exactly one of id or key",
+          { selector },
+        );
+      }
+      if (
+        key &&
+        selector.libraryId !== undefined &&
+        !normalizeLibraryId(selector.libraryId)
+      ) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Paper selector libraryId must be a positive integer",
+          { selector },
+        );
+      }
+      const normalizedSelector = id
+        ? { id }
+        : {
+            key,
+            ...(selector.libraryId !== undefined
+              ? { libraryId: normalizeLibraryId(selector.libraryId) }
+              : {}),
+          };
+      const signature = id
+        ? `id:${id}`
+        : `key:${cleanString(
+            selector.libraryId !== undefined
+              ? normalizeLibraryId(selector.libraryId)
+              : "",
+          )}:${key}`;
+      if (!seen.has(signature)) {
+        seen.add(signature);
+        normalized.push(normalizedSelector);
+      }
+    }
+    validateDirectResearchBundleScope({
+      kind: "papers",
+      selectorCount: normalized.length,
+      resolvedPaperCount: 0,
+    });
+    return normalized;
+  }
+
+  function paperMatchesDirectSelector(
+    paper: DirectResearchBundlePaper,
+    selector: Record<string, unknown>,
+  ) {
+    const selectorId = cleanString(selector.id);
+    if (selectorId) {
+      return [
+        paper.metadata.id,
+        paper.metadata.itemId,
+        paper.metadata.itemID,
+      ].some((value) => cleanString(value) === selectorId);
+    }
+    const selectorKey = cleanString(selector.key);
+    const selectorLibraryId = normalizeLibraryId(selector.libraryId);
+    return (
+      cleanString(paper.itemKey) === selectorKey &&
+      (!selectorLibraryId || paper.libraryId === selectorLibraryId)
+    );
+  }
+
+  async function resolveDirectResearchBundlePapers(
+    selectors: Record<string, unknown>[],
+    selectorKind: "papers" | "topics" = "papers",
+  ) {
+    let papers: DirectResearchBundlePaper[];
+    if (options.researchBundleHost) {
+      papers = await options.researchBundleHost.resolveItems(selectors);
+    } else {
+      const { createZoteroHostCapabilityBrokerApis } =
+        await import("../zoteroHostCapabilityBroker");
+      const broker = createZoteroHostCapabilityBrokerApis();
+      papers = [];
+      for (const selector of selectors) {
+        const ref = cleanString(selector.id)
+          ? { id: cleanString(selector.id) }
+          : {
+              key: cleanString(selector.key),
+              ...(selector.libraryId !== undefined
+                ? { libraryId: normalizeLibraryId(selector.libraryId) }
+                : {}),
+            };
+        const detail = await broker.library.getItemDetail(ref);
+        if (!detail) {
+          throw new DirectResearchBundleError(
+            "invalid_research_bundle_selector",
+            "Paper selector did not resolve to a Zotero item",
+            { selector },
+          );
+        }
+        const attachments = await broker.library.getItemAttachments({
+          key: detail.key,
+          libraryId: detail.libraryId,
+        });
+        papers.push({
+          paperRef: `${detail.libraryId}:${detail.key}`,
+          libraryId: detail.libraryId,
+          itemKey: detail.key,
+          title: detail.title,
+          metadata: detail,
+          attachments: attachments
+            .filter((attachment) => cleanString(attachment.path))
+            .map((attachment) => ({
+              path: attachment.path,
+              filename: attachment.filename,
+              contentType: attachment.contentType,
+            })),
+        });
+      }
+    }
+    const unresolved = selectors.filter(
+      (selector) =>
+        !papers.some((paper) => paperMatchesDirectSelector(paper, selector)),
+    );
+    const unexpected = papers.filter(
+      (paper) =>
+        !selectors.some((selector) =>
+          paperMatchesDirectSelector(paper, selector),
+        ),
+    );
+    if (unresolved.length || unexpected.length) {
+      throw new DirectResearchBundleError(
+        "invalid_research_bundle_selector",
+        "Paper selectors did not resolve to the exact requested Zotero item set",
+        {
+          unresolved,
+          unexpected_paper_refs: unexpected.map((paper) => paper.paperRef),
+        },
+      );
+    }
+    const byRef = new Map<string, DirectResearchBundlePaper>();
+    for (const paper of papers) {
+      const paperRef = cleanString(paper.paperRef);
+      const parsed = parsePaperRef(paperRef);
+      if (!parsed?.itemKey) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Resolved paper must expose a canonical libraryId:itemKey ref",
+          { paperRef },
+        );
+      }
+      byRef.set(paperRef, {
+        ...paper,
+        paperRef,
+        libraryId: parsed.libraryId,
+        itemKey: parsed.itemKey,
+      });
+    }
+    const resolved = [...byRef.values()];
+    validateDirectResearchBundleScope({
+      kind: selectorKind,
+      selectorCount: selectorKind === "papers" ? selectors.length : 1,
+      resolvedPaperCount: resolved.length,
+    });
+    return resolved;
+  }
+
+  function directResearchBundleDelivery(
+    args: Record<string, unknown>,
+    context?: SynthesisMcpServiceContext,
+  ) {
+    const outputDir = cleanString(args.output_dir || args.outputDir);
+    const connectionMode = isRemoteHostBridgeContext(context)
+      ? "remote"
+      : "local";
+    if (connectionMode === "local" && !outputDir) {
+      throw new DirectResearchBundleError(
+        "missing_output_dir",
+        "Local direct research bundle export requires output_dir",
+      );
+    }
+    if (connectionMode === "remote" && outputDir) {
+      throw new DirectResearchBundleError(
+        "remote_output_dir_forbidden",
+        "Remote direct research bundle export cannot write a client-local directory",
+      );
+    }
+    return { connectionMode, outputDir } as const;
+  }
+
+  async function exportPaperResearchBundle(
+    args: Record<string, unknown> = {},
+    context?: SynthesisMcpServiceContext,
+  ) {
+    const selectors = normalizeDirectPaperSelectors(args.items);
+    const papers = await resolveDirectResearchBundlePapers(selectors);
+    const materialized = await materializeResearchBundlePapers({
+      papers,
+      readArtifacts: (paperRefs) =>
+        readPaperArtifacts({
+          paper_refs: paperRefs,
+          artifact_types: [
+            "digest",
+            "references",
+            "citation_analysis",
+            "literature_score",
+          ],
+        }),
+    });
+    const delivery = directResearchBundleDelivery(args, context);
+    return publishDirectResearchBundle({
+      kind: "papers",
+      capability: "items.export_research_bundle",
+      ...delivery,
+      entries: materialized.entries,
+      papers: materialized.papers,
+      warnings: materialized.warnings,
+      zipName: "papers-research-bundle.zip",
+    });
+  }
+
+  async function resolveDirectResearchBundleTopics(topicIds: string[]) {
+    let topics: DirectResearchBundleTopic[];
+    if (options.researchBundleHost?.resolveTopics) {
+      topics = await options.researchBundleHost.resolveTopics(topicIds);
+    } else {
+      topics = [];
+      for (const topicId of topicIds) {
+        const topic = await readTopicArtifact({ topicId }).catch(() => null);
+        const report = await getTopicReport({ topic_id: topicId });
+        if (!topic || !report.ok || !cleanString(report.markdown)) {
+          throw new DirectResearchBundleError(
+            "invalid_research_bundle_selector",
+            "Topic selector did not resolve to an available report",
+            { topicId },
+          );
+        }
+        const artifact = isObject(topic.artifact) ? topic.artifact : {};
+        const sourceRows = Array.isArray(artifact.source_papers)
+          ? artifact.source_papers.filter(isObject)
+          : [];
+        const sourcePapers = sourceRows
+          .map((row) => {
+            const digestRef = isObject(row.digest_ref) ? row.digest_ref : {};
+            return {
+              paperRef: cleanString(
+                row.paper_ref || digestRef.paper_ref || digestRef.paperRef,
+              ),
+              title: cleanString(row.title),
+            };
+          })
+          .filter((row) => row.paperRef);
+        topics.push({
+          topicId: cleanString(report.topic_id) || topicId,
+          title: cleanString(report.title) || topicId,
+          report: cleanString(report.markdown),
+          sourcePapers,
+          diagnostics: Array.isArray(report.diagnostics)
+            ? report.diagnostics.map(cleanString).filter(Boolean)
+            : [],
+        });
+      }
+    }
+    const byId = new Map<string, DirectResearchBundleTopic>();
+    for (const topic of topics) {
+      const topicId = cleanString(topic.topicId);
+      if (!topicIds.includes(topicId) || !cleanString(topic.report)) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Topic selectors did not resolve to the exact requested report set",
+          { topicId },
+        );
+      }
+      const sourcePapers = new Map<string, DirectResearchBundleTopicSource>();
+      for (const source of topic.sourcePapers || []) {
+        const parsed = parsePaperRef(source.paperRef);
+        if (!parsed?.itemKey) {
+          throw new DirectResearchBundleError(
+            "invalid_research_bundle_selector",
+            "Topic source paper must use a canonical libraryId:itemKey ref",
+            { topicId, paperRef: source.paperRef },
+          );
+        }
+        const paperRef = `${parsed.libraryId}:${parsed.itemKey}`;
+        if (!sourcePapers.has(paperRef)) {
+          sourcePapers.set(paperRef, {
+            paperRef,
+            title: cleanString(source.title),
+          });
+        }
+      }
+      byId.set(topicId, {
+        ...topic,
+        topicId,
+        title: cleanString(topic.title) || topicId,
+        report: cleanString(topic.report),
+        sourcePapers: [...sourcePapers.values()],
+      });
+    }
+    const unresolved = topicIds.filter((topicId) => !byId.has(topicId));
+    if (unresolved.length) {
+      throw new DirectResearchBundleError(
+        "invalid_research_bundle_selector",
+        "Topic selectors did not resolve to the exact requested report set",
+        { unresolved_topic_ids: unresolved },
+      );
+    }
+    return topicIds.map((topicId) => byId.get(topicId)!);
+  }
+
+  async function exportTopicResearchBundle(
+    args: Record<string, unknown> = {},
+    context?: SynthesisMcpServiceContext,
+  ) {
+    const topicIds = Array.from(
+      new Set(
+        [
+          ...normalizeArray(args.topic_ids || args.topicIds),
+          ...normalizeArray(args.topic_id || args.topicId),
+        ]
+          .map(cleanString)
+          .filter(Boolean),
+      ),
+    );
+    validateDirectResearchBundleScope({
+      kind: "topics",
+      selectorCount: topicIds.length,
+      resolvedPaperCount: 0,
+    });
+    const topics = await resolveDirectResearchBundleTopics(topicIds);
+    const sourceRefs = Array.from(
+      new Set(
+        topics.flatMap((topic) =>
+          topic.sourcePapers.map((source) => source.paperRef),
+        ),
+      ),
+    );
+    const paperSelectors = sourceRefs.map((paperRef) => {
+      const parsed = parsePaperRef(paperRef);
+      if (!parsed?.itemKey) {
+        throw new DirectResearchBundleError(
+          "invalid_research_bundle_selector",
+          "Topic source paper must use a canonical libraryId:itemKey ref",
+          { paperRef },
+        );
+      }
+      return { key: parsed.itemKey, libraryId: parsed.libraryId };
+    });
+    const papers = sourceRefs.length
+      ? await resolveDirectResearchBundlePapers(paperSelectors, "topics")
+      : [];
+    validateDirectResearchBundleScope({
+      kind: "topics",
+      selectorCount: topicIds.length,
+      resolvedPaperCount: papers.length,
+    });
+    const materialized = await materializeResearchBundlePapers({
+      papers,
+      readArtifacts: (paperRefs) =>
+        readPaperArtifacts({
+          paper_refs: paperRefs,
+          artifact_types: ["digest"],
+        }),
+      includeMetadata: false,
+      includeSource: false,
+      artifactTypes: ["digest"],
+    });
+    const availableDigestRefs = new Set(
+      materialized.papers
+        .filter((paper) =>
+          Array.isArray(paper.artifacts)
+            ? paper.artifacts.some(
+                (artifact) =>
+                  isObject(artifact) &&
+                  cleanString(artifact.artifact_type) === "digest" &&
+                  cleanString(artifact.path),
+              )
+            : false,
+        )
+        .map((paper) => cleanString(paper.paper_ref)),
+    );
+    const entries: ResearchBundleEntry[] = [...materialized.entries];
+    const warnings: ResearchBundleWarning[] = [...materialized.warnings];
+    const topicRecords: Record<string, unknown>[] = [];
+    for (const topic of topics) {
+      const topicPath = `topics/${encodeURIComponent(topic.topicId)}`;
+      const rewritten = rewriteTopicReportDigestLinks({
+        report: topic.report,
+        topicId: topic.topicId,
+        sourcePapers: topic.sourcePapers,
+        availableDigestRefs,
+      });
+      entries.push({
+        path: `${topicPath}/report.md`,
+        contentType: "text/markdown",
+        text: rewritten.report,
+      });
+      if (rewritten.fallbackSources) {
+        entries.push({
+          path: `${topicPath}/sources.md`,
+          contentType: "text/markdown",
+          text: rewritten.fallbackSources,
+        });
+      }
+      if (rewritten.warning) warnings.push(rewritten.warning);
+      for (const diagnostic of topic.diagnostics || []) {
+        warnings.push({
+          code: "topic_report_diagnostic",
+          topic_id: topic.topicId,
+          reason: diagnostic,
+        });
+      }
+      topicRecords.push({
+        topic_id: topic.topicId,
+        title: topic.title,
+        report_path: `${topicPath}/report.md`,
+        ...(rewritten.fallbackSources
+          ? { sources_path: `${topicPath}/sources.md` }
+          : {}),
+        paper_refs: topic.sourcePapers.map((source) => source.paperRef),
+      });
+    }
+    const papersByRef = Object.fromEntries(
+      materialized.papers.map((paper) => {
+        const paperRef = cleanString(paper.paper_ref);
+        return [
+          paperRef,
+          {
+            digest_path: availableDigestRefs.has(paperRef)
+              ? `${paperBundleDirectory(paperRef)}/digest.md`
+              : null,
+            topic_ids: topics
+              .filter((topic) =>
+                topic.sourcePapers.some(
+                  (source) => source.paperRef === paperRef,
+                ),
+              )
+              .map((topic) => topic.topicId),
+          },
+        ];
+      }),
+    );
+    const delivery = directResearchBundleDelivery(args, context);
+    return publishDirectResearchBundle({
+      kind: "topics",
+      capability: "topics.export_research_bundle",
+      ...delivery,
+      entries,
+      papers: materialized.papers,
+      topics: topicRecords,
+      papersByRef,
+      warnings,
+      zipName: "topics-research-bundle.zip",
+    });
+  }
+
   async function exportFilteredPaperArtifacts(
     args: Record<string, unknown> = {},
     context?: SynthesisMcpServiceContext,
@@ -21616,6 +21948,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     queryCitationGraph,
     getPaperArtifactManifest,
     readPaperArtifacts,
+    exportPaperResearchBundle,
+    exportTopicResearchBundle,
     exportFilteredPaperArtifacts,
     initializeBuiltinTagPolicy,
     isBuiltinTagPolicyInitialized,

@@ -60,6 +60,14 @@ There is no safe default for source inclusion, topic identity, maintenance scope
 
 ## Workflow
 
+### 选择 Synthesis 或直接交付
+
+当用户需要已经识别的 Zotero 论文或现有 Topic 的可移植文件，且没有要求新的研究选材、面向稿件的 Product、生成分析或刷新模型时，使用直接研究包分支。论文研究包聚合请求的条目，包含可移植元数据、优先的 Markdown 正文及其有效本地图片或 PDF 回退，以及每项可用的 digest、references、citation-analysis 和 literature-score 工件。Topic 研究包包含每份当前报告，并为每个关联的规范 `libraryId:itemKey` 全局去重 digest；导出的报告副本会把通过校验的参考文献标记链接到这些 digest 路径，不修改已存储的 Topic 报告。
+
+必须提供稳定条目引用或 Topic ID。请求给出标题、模糊短语或含糊选择时，把身份解析交给 Query，并且只用它验证过的有序选择器继续。不得用直接分支发现论文、生成缺失分析、刷新陈旧 Topic 或创建更广泛的面向稿件 Research Bundle Product。可选来源/工件缺失属于 manifest 警告；选择器无法解析则整个请求失败。
+
+本地 Host 连接要求目标目录不存在或为空，并验证生成的 `manifest.json`、`index.md`、请求的报告/论文清单和诊断。远程连接不得发送客户端本地输出路径：保留返回的 bridge-download handle，执行所提供的下载步骤，验证返回的大小/checksum 证据，并且只在字节验证后解包。不得仅根据 handle 签发报告完成。handle 过期时，用同一组已验证选择器重新执行只读导出；本地目标非空时，选择新的或已清空的目录，不得覆盖。
+
 ### Establish source and model boundary
 
 1. State the research question, inclusion and exclusion rule, required freshness, and intended deliverable. Resolve every source ref and the exact topic, graph, index, resolver selector, artifact, Product, or schema used.
@@ -136,6 +144,7 @@ Output:
 - Themes, claims, relationships, gaps, and disagreements trace to evidence.
 - Missing coverage is distinguished from a supported research gap.
 - Every promised Product or artifact is inspected and, when requested, downloaded and verified.
+- 直接研究包需说明其选择器 scope、交付模式、manifest 清单、警告集合，以及已验证的本地目录或下载文件；不得把缺失的可选条目报告为已生成。
 - Persistence or apply-back has its own authority and receipt.
 
 Near misses:
