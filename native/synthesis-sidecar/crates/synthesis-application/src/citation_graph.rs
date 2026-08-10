@@ -10,16 +10,17 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphReplacement,
-    CitationLayoutRecord, CitationLayoutWindowRecord, CitationMetricsPageQuery,
-    CitationMetricsSort as RepositoryCitationMetricsSort, CitationNodeRecord, OperationRecord,
+    CITATION_GRAPH_DEFAULT_EDGE_MAX, CITATION_GRAPH_DEFAULT_NODE_MAX, CitationComplexMetricsRecord,
+    CitationEdgeRecord, CitationGraphReplacement, CitationLayoutRecord, CitationLayoutWindowRecord,
+    CitationMetricsPageQuery, CitationMetricsSort as RepositoryCitationMetricsSort,
+    CitationNodeRecord, OperationRecord,
 };
 
 const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INPUT_NODES: usize = 250_000;
 const MAX_RESULT_NODES: usize = 50_000;
-pub const CITATION_GRAPH_LAYOUT_NODE_MAX: usize = 20_000;
-pub const CITATION_GRAPH_LAYOUT_EDGE_MAX: usize = 80_000;
+pub const CITATION_GRAPH_LAYOUT_NODE_MAX: usize = CITATION_GRAPH_DEFAULT_NODE_MAX;
+pub const CITATION_GRAPH_LAYOUT_EDGE_MAX: usize = CITATION_GRAPH_DEFAULT_EDGE_MAX;
 
 #[derive(Clone, Debug, Default)]
 pub struct CitationGraphDefaultProjection {
@@ -1113,6 +1114,7 @@ mod tests {
         ];
         let edges = vec![
             projection_edge("edge:3", "library:a", "external:hover"),
+            projection_edge("edge:3b", "library:a", "external:hover"),
             projection_edge("edge:2", "library:b", "external:shared"),
             projection_edge("edge:1", "library:a", "external:shared"),
             projection_edge("edge:4", "library:b", "library:a"),
@@ -1136,7 +1138,8 @@ mod tests {
             vec!["edge:1", "edge:2"]
         );
         assert_eq!(projection.hover_nodes.len(), 1);
-        assert_eq!(projection.hover_edges.len(), 1);
+        assert_eq!(projection.hover_edges.len(), 2);
+        assert_eq!(projection.external_degrees["external:hover"], 1);
         assert_eq!(projection.external_degrees["external:shared"], 2);
         let selected = projection
             .nodes

@@ -37,3 +37,17 @@ The Host SHALL emit mutation start and invocation-terminal records and read/peri
 - **WHEN** a Rust worker terminates with identifiable panic evidence before returning a terminal frame
 - **THEN** the parent reports the stable `worker_panicked` code and replaces the failed worker
 - **AND** captured panic text remains bounded and internal rather than entering a public receipt, trace, Runtime Log, or Workbench diagnostic
+
+### Requirement: Accepted layout work SHALL converge after runtime faults
+
+Citation Graph layout SHALL use its declared worker-phase deadline and SHALL publish one terminal after worker timeout, worker panic, parent dispatch panic, cancellation, or finalization failure. A failed attempt MUST preserve the prior ready layout, release compute admission, and allow a later unrelated operation to proceed.
+
+#### Scenario: Layout worker exceeds its phase deadline
+- **WHEN** a Citation Graph layout worker exceeds 90 seconds inside the 120-second maintenance budget
+- **THEN** the operation becomes timed out without promoting coordinates
+- **AND** the worker and compute admission are replaced or released before the next operation
+
+#### Scenario: Detached maintenance dispatch panics
+- **WHEN** a detached maintenance controller panics or cannot persist its first terminal
+- **THEN** bounded reconciliation exposes a stable failed or timed-out terminal
+- **AND** the receipt does not remain running indefinitely

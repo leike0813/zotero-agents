@@ -163,6 +163,27 @@ type SyncTransportSnapshot = {
 type Snapshot = {
   libraryId: number;
   selectedTab: SynthesisTab;
+  sidecarStatus?: {
+    lifecycle:
+      | "stopped"
+      | "starting"
+      | "ready"
+      | "unavailable"
+      | "incompatible"
+      | "stopping";
+    recoveryState: "none" | "scheduled" | "manual-recovery-required";
+    reasonCode?: string;
+    healthObservedAt?: string;
+    serviceInstanceId?: string;
+    serviceVersion?: string;
+    bundleId?: string;
+    nextRestartAt?: string;
+    computePool?: {
+      state: "idle" | "busy" | "degraded" | "stopping";
+      active: 0 | 1;
+      queued: number;
+    };
+  };
   actions?: {
     inFlight?: ActionOperation[];
     lastCompleted?: ActionOperation;
@@ -2116,10 +2137,109 @@ function renderActionStatusbar(snapshot: Snapshot) {
 function renderTopbar(snapshot: Snapshot) {
   const topbar = el("div", "topbar");
   topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
+  const controls = el("div", "topbar-controls");
+  controls.appendChild(renderSidecarRuntimeIndicator(snapshot));
   if (snapshot.selectedTab === "reader" && state.topicDetail) {
-    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
+    controls.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
   }
+  topbar.appendChild(controls);
   return topbar;
+}
+
+function sidecarRuntimePresentation(snapshot: Snapshot) {
+  const status = snapshot.sidecarStatus;
+  const activeJobs =
+    snapshot.maintenance?.backgroundJobs?.rows?.filter(
+      (job) => job.status === "running" || job.status === "queued",
+    ).length || 0;
+  const inFlight = snapshot.actions?.inFlight?.length || 0;
+  if (!status)
+    return { state: "offline", label: t("synthesis-sidecar-offline") };
+  if (
+    status.lifecycle === "incompatible" ||
+    status.recoveryState === "manual-recovery-required"
+  ) {
+    return { state: "error", label: t("synthesis-sidecar-error") };
+  }
+  if (
+    status.lifecycle === "starting" ||
+    status.lifecycle === "stopping" ||
+    status.recoveryState === "scheduled"
+  ) {
+    return { state: "recovering", label: t("synthesis-sidecar-recovering") };
+  }
+  if (status.computePool?.state === "degraded") {
+    return { state: "degraded", label: t("synthesis-sidecar-degraded") };
+  }
+  if (status.lifecycle === "unavailable") {
+    return { state: "error", label: t("synthesis-sidecar-error") };
+  }
+  if (
+    status.lifecycle === "ready" &&
+    (status.computePool?.state === "busy" ||
+      (status.computePool?.active || 0) > 0 ||
+      (status.computePool?.queued || 0) > 0 ||
+      activeJobs > 0 ||
+      inFlight > 0)
+  ) {
+    return { state: "busy", label: t("synthesis-sidecar-busy") };
+  }
+  if (status.lifecycle === "ready") {
+    return { state: "ready", label: t("synthesis-sidecar-ready") };
+  }
+  return { state: "offline", label: t("synthesis-sidecar-offline") };
+}
+
+function renderSidecarRuntimeIndicator(snapshot: Snapshot) {
+  const status = snapshot.sidecarStatus;
+  const presentation = sidecarRuntimePresentation(snapshot);
+  const detail = document.createElement("details");
+  detail.className = `sidecar-runtime-indicator is-${presentation.state}`;
+  const summary = document.createElement("summary");
+  summary.setAttribute(
+    "aria-label",
+    `${t("synthesis-sidecar-status")}: ${presentation.label}`,
+  );
+  summary.appendChild(el("span", "sidecar-runtime-dot"));
+  summary.appendChild(el("span", "sidecar-runtime-label", presentation.label));
+  detail.appendChild(summary);
+  const popover = el("div", "sidecar-runtime-popover");
+  popover.appendChild(el("strong", "", t("synthesis-sidecar-status")));
+  const rows: Array<[string, string]> = [
+    [t("synthesis-sidecar-state"), presentation.label],
+    [t("synthesis-sidecar-version"), status?.serviceVersion || "—"],
+    [
+      t("synthesis-sidecar-instance"),
+      status?.serviceInstanceId?.slice(-8) || "—",
+    ],
+    [
+      t("synthesis-sidecar-compute"),
+      status?.computePool
+        ? `${status.computePool.state} · ${status.computePool.active}/${status.computePool.queued}`
+        : "—",
+    ],
+  ];
+  if (status?.reasonCode)
+    rows.push([t("synthesis-sidecar-reason"), status.reasonCode]);
+  if (status?.nextRestartAt)
+    rows.push([t("synthesis-sidecar-next-recovery"), status.nextRestartAt]);
+  rows.forEach(([label, value]) => {
+    const row = el("div", "sidecar-runtime-row");
+    row.appendChild(el("span", "muted", label));
+    row.appendChild(el("span", "", value));
+    popover.appendChild(row);
+  });
+  if (presentation.state === "error" || presentation.state === "degraded") {
+    popover.appendChild(
+      makeButton(
+        t("synthesis-diagnostics"),
+        "openSynthesisSidecarDiagnostics",
+        {},
+      ),
+    );
+  }
+  detail.appendChild(popover);
+  return detail;
 }
 
 function ensurePersistentGraphSurface() {
@@ -14565,6 +14685,53 @@ function scheduleHoverClear(
 function addHoverNeighborhood(graph: Graph, hoveredNode: string) {
   clearDynamicHoverGraph(graph);
   if (!graph.hasNode(hoveredNode)) return;
+  const snapshot = state.snapshot;
+  if (!snapshot) return;
+  const hoverNodeById = new Map(
+    snapshot.graph.hoverOnlyNodes.map((node) => [node.id, node]),
+  );
+  const edges = snapshot.graph.hoverOnlyEdges.filter(
+    (edge) => edge.source === hoveredNode || edge.target === hoveredNode,
+  );
+  const origin = graph.getNodeAttributes(hoveredNode) as Record<
+    string,
+    unknown
+  >;
+  const neighbors = Array.from(
+    new Set(
+      edges.map((edge) =>
+        edge.source === hoveredNode ? edge.target : edge.source,
+      ),
+    ),
+  );
+  neighbors.forEach((nodeId, index) => {
+    const node = hoverNodeById.get(nodeId);
+    if (!node || graph.hasNode(nodeId)) return;
+    const angle = (index / Math.max(1, neighbors.length)) * Math.PI * 2;
+    const radius = 0.035 + Math.min(0.035, neighbors.length * 0.002);
+    graph.addNode(nodeId, {
+      ...sigmaNodeAttributes(node, undefined),
+      x: Number(origin.x || 0) + Math.cos(angle) * radius,
+      y: Number(origin.y || 0) + Math.sin(angle) * radius,
+    });
+    state.dynamicHoverNodeIds.add(nodeId);
+  });
+  edges.forEach((edge) => {
+    if (
+      graph.hasEdge(edge.id) ||
+      !graph.hasNode(edge.source) ||
+      !graph.hasNode(edge.target)
+    ) {
+      return;
+    }
+    graph.addDirectedEdgeWithKey(
+      edge.id,
+      edge.source,
+      edge.target,
+      sigmaEdgeAttributes(edge),
+    );
+    state.dynamicHoverEdgeIds.add(edge.id);
+  });
 }
 
 function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
@@ -14661,6 +14828,18 @@ function mergeSigmaGraphPage(snapshot: Snapshot) {
   const graph = state.graph;
   if (!graph) return;
   clearDynamicHoverGraph(graph);
+  const desiredNodeIds = new Set(
+    snapshot.graph.visibleNodes.map((node) => node.id),
+  );
+  const desiredEdgeIds = new Set(
+    snapshot.graph.visibleEdges.map((edge) => edge.id),
+  );
+  graph.forEachEdge((edgeId) => {
+    if (!desiredEdgeIds.has(edgeId)) graph.dropEdge(edgeId);
+  });
+  graph.forEachNode((nodeId) => {
+    if (!desiredNodeIds.has(nodeId)) graph.dropNode(nodeId);
+  });
   const importanceByNodeId = buildCitationGraphNodeImportance(
     snapshot.graph.visibleNodes,
     snapshot.graph.visibleEdges,
@@ -15275,6 +15454,7 @@ function snapshotChromeSignature(snapshot: Snapshot | null) {
       (entry) => [entry.key, entry.command, entry.status, entry.started_at],
     ),
     backgroundJobs: snapshot.maintenance?.backgroundJobs || {},
+    sidecarStatus: snapshot.sidecarStatus || {},
     sync: snapshot.sync?.status,
     jobPopoverOpen: state.jobPopoverOpen,
   });
@@ -16042,6 +16222,13 @@ function renderDigestModal(root: HTMLElement) {
 
 window.addEventListener("keydown", (event: KeyboardEvent) => {
   if (event.key !== "Escape") {
+    return;
+  }
+  const runtimeStatus = document.querySelector(
+    ".sidecar-runtime-indicator[open]",
+  ) as HTMLDetailsElement | null;
+  if (runtimeStatus) {
+    runtimeStatus.open = false;
     return;
   }
   if (state.digestModal) {

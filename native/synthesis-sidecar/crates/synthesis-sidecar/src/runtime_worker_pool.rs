@@ -50,7 +50,10 @@ pub(crate) enum WorkerOperation {
 
 impl WorkerOperation {
     fn direct_deadline(self) -> Duration {
-        DIRECT_DEADLINE
+        match self {
+            Self::CitationGraphLayout => LAYOUT_TRANSFER_DEADLINE,
+            _ => DIRECT_DEADLINE,
+        }
     }
 
     fn paged_deadline(self) -> Duration {
@@ -1256,6 +1259,10 @@ mod tests {
 
     #[test]
     fn long_paged_operations_have_operation_specific_deadlines() {
+        assert_eq!(
+            WorkerOperation::CitationGraphLayout.direct_deadline(),
+            Duration::from_secs(90)
+        );
         assert_eq!(
             WorkerOperation::CitationGraphLayout.paged_deadline(),
             Duration::from_secs(90)

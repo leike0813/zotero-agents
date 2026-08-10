@@ -132,6 +132,14 @@ Low-confidence Topic Graph review approval remains two-stage: approval creates a
 
 Alternative: teach the UI to consume both the erroneous nested Review payload and the public domain DTOs. Rejected because it would create two wire contracts and preserve the projection drift.
 
+### 14. Share one Citation Graph projection and isolate runtime observability
+
+The repository owns one basis-bound Citation Graph projection. It counts external incoming degree by distinct library source, admits only degree-greater-than-one external nodes to the default graph, and publishes degree-one neighbors separately for ephemeral hover. Public pagination and layout consume the same bounded, endpoint-closed projection; filters may only shrink it.
+
+Workbench reducers omit cleared optional properties and the native adapter rebuilds an explicit JSON-safe state DTO. The shared strict JSON validator remains unchanged. Layout uses its declared 90-second direct worker phase inside the existing 120-second maintenance budget. Detached work converts panics, deadlines, cancellation, and terminalization failures into observable terminals without promoting partial output.
+
+Runtime status is a transient top-bar projection composed from the supervisor lifecycle and the bounded health response. It contains no paths, credentials, logs, or repository payloads. Foreground observation is coalesced and stops with the Workbench runtime; compute-pool degradation enters the existing bounded recovery policy only after the worker pool has exhausted its own replacement budget.
+
 ## Risks / Trade-offs
 
 - [The fixed baseline contains behavior later judged undesirable] → Preserve it unless an explicit spec and user-approved disposition changes that behavior; do not silently reinterpret it during migration.

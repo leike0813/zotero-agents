@@ -12,6 +12,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub const CITATION_GRAPH_DEFAULT_NODE_MAX: usize = 20_000;
+pub const CITATION_GRAPH_DEFAULT_EDGE_MAX: usize = 80_000;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CitationGraphApplicationStateRecord {
@@ -585,7 +588,10 @@ impl Repository {
         &self,
         request: &CitationGraphWindowQuery,
     ) -> Result<CitationGraphWindowRows, String> {
-        let (cte, values) = citation_graph_window_cte(&request.filter)?;
+        let (cte, values) = citation_graph_window_cte(
+            &request.filter,
+            self.citation_graph_projection_may_exceed_bounds()?,
+        )?;
         let counts = self
             .query(
                 &format!(
@@ -709,7 +715,8 @@ impl Repository {
             "both" => "(source_literature_item_id=? OR target_literature_item_id=?)",
             _ => return Err("invalid_request".into()),
         };
-        let (cte, mut values) = citation_graph_window_cte(filter)?;
+        let (cte, mut values) =
+            citation_graph_window_cte(filter, self.citation_graph_projection_may_exceed_bounds()?)?;
         values.push(json!(start_node_id));
         if direction == "both" {
             values.push(json!(start_node_id));
@@ -765,7 +772,8 @@ impl Repository {
         for node_id in node_ids {
             validate_identity_part(node_id)?;
         }
-        let (cte, values) = citation_graph_window_cte(filter)?;
+        let (cte, values) =
+            citation_graph_window_cte(filter, self.citation_graph_projection_may_exceed_bounds()?)?;
         let nodes = self.read_citation_graph_endpoint_nodes(&cte, &values, node_ids)?;
         let retained = nodes
             .iter()
@@ -830,9 +838,7 @@ impl Repository {
                  LEFT JOIN synt_citation_metrics_complex complex
                    ON complex.literature_item_id=n.literature_item_id
                  WHERE n.visibility=?
-                 ORDER BY COALESCE(complex.foundation_score,0) DESC,
-                          COALESCE(light.local_degree,0) DESC,
-                          n.literature_item_id ASC
+                 ORDER BY n.has_zotero_binding DESC,n.literature_item_id ASC
                  LIMIT ? OFFSET ?"
             ),
             &bindings,
@@ -840,6 +846,15 @@ impl Repository {
         .into_iter()
         .map(citation_graph_window_node_record)
         .collect()
+    }
+
+    fn citation_graph_projection_may_exceed_bounds(&self) -> Result<bool, String> {
+        Ok(self
+            .get_citation_graph_application_state()?
+            .is_none_or(|state| {
+                state.node_count > CITATION_GRAPH_DEFAULT_NODE_MAX as i64
+                    || state.edge_count > CITATION_GRAPH_DEFAULT_EDGE_MAX as i64
+            }))
     }
 
     fn read_citation_graph_edge_page(
@@ -2380,6 +2395,7 @@ fn nullable_count(row: &Value, key: &str) -> Result<usize, String> {
 
 fn citation_graph_window_cte(
     filter: &CitationGraphWindowFilter,
+    enforce_projection_bounds: bool,
 ) -> Result<(String, Vec<Value>), String> {
     if filter.node_kinds.len() > 3
         || filter.roles.len() > 64
@@ -2471,6 +2487,67 @@ fn citation_graph_window_cte(
     conditions.push(role_node_predicate);
     values.extend(role_patterns.iter().cloned());
     values.extend(role_patterns);
+    let projection_ctes = if enforce_projection_bounds {
+        format!(
+            "projection_nodes AS MATERIALIZED (
+               SELECT classified.*,
+                      CASE WHEN visibility='default' THEN
+                        ROW_NUMBER() OVER (PARTITION BY visibility ORDER BY has_zotero_binding DESC,literature_item_id ASC)
+                      END AS projection_rank
+               FROM classified_nodes classified
+             ), filtered_nodes AS (
+               SELECT * FROM projection_nodes
+               WHERE (visibility='hover_only' OR projection_rank<={node_limit})
+                 AND {node_conditions}
+             ), projection_edges AS MATERIALIZED (
+               SELECT edge.*,
+                      CASE WHEN source.visibility='hover_only' OR target.visibility='hover_only'
+                           THEN 'hover_only' ELSE 'default' END AS visibility
+               FROM eligible_edges edge
+               JOIN projection_nodes source
+                 ON source.literature_item_id=edge.source_literature_item_id
+               JOIN projection_nodes target
+                 ON target.literature_item_id=edge.target_literature_item_id
+               WHERE (source.visibility='hover_only' OR source.projection_rank<={node_limit})
+                 AND (target.visibility='hover_only' OR target.projection_rank<={node_limit})
+             ), ranked_edges AS MATERIALIZED (
+               SELECT projected.*,
+                      CASE WHEN visibility='default' THEN
+                        ROW_NUMBER() OVER (PARTITION BY visibility ORDER BY edge_id ASC)
+                      END AS projection_rank
+               FROM projection_edges projected
+             ), filtered_edges AS (
+               SELECT edge.*
+               FROM ranked_edges edge
+               JOIN filtered_nodes source
+                 ON source.literature_item_id=edge.source_literature_item_id
+               JOIN filtered_nodes target
+                 ON target.literature_item_id=edge.target_literature_item_id
+               WHERE {role_predicate}
+                 AND (edge.visibility='hover_only' OR edge.projection_rank<={edge_limit})
+             )",
+            node_limit = CITATION_GRAPH_DEFAULT_NODE_MAX,
+            edge_limit = CITATION_GRAPH_DEFAULT_EDGE_MAX,
+            node_conditions = conditions.join(" AND "),
+        )
+    } else {
+        format!(
+            "filtered_nodes AS (
+               SELECT * FROM classified_nodes WHERE {node_conditions}
+             ), filtered_edges AS (
+               SELECT edge.*,
+                      CASE WHEN source.visibility='hover_only' OR target.visibility='hover_only'
+                           THEN 'hover_only' ELSE 'default' END AS visibility
+               FROM eligible_edges edge
+               JOIN filtered_nodes source
+                 ON source.literature_item_id=edge.source_literature_item_id
+               JOIN filtered_nodes target
+                 ON target.literature_item_id=edge.target_literature_item_id
+               WHERE {role_predicate}
+             )",
+            node_conditions = conditions.join(" AND "),
+        )
+    };
     Ok((
         format!(
             "WITH active_nodes AS (
@@ -2504,20 +2581,7 @@ fn citation_graph_window_cte(
                FROM active_nodes node
                LEFT JOIN external_degrees degree
                  ON degree.target_literature_item_id=node.literature_item_id
-             ), filtered_nodes AS (
-               SELECT * FROM classified_nodes WHERE {}
-             ), filtered_edges AS (
-               SELECT edge.*,
-                      CASE WHEN source.visibility='hover_only' OR target.visibility='hover_only'
-                           THEN 'hover_only' ELSE 'default' END AS visibility
-               FROM eligible_edges edge
-               JOIN filtered_nodes source
-                 ON source.literature_item_id=edge.source_literature_item_id
-               JOIN filtered_nodes target
-                 ON target.literature_item_id=edge.target_literature_item_id
-               WHERE {role_predicate}
-             )",
-            conditions.join(" AND ")
+             ), {projection_ctes}",
         ),
         values,
     ))

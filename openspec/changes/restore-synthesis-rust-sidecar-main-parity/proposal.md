@@ -15,6 +15,8 @@ The sidecar therefore cannot enter acceptance or authorize removal of the retain
 - Replace full-library materialization and N+1 reads with bounded pages, keyed delta queries, short transactions, batched Host effects, and repository-owned read concurrency.
 - Preserve durable user facts through registered forward migration while invalidating only rebuildable caches.
 - Restore every Review path as one bounded public projection: Reference binding/merge and canonical revisions, Concept decisions, and Topic Graph suggested/review relations must remain visible, actionable, diagnostic, reversible, and durable through the real Rust production route.
+- Restore the Citation Graph default projection to library nodes plus external nodes cited by more than one distinct library source, keep single-source external nodes hover-only, and make public pages and layout consume the same bounded projection.
+- Make Workbench UI state JSON-safe at its boundary, harden accepted layout work against timeout/panic/finalization gaps, and expose a bounded sidecar runtime status in the Workbench top bar.
 - Establish 10k full-experience and 25k bounded-degradation production-route gates before acceptance can resume.
 
 ## Capabilities

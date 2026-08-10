@@ -70,6 +70,28 @@ export type SynthesisWorkbenchTopicArtifactRow = {
 export type SynthesisWorkbenchReadState = SynthesisJsonObject;
 export type SynthesisWorkbenchProjection = SynthesisJsonObject;
 
+export type SynthesisWorkbenchSidecarStatus = {
+  lifecycle:
+    | "stopped"
+    | "starting"
+    | "ready"
+    | "unavailable"
+    | "incompatible"
+    | "stopping";
+  recoveryState: "none" | "scheduled" | "manual-recovery-required";
+  reasonCode?: string;
+  healthObservedAt?: string;
+  serviceInstanceId?: string;
+  serviceVersion?: string;
+  bundleId?: string;
+  nextRestartAt?: string;
+  computePool?: {
+    state: "idle" | "busy" | "degraded" | "stopping";
+    active: 0 | 1;
+    queued: number;
+  };
+};
+
 export type SynthesisWorkbenchChromeReadRequest = {
   state: SynthesisWorkbenchReadState;
 };

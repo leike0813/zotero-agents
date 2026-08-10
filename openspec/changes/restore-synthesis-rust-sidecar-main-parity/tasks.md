@@ -196,3 +196,19 @@
 - Concept and Topic Graph Review now filter and count before materialization, return singular structured diagnostics for missing, closed, stale-basis, and invalid-target decisions, and mark indexes stale without rebuilding. Low-confidence relation approval remains two-stage; confirming a `broader_than` edge refreshes the persisted discovery cascade without rewriting the Topic or triggering an automatic rebuild.
 - The real Rust production route passed all 10 cases, including actual Reference matching, Index/Review projection, Concept review mutation, Topic Graph review mutation, cold reopen, and the closed 96-operation matrix. The 85-case Workbench UI suite and the complete Rust workspace test suite passed.
 - Shared synthesis-contract and project TypeScript checks, Rust format, workspace Clippy with warnings denied, the production capability and Review surface/application parity checks, scoped Prettier/ESLint, sidecar build, diff checks, and strict OpenSpec validation passed. No development server, release, publication, archive, or Gitee synchronization was run.
+
+## 17. Repair Citation Graph Visibility and Runtime Guarding
+
+- [x] 17.1 Record the distinct-source Citation visibility, shared bounded projection, JSON-safe Workbench state, layout terminal, and runtime-status contracts
+- [x] 17.2 Add failing regressions for degree-one visibility, projection/layout parity, hover-only rendering, optional-state serialization, layout deadline/recovery, and runtime status
+- [x] 17.3 Make public Graph pages and layout consume one bounded projection and restore ephemeral hover neighborhoods without stale Sigma nodes
+- [x] 17.4 Make Workbench state JSON-safe, harden layout deadlines and detached operation terminals, and add the bounded top-bar sidecar indicator
+- [x] 17.5 Correct active documentation and run focused TypeScript, Rust, formatting, build, and strict OpenSpec gates
+
+### 2026-08-10 Citation Graph visibility and runtime guarding evidence
+
+- Citation Graph projection now counts distinct library sources, keeps degree-one external targets hover-only even when an upstream DTO misclassifies them, and applies the same 20,000-node/80,000-edge endpoint-closed projection to default public pages and layout. The large repository pagination regression drained 7,500 nodes and 12,000 edges without dangling endpoints; application projection tests covered repeated same-source edges and bounded tier ordering.
+- Workbench removes cleared optional selections before strict JSON serialization. The exact `graph.selectedElement = undefined` reproduction now omits the field, and the complete focused TypeScript suite passed all 88 tests.
+- Layout uses a 90-second direct worker phase, a 120-second public operation deadline, and a 130-second client observation bound. Detached dispatch catches panic, retries terminal persistence once, and keeps receipt reads pure; startup reconciliation remains responsible for restart orphans.
+- The top bar exposes a keyboard-accessible bounded sidecar indicator. Foreground health observation is coalesced at five seconds, updates chrome only, restarts on degraded compute health through the existing supervisor policy, and excludes repository/path/credential/raw-error fields. All 11 locale bundles contain the 13 indicator keys.
+- Main and Sidebar TypeScript checks, shared contract checks, scoped Prettier/ESLint, `git diff --check`, Rust format, warnings-denied Clippy for the three changed crates, focused Rust tests, sidecar build, Citation Graph surface parity, 96-capability parity, native runtime contract parity, and strict OpenSpec validation passed.

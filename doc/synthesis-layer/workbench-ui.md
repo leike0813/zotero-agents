@@ -43,6 +43,11 @@ Active Workbench hot paths must use surface-scoped messages:
 - Review Center filter changes may reload only the Review surface, using the active review tab and filters as query bounds.
 - explicit refresh or completed operations invalidate only declared surfaces; hidden invalidated surfaces are marked dirty and are not reloaded until viewed or explicitly refreshed.
 
+Workbench state sent to the native client is strict JSON. Optional selections
+are removed from the object when cleared; `undefined` must never cross the
+client boundary as an object value. A malformed optional UI field therefore
+cannot poison subsequent sidecar commands.
+
 The monolithic full Workbench snapshot is debug-only. It must not be used by `ready`, `selectTab`, `setFilters`, operation progress polling, local review actions, or graph layout checks. Startup warmup may prefill only lightweight chrome by default. Content surfaces must be loaded when visible, explicitly requested, or scheduled through a bounded surface list; they must yield before phase work starts and must not show a Zotero ProgressWindow or block the first Workbench paint.
 
 Chrome is not a content surface. It may read operation rows, cache-basis rows, storage status, and local pending command state, but it must not read Citation Graph nodes/edges, Index rows, Review proposal evidence, Tag/Concept projections, or Topic Graph data.
@@ -127,6 +132,8 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 - Show all library nodes by default.
 - Show shared external nodes when more than one distinct library paper cites the target. Repeated reference instances from one library paper increase edge mentions but do not increase incoming degree.
 - Keep single-degree external nodes hover-only by default and exclude them from the default graph layout.
+- Apply the same 20,000-node/80,000-edge default projection to public Graph pages and layout input. Library nodes precede shared external nodes, and every selected edge has both endpoints in the projection.
+- Materialize a hover-only external node and its incident edges only while its visible neighbor is hovered or selected. Remove that ephemeral neighborhood before merging the next Graph page so Sigma cannot retain stale nodes or edges.
 - If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; after a successful stale refresh, the host may run scoped related-items sync for the final affected source refs. Full rebuild remains the fallback when no delta is recorded.
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
 - If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.
@@ -140,6 +147,13 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 Graph data rebuild and layout rebuild must remain different UI actions. Layout rebuild never repairs missing graph data.
 
 The Graph surface owns one persistent Sigma stage, renderer, canvas set, and WebGL context set for the Workbench document lifetime. Sidebar, selection, drawer, status, snapshot, and tab updates must reuse that surface; model changes use `setGraph()` rather than renderer teardown. A hidden Graph surface remains mounted and inert without `display:none`, and host resize bursts are coalesced before one visible resize/refresh.
+
+The top bar contains a compact sidecar status indicator derived only from the
+supervisor's bounded public health projection. Color and label communicate the
+current lifecycle at a glance; hover, keyboard focus, or opening the indicator
+shows lifecycle, recovery, version/instance suffix, and compute-pool state.
+Foreground observation is coalesced and updates chrome only. It must not reload
+a content surface or expose repository paths, tokens, payloads, or raw errors.
 
 ## Review and Overrides
 

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -339,43 +340,54 @@ fn resume_public_maintenance_operation(
     thread::Builder::new()
         .name("synthesis-maintenance-resume".into())
         .spawn(move || {
-            with_observation_context(worker_trace.as_ref(), || {
-                let started_at = utc_now_iso8601();
-                if let Err(error) = mark_public_maintenance_running(
-                    applications.as_ref(),
-                    &operation_id,
-                    &started_at,
-                ) {
-                    let _ = finish_public_maintenance_operation(
+            let execution = catch_unwind(AssertUnwindSafe(|| {
+                with_observation_context(worker_trace.as_ref(), || {
+                    let started_at = utc_now_iso8601();
+                    if let Err(error) = mark_public_maintenance_running(
                         applications.as_ref(),
                         &operation_id,
-                        Err(&error),
+                        &started_at,
+                    ) {
+                        finish_public_maintenance_observed(
+                            applications.as_ref(),
+                            &operation_id,
+                            Err(&error),
+                            semantic_success.as_ref(),
+                            &utc_now_iso8601(),
+                        );
+                        return;
+                    }
+                    let outcome = with_request_context(
+                        Duration::from_millis(basis.deadline_ms),
+                        debug_events_enabled().then_some(&request_id),
+                        || {
+                            with_operation_context(&operation_id, || {
+                                dispatch_typed_client(
+                                    applications.as_ref(),
+                                    &basis.capability,
+                                    &basis.args,
+                                )
+                            })
+                        },
+                    );
+                    finish_public_maintenance_observed(
+                        applications.as_ref(),
+                        &operation_id,
+                        outcome.as_ref().map_err(String::as_str),
                         semantic_success.as_ref(),
                         &utc_now_iso8601(),
                     );
-                    return;
-                }
-                let outcome = with_request_context(
-                    Duration::from_millis(basis.deadline_ms),
-                    debug_events_enabled().then_some(&request_id),
-                    || {
-                        with_operation_context(&operation_id, || {
-                            dispatch_typed_client(
-                                applications.as_ref(),
-                                &basis.capability,
-                                &basis.args,
-                            )
-                        })
-                    },
-                );
-                let _ = finish_public_maintenance_operation(
+                })
+            }));
+            if execution.is_err() {
+                finish_public_maintenance_observed(
                     applications.as_ref(),
                     &operation_id,
-                    outcome.as_ref().map_err(String::as_str),
+                    Err("operation_dispatch_panicked"),
                     semantic_success.as_ref(),
                     &utc_now_iso8601(),
                 );
-            })
+            }
         })
         .map_err(|error| format!("operation_spawn_failed:{error}"))?;
     Ok(())
@@ -426,55 +438,66 @@ fn start_public_maintenance_operation(
             &identity_hash["sha256:".len().."sha256:".len() + 8]
         ))
         .spawn(move || {
-            with_observation_context(worker_trace.as_ref(), || {
-                let started_at = utc_now_iso8601();
-                if let Err(error) = mark_public_maintenance_running(
-                    applications.as_ref(),
-                    &operation_id_for_worker,
-                    &started_at,
-                ) {
-                    let _ = finish_public_maintenance_operation(
+            let execution = catch_unwind(AssertUnwindSafe(|| {
+                with_observation_context(worker_trace.as_ref(), || {
+                    let started_at = utc_now_iso8601();
+                    if let Err(error) = mark_public_maintenance_running(
                         applications.as_ref(),
                         &operation_id_for_worker,
-                        Err(&error),
+                        &started_at,
+                    ) {
+                        finish_public_maintenance_observed(
+                            applications.as_ref(),
+                            &operation_id_for_worker,
+                            Err(&error),
+                            semantic_success_for_worker.as_ref(),
+                            &utc_now_iso8601(),
+                        );
+                        return;
+                    }
+                    let observed_at = Instant::now();
+                    let (outcome, sql_observation) = observe_repository_sql(|| {
+                        with_request_context(
+                            Duration::from_millis(work_deadline_ms),
+                            debug_events_enabled().then_some(&request_id_for_worker),
+                            || {
+                                with_operation_context(&operation_id_for_worker, || {
+                                    dispatch_typed_client(
+                                        applications.as_ref(),
+                                        &capability_for_worker,
+                                        &operation_args,
+                                    )
+                                })
+                            },
+                        )
+                    });
+                    emit_query_observation(&capability_for_worker, &outcome, sql_observation);
+                    if let Ok(result) = outcome.as_ref() {
+                        record_semantic_mutation_result(
+                            &capability_for_worker,
+                            semantic_success_for_worker.as_ref(),
+                            result,
+                            observed_at.elapsed(),
+                        );
+                    }
+                    finish_public_maintenance_observed(
+                        applications.as_ref(),
+                        &operation_id_for_worker,
+                        outcome.as_ref().map_err(String::as_str),
                         semantic_success_for_worker.as_ref(),
                         &utc_now_iso8601(),
                     );
-                    return;
-                }
-                let observed_at = Instant::now();
-                let (outcome, sql_observation) = observe_repository_sql(|| {
-                    with_request_context(
-                        Duration::from_millis(work_deadline_ms),
-                        debug_events_enabled().then_some(&request_id_for_worker),
-                        || {
-                            with_operation_context(&operation_id_for_worker, || {
-                                dispatch_typed_client(
-                                    applications.as_ref(),
-                                    &capability_for_worker,
-                                    &operation_args,
-                                )
-                            })
-                        },
-                    )
-                });
-                emit_query_observation(&capability_for_worker, &outcome, sql_observation);
-                if let Ok(result) = outcome.as_ref() {
-                    record_semantic_mutation_result(
-                        &capability_for_worker,
-                        semantic_success_for_worker.as_ref(),
-                        result,
-                        observed_at.elapsed(),
-                    );
-                }
-                let _ = finish_public_maintenance_operation(
+                })
+            }));
+            if execution.is_err() {
+                finish_public_maintenance_observed(
                     applications.as_ref(),
                     &operation_id_for_worker,
-                    outcome.as_ref().map_err(String::as_str),
+                    Err("operation_dispatch_panicked"),
                     semantic_success_for_worker.as_ref(),
                     &utc_now_iso8601(),
                 );
-            })
+            }
         });
     if let Err(error) = spawn_result {
         let code = format!("operation_spawn_failed:{error}");
@@ -493,6 +516,38 @@ fn start_public_maintenance_operation(
         return public_maintenance_operation_dto(&row);
     }
     Ok(accepted_dto)
+}
+
+fn finish_public_maintenance_observed(
+    applications: &crate::runtime_production_ports::ProductionApplications,
+    operation_id: &str,
+    outcome: Result<&Value, &str>,
+    semantic_success: Option<&ProductionClientSemanticSuccess>,
+    completed_at: &str,
+) {
+    let first = finish_public_maintenance_operation(
+        applications,
+        operation_id,
+        outcome,
+        semantic_success,
+        completed_at,
+    );
+    if let Err(first_error) = first {
+        thread::yield_now();
+        if let Err(error) = finish_public_maintenance_operation(
+            applications,
+            operation_id,
+            Err(&first_error),
+            semantic_success,
+            &utc_now_iso8601(),
+        ) {
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("operation", "terminal-persist", "failed")
+                    .code(error)
+                    .operation_id(operation_id)
+            });
+        }
+    }
 }
 
 fn emit_query_observation(

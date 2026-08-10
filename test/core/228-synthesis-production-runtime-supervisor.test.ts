@@ -10,6 +10,7 @@ import {
 import { createSynthesisProductionOwner } from "../../src/modules/synthesisProductionOwner";
 import {
   createSynthesisProductionRuntimeSupervisor,
+  narrowSynthesisSidecarHealth,
   type SynthesisSidecarSupervisorStatus,
 } from "../../src/modules/synthesisSidecarRuntimeSupervisor";
 
@@ -106,6 +107,30 @@ async function waitForStatus(
 }
 
 describe("Synthesis production runtime supervisor", function () {
+  it("narrows health to the Workbench runtime status contract", function () {
+    const status = narrowSynthesisSidecarHealth({
+      serviceVersion: "0.1.0",
+      serviceInstanceId: "service-current",
+      bundleId: BUNDLE_ID,
+      computePool: {
+        state: "busy",
+        active: 1,
+        queued: 2,
+        restartCount: 3,
+        failureCount: 1,
+      },
+      repository: { secretPath: "/must/not/escape" },
+    } as never);
+
+    assert.deepEqual(status, {
+      serviceVersion: "0.1.0",
+      serviceInstanceId: "service-current",
+      bundleId: BUNDLE_ID,
+      computePool: { state: "busy", active: 1, queued: 2 },
+    });
+    assert.notProperty(status, "repository");
+  });
+
   it("owns one direct startup and shutdown sequence without lifecycle state machines", async function () {
     const events: string[] = [];
     const connection = {
@@ -242,7 +267,18 @@ describe("Synthesis production runtime supervisor", function () {
         },
       } as never,
       controlClient: {
-        health: async () => ({}),
+        health: async () => ({
+          serviceVersion: "0.1.0",
+          serviceInstanceId: "service-1",
+          bundleId: BUNDLE_ID,
+          computePool: {
+            state: "idle",
+            active: 0,
+            queued: 0,
+            restartCount: 0,
+            failureCount: 0,
+          },
+        }),
         handshake: async () => ({}),
         shutdown: async () => undefined,
       } as never,

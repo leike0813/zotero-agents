@@ -87,6 +87,11 @@ import {
 import { readSynthesisSidecarTraceSnapshot } from "./synthesisSidecarTrace";
 import { openTaskManagerDialog } from "./taskManagerDialog";
 import { isSynthesisLiteratureScoreInvalidationEvent } from "./synthesis/itemObserver";
+import {
+  getSynthesisWorkbenchSidecarStatus,
+  observeSynthesisWorkbenchSidecarStatus,
+  subscribeSynthesisWorkbenchSidecarStatus,
+} from "./synthesisSidecarRuntimeSupervisor";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -184,6 +189,9 @@ type SynthesisWorkbenchRuntime = {
   >;
   graphPageLoop?: Promise<void>;
   cleanedUp?: boolean;
+  sidecarStatusTimer?: ReturnType<typeof setInterval>;
+  sidecarStatusObservationRunning?: boolean;
+  removeSidecarStatusListener?: () => void;
 };
 
 type SurfaceRefreshRequestMeta = {
@@ -238,6 +246,7 @@ const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
+const SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS = 5_000;
 const SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS = 250;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
@@ -578,6 +587,7 @@ function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
   return buildSynthesisUiSnapshot(
     {
       ...input,
+      sidecarStatus: getSynthesisWorkbenchSidecarStatus(),
       actions: actionStatusInput(runtime),
       ...(graph
         ? {
@@ -631,6 +641,41 @@ function markSurfaceDirty(
 
 function registerSynthesisWorkbenchRuntime(runtime: SynthesisWorkbenchRuntime) {
   synthesisWorkbenchRuntimes.add(runtime);
+  runtime.removeSidecarStatusListener =
+    subscribeSynthesisWorkbenchSidecarStatus(() => {
+      if (!runtime.cleanedUp)
+        void sendChrome(runtime, { refreshFromService: false });
+    });
+  const observe = async () => {
+    if (
+      runtime.cleanedUp ||
+      runtime.sidecarStatusObservationRunning ||
+      runtime.frameWindow?.document?.visibilityState === "hidden"
+    ) {
+      return;
+    }
+    runtime.sidecarStatusObservationRunning = true;
+    try {
+      await observeSynthesisWorkbenchSidecarStatus();
+    } finally {
+      runtime.sidecarStatusObservationRunning = false;
+    }
+  };
+  registerBackgroundRefreshTimer({
+    owner: "synthesis-sidecar-workbench-status",
+    activationCondition: "Synthesis Workbench is mounted and foreground",
+    scopeKey: runtime.tabId,
+    allowedDataSources: ["sidecar supervisor snapshot", "sidecar health"],
+    maxReadShape: "bounded lifecycle and compute-pool counters",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS,
+    intervalMs: SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS,
+  });
+  runtime.sidecarStatusTimer = setInterval(
+    () => void observe(),
+    SYNTHESIS_WORKBENCH_SIDECAR_STATUS_INTERVAL_MS,
+  );
+  void observe();
 }
 
 function scheduleLibraryReadModelSurfaceRefresh(
@@ -1088,9 +1133,24 @@ function runWorkbenchCommandOnce(
 async function observePublicMaintenanceOperation(
   client: Pick<SynthesisClient, "maintenance">,
   accepted: SynthesisPublicMaintenanceOperation,
+  options: {
+    deadlineMs?: number;
+    isDisposed?: () => boolean;
+  } = {},
 ): Promise<SynthesisJsonObject> {
   let operation = accepted;
+  const deadline = Date.now() + (options.deadlineMs ?? 31 * 60_000);
   while (operation.status === "pending" || operation.status === "running") {
+    if (options.isDisposed?.()) {
+      throw new Error(
+        `Stopped observing Synthesis maintenance operation ${operation.operation_id}.`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Synthesis maintenance operation ${operation.operation_id} is still running after the observer deadline.`,
+      );
+    }
     await delay(250);
     operation = await client.maintenance.getOperation({
       operation_id: operation.operation_id,
@@ -2566,6 +2626,10 @@ async function recomputeWorkbenchCitationGraphLayout(
           algorithm: layoutAlgorithm,
           ...(force ? { force: true } : {}),
         }),
+        {
+          deadlineMs: 130_000,
+          isDisposed: () => Boolean(runtime.cleanedUp),
+        },
       )) as SynthesisGraphCommandResult,
     );
     runtime.graphLayoutFailure = undefined;
@@ -2576,7 +2640,9 @@ async function recomputeWorkbenchCitationGraphLayout(
         ...basis,
         error,
       });
-      await sendSurface(runtime, "graph", { refreshFromService: false });
+      await sendSurface(runtime, "graph", {
+        refreshFromService: false,
+      }).catch(() => undefined);
     }
     throw error;
   }
@@ -3979,6 +4045,12 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
     runtime.libraryReadModelDirtyTimer = undefined;
   }
   clearCommandProgressPolling(runtime);
+  if (runtime.sidecarStatusTimer) {
+    clearInterval(runtime.sidecarStatusTimer);
+    runtime.sidecarStatusTimer = undefined;
+  }
+  runtime.removeSidecarStatusListener?.();
+  runtime.removeSidecarStatusListener = undefined;
   clearSynthesisWorkbenchBridge(runtime);
   runtime.removeMessageListener?.();
   synthesisWorkbenchRuntimes.delete(runtime);

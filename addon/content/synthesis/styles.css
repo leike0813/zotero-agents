@@ -505,6 +505,108 @@ button.is-busy {
   font-weight: 650;
 }
 
+.topbar-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sidecar-runtime-indicator {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.sidecar-runtime-indicator > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--zs-border);
+  border-radius: 999px;
+  background: var(--zs-panel-subtle);
+  color: var(--zs-text);
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+
+.sidecar-runtime-indicator > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidecar-runtime-indicator > summary:focus-visible {
+  outline: 2px solid var(--zs-accent);
+  outline-offset: 2px;
+}
+
+.sidecar-runtime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--zs-muted);
+}
+
+.sidecar-runtime-indicator.is-ready .sidecar-runtime-dot {
+  background: var(--zs-success);
+}
+
+.sidecar-runtime-indicator.is-busy .sidecar-runtime-dot {
+  background: var(--zs-accent);
+  animation: sidecar-runtime-pulse 1.4s ease-in-out infinite;
+}
+
+.sidecar-runtime-indicator.is-recovering .sidecar-runtime-dot,
+.sidecar-runtime-indicator.is-degraded .sidecar-runtime-dot {
+  background: var(--zs-warning);
+}
+
+.sidecar-runtime-indicator.is-error .sidecar-runtime-dot {
+  background: var(--zs-danger);
+}
+
+.sidecar-runtime-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  width: min(340px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 10px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow-strong);
+}
+
+.sidecar-runtime-indicator[open] .sidecar-runtime-popover,
+.sidecar-runtime-indicator:hover .sidecar-runtime-popover,
+.sidecar-runtime-indicator:focus-within .sidecar-runtime-popover {
+  display: grid;
+  gap: 8px;
+}
+
+.sidecar-runtime-row {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) minmax(0, 1fr);
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+
+@keyframes sidecar-runtime-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidecar-runtime-indicator.is-busy .sidecar-runtime-dot {
+    animation: none;
+  }
+}
+
 .toolbar {
   display: flex;
   align-items: center;

@@ -59,6 +59,22 @@ Unexpected process exit uses bounded in-session restart delays. Every launch
 gets a new session directory and new tokens. Recovery does not inspect legacy
 receipt, admission, activation, pointer, version, owner, or lease files.
 
+The supervisor caches only the bounded health fields needed by Workbench:
+lifecycle/recovery state, stable reason code, observation time, service and
+bundle identity, restart time, and compute-pool state with active/queued counts.
+Workbench may request a coalesced foreground observation every five seconds;
+the supervisor's ordinary health schedule remains independent. A degraded
+compute pool enters the same bounded fail/restart policy as other native health
+failures. Repository paths, canonical roots, credentials, and raw error text
+never enter this projection.
+
+Every detached public maintenance dispatch catches panic and attempts durable
+terminalization. If the first terminal write fails, it is retried once with a
+stable failure code. Promotion checkpoints enforce the persisted deadline, and
+startup reconciliation closes restart orphans; receipt reads remain pure.
+Layout has a 120-second public work deadline, a 90-second direct worker phase,
+and a bounded client observation deadline beyond the public limit.
+
 ## Diagnostics
 
 The plugin has two independent observation planes. Runtime Log is a Host-owned

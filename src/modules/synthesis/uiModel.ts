@@ -6,6 +6,7 @@ import {
   type SynthesisWorkbenchTopicFreshness,
   type SynthesisWorkbenchTopicSourceMaterialsStatus,
   type SynthesisWorkbenchTopicUpdateIntent,
+  type SynthesisWorkbenchSidecarStatus,
 } from "../../../packages/synthesis-contracts/src/index";
 
 export type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
@@ -774,6 +775,7 @@ export type SynthesisUiState = {
 
 export type SynthesisUiSnapshotInput = {
   libraryId: number;
+  sidecarStatus?: SynthesisWorkbenchSidecarStatus;
   actions?: Partial<SynthesisUiActionStatus>;
   maintenance?: {
     summary?: Partial<SynthesisUiMaintenanceSummary>;
@@ -876,6 +878,7 @@ export type SynthesisUiSnapshotInput = {
 export type SynthesisUiSnapshot = {
   libraryId: number;
   selectedTab: SynthesisUiTab;
+  sidecarStatus?: SynthesisWorkbenchSidecarStatus;
   actions: SynthesisUiActionStatus;
   maintenance: {
     summary: SynthesisUiMaintenanceSummary;
@@ -3126,6 +3129,15 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
           ? rawKind
           : ("library_paper" as const);
       const metrics = normalizeGraphNodeMetrics(node.metrics);
+      const externalDegree =
+        typeof node.external_degree === "number"
+          ? Math.max(0, Math.floor(node.external_degree))
+          : undefined;
+      const hoverOnly =
+        node.visibility === "hover_only" ||
+        (kind !== "library_paper" &&
+          externalDegree !== undefined &&
+          externalDegree <= 1);
       return {
         id: cleanString(node.id),
         label: cleanString(node.label) || cleanString(node.id),
@@ -3137,17 +3149,12 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
         x: typeof node.x === "number" ? node.x : undefined,
         y: typeof node.y === "number" ? node.y : undefined,
         low_signal: Boolean(node.low_signal),
-        external_degree:
-          typeof node.external_degree === "number"
-            ? Math.max(0, Math.floor(node.external_degree))
-            : undefined,
-        visibility:
-          node.visibility === "hover_only"
-            ? ("hover_only" as const)
-            : ("default" as const),
-        display_tier:
-          node.display_tier === "shared_external" ||
-          node.display_tier === "single_external"
+        external_degree: externalDegree,
+        visibility: hoverOnly ? ("hover_only" as const) : ("default" as const),
+        display_tier: hoverOnly
+          ? ("single_external" as const)
+          : node.display_tier === "shared_external" ||
+              node.display_tier === "single_external"
             ? node.display_tier
             : kind === "library_paper"
               ? ("library" as const)
@@ -4003,7 +4010,17 @@ export function buildSynthesisUiSnapshot(
   const graphNodeById = new Map(graphNodes.map((node) => [node.id, node]));
   const graphEdgeById = new Map(graphEdges.map((edge) => [edge.id, edge]));
   const normalizedGraphNodes = Array.from(graphNodeById.values());
-  const normalizedGraphEdges = Array.from(graphEdgeById.values());
+  const hoverOnlyGraphNodeIds = new Set(
+    normalizedGraphNodes
+      .filter((node) => node.visibility === "hover_only")
+      .map((node) => node.id),
+  );
+  const normalizedGraphEdges = Array.from(graphEdgeById.values()).map((edge) =>
+    hoverOnlyGraphNodeIds.has(edge.source) ||
+    hoverOnlyGraphNodeIds.has(edge.target)
+      ? { ...edge, visibility: "hover_only" as const }
+      : edge,
+  );
   const hoverOnlyGraphNodes = normalizedGraphNodes.filter(
     (node) => node.visibility === "hover_only",
   );
@@ -4042,6 +4059,9 @@ export function buildSynthesisUiSnapshot(
   return {
     libraryId: Math.max(0, Math.floor(cleanNumber(input.libraryId, 0))),
     selectedTab: normalizeTab(state.selectedTab),
+    ...(input.sidecarStatus
+      ? { sidecarStatus: { ...input.sidecarStatus } }
+      : {}),
     actions: normalizeActionStatus(input.actions),
     maintenance: {
       summary: normalizeMaintenanceSummary(input.maintenance?.summary),
@@ -4415,8 +4435,9 @@ export function applySynthesisUiAction(
             : "all";
       }
       if ("selectedCanonicalRowId" in filters) {
-        next.registry.selectedCanonicalRowId =
-          cleanString(filters.selectedCanonicalRowId) || undefined;
+        const rowId = cleanString(filters.selectedCanonicalRowId);
+        if (rowId) next.registry.selectedCanonicalRowId = rowId;
+        else delete next.registry.selectedCanonicalRowId;
       }
       if ("scope" in filters) {
         next.registry.scope = normalizeRegistryScopeFilter(filters.scope);
@@ -4543,8 +4564,9 @@ export function applySynthesisUiAction(
         next.topicGraph.mode = normalizeTopicGraphMode(filters.mode);
       }
       if ("selectedTopicId" in filters) {
-        next.topicGraph.selectedTopicId =
-          cleanString(filters.selectedTopicId) || undefined;
+        const topicId = cleanString(filters.selectedTopicId);
+        if (topicId) next.topicGraph.selectedTopicId = topicId;
+        else delete next.topicGraph.selectedTopicId;
       }
     }
     if (payload.concepts && typeof payload.concepts === "object") {
@@ -4569,8 +4591,9 @@ export function applySynthesisUiAction(
         next.concepts.overlayEnabled = Boolean(filters.overlayEnabled);
       }
       if ("selectedConceptId" in filters) {
-        next.concepts.selectedConceptId =
-          cleanString(filters.selectedConceptId) || undefined;
+        const conceptId = cleanString(filters.selectedConceptId);
+        if (conceptId) next.concepts.selectedConceptId = conceptId;
+        else delete next.concepts.selectedConceptId;
       }
       if (
         "reviewMergeTargets" in filters &&
@@ -4594,7 +4617,7 @@ export function applySynthesisUiAction(
       }
       if ("topicId" in filters) {
         next.graph.topicId = cleanString(filters.topicId) || "all";
-        next.graph.selectedElement = undefined;
+        delete next.graph.selectedElement;
       }
     }
     return { handled: true, state: next };
@@ -4604,7 +4627,8 @@ export function applySynthesisUiAction(
     const tag = cleanString(payload.tag);
     next.selectedTab = "tags";
     next.reader.previousTab = "tags";
-    next.tags.selectedTag = tag || undefined;
+    if (tag) next.tags.selectedTag = tag;
+    else delete next.tags.selectedTag;
     return { handled: true, state: next };
   }
 
@@ -4616,8 +4640,9 @@ export function applySynthesisUiAction(
       next.topicGraph.search = cleanString(payload.search);
     }
     if ("selectedTopicId" in payload) {
-      next.topicGraph.selectedTopicId =
-        cleanString(payload.selectedTopicId) || undefined;
+      const topicId = cleanString(payload.selectedTopicId);
+      if (topicId) next.topicGraph.selectedTopicId = topicId;
+      else delete next.topicGraph.selectedTopicId;
     }
     return { handled: true, state: next };
   }
@@ -4626,7 +4651,8 @@ export function applySynthesisUiAction(
     const conceptId = cleanString(payload.conceptId);
     next.selectedTab = "concepts";
     next.reader.previousTab = "concepts";
-    next.concepts.selectedConceptId = conceptId || undefined;
+    if (conceptId) next.concepts.selectedConceptId = conceptId;
+    else delete next.concepts.selectedConceptId;
     return { handled: true, state: next };
   }
 
@@ -4651,7 +4677,7 @@ export function applySynthesisUiAction(
     }
     if ("topicId" in payload) {
       next.graph.topicId = cleanString(payload.topicId) || "all";
-      next.graph.selectedElement = undefined;
+      delete next.graph.selectedElement;
     }
     if (Array.isArray(payload.nodeKinds)) {
       const allowed: SynthesisUiGraphNode["kind"][] = [
@@ -4676,9 +4702,9 @@ export function applySynthesisUiAction(
       );
     }
     if ("selectedElement" in payload) {
-      next.graph.selectedElement = normalizeSelectedElement(
-        payload.selectedElement,
-      );
+      const selectedElement = normalizeSelectedElement(payload.selectedElement);
+      if (selectedElement) next.graph.selectedElement = selectedElement;
+      else delete next.graph.selectedElement;
     }
     if ("neighborhoodDepth" in payload) {
       next.graph.neighborhoodDepth = Math.max(

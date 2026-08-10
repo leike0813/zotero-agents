@@ -4,7 +4,9 @@ import {
   rebuildSynthesisProductionDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
   type SynthesisProductionDiscovery,
+  type SynthesisProductionHealth,
   type SynthesisSidecarObservationEvent,
+  type SynthesisWorkbenchSidecarStatus,
 } from "../../packages/synthesis-contracts/src";
 import { sha256Hex } from "../platform/hash";
 import { joinPath } from "../utils/path";
@@ -57,10 +59,34 @@ export type SynthesisSidecarSupervisorSnapshot = {
   supervisorInstanceId?: string;
   serviceInstanceId?: string;
   bundleId?: string;
+  serviceVersion?: string;
+  healthObservedAt?: string;
+  computePool?: SynthesisWorkbenchSidecarStatus["computePool"];
   restartCount: number;
   readyAt?: string;
   nextRestartAt?: string;
 };
+
+export function narrowSynthesisSidecarHealth(
+  health: Pick<
+    SynthesisProductionHealth,
+    "serviceVersion" | "serviceInstanceId" | "bundleId" | "computePool"
+  >,
+) {
+  return {
+    serviceVersion: health.serviceVersion,
+    serviceInstanceId: health.serviceInstanceId,
+    bundleId: health.bundleId,
+    computePool: {
+      state: health.computePool.state,
+      active: health.computePool.active,
+      queued: health.computePool.queued,
+    },
+  } satisfies Pick<
+    SynthesisWorkbenchSidecarStatus,
+    "serviceVersion" | "serviceInstanceId" | "bundleId" | "computePool"
+  >;
+}
 
 type ReverseHostLocator = {
   host: "127.0.0.1";
@@ -478,7 +504,15 @@ export function createSynthesisProductionRuntimeSupervisor(
         return;
       }
       try {
-        await controlClient.health(current.connection);
+        const health = await controlClient.health(current.connection);
+        publish({
+          ...narrowSynthesisSidecarHealth(health),
+          healthObservedAt: new Date(now()).toISOString(),
+        });
+        if (health.computePool.state === "degraded") {
+          await fail("sidecar_compute_pool_degraded", current);
+          return;
+        }
         scheduleHealth(current);
       } catch {
         await fail("sidecar_health_failed", current);
@@ -590,7 +624,7 @@ export function createSynthesisProductionRuntimeSupervisor(
         clientToken: config.clientToken,
         lifecycleToken: config.lifecycleToken,
       };
-      await controlClient.health(connection);
+      const health = await controlClient.health(connection);
       await controlClient.handshake(connection);
       current.connection = connection;
       publish({
@@ -599,8 +633,8 @@ export function createSynthesisProductionRuntimeSupervisor(
         reasonCode: undefined,
         profileId,
         supervisorInstanceId,
-        serviceInstanceId: discovery.serviceInstanceId,
-        bundleId: discovery.bundleId,
+        ...narrowSynthesisSidecarHealth(health),
+        healthObservedAt: new Date(now()).toISOString(),
         readyAt: new Date(now()).toISOString(),
         nextRestartAt: undefined,
       });
@@ -634,6 +668,9 @@ export function createSynthesisProductionRuntimeSupervisor(
       supervisorInstanceId: undefined,
       serviceInstanceId: undefined,
       bundleId: undefined,
+      serviceVersion: undefined,
+      healthObservedAt: undefined,
+      computePool: undefined,
       readyAt: undefined,
       nextRestartAt: undefined,
       restartCount: 0,
@@ -679,6 +716,29 @@ export function createSynthesisProductionRuntimeSupervisor(
       return snapshot.status === "ready" && session?.connection
         ? { ...session.connection }
         : null;
+    },
+    async observeHealth() {
+      const current = session;
+      if (
+        snapshot.status !== "ready" ||
+        !current?.connection ||
+        controlledStop
+      ) {
+        return { ...snapshot };
+      }
+      try {
+        const health = await controlClient.health(current.connection);
+        publish({
+          ...narrowSynthesisSidecarHealth(health),
+          healthObservedAt: new Date(now()).toISOString(),
+        });
+        if (health.computePool.state === "degraded") {
+          await fail("sidecar_compute_pool_degraded", current);
+        }
+      } catch {
+        await fail("sidecar_health_failed", current);
+      }
+      return { ...snapshot };
     },
   };
 }
@@ -759,6 +819,60 @@ export async function stopSynthesisProductionRuntimeSupervisor() {
 
 export function getReadySynthesisProductionControlConnection() {
   return productionSupervisor?.getReadyConnection() ?? null;
+}
+
+function workbenchSidecarStatus(
+  value: SynthesisSidecarSupervisorSnapshot | undefined,
+): SynthesisWorkbenchSidecarStatus {
+  const snapshot = value || {
+    status: "stopped" as const,
+    recoveryState: "none" as const,
+    restartCount: 0,
+  };
+  return {
+    lifecycle: snapshot.status,
+    recoveryState: snapshot.recoveryState,
+    ...(snapshot.reasonCode ? { reasonCode: snapshot.reasonCode } : {}),
+    ...(snapshot.healthObservedAt
+      ? { healthObservedAt: snapshot.healthObservedAt }
+      : {}),
+    ...(snapshot.serviceInstanceId
+      ? { serviceInstanceId: snapshot.serviceInstanceId }
+      : {}),
+    ...(snapshot.serviceVersion
+      ? { serviceVersion: snapshot.serviceVersion }
+      : {}),
+    ...(snapshot.bundleId ? { bundleId: snapshot.bundleId } : {}),
+    ...(snapshot.nextRestartAt
+      ? { nextRestartAt: snapshot.nextRestartAt }
+      : {}),
+    ...(snapshot.computePool
+      ? { computePool: { ...snapshot.computePool } }
+      : {}),
+  };
+}
+
+export function getSynthesisWorkbenchSidecarStatus() {
+  return workbenchSidecarStatus(
+    productionSupervisor?.getSnapshot() ?? defaultSupervisor?.getSnapshot(),
+  );
+}
+
+export function subscribeSynthesisWorkbenchSidecarStatus(
+  subscriber: (value: SynthesisWorkbenchSidecarStatus) => void,
+) {
+  const supervisor = productionSupervisor ?? defaultSupervisor;
+  if (!supervisor) return () => undefined;
+  subscriber(workbenchSidecarStatus(supervisor.getSnapshot()));
+  return supervisor.subscribe((snapshot) =>
+    subscriber(workbenchSidecarStatus(snapshot)),
+  );
+}
+
+export async function observeSynthesisWorkbenchSidecarStatus() {
+  const supervisor = productionSupervisor ?? defaultSupervisor;
+  if (supervisor) await supervisor.observeHealth();
+  return getSynthesisWorkbenchSidecarStatus();
 }
 
 export async function resetSynthesisSidecarRuntimeSupervisorForTests() {

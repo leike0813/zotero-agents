@@ -132,3 +132,26 @@ The native Review surface SHALL publish Reference content through `registry`, Co
 - **WHEN** a review mutation commits or returns a structured diagnostic
 - **THEN** the affected Review and domain surfaces are invalidated with their existing scopes
 - **AND** an active Review reread reflects the canonical state without rebuilding an unrelated index
+
+### Requirement: Workbench state SHALL remain JSON-safe after optional selections clear
+
+Workbench reducers SHALL omit cleared optional selection properties, and native composition SHALL construct a JSON-safe read state without weakening strict JSON validation. Recovery rendering MUST preserve the primary command failure when a secondary refresh also fails.
+
+#### Scenario: Graph selection is cleared during layout recovery
+- **WHEN** a selected graph element is cleared by a topic change, stage click, or layout action
+- **THEN** the serialized Workbench state omits `selectedElement`
+- **AND** later Graph, Concept, Topic, and Review operations remain callable
+
+### Requirement: Workbench SHALL expose bounded sidecar runtime status
+
+The Workbench top bar SHALL expose a focusable runtime indicator derived from the supervisor lifecycle and bounded health fields. Foreground health observation SHALL be coalesced and stopped when hidden or disposed. Detailed diagnostics or logs MUST NOT be fetched until the user explicitly opens diagnostics.
+
+#### Scenario: Sidecar is ready and computing
+- **WHEN** lifecycle is ready and the compute pool has active or queued work
+- **THEN** the indicator reports busy and its detail view shows bounded active and queued counts
+- **AND** Graph content DOM is not rebuilt solely for the status update
+
+#### Scenario: Compute pool becomes degraded
+- **WHEN** the worker pool exhausts its replacement budget
+- **THEN** the indicator reports degraded while the supervisor enters bounded recovery
+- **AND** no secret, path, log body, or repository state appears in the status DTO

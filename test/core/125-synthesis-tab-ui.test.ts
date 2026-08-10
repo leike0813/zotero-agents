@@ -22,6 +22,7 @@ import {
   createSynthesisWorkbenchGraphLayoutFailure,
   resolveSynthesisWorkbenchGraphLayoutStatus,
   selectSynthesisWorkbenchGraphLayoutFailure,
+  toSynthesisWorkbenchReadState,
 } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   continueSynthesisCitationGraphWindow,
@@ -1842,6 +1843,11 @@ describe("Synthesis tab UI model", function () {
       payload: { selectedElement: null },
     });
     assert.isUndefined(cleared.state.graph.selectedElement);
+    assert.isFalse(Object.hasOwn(cleared.state.graph, "selectedElement"));
+    assert.notProperty(
+      toSynthesisWorkbenchReadState(cleared.state).graph,
+      "selectedElement",
+    );
   });
 
   it("tracks the internal artifact reader view and selected topic", function () {
@@ -2038,6 +2044,21 @@ describe("Synthesis tab UI model", function () {
       },
     };
 
+    input.graph.nodes.push({
+      id: "lit:misclassified-single",
+      label: "Misclassified Single",
+      kind: "external_reference",
+      visibility: "default",
+      display_tier: "shared_external",
+      external_degree: 1,
+    });
+    input.graph.edges.push({
+      id: "e-misclassified-single",
+      source: "paper:a",
+      target: "lit:misclassified-single",
+      visibility: "default",
+    });
+
     const defaultSnapshot = buildSynthesisUiSnapshot(
       input,
       createDefaultSynthesisUiState(),
@@ -2058,7 +2079,7 @@ describe("Synthesis tab UI model", function () {
     assert.deepEqual(defaultSnapshot.graph.visibleEdges, []);
     assert.deepEqual(
       defaultSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
-      ["lit:single"],
+      ["lit:misclassified-single", "lit:single"],
     );
     assert.deepEqual(
       searchedSnapshot.graph.visibleNodes.map((node) => node.id),
@@ -2067,11 +2088,11 @@ describe("Synthesis tab UI model", function () {
     assert.deepEqual(searchedSnapshot.graph.visibleEdges, []);
     assert.deepEqual(
       searchedSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
-      ["lit:single"],
+      ["lit:misclassified-single", "lit:single"],
     );
     assert.deepEqual(
       searchedSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
-      ["e-single"],
+      ["e-misclassified-single", "e-single"],
     );
   });
 
@@ -4963,10 +4984,16 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "graph-selection-drawer");
     assert.include(source, "graph.selection");
     assert.include(source, "snapshot.graph.hoverOnlyEdges");
-    assert.notInclude(
+    assert.include(
       source,
       "snapshot.graph.hoverOnlyNodes.map((node) => [node.id, node])",
     );
+    assert.include(source, "state.dynamicHoverNodeIds.add");
+    assert.include(source, "state.dynamicHoverEdgeIds.add");
+    assert.include(source, "graph.dropEdge");
+    assert.include(source, "graph.dropNode");
+    assert.include(source, "sidecar-runtime-indicator");
+    assert.include(css, ".sidecar-runtime-indicator");
     assert.include(source, "enableEdgeEvents: false");
     assert.include(source, "zIndex: true");
     assert.include(source, "function graphNodeZIndex");

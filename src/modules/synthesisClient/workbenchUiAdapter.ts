@@ -185,21 +185,40 @@ export function toSynthesisWorkbenchReadState(
     expectedGraphHash?: string;
   },
 ): SynthesisWorkbenchReadState {
+  const omitUndefinedObjectProperties = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(omitUndefinedObjectProperties);
+    }
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Object.getPrototypeOf(value) !== Object.prototype
+    ) {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, omitUndefinedObjectProperties(entry)]),
+    );
+  };
   return toSynthesisJsonObject(
-    options
-      ? {
-          ...state,
-          graph: {
-            ...state.graph,
-            ...(options.graphWindowCursor
-              ? { windowCursor: options.graphWindowCursor }
-              : {}),
-            ...(options.expectedGraphHash
-              ? { expectedGraphHash: options.expectedGraphHash }
-              : {}),
-          },
-        }
-      : state,
+    omitUndefinedObjectProperties(
+      options
+        ? {
+            ...state,
+            graph: {
+              ...state.graph,
+              ...(options.graphWindowCursor
+                ? { windowCursor: options.graphWindowCursor }
+                : {}),
+              ...(options.expectedGraphHash
+                ? { expectedGraphHash: options.expectedGraphHash }
+                : {}),
+            },
+          }
+        : state,
+    ),
     "$.workbench.state",
   );
 }
