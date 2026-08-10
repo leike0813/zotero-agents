@@ -87,6 +87,91 @@ fn dispatch_typed_client(
     Err("operation_unavailable".into())
 }
 
+fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Value, String> {
+    use crate::runtime_artifact_library_debug::{ArtifactExportDestination, ArtifactExportPlan};
+
+    let ArtifactExportPlan {
+        mut response,
+        entries,
+        destination,
+    } = crate::runtime_artifact_library_debug::rebuild_export_plan(result)?;
+    let entry_count = entries
+        .as_array()
+        .map(Vec::len)
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let transfer_now_ms = current_time_ms()?;
+    let published = state
+        .transfer
+        .lock()
+        .map_err(|_| "transfer_unavailable".to_owned())?
+        .publish_host_export_entries(
+            "paper_artifacts.export_filtered",
+            &json!({"entries":entries}),
+            transfer_now_ms,
+        )?;
+    let session_id = published.session_id;
+    let content_transfer = json!({
+        "sessionId":session_id,
+        "rootSha256":published.root_sha256,
+    });
+    let delivery = match &destination {
+        ArtifactExportDestination::RunWorkspace { run_root } => state.applications.call_host(
+            "delivery.export.materialize_run_workspace",
+            json!({
+                "capability":"paper_artifacts.export_filtered",
+                "runRoot":run_root,
+                "contentTransfer":content_transfer,
+            }),
+        ),
+        ArtifactExportDestination::Archive { display_name } => state.applications.call_host(
+            "delivery.export.publish_archive",
+            json!({
+                "capability":"paper_artifacts.export_filtered",
+                "displayName":display_name,
+                "contentTransfer":content_transfer,
+            }),
+        ),
+    };
+    let cleanup = state
+        .transfer
+        .lock()
+        .map_err(|_| "transfer_unavailable".to_owned())?
+        .handle_content(
+            json!({"action":"cancel","sessionId":session_id}),
+            transfer_now_ms,
+        );
+    let delivery = delivery?;
+    cleanup?;
+    match destination {
+        ArtifactExportDestination::RunWorkspace { .. } => {
+            if delivery.get("status").and_then(Value::as_str) != Some("materialized")
+                || delivery.get("capability").and_then(Value::as_str)
+                    != Some("paper_artifacts.export_filtered")
+                || delivery.get("entryCount").and_then(Value::as_u64) != Some(entry_count as u64)
+            {
+                return Err("reverse_host_result_invalid".into());
+            }
+        }
+        ArtifactExportDestination::Archive { display_name } => {
+            if delivery.get("status").and_then(Value::as_str) != Some("available")
+                || delivery.get("capability").and_then(Value::as_str)
+                    != Some("paper_artifacts.export_filtered")
+                || delivery
+                    .pointer("/delivery/bundle/displayName")
+                    .and_then(Value::as_str)
+                    != Some(display_name.as_str())
+            {
+                return Err("unavailable".into());
+            }
+            response["delivery"] = delivery
+                .get("delivery")
+                .cloned()
+                .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        }
+    }
+    Ok(response)
+}
+
 pub(crate) fn dispatch_production_client(
     state: &Arc<ServeState>,
     request_id: &str,
@@ -156,7 +241,13 @@ pub(crate) fn dispatch_production_client(
                         &operation_args,
                     )
                 } else {
-                    dispatch_typed_client(&state.applications, capability, &operation_args)
+                    let result =
+                        dispatch_typed_client(&state.applications, capability, &operation_args)?;
+                    if capability == "client.exportFilteredPaperArtifacts" {
+                        dispatch_artifact_export(state, result)
+                    } else {
+                        Ok(result)
+                    }
                 }
             },
         )

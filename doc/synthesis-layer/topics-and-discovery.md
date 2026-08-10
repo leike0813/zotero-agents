@@ -61,9 +61,11 @@ The topic update action is always labeled `Update` in the UI. Its intent may sti
 
 ### Persisted Artifact State
 
-Topic source readiness is persisted in `sidecar/artifact-state.json` under `data.topics[*].source_materials_status`. New writes must not write the old topic-row `coverage` field for source readiness.
+The native Topic application owns source readiness in the Topic projection row in `state/synthesis.db`. The projection records the saved/current paper refs, the required `digest`, `references`, and `citation_analysis` availability and hashes, the baseline/current dependency hashes, and scan timestamps. `freshness`, `source_materials_status`, and `source_materials_percent` are derived from those facts for Home and Topics; they are not independent facts and are not supplied by Workbench defaults.
 
-Legacy artifact-state rows may contain `data.topics[*].coverage` from before the hard cut. Readers may map that legacy value to `source_materials_status` during migration or compatibility reads, but the next persisted state should contain only `source_materials_status`.
+Topic apply establishes a new baseline after the Topic aggregate commits. Bounded Topic reads compare current Reference artifact facts with that baseline without writing repository state. Existing Topic rows that predate the native readiness projection use the current complete dependency set as a deterministic read-only baseline; incomplete evidence is reported as dirty with `readiness_baseline_missing` until the next successful Topic apply establishes a persisted baseline.
+
+`sidecar/artifact-state.json` is legacy migration input only. Production Workbench and Topic update routing do not read or write it.
 
 This migration applies only to topic source readiness read-model state. It must not rename or rewrite:
 

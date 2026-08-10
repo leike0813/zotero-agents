@@ -1,5 +1,11 @@
 import { assert } from "chai";
-import { SYNTHESIS_REVERSE_HOST_CAPABILITIES } from "../../packages/synthesis-contracts/src";
+import {
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+  SYNTHESIS_REVERSE_HOST_CAPABILITIES,
+  canonicalizeSynthesisContractJsonArtifact,
+  hashSynthesisContractCanonicalJson,
+} from "../../packages/synthesis-contracts/src";
 import {
   createScopedSynthesisReverseHostHandlers,
   createSynthesisReverseHostHandlers,
@@ -12,6 +18,35 @@ describe("Synthesis reverse Host handlers", function () {
       calls.push(name);
       return Promise.resolve({});
     };
+    const entries = [
+      {
+        path: "runtime/payloads/paper-artifacts-manifest.json",
+        text: "{}\n",
+      },
+    ];
+    const content = canonicalizeSynthesisContractJsonArtifact({ entries });
+    const rows = [content.text];
+    const pageArtifact = canonicalizeSynthesisContractJsonArtifact(rows);
+    const descriptor = {
+      kind: "content",
+      pageIndex: 0,
+      rowCount: 1,
+      byteLength: pageArtifact.byteLength,
+      sha256: pageArtifact.sha256,
+    };
+    const manifestBody = {
+      transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+      encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+      direction: "output" as const,
+      header: {
+        target: "host_export_entries",
+        capability: "paper_artifacts.export_filtered",
+        byteLength: content.byteLength,
+        sha256: hashSynthesisContractCanonicalJson(content.text),
+      },
+      pages: [descriptor],
+    };
+    const rootSha256 = hashSynthesisContractCanonicalJson(manifestBody);
     const handlers = createSynthesisReverseHostHandlers({
       hostReadPort: {
         library: {
@@ -25,6 +60,9 @@ describe("Synthesis reverse Host handlers", function () {
       },
       exportDeliveryPort: {
         publishArchive: () => result("delivery.publishArchive") as never,
+      },
+      runWorkspaceMaterializationPort: {
+        materialize: () => result("workspace.materialize") as never,
       },
       representativeImagePort: {
         read: () => result("image.read") as never,
@@ -43,6 +81,28 @@ describe("Synthesis reverse Host handlers", function () {
         readText: () => result("webdav.readText") as never,
         writeText: () => result("webdav.writeText") as never,
         ensureCollection: () => result("webdav.ensureCollection") as never,
+      },
+      exportTransfer: {
+        getConnection: () => ({
+          baseUrl: "http://127.0.0.1:1",
+          profileId: "profile",
+          clientToken: "token",
+          serviceInstanceId: "service",
+        }),
+        rpcClient: {
+          async call({ payload }: any) {
+            if (payload.action === "get_output_manifest") {
+              return { ...manifestBody, rootSha256 };
+            }
+            if (payload.action === "get_output_page") {
+              return { descriptor, rows };
+            }
+            if (payload.action === "cancel") {
+              return { canceled: true };
+            }
+            throw new Error("unexpected transfer action");
+          },
+        },
       },
     });
     assert.deepEqual(
@@ -63,13 +123,98 @@ describe("Synthesis reverse Host handlers", function () {
       {} as never,
     );
     await handlers["webdav.describe"]({}, {} as never);
+    await handlers["delivery.export.materialize_run_workspace"](
+      {
+        capability: "paper_artifacts.export_filtered",
+        runRoot: "/runtime/acp/skill-runs/acp-skill-test",
+        contentTransfer: {
+          sessionId: "native-transfer:1",
+          rootSha256,
+        },
+      },
+      {} as never,
+    );
     assert.deepEqual(calls, [
       "library.listItemsPage",
       "library.getItemsByRef",
       "artifacts.scanPage",
       "artifacts.read",
       "webdav.describe",
+      "workspace.materialize",
     ]);
+  });
+
+  it("rejects an invalid export transfer before any delivery write", async function () {
+    let deliveryCalls = 0;
+    const handlers = createSynthesisReverseHostHandlers({
+      hostReadPort: {} as never,
+      exportDeliveryPort: {
+        async publishArchive() {
+          deliveryCalls += 1;
+          return {} as never;
+        },
+      },
+      runWorkspaceMaterializationPort: {
+        async materialize() {
+          deliveryCalls += 1;
+          return {} as never;
+        },
+      },
+      representativeImagePort: {} as never,
+      relatedItemsEffectPort: {} as never,
+      stagedTagBindingPort: {} as never,
+      tagEffectPort: {} as never,
+      webDavPort: {} as never,
+      exportTransfer: {
+        getConnection: () => ({
+          baseUrl: "http://127.0.0.1:1",
+          profileId: "profile",
+          clientToken: "token",
+          serviceInstanceId: "service",
+        }),
+        rpcClient: {
+          async call({ payload }: any) {
+            if (payload.action === "get_output_manifest") {
+              return {
+                transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+                encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+                direction: "output",
+                header: {
+                  target: "host_export_entries",
+                  capability: "paper_artifacts.export_filtered",
+                  byteLength: 2,
+                  sha256: `sha256:${"a".repeat(64)}`,
+                },
+                pages: [],
+                rootSha256: `sha256:${"b".repeat(64)}`,
+              };
+            }
+            if (payload.action === "cancel") {
+              return { canceled: true };
+            }
+            throw new Error("unexpected transfer action");
+          },
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await handlers["delivery.export.materialize_run_workspace"](
+        {
+          capability: "paper_artifacts.export_filtered",
+          runRoot: "/runtime/acp/skill-runs/acp-skill-test",
+          contentTransfer: {
+            sessionId: "native-transfer:bad",
+            rootSha256: `sha256:${"c".repeat(64)}`,
+          },
+        },
+        {} as never,
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert.exists(failure);
+    assert.equal(deliveryCalls, 0);
   });
 
   it("rejects undeclared payload authority before calling a Host port", async function () {
@@ -89,6 +234,7 @@ describe("Synthesis reverse Host handlers", function () {
         },
       },
       exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
       representativeImagePort: {} as never,
       relatedItemsEffectPort: {} as never,
       stagedTagBindingPort: {} as never,
@@ -147,6 +293,7 @@ describe("Synthesis reverse Host handlers", function () {
         },
       },
       exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
       representativeImagePort: {} as never,
       relatedItemsEffectPort: {} as never,
       stagedTagBindingPort: {} as never,

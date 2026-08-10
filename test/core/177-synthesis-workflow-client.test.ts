@@ -129,6 +129,10 @@ describe("Synthesis workflow client migration", function () {
     ]);
     assert.deepEqual(changes, [
       {
+        reason: "topic_synthesis_apply",
+        invalidatedSurfaces: ["home", "topics", "concepts", "graph", "review"],
+      },
+      {
         reason: "tag_vocabulary_save",
         invalidatedSurfaces: ["tags"],
       },
@@ -225,9 +229,13 @@ describe("Synthesis workflow client migration", function () {
       request.assets.map((asset) => asset.id),
       ["asset/0001", "asset/0002", "asset/0003"],
     );
+    assert.notProperty(request.bundle, "analysis_manifest_path");
+    assert.notProperty(request.bundle, "resolver_manifest_path");
     assert.notInclude(JSON.stringify(request), "result/");
-    assert.include(request.assets[0]?.text || "", "asset/0002");
-    assert.include(request.assets[0]?.text || "", "asset/0003");
+    assert.deepEqual(JSON.parse(request.assets[0]?.text || "{}"), {
+      analysis_manifest: "asset/0002",
+      resolver_manifest: "asset/0003",
+    });
   });
 
   it("consumes ACP absolute paths without crossing them into the client request", async function () {

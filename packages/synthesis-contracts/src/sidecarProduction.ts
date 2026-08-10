@@ -52,6 +52,7 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
   "library.artifacts.read",
   "library.representative_image.read",
   "delivery.export.publish_archive",
+  "delivery.export.materialize_run_workspace",
   "webdav.describe",
   "webdav.read_text",
   "webdav.write_text",
@@ -73,27 +74,35 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
     callTimeoutMs: 10_000,
   }),
+  "delivery.export.publish_archive": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: 30_000,
+  }),
+  "delivery.export.materialize_run_workspace": Object.freeze({
+    responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
+    callTimeoutMs: 30_000,
+  }),
 });
+
+function reverseHostCapabilityPolicy(capability: string | undefined) {
+  return capability && capability in SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES
+    ? SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES[
+        capability as keyof typeof SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES
+      ]
+    : undefined;
+}
 
 export function synthesisReverseHostResponseBodyLimit(
   capability: string | undefined,
 ) {
-  const policy =
-    capability === "library.artifacts.scan_page" ||
-    capability === "library.artifacts.read"
-      ? SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES[capability]
-      : undefined;
+  const policy = reverseHostCapabilityPolicy(capability);
   return (
     policy?.responseBodyBytes ?? SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes
   );
 }
 
 export function synthesisReverseHostCallTimeoutMs(capability: string) {
-  const policy =
-    capability === "library.artifacts.scan_page" ||
-    capability === "library.artifacts.read"
-      ? SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES[capability]
-      : undefined;
+  const policy = reverseHostCapabilityPolicy(capability);
   return policy?.callTimeoutMs ?? SYNTHESIS_REVERSE_HOST_LIMITS.callTimeoutMs;
 }
 

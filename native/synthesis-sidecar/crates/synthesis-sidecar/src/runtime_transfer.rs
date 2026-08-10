@@ -18,9 +18,10 @@ const CONTENT_TRANSFER_VERSION: &str = "synthesis-production-content-transfer.v1
 const CONTENT_TRANSFER_ENCODING: &str = "canonical_json_text_chunks.v1";
 const MAX_SESSIONS: usize = 2;
 const MAX_PAGE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_DIRECTION_PAGES: usize = 256;
 const MAX_DIRECTION_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_SERVICE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-const CONTENT_CHUNK_TARGET_BYTES: usize = 48 * 1024;
+const CONTENT_CHUNK_TARGET_BYTES: usize = 416 * 1024;
 const IDLE_TTL_MS: u64 = 5 * 60 * 1000;
 const ABSOLUTE_TTL_MS: u64 = 30 * 60 * 1000;
 
@@ -55,6 +56,11 @@ pub(crate) struct NativeTransferOwner {
     next_id: u64,
     stopping: bool,
     service_bytes: Arc<AtomicU64>,
+}
+
+pub(crate) struct PublishedContentTransfer {
+    pub(crate) session_id: String,
+    pub(crate) root_sha256: String,
 }
 
 pub(crate) enum TransferDispatch {
@@ -365,12 +371,13 @@ impl NativeTransferOwner {
         Ok(result)
     }
 
-    pub(crate) fn publish_client_result(
+    fn publish_content(
         &mut self,
+        target: &str,
         capability: &str,
         result: &Value,
         now_ms: u64,
-    ) -> Result<Value, String> {
+    ) -> Result<PublishedContentTransfer, String> {
         self.reap(now_ms);
         if self.stopping {
             return Err("transfer_stopping".to_owned());
@@ -378,11 +385,20 @@ impl NativeTransferOwner {
         if self.sessions.len() >= MAX_SESSIONS {
             return Err("transfer_busy".to_owned());
         }
-        if !capability.starts_with("client.") || capability.len() > 128 {
+        let valid_identity = match target {
+            "production_client_result" => capability.starts_with("client."),
+            "host_export_entries" => capability == "paper_artifacts.export_filtered",
+            _ => false,
+        };
+        if !valid_identity || capability.len() > 128 {
             return Err("invalid_request".to_owned());
         }
         let content = canonical_json(result).map_err(|_| "production_projection_invalid")?;
         if content.len() as u64 > MAX_DIRECTION_BYTES {
+            return Err("transfer_limit_exceeded".to_owned());
+        }
+        let content_chunks = content_text_chunks(&content);
+        if content_chunks.len() > MAX_DIRECTION_PAGES {
             return Err("transfer_limit_exceeded".to_owned());
         }
         let id = format!("native-transfer:{}", self.next_id);
@@ -394,7 +410,7 @@ impl NativeTransferOwner {
         let published = (|| {
             let mut output_pages = BTreeMap::new();
             let mut output_descriptors = Vec::new();
-            for (page_index, chunk) in content_text_chunks(&content).into_iter().enumerate() {
+            for (page_index, chunk) in content_chunks.into_iter().enumerate() {
                 let rows = json!([chunk]);
                 let canonical_rows = canonical_json(&rows)
                     .map_err(|_| "production_projection_invalid".to_owned())?;
@@ -436,7 +452,7 @@ impl NativeTransferOwner {
                 "encoding":CONTENT_TRANSFER_ENCODING,
                 "direction":"output",
                 "header":{
-                    "target":"production_client_result",
+                    "target":target,
                     "capability":capability,
                     "byteLength":content.len(),
                     "sha256":canonical_sha256(&content)
@@ -476,7 +492,7 @@ impl NativeTransferOwner {
             "transferVersion":CONTENT_TRANSFER_VERSION,
             "encoding":CONTENT_TRANSFER_ENCODING,
             "direction":"input",
-            "header":{"target":"production_client_result"},
+            "header":{"target":target},
             "pages":[],
         });
         let mut input_manifest = input_body.clone();
@@ -490,7 +506,12 @@ impl NativeTransferOwner {
                         .map_err(|_| "production_projection_invalid".to_owned())?,
                 ),
             );
-        let idempotency_key = format!("result:{id}");
+        let idempotency_key = format!("content:{target}:{id}");
+        let root_sha256 = output_manifest
+            .get("rootSha256")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .to_owned();
         self.idempotency.insert(idempotency_key.clone(), id.clone());
         self.sessions.insert(
             id.clone(),
@@ -512,7 +533,30 @@ impl NativeTransferOwner {
                 canceled: Arc::new(AtomicBool::new(false)),
             },
         );
-        Ok(json!({"contentTransfer":{"sessionId":id}}))
+        Ok(PublishedContentTransfer {
+            session_id: id,
+            root_sha256,
+        })
+    }
+
+    pub(crate) fn publish_client_result(
+        &mut self,
+        capability: &str,
+        result: &Value,
+        now_ms: u64,
+    ) -> Result<Value, String> {
+        let published =
+            self.publish_content("production_client_result", capability, result, now_ms)?;
+        Ok(json!({"contentTransfer":{"sessionId":published.session_id}}))
+    }
+
+    pub(crate) fn publish_host_export_entries(
+        &mut self,
+        capability: &str,
+        entries: &Value,
+        now_ms: u64,
+    ) -> Result<PublishedContentTransfer, String> {
+        self.publish_content("host_export_entries", capability, entries, now_ms)
     }
 
     fn begin(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
@@ -1046,7 +1090,7 @@ fn descriptors_direction(
         && manifest["encoding"] == CONTENT_TRANSFER_ENCODING
         && matches!(
             manifest["header"]["target"].as_str(),
-            Some("topic_apply_assets" | "production_client_result")
+            Some("topic_apply_assets" | "production_client_result" | "host_export_entries")
         );
     if object.len() != 6
         || [
@@ -1442,7 +1486,7 @@ mod tests {
         let root = temporary_root("client-result");
         let mut owner = NativeTransferOwner::new(&root).expect("owner");
         let result =
-            json!({"artifacts":[{"payload":"x".repeat(100_000)}],"diagnostics":[],"total":1});
+            json!({"artifacts":[{"payload":"x".repeat(900_000)}],"diagnostics":[],"total":1});
         let locator = owner
             .publish_client_result("client.readPaperArtifacts", &result, 10)
             .expect("publish result");
@@ -1486,6 +1530,36 @@ mod tests {
             serde_json::from_str::<Value>(&content).expect("json"),
             result
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publishes_and_cancels_hash_bound_host_export_entries() {
+        let root = temporary_root("host-export-entries");
+        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let content = json!({
+            "entries":[
+                {"path":"runtime/payloads/paper-artifacts-manifest.json","text":"{}\n"},
+                {"path":"runtime/payloads/artifacts/1_TEST/references.json","text":"x".repeat(100_000)},
+            ]
+        });
+        let reference = owner
+            .publish_host_export_entries("paper_artifacts.export_filtered", &content, 10)
+            .expect("publish export entries");
+        let session_id = reference.session_id.as_str();
+        let root_sha256 = reference.root_sha256.as_str();
+        let manifest = owner
+            .handle_content(
+                json!({"action":"get_output_manifest","sessionId":session_id}),
+                11,
+            )
+            .expect("manifest");
+        assert_eq!(manifest["header"]["target"], "host_export_entries");
+        assert_eq!(manifest["rootSha256"], root_sha256);
+        owner
+            .handle_content(json!({"action":"cancel","sessionId":session_id}), 12)
+            .expect("cancel");
+        assert_eq!(owner.snapshot()["sessions"], 0);
         let _ = fs::remove_dir_all(root);
     }
 

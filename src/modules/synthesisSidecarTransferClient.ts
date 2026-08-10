@@ -1,12 +1,23 @@
 import {
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
+  SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
+  rebuildSynthesisSidecarOutputTransferReference,
   rebuildSynthesisSidecarTransferAction,
   rebuildSynthesisSidecarTransferManifest,
   rebuildSynthesisSidecarTransferPage,
   rebuildSynthesisSidecarTransferStatus,
+  type SynthesisSidecarOutputTransferReference,
   type SynthesisSidecarTransferManifest,
   type SynthesisSidecarTransferPage,
   type SynthesisSidecarTransferStatus,
 } from "../../packages/synthesis-contracts/src/sidecarTransfer";
+import {
+  SynthesisClientError,
+  toSynthesisJsonObject,
+  toSynthesisJsonValue,
+  type SynthesisJsonValue,
+} from "../../packages/synthesis-contracts/src/common";
+import { hashSynthesisContractCanonicalJson } from "../../packages/synthesis-contracts/src/canonicalJson";
 import type { SynthesisSidecarErrorCode } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   rebuildSynthesisCitationGraphBuildTransferManifest,
@@ -18,7 +29,7 @@ import {
   type SynthesisSidecarRpcConnection,
 } from "./synthesisSidecarRpcClient";
 
-type TransferRpcClient = Pick<
+export type SynthesisSidecarTransferRpcClient = Pick<
   ReturnType<typeof createSynthesisSidecarRpcClient>,
   "call"
 >;
@@ -37,7 +48,7 @@ export class SynthesisSidecarTransferClientError extends Error {
 }
 
 function createTransferActions(args: {
-  rpc: TransferRpcClient;
+  rpc: SynthesisSidecarTransferRpcClient;
   capability: "compute.citation_graph_build_transfer" | "transfer.content";
   strictManifest(value: unknown): SynthesisSidecarTransferManifest;
   strictPage(value: unknown): SynthesisSidecarTransferPage;
@@ -227,7 +238,7 @@ export function createSynthesisSidecarTransferClient(options?: {
 }
 
 export function createSynthesisSidecarContentTransferClient(options: {
-  rpcClient: TransferRpcClient;
+  rpcClient: SynthesisSidecarTransferRpcClient;
 }) {
   return createTransferActions({
     rpc: options.rpcClient,
@@ -235,4 +246,111 @@ export function createSynthesisSidecarContentTransferClient(options: {
     strictManifest: rebuildSynthesisSidecarTransferManifest,
     strictPage: rebuildSynthesisSidecarTransferPage,
   });
+}
+
+export async function consumeSynthesisSidecarOutputJson(args: {
+  rpcClient: SynthesisSidecarTransferRpcClient;
+  connection: SynthesisSidecarTransferConnection;
+  reference:
+    | SynthesisSidecarOutputTransferReference
+    | { sessionId: string; rootSha256?: string };
+  target: "production_client_result" | "host_export_entries";
+  capability: string;
+  cancelAfterRead?: boolean;
+}): Promise<SynthesisJsonValue> {
+  const reference =
+    args.reference.rootSha256 === undefined
+      ? args.reference
+      : rebuildSynthesisSidecarOutputTransferReference(args.reference);
+  const client = createSynthesisSidecarContentTransferClient({
+    rpcClient: args.rpcClient,
+  });
+  try {
+    const manifest = await client.getOutputManifest(
+      args.connection,
+      reference.sessionId,
+    );
+    const header = toSynthesisJsonObject(
+      manifest.header,
+      "$.synthesisOutputTransfer.header",
+    );
+    const manifestBody = {
+      transferVersion: manifest.transferVersion,
+      encoding: manifest.encoding,
+      direction: manifest.direction,
+      header: manifest.header,
+      pages: manifest.pages,
+    };
+    if (
+      manifest.transferVersion !==
+        SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION ||
+      manifest.encoding !== SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING ||
+      manifest.direction !== "output" ||
+      header.target !== args.target ||
+      header.capability !== args.capability ||
+      typeof header.byteLength !== "number" ||
+      !Number.isSafeInteger(header.byteLength) ||
+      header.byteLength < 0 ||
+      typeof header.sha256 !== "string" ||
+      (reference.rootSha256 !== undefined &&
+        manifest.rootSha256 !== reference.rootSha256) ||
+      manifest.rootSha256 !==
+        hashSynthesisContractCanonicalJson(manifestBody) ||
+      manifest.pages.some(
+        (descriptor, index) =>
+          descriptor.kind !== "content" || descriptor.pageIndex !== index,
+      )
+    ) {
+      throw new SynthesisClientError(
+        "unavailable",
+        "The native Synthesis content manifest is invalid",
+      );
+    }
+    const chunks: string[] = [];
+    for (const descriptor of manifest.pages) {
+      const page = await client.getOutputPage(
+        args.connection,
+        reference.sessionId,
+        descriptor.kind,
+        descriptor.pageIndex,
+      );
+      if (
+        JSON.stringify(page.descriptor) !== JSON.stringify(descriptor) ||
+        page.rows.length !== 1 ||
+        typeof page.rows[0] !== "string"
+      ) {
+        throw new SynthesisClientError(
+          "unavailable",
+          "The native Synthesis content page is invalid",
+        );
+      }
+      chunks.push(page.rows[0]);
+    }
+    const content = chunks.join("");
+    if (
+      new TextEncoder().encode(content).byteLength !== header.byteLength ||
+      hashSynthesisContractCanonicalJson(content) !== header.sha256
+    ) {
+      throw new SynthesisClientError(
+        "unavailable",
+        "The native Synthesis content hash is invalid",
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new SynthesisClientError(
+        "unavailable",
+        "The native Synthesis content result is invalid",
+      );
+    }
+    return toSynthesisJsonValue(parsed, "$.synthesisOutputTransfer.content");
+  } finally {
+    if (args.cancelAfterRead !== false) {
+      await client
+        .cancel(args.connection, reference.sessionId)
+        .catch(() => undefined);
+    }
+  }
 }

@@ -46,8 +46,20 @@ describe("Synthesis native Artifact/Library/Debug surface", function () {
         capability,
       );
     }
-    assert.include(source, "delivery.export.publish_archive");
     assert.include(source, "library.artifacts.scan_page");
+    const productionClientSource = fs.readFileSync(
+      path.join(
+        ROOT,
+        "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_client.rs",
+      ),
+      "utf8",
+    );
+    assert.include(productionClientSource, "publish_host_export_entries");
+    assert.include(productionClientSource, "delivery.export.publish_archive");
+    assert.include(
+      productionClientSource,
+      "delivery.export.materialize_run_workspace",
+    );
   });
 
   it("keeps the language-neutral schema contract out of the dispatcher", function () {
@@ -102,6 +114,7 @@ describe("Synthesis native Artifact/Library/Debug surface", function () {
         },
       },
       exportDeliveryPort: {} as never,
+      runWorkspaceMaterializationPort: {} as never,
       representativeImagePort: {} as never,
       relatedItemsEffectPort: {} as never,
       stagedTagBindingPort: {} as never,

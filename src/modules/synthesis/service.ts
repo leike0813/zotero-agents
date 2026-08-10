@@ -115,6 +115,7 @@ import {
   type PaperArtifactReadResult,
 } from "./libraryAdapter";
 import { projectDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
+import { validateAcpSkillRunRoot } from "./runWorkspaceMaterializationAdapter";
 import {
   buildLiteratureQualitySnapshot,
   type LiteratureQualitySnapshot,
@@ -831,7 +832,6 @@ const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_DEFAULT = 50;
 const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_MAX = 200;
 const SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT = 20;
 const SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT = 50;
-const ACP_SKILL_RUN_ID_RE = /^acp-skill-[A-Za-z0-9._-]+$/;
 export const SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT =
   "RESET SYNTHESIS DATABASE";
 export const SYNTHESIS_CLEAN_INSTALL_RESET_CONFIRMATION_TEXT =
@@ -919,33 +919,6 @@ type SynthesisUpdateDiagnostic = {
   message: string;
 };
 
-function normalizePathForContainment(path: string) {
-  const raw = cleanString(path).replace(/\\/g, "/");
-  const driveMatch = raw.match(/^([A-Za-z]:)(\/|$)/);
-  const drive = driveMatch?.[1].toLowerCase() || "";
-  const isAbsolute = Boolean(drive || raw.startsWith("/"));
-  const withoutDrive = drive ? raw.slice(drive.length) : raw;
-  const parts: string[] = [];
-  for (const part of withoutDrive.split("/")) {
-    if (!part || part === ".") {
-      continue;
-    }
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  const prefix = drive ? `${drive}/` : isAbsolute ? "/" : "";
-  return `${prefix}${parts.join("/")}`.replace(/\/+$/g, "");
-}
-
-function pathContains(parent: string, child: string) {
-  const base = normalizePathForContainment(parent).toLowerCase();
-  const target = normalizePathForContainment(child).toLowerCase();
-  return target === base || target.startsWith(`${base}/`);
-}
-
 function safeFileSegment(value: unknown, fallback: string) {
   return (
     cleanString(value)
@@ -958,22 +931,6 @@ function baseNameFromPath(path: string) {
   const normalized = cleanString(path).replace(/\\/g, "/").replace(/\/+$/g, "");
   const index = normalized.lastIndexOf("/");
   return index >= 0 ? normalized.slice(index + 1) : normalized;
-}
-
-function validateAcpSkillRunRoot(runRoot: string) {
-  const root = cleanString(runRoot);
-  if (!root) {
-    throw new Error("run_root is required");
-  }
-  const acpSkillRunsDir = getRuntimePersistencePaths().acpSkillRunsDir;
-  if (!pathContains(acpSkillRunsDir, root)) {
-    throw new Error("run_root must be inside the ACP skill-runs directory");
-  }
-  const base = baseNameFromPath(root);
-  if (!ACP_SKILL_RUN_ID_RE.test(base)) {
-    throw new Error("run_root must point to an ACP skill run directory");
-  }
-  return root;
 }
 
 function isRemoteDelivery(context?: SynthesisDeliveryContext) {

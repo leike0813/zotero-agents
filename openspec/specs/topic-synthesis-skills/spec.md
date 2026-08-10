@@ -320,6 +320,14 @@ statistics, canonical external references, or the final synthesis report.
 The Host apply path SHALL accept split final candidates only when their
 referenced analysis manifest can produce a valid persisted topic artifact.
 
+#### Scenario: Resolver output is materialized as an apply-ready paper set
+
+- **GIVEN** the resolver returns public candidate records
+- **WHEN** the split runtime writes the resolver manifest
+- **THEN** it SHALL preserve the raw resolver response as `resolution_result`
+- **AND** it SHALL materialize the normalized candidates as
+  `resolved_paper_set.papers` for strict apply consumers.
+
 #### Scenario: Incomplete split manifest is rejected with actionable diagnostics
 
 - **GIVEN** a split final candidate references a create/update_full analysis

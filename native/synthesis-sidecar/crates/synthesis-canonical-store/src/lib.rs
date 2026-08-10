@@ -228,6 +228,10 @@ fn sha256_hex(value: impl AsRef<[u8]>) -> String {
 }
 
 fn sha256(value: impl AsRef<[u8]>) -> String {
+    content_sha256(value)
+}
+
+pub fn content_sha256(value: impl AsRef<[u8]>) -> String {
     format!("sha256:{}", sha256_hex(value))
 }
 

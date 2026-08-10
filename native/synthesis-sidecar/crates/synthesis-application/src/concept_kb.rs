@@ -425,6 +425,61 @@ impl ConceptKbApplication {
         self.apply_replacement(request.expected_manifest_hash.as_deref(), &snapshot)
     }
 
+    pub fn ingest_topic_sidecar(
+        &self,
+        topic_id: &str,
+        topic_path_id: &str,
+        payload: &Value,
+    ) -> ConceptMutationResult {
+        let Some(object) = payload.as_object() else {
+            return self.result(
+                ConceptMutationStatus::InvalidRequest,
+                Vec::new(),
+                Vec::new(),
+            );
+        };
+        let rows = ["cards", "concepts", "proposals"]
+            .into_iter()
+            .find_map(|name| object.get(name).and_then(Value::as_array));
+        let Some(rows) = rows else {
+            return self.result(
+                ConceptMutationStatus::InvalidRequest,
+                Vec::new(),
+                Vec::new(),
+            );
+        };
+        if rows.is_empty() {
+            return self.result(ConceptMutationStatus::Unchanged, Vec::new(), Vec::new());
+        }
+        let Some(proposals) = rows
+            .iter()
+            .map(concept_proposal_from_sidecar)
+            .collect::<Option<Vec<_>>>()
+        else {
+            return self.result(
+                ConceptMutationStatus::InvalidRequest,
+                Vec::new(),
+                Vec::new(),
+            );
+        };
+        let expected_manifest_hash = match self.repository.get_state() {
+            Ok(state) => state.map(|state| state.manifest_hash),
+            Err(_) => {
+                return self.result(
+                    ConceptMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                );
+            }
+        };
+        self.ingest_proposals(&ConceptIngestRequest {
+            expected_manifest_hash,
+            topic_id: topic_id.to_owned(),
+            topic_path_id: topic_path_id.to_owned(),
+            proposals,
+        })
+    }
+
     pub fn review(&self, request: &ConceptReviewRequest) -> ConceptMutationResult {
         let mut snapshot = match self.repository.load() {
             Ok(snapshot) => snapshot,
@@ -790,6 +845,122 @@ impl ConceptKbApplication {
             warnings: Vec::new(),
         }
     }
+}
+
+fn sidecar_text(object: &serde_json::Map<String, Value>, names: &[&str]) -> String {
+    names
+        .iter()
+        .find_map(|name| object.get(*name).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 4096)
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn sidecar_strings(value: Option<&Value>) -> Option<Vec<String>> {
+    let values = value?.as_array()?;
+    let mut output = values
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 4096)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    output.sort();
+    output.dedup();
+    Some(output)
+}
+
+fn sidecar_confidence(value: Option<&Value>) -> ConceptConfidence {
+    match value.and_then(Value::as_str) {
+        Some("high") => ConceptConfidence::High,
+        Some("low") => ConceptConfidence::Low,
+        _ => ConceptConfidence::Medium,
+    }
+}
+
+fn concept_proposal_relation_from_sidecar(value: &Value) -> Option<ConceptProposalRelation> {
+    let object = value.as_object()?;
+    let target_concept_id = sidecar_text(object, &["target_concept_id", "targetConceptId"]);
+    let relation = sidecar_text(object, &["relation"]);
+    if target_concept_id.is_empty() || relation.is_empty() {
+        return None;
+    }
+    Some(ConceptProposalRelation {
+        target_concept_id,
+        relation,
+        confidence: sidecar_confidence(object.get("confidence")),
+        provenance: object
+            .get("provenance")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    })
+}
+
+fn concept_proposal_from_sidecar(value: &Value) -> Option<ConceptProposal> {
+    let object = value.as_object()?;
+    let label = sidecar_text(object, &["label"]);
+    if label.is_empty() {
+        return None;
+    }
+    let mut aliases = sidecar_strings(object.get("aliases")).unwrap_or_default();
+    aliases.push(label.clone());
+    aliases.sort();
+    aliases.dedup();
+    let short_definition = sidecar_text(object, &["short_definition", "shortDefinition"]);
+    let definition = sidecar_text(object, &["definition"]);
+    let relations = match object.get("relations") {
+        None => Vec::new(),
+        Some(Value::Array(rows)) => rows
+            .iter()
+            .map(concept_proposal_relation_from_sidecar)
+            .collect::<Option<Vec<_>>>()?,
+        Some(_) => return None,
+    };
+    Some(ConceptProposal {
+        label,
+        aliases,
+        concept_type: {
+            let value = sidecar_text(object, &["concept_type", "conceptType"]);
+            if value.is_empty() {
+                "concept".into()
+            } else {
+                value
+            }
+        },
+        domain: {
+            let value = sidecar_text(object, &["domain"]);
+            if value.is_empty() {
+                "general".into()
+            } else {
+                value
+            }
+        },
+        short_definition: if short_definition.is_empty() {
+            definition.clone()
+        } else {
+            short_definition
+        },
+        definition: if definition.is_empty() {
+            sidecar_text(object, &["short_definition", "shortDefinition"])
+        } else {
+            definition
+        },
+        disambiguation: sidecar_text(object, &["disambiguation"]),
+        topic_relevance: sidecar_text(object, &["topic_relevance", "topicRelevance"]),
+        confidence: sidecar_confidence(object.get("confidence")),
+        evidence: object
+            .get("evidence")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        relations,
+    })
 }
 
 fn normalized_concept_text(value: &str) -> String {

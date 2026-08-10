@@ -1,6 +1,8 @@
 use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 use synthesis_application::{TopicListRequest, TopicListResult};
-use synthesis_canonical_store::canonical_json_hash;
+
+use synthesis_canonical_store::{canonical_json_hash, content_sha256};
 
 use crate::runtime_production_ports::ProductionApplications;
 
@@ -268,6 +270,9 @@ fn artifact_from_descriptor(
     if let Some(hash) = object.get("payloadHash").and_then(Value::as_str) {
         result["payload_hash"] = json!(hash);
     }
+    if let Some(quality) = object.get("literatureQuality") {
+        result["literature_quality"] = quality.clone();
+    }
     if include_content && status == "available" {
         let locator = object
             .get("locator")
@@ -286,13 +291,41 @@ fn artifact_from_descriptor(
             .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
         match content_object.get("status").and_then(Value::as_str) {
             Some("available") => {
-                if let Some(payload) = content_object.get("content") {
-                    result["payload"] = payload.clone();
+                if let Some(content) = content_object.get("content").and_then(Value::as_object) {
+                    match content.get("kind").and_then(Value::as_str) {
+                        Some("json") => {
+                            result["payload"] =
+                                content.get("value").cloned().unwrap_or(Value::Null);
+                        }
+                        Some("text") => {
+                            let text = content
+                                .get("text")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
+                            result["payload"] = json!(text);
+                            result["decoded_text"] = json!(text);
+                            if content.get("mediaType").and_then(Value::as_str)
+                                == Some("text/markdown")
+                            {
+                                result["markdown"] = json!(text);
+                            }
+                        }
+                        _ => return Err("reverse_host_result_invalid".into()),
+                    }
                 }
-                result["diagnostics"] = content_object
+                let mut diagnostics = result
                     .get("diagnostics")
+                    .and_then(Value::as_array)
                     .cloned()
-                    .unwrap_or_else(|| json!([]));
+                    .unwrap_or_default();
+                diagnostics.extend(
+                    content_object
+                        .get("diagnostics")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                result["diagnostics"] = json!(diagnostics);
             }
             Some("stale") => return Err("synthesis_host_artifact_stale".into()),
             Some(status) => {
@@ -310,10 +343,27 @@ fn artifact_from_descriptor(
 
 fn read_artifacts(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one_object(args)?;
-    let artifacts = scan_descriptors(apps, &request)?
+    let mut artifacts = scan_descriptors(apps, &request)?
         .iter()
         .map(|descriptor| artifact_from_descriptor(apps, descriptor, true))
         .collect::<Result<Vec<_>, _>>()?;
+    for index in 0..artifacts.len() {
+        let paper_ref = artifacts[index]
+            .get("paper_ref")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let mut seen = HashSet::new();
+        let payload_types_seen = artifacts
+            .iter()
+            .filter(|artifact| artifact.get("paper_ref").and_then(Value::as_str) == Some(paper_ref))
+            .filter_map(|artifact| artifact.get("payload_type").and_then(Value::as_str))
+            .filter(|payload_type| {
+                !payload_type.is_empty() && seen.insert((*payload_type).to_owned())
+            })
+            .map(|payload_type| Value::String(payload_type.to_owned()))
+            .collect::<Vec<_>>();
+        artifacts[index]["payload_types_seen"] = Value::Array(payload_types_seen);
+    }
     let diagnostics = artifacts
         .iter()
         .filter_map(|artifact| artifact.get("diagnostics").and_then(Value::as_array))
@@ -344,23 +394,376 @@ fn manifest(apps: &ProductionApplications, args: &[Value]) -> Result<Value, Stri
     Ok(json!({"artifacts":artifacts,"diagnostics":diagnostics,"total":total}))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExportMode {
+    Local,
+    Remote,
+}
+
+pub(crate) enum ArtifactExportDestination {
+    RunWorkspace { run_root: String },
+    Archive { display_name: String },
+}
+
+pub(crate) struct ArtifactExportPlan {
+    pub(crate) response: Value,
+    pub(crate) entries: Value,
+    pub(crate) destination: ArtifactExportDestination,
+}
+
 fn export(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = match args {
-        [request] if request.is_object() => request.clone(),
-        [request, delivery]
-            if request.is_object()
-                && delivery.as_object().is_some_and(|delivery| {
-                    delivery.len() == 1 && delivery.get("mode") == Some(&json!("remote"))
-                }) =>
-        {
-            request.clone()
+    let ArtifactExportPlan {
+        response,
+        entries,
+        destination,
+    } = prepare_export(apps, args)?;
+    let destination = match destination {
+        ArtifactExportDestination::RunWorkspace { run_root } => {
+            json!({"mode":"run_workspace","runRoot":run_root})
         }
-        _ => return Err("invalid_request".into()),
+        ArtifactExportDestination::Archive { display_name } => {
+            json!({"mode":"archive","displayName":display_name})
+        }
     };
-    let paper_refs = string_list(
+    Ok(json!({
+        "kind":"artifact_export_delivery.v1",
+        "response":response,
+        "entries":entries,
+        "destination":destination,
+    }))
+}
+
+pub(crate) fn rebuild_export_plan(value: Value) -> Result<ArtifactExportPlan, String> {
+    let mut object = match value {
+        Value::Object(object) if object.len() == 4 => object,
+        _ => return Err("production_projection_invalid".into()),
+    };
+    if object
+        .remove("kind")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        != Some("artifact_export_delivery.v1".to_owned())
+    {
+        return Err("production_projection_invalid".into());
+    }
+    let response = object
+        .remove("response")
+        .filter(Value::is_object)
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let entries = object
+        .remove("entries")
+        .filter(Value::is_array)
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let destination = object
+        .remove("destination")
+        .and_then(|value| value.as_object().cloned())
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let destination = match destination.get("mode").and_then(Value::as_str) {
+        Some("run_workspace") if destination.len() == 2 => {
+            ArtifactExportDestination::RunWorkspace {
+                run_root: destination
+                    .get("runRoot")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "production_projection_invalid".to_owned())?
+                    .to_owned(),
+            }
+        }
+        Some("archive") if destination.len() == 2 => ArtifactExportDestination::Archive {
+            display_name: destination
+                .get("displayName")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "production_projection_invalid".to_owned())?
+                .to_owned(),
+        },
+        _ => return Err("production_projection_invalid".into()),
+    };
+    Ok(ArtifactExportPlan {
+        response,
+        entries,
+        destination,
+    })
+}
+
+struct ExportContent {
+    path: String,
+    text: String,
+    hash: String,
+    diagnostics: Vec<Value>,
+    removed_trailing_section_heading: Option<String>,
+}
+
+fn export_request(args: &[Value]) -> Result<(Value, ExportMode), String> {
+    match args {
+        [request] if request.is_object() => Ok((request.clone(), ExportMode::Local)),
+        [request, delivery] if request.is_object() => {
+            let delivery = delivery
+                .as_object()
+                .filter(|delivery| delivery.len() == 1)
+                .ok_or_else(|| "invalid_request".to_owned())?;
+            match delivery.get("mode").and_then(Value::as_str) {
+                Some("local") => Ok((request.clone(), ExportMode::Local)),
+                Some("remote") => Ok((request.clone(), ExportMode::Remote)),
+                _ => Err("invalid_request".into()),
+            }
+        }
+        _ => Err("invalid_request".into()),
+    }
+}
+
+fn clean_string(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+fn safe_file_segment(value: &str, fallback: &str) -> String {
+    let mut result = String::new();
+    let mut replacing = false;
+    for character in value.trim().chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
+            result.push(character);
+            replacing = false;
+        } else if !replacing {
+            result.push('_');
+            replacing = true;
+        }
+    }
+    let normalized = result.trim_matches('_');
+    if normalized.is_empty() {
+        fallback.to_owned()
+    } else {
+        normalized.to_owned()
+    }
+}
+
+fn demote_markdown_headings(markdown: &str, levels: usize) -> String {
+    markdown
+        .lines()
+        .map(|line| {
+            let heading_depth = line
+                .chars()
+                .take_while(|character| *character == '#')
+                .count();
+            if !(1..=6).contains(&heading_depth)
+                || !line[heading_depth..]
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_whitespace)
+            {
+                return line.to_owned();
+            }
+            format!(
+                "{}{}",
+                "#".repeat((heading_depth + levels).min(6)),
+                &line[heading_depth..]
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn filter_digest_export_markdown(markdown: &str) -> String {
+    let mut top_level_index = 0;
+    let mut keep_current = true;
+    let mut kept = Vec::new();
+    let normalized = markdown.replace("\r\n", "\n");
+    for line in normalized.lines() {
+        if line.starts_with("## ") {
+            top_level_index += 1;
+            keep_current = top_level_index <= 4;
+        }
+        if keep_current {
+            kept.push(line);
+        }
+    }
+    format!(
+        "{}\n",
+        demote_markdown_headings(kept.join("\n").trim(), 2).trim()
+    )
+}
+
+fn remove_citation_wrapper_and_trailing_section(report: &str) -> (String, Option<String>) {
+    let normalized = report.replace("\r\n", "\n");
+    let mut lines = normalized.lines().map(str::to_owned).collect::<Vec<_>>();
+    if lines.first().is_some_and(|line| line.starts_with("## ")) {
+        lines.remove(0);
+        while lines.first().is_some_and(|line| line.trim().is_empty()) {
+            lines.remove(0);
+        }
+    }
+    let section_indexes = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| line.starts_with("### ").then_some(index))
+        .collect::<Vec<_>>();
+    let removed = if section_indexes.len() >= 2 {
+        let remove_from = *section_indexes.last().unwrap_or(&lines.len());
+        let heading = lines[remove_from].trim_start_matches('#').trim().to_owned();
+        lines.truncate(remove_from);
+        (!heading.is_empty()).then_some(heading)
+    } else {
+        None
+    };
+    (
+        format!(
+            "{}\n",
+            demote_markdown_headings(lines.join("\n").trim(), 1).trim()
+        ),
+        removed,
+    )
+}
+
+fn compact_authors(value: Option<&Value>) -> String {
+    let authors = match value {
+        Some(Value::Array(values)) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>(),
+        Some(Value::String(value)) if !value.trim().is_empty() => vec![value.trim().to_owned()],
+        _ => Vec::new(),
+    };
+    if authors.len() > 2 {
+        format!("{}; {}; et al.", authors[0], authors[1])
+    } else {
+        authors.join("; ")
+    }
+}
+
+fn compact_references(payload: Option<&Value>) -> Value {
+    let references = payload
+        .and_then(|payload| payload.get("references"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .map(|reference| {
+            json!({
+                "id": clean_string(reference.get("id").or_else(|| reference.get("ref_id")).or_else(|| reference.get("key"))),
+                "year": clean_string(reference.get("year")),
+                "authors": compact_authors(reference.get("author").or_else(|| reference.get("authors"))),
+                "title": clean_string(reference.get("title")),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"references":references})
+}
+
+fn pretty_json_text(value: &Value) -> Result<String, String> {
+    serde_json::to_string_pretty(value)
+        .map(|text| format!("{text}\n"))
+        .map_err(|_| "production_projection_invalid".to_owned())
+}
+
+fn export_content(paper_ref: &str, artifact: &Value) -> Result<ExportContent, String> {
+    let artifact_type = artifact
+        .get("artifact_type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let directory = format!(
+        "runtime/payloads/artifacts/{}",
+        safe_file_segment(paper_ref, "paper")
+    );
+    let mut diagnostics = Vec::new();
+    let mut removed_trailing_section_heading = None;
+    let (path, text) = match artifact_type {
+        "digest" => {
+            let markdown = artifact
+                .get("markdown")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    artifact
+                        .get("payload")
+                        .and_then(|payload| payload.get("content"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or_default();
+            (
+                format!("{directory}/digest.md"),
+                filter_digest_export_markdown(markdown),
+            )
+        }
+        "references" => (
+            format!("{directory}/references.json"),
+            pretty_json_text(&compact_references(artifact.get("payload")))?,
+        ),
+        "citation_analysis" => {
+            let report = artifact
+                .get("payload")
+                .and_then(|payload| payload.get("citation_analysis"))
+                .and_then(|citation| citation.get("report_md"))
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    artifact
+                        .get("payload")
+                        .and_then(|payload| payload.get("report_md"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or_default();
+            let (markdown, removed) = remove_citation_wrapper_and_trailing_section(report);
+            if let Some(heading) = removed.as_ref() {
+                diagnostics.push(json!(format!("removed_trailing_section_heading:{heading}")));
+            }
+            removed_trailing_section_heading = removed;
+            (format!("{directory}/citation-analysis.md"), markdown)
+        }
+        "literature_score" => (
+            format!("{directory}/literature-score.json"),
+            pretty_json_text(artifact.get("payload").unwrap_or(&Value::Null))?,
+        ),
+        _ => {
+            diagnostics.push(json!(format!("unsupported_artifact_type:{artifact_type}")));
+            (String::new(), String::new())
+        }
+    };
+    Ok(ExportContent {
+        hash: content_sha256(text.as_bytes()),
+        path,
+        text,
+        diagnostics,
+        removed_trailing_section_heading,
+    })
+}
+
+fn literature_quality(artifacts: &[&Value]) -> Value {
+    let score = artifacts.iter().find(|artifact| {
+        artifact.get("artifact_type").and_then(Value::as_str) == Some("literature_score")
+    });
+    let Some(score) = score else {
+        return json!({"status":"missing","quality_prior":0.5,"diagnostics":["literature_score_missing"]});
+    };
+    if score.get("status").and_then(Value::as_str) == Some("missing") {
+        return json!({"status":"missing","quality_prior":0.5,"diagnostics":["literature_score_missing"]});
+    }
+    score.get("literature_quality").cloned().unwrap_or_else(|| {
+        json!({
+            "status":"invalid",
+            "quality_prior":0.5,
+            "payload_hash":score.get("payload_hash").cloned().unwrap_or(Value::Null),
+            "diagnostics":["literature_score_invalid"]
+        })
+    })
+}
+
+fn prepare_export(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<ArtifactExportPlan, String> {
+    let (request, mode) = export_request(args)?;
+    let raw_paper_refs = string_list(
         &request,
         &["paper_refs", "paperRefs", "paper_ref", "paperRef"],
     )?;
+    let mut seen_paper_refs = HashSet::new();
+    let paper_refs = raw_paper_refs
+        .into_iter()
+        .filter(|paper_ref| seen_paper_refs.insert(paper_ref.clone()))
+        .collect::<Vec<_>>();
     if paper_refs.is_empty() {
         return Err("invalid_request".into());
     }
@@ -369,53 +772,134 @@ fn export(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String
         .get("artifacts")
         .and_then(Value::as_array)
         .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let diagnostics = read
+        .get("diagnostics")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let mut entries = Vec::new();
+    let mut papers = Vec::new();
     let mut statuses = Vec::new();
-    for artifact in artifacts {
-        let paper_ref = artifact
-            .get("paper_ref")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let artifact_type = artifact
-            .get("artifact_type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let status = artifact
-            .get("status")
-            .and_then(Value::as_str)
-            .unwrap_or("missing");
-        statuses.push(json!({"paper_ref":paper_ref,"artifact_type":artifact_type,"payload_type":artifact.get("payload_type").cloned().unwrap_or(Value::Null),"status":status,"missing_reason":""}));
-        if status == "available" {
-            let file = format!(
-                "runtime/payloads/{}/{}.json",
-                safe_segment(paper_ref),
-                safe_segment(artifact_type)
-            );
-            let text =
-                serde_json::to_string_pretty(artifact.get("payload").unwrap_or(&Value::Null))
-                    .map_err(|_| "production_projection_invalid".to_owned())?;
-            entries.push(json!({"path":file,"text":text}));
+    for paper_ref in &paper_refs {
+        let paper_artifacts = artifacts
+            .iter()
+            .filter(|artifact| artifact.get("paper_ref").and_then(Value::as_str) == Some(paper_ref))
+            .collect::<Vec<_>>();
+        let mut manifest_artifacts = Vec::new();
+        for artifact in &paper_artifacts {
+            let status = artifact
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("available");
+            let artifact_type = clean_string(artifact.get("artifact_type"));
+            let payload_type = clean_string(artifact.get("payload_type"));
+            let missing_reason = clean_string(artifact.get("missing_reason"));
+            let artifact_diagnostics = artifact
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut manifest_entry = json!({
+                "artifact_type":artifact_type,
+                "payload_type":payload_type,
+                "status":status,
+                "note_key":clean_string(artifact.get("note_key")),
+                "note_title":clean_string(artifact.get("note_title")),
+                "payload_types_seen":artifact.get("payload_types_seen").cloned().unwrap_or_else(|| json!([])),
+                "payload_hash":clean_string(artifact.get("payload_hash").or_else(|| artifact.get("hash"))),
+                "missing_reason":missing_reason,
+                "diagnostics":artifact_diagnostics,
+            });
+            statuses.push(json!({
+                "paper_ref":paper_ref,
+                "artifact_type":artifact_type,
+                "payload_type":payload_type,
+                "status":status,
+                "missing_reason":missing_reason,
+            }));
+            if status == "available" {
+                let content = export_content(paper_ref, artifact)?;
+                if !content.path.is_empty() {
+                    entries.push(json!({"path":content.path,"text":content.text}));
+                }
+                manifest_entry["content_file"] = json!(content.path);
+                manifest_entry["content_hash"] = json!(content.hash);
+                if let Some(heading) = content.removed_trailing_section_heading {
+                    manifest_entry["removed_trailing_section_heading"] = json!(heading);
+                }
+                let mut combined_diagnostics = artifact_diagnostics;
+                combined_diagnostics.extend(content.diagnostics);
+                manifest_entry["diagnostics"] = json!(combined_diagnostics);
+            }
+            manifest_artifacts.push(manifest_entry);
         }
+        let paper_diagnostics = diagnostics
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|diagnostic| {
+                diagnostic
+                    .as_str()
+                    .is_some_and(|diagnostic| diagnostic.starts_with(&format!("{paper_ref}:")))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        papers.push(json!({
+            "paper_ref":paper_ref,
+            "artifacts":manifest_artifacts,
+            "literature_quality":literature_quality(&paper_artifacts),
+            "diagnostics":paper_diagnostics,
+        }));
     }
     let manifest_path = "runtime/payloads/paper-artifacts-manifest.json";
-    entries.insert(0, json!({"path":manifest_path,"text":serde_json::to_string_pretty(&json!({"schema_id":"synthesis.filtered_paper_artifacts_manifest","paper_refs":paper_refs,"artifact_statuses":statuses})).map_err(|_| "production_projection_invalid".to_owned())?}));
-    let delivery = apps.call_host("delivery.export.publish_archive", json!({"capability":"paper_artifacts.export_filtered","displayName":"paper-artifacts.zip","entries":entries}))?;
-    Ok(
-        json!({"paper_refs":paper_refs,"manifest_file":manifest_path,"artifact_statuses":statuses,"diagnostics":read.get("diagnostics").cloned().unwrap_or_else(|| json!([])),"delivery":delivery}),
-    )
-}
-
-fn safe_segment(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character
-            } else {
-                '-'
+    let manifest = json!({
+        "schema_id":"synthesis.filtered_paper_artifacts_manifest",
+        "schema_version":"1.1.0",
+        "exported_by":"paper_artifacts.export_filtered",
+        "exported_at":synthesis_protocol::utc_now_iso8601(),
+        "paper_refs":paper_refs,
+        "papers":papers,
+        "diagnostics":diagnostics,
+    });
+    entries.insert(
+        0,
+        json!({"path":manifest_path,"text":pretty_json_text(&manifest)?}),
+    );
+    let mut response = json!({
+        "paper_refs":paper_refs,
+        "manifest_file":manifest_path,
+        "artifact_statuses":statuses,
+        "diagnostics":diagnostics,
+    });
+    if paper_refs.len() == 1 {
+        response["paper_ref"] = json!(paper_refs[0]);
+    }
+    let destination = match mode {
+        ExportMode::Local => {
+            let run_root = request
+                .get("run_root")
+                .or_else(|| request.get("runRoot"))
+                .and_then(Value::as_str)
+                .filter(|run_root| !run_root.trim().is_empty())
+                .ok_or_else(|| "invalid_request".to_owned())?;
+            ArtifactExportDestination::RunWorkspace {
+                run_root: run_root.to_owned(),
             }
-        })
-        .collect()
+        }
+        ExportMode::Remote => {
+            let suffix = if paper_refs.len() == 1 {
+                safe_file_segment(&paper_refs[0], "bundle")
+            } else {
+                "bundle".to_owned()
+            };
+            let display_name = format!("paper-artifacts-{suffix}.zip");
+            ArtifactExportDestination::Archive { display_name }
+        }
+    };
+    Ok(ArtifactExportPlan {
+        response,
+        entries: Value::Array(entries),
+        destination,
+    })
 }
 
 fn schemas(args: &[Value]) -> Result<Value, String> {

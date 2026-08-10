@@ -467,9 +467,16 @@ export function createWorkflowSynthesisHostApi(
       return result;
     },
     async applyTopicSynthesisResult(bundle, context) {
-      return (await resolveClient()).workflowApply.applyTopicSynthesisResult(
+      const result = await (
+        await resolveClient()
+      ).workflowApply.applyTopicSynthesisResult(
         await materializeTopicApplyRequest(bundle, context),
       );
+      notifyChanged({
+        invalidatedSurfaces: ["home", "topics", "concepts", "graph", "review"],
+        reason: "topic_synthesis_apply",
+      });
+      return result;
     },
     async getTopicReport(request) {
       return (await resolveClient()).topics.getTopicReport(request);

@@ -61,3 +61,50 @@ Successful mutations performed through a workflow or another Workbench-external 
 - **WHEN** a successful workflow Tag mutation occurs while another Workbench surface is active
 - **THEN** the Tags surface SHALL remain dirty until it is selected
 - **AND** Index, Graph, Review, and other unrelated content surfaces SHALL NOT reload solely because of that Tag mutation
+
+#### Scenario: Workflow applies a Topic synthesis result
+- **WHEN** a workflow successfully applies a Topic synthesis result with optional Concept or Topic Graph proposals
+- **THEN** the Host SHALL invalidate Home, Topics, Concepts, Graph, and Review
+- **AND** an active affected surface SHALL reload from the native domain projection
+
+### Requirement: Workbench domain rows SHALL use the public UI DTO
+
+Topic and Concept Workbench surfaces SHALL map native application records to the public UI DTO before crossing the production boundary. Repository column names and serialized JSON columns MUST NOT be exposed as substitutes for public row fields.
+
+#### Scenario: Topic and Concept rows are rendered
+- **WHEN** native Topic and Concept state exists and the matching Workbench surfaces are read
+- **THEN** Topic rows carry stable `id` values and Concept rows carry snake-case identifiers plus decoded arrays
+- **AND** the UI snapshot normalizer retains the rows instead of discarding them as malformed
+
+#### Scenario: Topic readiness metadata is rendered
+- **WHEN** native Topic state exists and Home or Topics is read
+- **THEN** every Topic row carries typed `freshness`, `source_materials_status`, and `source_materials_percent` values derived from persisted dependency facts
+- **AND** missing production fields do not silently become `unknown`, `missing`, or zero in an otherwise successful projection
+
+### Requirement: Topics Graph SHALL project the materialized Topic domain
+
+Successful Topic apply SHALL materialize the committed Topic in the canonical Topic Graph through the Topic Graph application boundary. The Topics surface SHALL include the bounded Topic Graph projection required by its Graph view. Per-Topic projection JSON MUST NOT substitute for canonical Topic Graph nodes, edges, or review facts.
+
+#### Scenario: Applied Topic is opened in Topics Graph
+- **WHEN** a Topic apply commits a valid Topic aggregate
+- **THEN** the canonical Topic Graph contains one current materialized node for that Topic
+- **AND** the Topics surface Graph projection includes that node after apply and cold reopen
+
+#### Scenario: Topic apply carries relation proposals
+- **WHEN** a committed Topic includes valid Topic Graph relation proposals
+- **THEN** the Topic Graph application ingests them through its validation and review rules
+- **AND** a Graph projection failure produces a stable warning without rolling back the committed Topic aggregate
+
+### Requirement: Topic readiness SHALL have one persisted fact source
+
+Topic freshness and source-material readiness SHALL be derived from persisted Topic dependency baseline/current facts owned by the native Topic application. Workbench reads SHALL remain bounded and read-only. Existing Topic rows without a native readiness baseline SHALL be deterministically backfilled when the repository migrates or the Topic is next applied; insufficient evidence SHALL produce explicit dirty/missing reasons rather than fabricated freshness.
+
+#### Scenario: Topic dependencies are unchanged
+- **WHEN** the current saved paper set and required digest, references, and citation-analysis dependencies match the persisted baseline
+- **THEN** the Topic row reports `fresh` and the derived readiness percentage reflects complete papers
+- **AND** reopening the repository preserves the same result without reading a legacy JSON state file
+
+#### Scenario: Existing Topic has incomplete migration evidence
+- **WHEN** an existing Topic cannot reconstruct a complete dependency baseline
+- **THEN** the native projection reports a deterministic dirty or missing state with structured reasons
+- **AND** it does not report `unknown` solely because a public DTO field was omitted

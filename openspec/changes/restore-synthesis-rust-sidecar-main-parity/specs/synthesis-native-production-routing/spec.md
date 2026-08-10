@@ -84,6 +84,21 @@ Ordinary metadata and page DTOs SHALL target no more than 768 KiB and MUST NOT e
 - **THEN** the operation returns or resolves it through the approved content path
 - **AND** the control response remains within its metadata bound
 
+#### Scenario: Large artifact export is delivered locally
+- **WHEN** a valid local artifact export is larger than the reverse-Host request-body limit and remains within export limits
+- **THEN** Rust stages the export entries through an authenticated, hash-bound output transfer and sends only its descriptor and run root over the reverse-Host control plane
+- **AND** the plugin verifies the complete transfer before writing entries and writes the workspace manifest last
+
+#### Scenario: Large artifact export is delivered remotely
+- **WHEN** a valid remote artifact export is larger than the reverse-Host request-body limit and remains within export limits
+- **THEN** the plugin drains and verifies the output transfer before passing the rebuilt entries to the archive delivery port
+- **AND** the reverse-Host control request remains below its general request limit
+
+#### Scenario: Export transfer delivery fails
+- **WHEN** an export transfer descriptor, page, hash, or rebuilt entry is invalid, or the delivery port fails
+- **THEN** no success-shaped delivery result is returned and no manifest is materialized for an incomplete local export
+- **AND** the sidecar transfer session is canceled after the terminal outcome
+
 ### Requirement: Citation layout SHALL tolerate valid self-referential facts
 
 The Citation layout engine SHALL validate every supplied edge against the graph contract and SHALL treat a valid edge whose source equals its target as layout-neutral. The durable Citation edge, input graph identity, and returned `graphHash` MUST remain unchanged; only the algorithm-specific edge set used to derive coordinates MAY omit that self-loop.
@@ -111,3 +126,17 @@ Tag production routes SHALL deserialize the grouped client's public vocabulary a
 - **WHEN** save, stage, update, discard, delete, or promote is claimed ready
 - **THEN** a real production-route test supplies the grouped-client DTO and verifies the resulting read projection after reopen
 - **AND** an expected `invalid_request` fixture cannot count as readiness evidence for a valid request
+
+### Requirement: Topic apply SHALL project its owned and proposed domain state
+
+A successful Topic apply SHALL persist the Topic aggregate and SHALL pass optional Concept and Topic Graph sidecars through their owning application boundaries. Sidecar projection failure MUST NOT roll back the committed Topic aggregate, but it SHALL produce a stable warning and MUST NOT report the affected projection as current.
+
+#### Scenario: Topic apply contains Concept proposals
+- **WHEN** a valid Topic apply resolves a Concept proposal sidecar through its controlled analysis manifest
+- **THEN** the Topic aggregate is persisted and the Concept application ingests the proposal through its own validation and merge rules
+- **AND** reopening the production repository returns both the Topic and the resulting Concept facts
+
+#### Scenario: Optional projection fails after Topic promotion
+- **WHEN** Concept or Topic Graph proposal ingestion fails after the Topic aggregate is committed
+- **THEN** Topic apply remains persisted and returns a stable projection warning
+- **AND** no partial or fabricated projection success is exposed

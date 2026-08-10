@@ -9,13 +9,17 @@ import {
   SYNTHESIS_HOST_EXPORT_TOTAL_BYTES_MAX,
   rebuildSynthesisHostExportDeliveryRequest,
   rebuildSynthesisHostExportDeliveryResult,
+  rebuildSynthesisHostRunWorkspaceMaterializationRequest,
 } from "../../packages/synthesis-contracts/src/index";
 import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
 import { collectRuntimeFileSourceBytesForTests } from "../../src/modules/runtimeFileTransfer";
-import { createSynthesisHostExportDeliveryPort } from "../../src/modules/synthesis/exportDeliveryAdapter";
+import {
+  createSynthesisHostExportDeliveryPort,
+  createSynthesisHostRunWorkspaceMaterializationPort,
+} from "../../src/modules/synthesis/exportDeliveryAdapter";
 
 function request(overrides: Record<string, unknown> = {}) {
   return {
@@ -257,5 +261,140 @@ describe("Synthesis Host export delivery port", function () {
     } finally {
       await fs.rm(runtimeRoot, { recursive: true, force: true });
     }
+  });
+
+  it("materializes bounded entries only inside an ACP skill run", async function () {
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "synthesis-run-workspace-materialization-"),
+    );
+    const runRoot = path.join(
+      runtimeRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-export-test",
+    );
+    try {
+      const port = createSynthesisHostRunWorkspaceMaterializationPort({
+        runtimeRoot,
+      });
+      const result = await port.materialize(
+        rebuildSynthesisHostRunWorkspaceMaterializationRequest({
+          capability: "paper_artifacts.export_filtered",
+          runRoot,
+          entries: [
+            {
+              path: "runtime/payloads/paper-artifacts-manifest.json",
+              text: '{"schema_id":"synthesis.filtered_paper_artifacts_manifest"}\n',
+            },
+            {
+              path: "runtime/payloads/artifacts/1_TEST/references.json",
+              text: '{"references":[]}\n',
+            },
+          ],
+        }),
+      );
+      assert.deepEqual(result, {
+        status: "materialized",
+        capability: "paper_artifacts.export_filtered",
+        entryCount: 2,
+      });
+      assert.equal(
+        await fs.readFile(
+          path.join(
+            runRoot,
+            "runtime",
+            "payloads",
+            "artifacts",
+            "1_TEST",
+            "references.json",
+          ),
+          "utf8",
+        ),
+        '{"references":[]}\n',
+      );
+
+      assert.isTrue(
+        await rejects(() =>
+          port.materialize({
+            capability: "paper_artifacts.export_filtered",
+            runRoot: path.join(runtimeRoot, "outside", "acp-skill-export-test"),
+            entries: [{ path: "runtime/payloads/escape.json", text: "x" }],
+          }),
+        ),
+      );
+      await fs
+        .access(
+          path.join(
+            runtimeRoot,
+            "outside",
+            "acp-skill-export-test",
+            "runtime",
+            "payloads",
+            "escape.json",
+          ),
+        )
+        .then(
+          () => assert.fail("out-of-scope workspace write must not occur"),
+          () => undefined,
+        );
+    } finally {
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("validates all entries before I/O and materializes the manifest last", async function () {
+    const runtimeRoot = path.join(
+      os.tmpdir(),
+      "synthesis-run-workspace-materialization-order",
+    );
+    const runRoot = path.join(
+      runtimeRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-export-order",
+    );
+    const writes: string[] = [];
+    const port = createSynthesisHostRunWorkspaceMaterializationPort({
+      runtimeRoot,
+      async writeText(target) {
+        writes.push(target.replace(/\\/g, "/"));
+      },
+    });
+    await port.materialize({
+      capability: "paper_artifacts.export_filtered",
+      runRoot,
+      entries: [
+        {
+          path: "runtime/payloads/paper-artifacts-manifest.json",
+          text: "{}\n",
+        },
+        {
+          path: "runtime/payloads/artifacts/1_TEST/references.json",
+          text: '{"references":[]}\n',
+        },
+      ],
+    });
+    assert.match(writes[0], /references\.json$/);
+    assert.match(writes[1], /paper-artifacts-manifest\.json$/);
+
+    writes.length = 0;
+    assert.isTrue(
+      await rejects(() =>
+        port.materialize({
+          capability: "paper_artifacts.export_filtered",
+          runRoot,
+          entries: [
+            {
+              path: "runtime/payloads/paper-artifacts-manifest.json",
+              text: "{}\n",
+            },
+            { path: "../escape.json", text: "x" },
+          ],
+        }),
+      ),
+    );
+    assert.deepEqual(writes, []);
   });
 });

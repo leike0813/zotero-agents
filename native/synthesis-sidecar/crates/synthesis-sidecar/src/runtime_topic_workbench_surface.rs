@@ -7,7 +7,12 @@ use synthesis_application::{
     TopicResolverRequest, TopicWorkflowFilter, WorkbenchSurface, WorkbenchSurfacePort,
     WorkbenchSurfaceRequest,
 };
-use synthesis_repository::DeletedTopicArtifactRecord;
+use synthesis_repository::{
+    ConceptAliasRecord, ConceptKbReplacement, ConceptRecord, ConceptRelationRecord,
+    ConceptReviewItemRecord, ConceptSenseRecord, DeletedTopicArtifactRecord,
+    TopicConceptLinkRecord, TopicGraphEdgeRecord, TopicGraphNodeRecord, TopicGraphReplacement,
+    TopicGraphReviewItemRecord,
+};
 
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_reference_canonical::LiteratureDigestApplyRequest;
@@ -82,7 +87,261 @@ fn topic_record_wire(record: TopicRecord) -> Value {
         "topic_resolver":record.topic_resolver,
         "resolved_paper_set":record.resolved_paper_set,
         "projection":record.projection,
+        "freshness":record.freshness.as_str(),
+        "source_materials_status":record.source_materials_status.as_str(),
+        "source_materials_percent":record.source_materials_percent,
+        "stale_reasons":record.stale_reasons,
+        "dirty_reasons":record.dirty_reasons,
+        "missing_sections":record.missing_sections,
     })
+}
+
+fn topic_artifact_wire(record: TopicRecord) -> Value {
+    let mut value = topic_record_wire(record);
+    if let Some(object) = value.as_object_mut() {
+        let topic_id = object.get("topic_id").cloned().unwrap_or(Value::Null);
+        let operation = object.get("operation").cloned().unwrap_or(Value::Null);
+        object.insert("id".into(), topic_id);
+        object.insert("kind".into(), json!("topic_synthesis"));
+        object.insert("status".into(), operation);
+    }
+    value
+}
+
+fn stored_json(text: &str, expected_array: bool) -> Result<Value, String> {
+    let value = serde_json::from_str::<Value>(text)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
+    if (expected_array && value.is_array()) || (!expected_array && value.is_object()) {
+        Ok(value)
+    } else {
+        Err("production_projection_invalid".into())
+    }
+}
+
+fn topic_graph_node_wire(record: TopicGraphNodeRecord) -> Result<Value, String> {
+    Ok(json!({
+        "topic_id":record.topic_id,
+        "title":record.title,
+        "definition":record.definition,
+        "aliases":stored_json(&record.aliases_json, true)?,
+        "node_type":record.node_type,
+        "definition_status":record.definition_status,
+        "current_artifact_path":record.current_artifact_path,
+        "is_root":record.is_root != 0,
+        "level":record.level,
+        "paper_count":record.paper_count,
+        "last_synthesis_at":record.last_synthesis_at,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    }))
+}
+
+fn topic_graph_edge_wire(record: TopicGraphEdgeRecord) -> Result<Value, String> {
+    Ok(json!({
+        "edge_id":record.edge_id,
+        "source_topic_id":record.source_topic_id,
+        "target_topic_id":record.target_topic_id,
+        "relation":record.relation,
+        "status":record.status,
+        "confidence":record.confidence,
+        "provenance":stored_json(&record.provenance_json, true)?,
+        "evidence_refs":stored_json(&record.evidence_refs_json, true)?,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    }))
+}
+
+fn topic_graph_review_wire(record: TopicGraphReviewItemRecord) -> Result<Value, String> {
+    Ok(json!({
+        "review_id":record.review_id,
+        "status":record.status,
+        "source_topic_id":record.source_topic_id,
+        "target_topic_id":record.target_topic_id,
+        "target_title":record.target_title,
+        "relation":record.relation,
+        "confidence":record.confidence,
+        "provenance":stored_json(&record.provenance_json, true)?,
+        "evidence_refs":stored_json(&record.evidence_refs_json, true)?,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+        "resolved_at":record.resolved_at,
+    }))
+}
+
+fn topic_graph_projection(snapshot: TopicGraphReplacement) -> Result<Value, String> {
+    let TopicGraphReplacement {
+        state,
+        nodes,
+        edges,
+        reviews,
+    } = snapshot;
+    let node_count = nodes.len();
+    let edge_count = edges.len();
+    let review_count = reviews.len();
+    Ok(json!({
+        "nodes":nodes.into_iter().map(topic_graph_node_wire).collect::<Result<Vec<_>, _>>()?,
+        "edges":edges.into_iter().map(topic_graph_edge_wire).collect::<Result<Vec<_>, _>>()?,
+        "reviewItems":reviews.into_iter().map(topic_graph_review_wire).collect::<Result<Vec<_>, _>>()?,
+        "manifest":{
+            "manifest_hash":state.manifest_hash,
+            "node_count":node_count,
+            "edge_count":edge_count,
+            "review_count":review_count,
+            "updated_at":state.updated_at.clone(),
+        },
+        "projection":{
+            "target":"topic-graph-index",
+            "stale":state.index_stale != 0,
+            "last_rebuild_at":state.updated_at,
+            "diagnostics":[],
+        },
+        "diagnostics":[],
+    }))
+}
+
+fn concept_record_wire(record: ConceptRecord) -> Result<Value, String> {
+    Ok(json!({
+        "concept_id":record.concept_id,
+        "label":record.label,
+        "aliases":stored_json(&record.aliases_json, true)?,
+        "concept_type":record.concept_type,
+        "domain":record.domain,
+        "status":record.status,
+        "short_definition":record.short_definition,
+        "definition":record.definition,
+        "usage_note":record.usage_note,
+        "editorial_note":record.editorial_note,
+        "sense_ids":stored_json(&record.sense_ids_json, true)?,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    }))
+}
+
+fn concept_sense_wire(record: ConceptSenseRecord) -> Result<Value, String> {
+    Ok(json!({
+        "sense_id":record.sense_id,
+        "concept_id":record.concept_id,
+        "label":record.label,
+        "aliases":stored_json(&record.aliases_json, true)?,
+        "domain":record.domain,
+        "short_definition":record.short_definition,
+        "definition":record.definition,
+        "disambiguation":record.disambiguation,
+        "topic_relevance":record.topic_relevance,
+        "confidence":record.confidence,
+        "source_topic_ids":stored_json(&record.source_topic_ids_json, true)?,
+        "evidence":stored_json(&record.evidence_json, true)?,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    }))
+}
+
+fn concept_alias_wire(record: ConceptAliasRecord) -> Value {
+    json!({
+        "alias_id":record.alias_id,
+        "alias":record.alias,
+        "normalized":record.normalized,
+        "concept_id":record.concept_id,
+        "sense_id":record.sense_id,
+        "status":record.status,
+        "confidence":record.confidence,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    })
+}
+
+fn concept_relation_wire(record: ConceptRelationRecord) -> Result<Value, String> {
+    Ok(json!({
+        "relation_id":record.relation_id,
+        "source_concept_id":record.source_concept_id,
+        "target_concept_id":record.target_concept_id,
+        "relation":record.relation,
+        "status":record.status,
+        "confidence":record.confidence,
+        "provenance":stored_json(&record.provenance_json, true)?,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    }))
+}
+
+fn concept_review_wire(record: ConceptReviewItemRecord) -> Result<Value, String> {
+    let proposal = stored_json(&record.proposal_json, false)?;
+    Ok(json!({
+        "review_id":record.review_id,
+        "status":record.status,
+        "reason":record.reason,
+        "topic_id":record.topic_id,
+        "topic_path_id":record.topic_path_id,
+        "label":record.label,
+        "confidence":record.confidence,
+        "candidate_concept_ids":stored_json(&record.candidate_concept_ids_json, true)?,
+        "short_definition":proposal.get("shortDefinition").cloned().unwrap_or(Value::Null),
+        "definition":proposal.get("definition").cloned().unwrap_or(Value::Null),
+        "concept_type":proposal.get("conceptType").cloned().unwrap_or(Value::Null),
+        "domain":proposal.get("domain").cloned().unwrap_or(Value::Null),
+        "topic_relevance":proposal.get("topicRelevance").cloned().unwrap_or(Value::Null),
+        "evidence":proposal.get("evidence").cloned().unwrap_or_else(|| json!([])),
+        "proposal":proposal,
+        "target_concept_id":record.target_concept_id,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+        "resolved_at":record.resolved_at,
+    }))
+}
+
+fn topic_concept_link_wire(record: TopicConceptLinkRecord) -> Value {
+    json!({
+        "topic_id":record.topic_id,
+        "concept_id":record.concept_id,
+        "sense_id":record.sense_id,
+        "label":record.label,
+        "relevance":record.relevance,
+        "confidence":record.confidence,
+        "source":record.source,
+        "created_at":record.created_at,
+        "updated_at":record.updated_at,
+    })
+}
+
+fn concept_projection(snapshot: ConceptKbReplacement) -> Result<Value, String> {
+    let ConceptKbReplacement {
+        state,
+        concepts,
+        senses,
+        aliases,
+        relations,
+        reviews,
+        topic_links,
+    } = snapshot;
+    let concept_count = concepts.len();
+    let sense_count = senses.len();
+    let alias_count = aliases.len();
+    let relation_count = relations.len();
+    Ok(json!({
+        "concepts":concepts.into_iter().map(concept_record_wire).collect::<Result<Vec<_>, _>>()?,
+        "senses":senses.into_iter().map(concept_sense_wire).collect::<Result<Vec<_>, _>>()?,
+        "aliases":aliases.into_iter().map(concept_alias_wire).collect::<Vec<_>>(),
+        "relations":relations.into_iter().map(concept_relation_wire).collect::<Result<Vec<_>, _>>()?,
+        "manifest":{
+            "manifest_hash":state.manifest_hash,
+            "concept_count":concept_count,
+            "sense_count":sense_count,
+            "alias_count":alias_count,
+            "relation_count":relation_count,
+            "updated_at":state.updated_at.clone(),
+            "projection_target":"concept-kb-index",
+        },
+        "projection":{
+            "target":"concept-kb-index",
+            "stale":state.index_stale != 0,
+            "last_rebuild_at":state.updated_at,
+            "diagnostics":[],
+        },
+        "diagnostics":[],
+        "overlayEntries":[],
+        "reviewItems":reviews.into_iter().map(concept_review_wire).collect::<Result<Vec<_>, _>>()?,
+        "topicLinks":topic_links.into_iter().map(topic_concept_link_wire).collect::<Vec<_>>(),
+    }))
 }
 
 fn topic_list_wire(result: TopicListResult) -> Value {
@@ -411,7 +670,7 @@ impl ProductionWorkbenchSurfaces<'_> {
                 "rows":deleted.into_iter().map(deleted_topic_record_wire).collect::<Vec<_>>(),
                 "total":deleted_total,
             },
-            "artifacts":page.topics.into_iter().map(topic_record_wire).collect::<Vec<_>>(),
+            "artifacts":page.topics.into_iter().map(topic_artifact_wire).collect::<Vec<_>>(),
             "topicPage":{
                 "cursor":page.cursor,
                 "next_cursor":page.next_cursor,
@@ -430,7 +689,15 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 
     fn topics(&self, _state: &Value) -> Result<Value, String> {
-        self.topic_projection()
+        let mut projection = self.topic_projection()?;
+        projection
+            .as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .insert(
+                "topicGraph".into(),
+                topic_graph_projection(self.apps.topic_graph.load_window(250)?)?,
+            );
+        Ok(projection)
     }
 
     fn index(&self, state: &Value) -> Result<Value, String> {
@@ -447,18 +714,18 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 
     fn topic_graph_review(&self, _state: &Value) -> Result<Value, String> {
-        let topic_graph = wire(self.apps.topic_graph.load()?)?;
+        let topic_graph = topic_graph_projection(self.apps.topic_graph.load()?)?;
         Ok(json!({
             "libraryId":self.apps.library_id(),
-            "reviews":{"topicGraph":topic_graph.get("reviews").cloned().unwrap_or_else(|| json!([]))},
+            "reviews":{"topicGraph":topic_graph.get("reviewItems").cloned().unwrap_or_else(|| json!([]))},
         }))
     }
 
     fn concept_review(&self, _state: &Value) -> Result<Value, String> {
-        let concepts = wire(self.apps.concepts.load()?)?;
+        let concepts = concept_projection(self.apps.concepts.load()?)?;
         Ok(json!({
             "libraryId":self.apps.library_id(),
-            "reviews":{"concept":concepts.get("reviews").cloned().unwrap_or_else(|| json!([]))},
+            "reviews":{"concept":concepts.get("reviewItems").cloned().unwrap_or_else(|| json!([]))},
         }))
     }
 
@@ -481,7 +748,7 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     fn concepts(&self, _state: &Value) -> Result<Value, String> {
         Ok(json!({
             "libraryId":self.apps.library_id(),
-            "concepts":wire(self.apps.concepts.load()?)?,
+            "concepts":concept_projection(self.apps.concepts.load()?)?,
         }))
     }
 

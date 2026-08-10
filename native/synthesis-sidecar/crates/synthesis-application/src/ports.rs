@@ -23,10 +23,10 @@ use synthesis_repository::{
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationLayoutRecord,
     CitationLayoutWindowRecord, CitationMetricsPageQuery, CitationMetricsPageRows,
     CitationNodeRecord, LiteratureMatchingMetadataRecord, RawReferenceRecord,
-    ReferenceApplicationStateRecord, ReferenceBindingFactRecord, ReferenceMatchProposalRecord,
-    ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion, ReferenceMatchingStateRecord,
-    ReferenceProjectionReplacement, ReferenceProjectionSnapshot, ReferenceRedirectFactRecord,
-    ReferenceReviewTransition, ReferenceSourceRecord,
+    ReferenceApplicationStateRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
+    ReferenceMatchProposalRecord, ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion,
+    ReferenceMatchingStateRecord, ReferenceProjectionReplacement, ReferenceProjectionSnapshot,
+    ReferenceRedirectFactRecord, ReferenceReviewTransition, ReferenceSourceRecord,
 };
 use synthesis_repository::{
     ConceptApplicationStateRecord, ConceptKbReplacement, TagApplicationStateRecord, TagAuditRecord,
@@ -225,6 +225,26 @@ pub trait ConceptKbRepositoryPort: Send + Sync {
 pub trait TopicGraphRepositoryPort: Send + Sync {
     fn get_state(&self) -> Result<Option<TopicGraphApplicationStateRecord>, String>;
     fn load(&self) -> Result<TopicGraphReplacement, String>;
+    fn load_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {
+        let mut snapshot = self.load()?;
+        snapshot.nodes.truncate(limit);
+        let topic_ids = snapshot
+            .nodes
+            .iter()
+            .map(|node| node.topic_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        snapshot.edges.retain(|edge| {
+            topic_ids.contains(edge.source_topic_id.as_str())
+                && topic_ids.contains(edge.target_topic_id.as_str())
+        });
+        snapshot.edges.truncate(limit.saturating_mul(4));
+        snapshot.reviews.retain(|review| {
+            topic_ids.contains(review.source_topic_id.as_str())
+                && topic_ids.contains(review.target_topic_id.as_str())
+        });
+        snapshot.reviews.truncate(limit.saturating_mul(2));
+        Ok(snapshot)
+    }
     fn replace(
         &self,
         expected_manifest_hash: Option<&str>,
@@ -315,6 +335,13 @@ pub trait TopicRepositoryPort: Send + Sync {
         limit: usize,
     ) -> Result<TopicApplicationRecordPage, String> {
         self.list_records(0, limit)
+    }
+    fn list_reference_artifacts(
+        &self,
+        paper_refs: &[String],
+    ) -> Result<Vec<ReferenceArtifactRecord>, String> {
+        let _ = paper_refs;
+        Ok(Vec::new())
     }
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String>;
     fn get_projection(
@@ -670,6 +697,10 @@ impl TopicGraphRepositoryPort for RepositoryPort {
                 reviews: repository.list_topic_graph_reviews()?,
             })
         })
+    }
+
+    fn load_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {
+        self.with_reader(|repository| repository.load_topic_graph_window(limit))
     }
 
     fn replace(
@@ -1049,6 +1080,13 @@ impl TopicRepositoryPort for RepositoryPort {
         limit: usize,
     ) -> Result<TopicApplicationRecordPage, String> {
         self.with_reader(|repository| repository.list_topic_workflow_option_records(limit))
+    }
+
+    fn list_reference_artifacts(
+        &self,
+        paper_refs: &[String],
+    ) -> Result<Vec<ReferenceArtifactRecord>, String> {
+        self.with_reader(|repository| repository.list_reference_artifacts(paper_refs))
     }
 
     fn upsert_state(&self, record: &TopicApplicationStateRecord) -> Result<(), String> {

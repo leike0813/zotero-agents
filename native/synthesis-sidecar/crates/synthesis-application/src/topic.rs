@@ -1,16 +1,22 @@
+use crate::concept_kb::{ConceptKbApplication, ConceptMutationStatus};
 use crate::dto::{
     TopicApplyRequest, TopicApplyResult, TopicApplyStatus, TopicContextRequest, TopicContextResult,
     TopicContextView, TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailRequest,
     TopicDetailResult, TopicDiscoveryHintRequest, TopicDiscoveryHintResult, TopicFindDiagnostics,
-    TopicFindRequest, TopicFindResult, TopicFindRow, TopicListRequest, TopicListResult,
-    TopicPurgeResult, TopicRecord, TopicReportRequest, TopicReportResult, TopicResolverCombine,
-    TopicResolverPaper, TopicResolverRequest, TopicResolverResult, TopicWorkflowFilter,
-    TopicWorkflowOption, TopicWorkflowOptionsResult,
+    TopicFindRequest, TopicFindResult, TopicFindRow, TopicFreshness, TopicListRequest,
+    TopicListResult, TopicPurgeResult, TopicRecord, TopicReportRequest, TopicReportResult,
+    TopicResolverCombine, TopicResolverPaper, TopicResolverRequest, TopicResolverResult,
+    TopicSourceMaterialsStatus, TopicWorkflowFilter, TopicWorkflowOption,
+    TopicWorkflowOptionsResult,
 };
 use crate::ports::{
     StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
 };
-use crate::topic_graph::TopicGraphApplication;
+use crate::topic_graph::{
+    TopicGraphApplication, TopicGraphIngestRequest, TopicGraphMaterializedTopic,
+    TopicGraphMutationStatus, TopicGraphProposal, TopicGraphProposalKind,
+};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -23,8 +29,8 @@ use synthesis_canonical_store::{
 };
 use synthesis_protocol::canonical_json;
 use synthesis_repository::{
-    DeletedTopicArtifactRecord, OperationRecord, TopicApplicationProjectionRecord,
-    TopicApplicationStateRecord,
+    DeletedTopicArtifactRecord, OperationRecord, ReferenceArtifactRecord,
+    TopicApplicationProjectionRecord, TopicApplicationStateRecord,
 };
 
 const MAX_ASSETS: usize = 256;
@@ -33,6 +39,7 @@ const MAX_TOTAL_ASSET_BYTES: usize = 50 * 1024 * 1024;
 const MAX_LIST: usize = 250;
 const MAX_RESOLVER_CANDIDATES: usize = 10_000;
 const RESOLVER_PAGE_LIMIT: usize = 100;
+const TOPIC_SOURCE_ARTIFACT_TYPES: [&str; 3] = ["digest", "references", "citation_analysis"];
 const BUNDLE_FIELDS: &[&str] = &[
     "kind",
     "operation",
@@ -61,6 +68,42 @@ const BUNDLE_FIELDS: &[&str] = &[
 type TextFactory = Arc<dyn Fn(&str) -> String + Send + Sync>;
 type Clock = Arc<dyn Fn() -> String + Send + Sync>;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct TopicDependencyArtifact {
+    status: String,
+    hash: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct TopicDependencySnapshot {
+    paper_refs: Vec<String>,
+    paper_artifacts: BTreeMap<String, BTreeMap<String, TopicDependencyArtifact>>,
+    missing_artifacts: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct TopicReadinessProjection {
+    baseline_input_hash: String,
+    baseline_dependencies: Option<TopicDependencySnapshot>,
+    current_input_hash: String,
+    current_dependencies: Option<TopicDependencySnapshot>,
+    baseline_initialized_at: String,
+    last_scanned_at: String,
+}
+
+#[derive(Clone, Debug)]
+struct TopicReadinessView {
+    freshness: TopicFreshness,
+    source_materials_status: TopicSourceMaterialsStatus,
+    source_materials_percent: i64,
+    stale_reasons: Vec<String>,
+    dirty_reasons: Vec<String>,
+    missing_sections: Vec<String>,
+}
+
 pub struct TopicApplication {
     repository: Arc<dyn TopicRepositoryPort>,
     canonical: Arc<dyn TopicCanonicalPort>,
@@ -69,6 +112,7 @@ pub struct TopicApplication {
     operation_id: TextFactory,
     transaction_id: TextFactory,
     topic_graph: Option<Arc<TopicGraphApplication>>,
+    concept_kb: Option<Arc<ConceptKbApplication>>,
     accepting: AtomicBool,
     active: Mutex<usize>,
     drained: Condvar,
@@ -132,6 +176,7 @@ impl TopicApplication {
             operation_id,
             transaction_id,
             topic_graph: None,
+            concept_kb: None,
             accepting: AtomicBool::new(true),
             active: Mutex::new(0),
             drained: Condvar::new(),
@@ -141,6 +186,38 @@ impl TopicApplication {
     pub fn with_topic_graph(mut self, topic_graph: Arc<TopicGraphApplication>) -> Self {
         self.topic_graph = Some(topic_graph);
         self
+    }
+
+    pub fn with_concept_kb(mut self, concept_kb: Arc<ConceptKbApplication>) -> Self {
+        self.concept_kb = Some(concept_kb);
+        self
+    }
+
+    fn project_rows(
+        &self,
+        rows: Vec<(
+            TopicApplicationStateRecord,
+            Option<TopicApplicationProjectionRecord>,
+        )>,
+    ) -> Result<Vec<TopicRecord>, String> {
+        let mut paper_refs = rows
+            .iter()
+            .flat_map(|(state, _)| {
+                serde_json::from_str::<Value>(&state.resolved_paper_set_json)
+                    .ok()
+                    .map(|value| resolved_paper_refs(&value))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        paper_refs.sort();
+        paper_refs.dedup();
+        let artifacts = self
+            .repository
+            .list_reference_artifacts(&paper_refs)
+            .unwrap_or_default();
+        rows.into_iter()
+            .map(|(state, projection)| project_record(state, projection, &artifacts))
+            .collect()
     }
 
     pub fn list(&self, request: TopicListRequest) -> Result<TopicListResult, String> {
@@ -158,10 +235,7 @@ impl TopicApplication {
         let (rows, total) = self.repository.list_records(offset, request.limit)?;
         let returned = rows.len();
         let next = offset.saturating_add(returned);
-        let topics = rows
-            .into_iter()
-            .map(|(row, projection)| project_record(row, projection))
-            .collect::<Result<Vec<_>, String>>()?;
+        let topics = self.project_rows(rows)?;
         Ok(TopicListResult {
             topics,
             cursor: request.cursor,
@@ -192,9 +266,17 @@ impl TopicApplication {
             }),
             (Some(state), CurrentTopic::Ready { snapshot, .. }) => {
                 let projection = self.repository.get_projection(&request.topic_id)?;
+                let paper_refs = serde_json::from_str::<Value>(&state.resolved_paper_set_json)
+                    .ok()
+                    .map(|value| resolved_paper_refs(&value))
+                    .unwrap_or_default();
+                let artifacts = self
+                    .repository
+                    .list_reference_artifacts(&paper_refs)
+                    .unwrap_or_default();
                 Ok(TopicDetailResult::Ready {
                     topic_id: request.topic_id,
-                    topic: Box::new(project_record(state, projection)?),
+                    topic: Box::new(project_record(state, projection, &artifacts)?),
                     snapshot: Box::new(snapshot),
                 })
             }
@@ -230,10 +312,8 @@ impl TopicApplication {
             .find_records_by_paper_refs(&paper_refs, MAX_LIST)?;
         let requested = paper_refs.iter().cloned().collect::<HashSet<_>>();
         let mut matched_refs = HashSet::new();
-        let mut topics = rows
-            .into_iter()
-            .map(|(state, projection)| project_record(state, projection))
-            .collect::<Result<Vec<_>, _>>()?
+        let mut topics = self
+            .project_rows(rows)?
             .into_iter()
             .filter_map(|topic| {
                 let mut matched = resolved_paper_refs(&topic.resolved_paper_set)
@@ -297,10 +377,8 @@ impl TopicApplication {
         filter: TopicWorkflowFilter,
     ) -> Result<TopicWorkflowOptionsResult, String> {
         let (rows, _) = self.repository.list_workflow_option_records(MAX_LIST)?;
-        let mut options = rows
-            .into_iter()
-            .map(|(state, projection)| project_record(state, projection))
-            .collect::<Result<Vec<_>, _>>()?
+        let mut options = self
+            .project_rows(rows)?
             .into_iter()
             .filter(|topic| {
                 filter == TopicWorkflowFilter::All || !topic_update_blocked(&topic.projection)
@@ -1091,7 +1169,38 @@ impl TopicApplication {
             .flatten()
             .filter_map(|paper| paper["paper_ref"].as_str())
             .filter(|paper_ref| !paper_ref.trim().is_empty())
+            .map(str::to_owned)
             .collect::<Vec<_>>();
+        let mut dependency_records = topic_artifact_dependency_records(&snapshot.artifact);
+        if let Ok(records) = self.repository.list_reference_artifacts(&source_paper_refs) {
+            let mut by_key = dependency_records
+                .into_iter()
+                .map(|record| {
+                    (
+                        (record.paper_ref.clone(), record.artifact_type.clone()),
+                        record,
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            for record in records {
+                by_key.insert(
+                    (record.paper_ref.clone(), record.artifact_type.clone()),
+                    record,
+                );
+            }
+            dependency_records = by_key.into_values().collect();
+        }
+        let dependency_snapshot =
+            topic_dependency_snapshot(&source_paper_refs, &dependency_records);
+        let dependency_hash = topic_dependency_hash(&dependency_snapshot);
+        let readiness = TopicReadinessProjection {
+            baseline_input_hash: dependency_hash.clone(),
+            baseline_dependencies: Some(dependency_snapshot.clone()),
+            current_input_hash: dependency_hash,
+            current_dependencies: Some(dependency_snapshot),
+            baseline_initialized_at: timestamp.clone(),
+            last_scanned_at: timestamp.clone(),
+        };
         let projection = TopicApplicationProjectionRecord {
             topic_id: parsed.topic_id.clone(),
             topic_graph_json: canonical_json(&json!({
@@ -1101,20 +1210,77 @@ impl TopicApplication {
                     "definition":parsed.definition,
                     "artifact_hash":artifact_hash,
                 },
-                "relations":parsed.relations,
+                "relations":parsed.relations.as_ref().cloned().unwrap_or_else(|| json!({})),
             }))
             .unwrap_or_else(|_| "{}".into()),
-            concepts_json: canonical_json(&parsed.concepts).unwrap_or_else(|_| "{}".into()),
-            interest_metadata_json: canonical_json(&parsed.interest)
-                .unwrap_or_else(|_| "{}".into()),
-            discovery_json: canonical_json(&json!({"source_paper_refs":source_paper_refs}))
-                .unwrap_or_else(|_| "{}".into()),
+            concepts_json: canonical_json(
+                &parsed
+                    .concepts
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )
+            .unwrap_or_else(|_| "{}".into()),
+            interest_metadata_json: canonical_json(
+                &parsed
+                    .interest
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )
+            .unwrap_or_else(|_| "{}".into()),
+            discovery_json: canonical_json(&json!({
+                "source_paper_refs":source_paper_refs,
+                "readiness":readiness,
+            }))
+            .unwrap_or_else(|_| "{}".into()),
             updated_at: timestamp.clone(),
         };
-        if self.repository.upsert_state(&state).is_err()
-            || self.repository.upsert_projection(&projection).is_err()
-        {
+        let topic_projection_persisted = self.repository.upsert_state(&state).is_ok()
+            && self.repository.upsert_projection(&projection).is_ok();
+        if !topic_projection_persisted {
             warnings.push("topic_projection_failed".into());
+        }
+        if topic_projection_persisted && let Some(topic_graph) = &self.topic_graph {
+            let graph_result =
+                topic_graph.upsert_materialized_topic(&TopicGraphMaterializedTopic {
+                    topic_id: parsed.topic_id.clone(),
+                    title: parsed.title.clone(),
+                    definition: parsed.definition.clone(),
+                    current_artifact_path: format!(
+                        "topics/{}/current/artifact.json",
+                        snapshot.path_id
+                    ),
+                    paper_count: state.paper_count,
+                    synthesized_at: timestamp.clone(),
+                });
+            if !matches!(
+                graph_result.status,
+                TopicGraphMutationStatus::Committed | TopicGraphMutationStatus::Unchanged
+            ) {
+                warnings.push("topic_graph_projection_failed".into());
+            } else if let (Some(manifest_hash), Some(relations)) =
+                (graph_result.manifest_hash, parsed.relations.as_ref())
+                && let Some(request) =
+                    topic_graph_ingest_request(&parsed.topic_id, &manifest_hash, relations)
+                && !matches!(
+                    topic_graph.ingest_proposals(&request).status,
+                    TopicGraphMutationStatus::Committed | TopicGraphMutationStatus::Unchanged
+                )
+            {
+                warnings.push("topic_graph_projection_failed".into());
+            }
+        }
+        if topic_projection_persisted
+            && let (Some(concept_kb), Some(concepts)) = (&self.concept_kb, &parsed.concepts)
+            && !matches!(
+                concept_kb
+                    .ingest_topic_sidecar(&parsed.topic_id, &snapshot.path_id, concepts)
+                    .status,
+                ConceptMutationStatus::Committed | ConceptMutationStatus::Unchanged
+            )
+        {
+            warnings.push("concept_cards_proposal_failed".into());
         }
         if self
             .repository
@@ -1285,9 +1451,9 @@ struct ParsedApply {
     artifact_metadata: Value,
     manifest: Value,
     assets: BTreeMap<String, Value>,
-    interest: Value,
-    concepts: Value,
-    relations: Value,
+    interest: Option<Value>,
+    concepts: Option<Value>,
+    relations: Option<Value>,
 }
 
 impl ParsedApply {
@@ -1347,19 +1513,19 @@ impl ParsedApply {
             return Err("invalid_request".into());
         }
         let assets = materialize_assets(&request.assets)?;
-        let manifest_id = bundle
+        let artifact_manifest = read_artifact_manifest(bundle, &assets)?;
+        let manifest_id = if let Some(id) = bundle
             .get("analysis_manifest_path")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-            .or_else(|| {
-                bundle
-                    .get("artifact_manifest_path")
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.is_empty())
-            })
-            .ok_or_else(|| "invalid_request".to_owned())?;
+        {
+            id.to_owned()
+        } else {
+            manifest_locator(artifact_manifest, &["topic_analysis", "analysis_manifest"])
+                .ok_or_else(|| "invalid_request".to_owned())?
+        };
         let manifest = assets
-            .get(manifest_id)
+            .get(&manifest_id)
             .cloned()
             .ok_or_else(|| "invalid_request".to_owned())?;
         let manifest_object = manifest
@@ -1409,10 +1575,27 @@ impl ParsedApply {
             .unwrap_or_default()
             .trim()
             .to_owned();
-        let interest = read_optional_asset(bundle.get("topic_interest_metadata_path"), &assets);
-        let concepts = read_optional_asset(bundle.get("concept_cards_proposal_path"), &assets);
-        let relations =
-            read_optional_asset(bundle.get("topic_graph_relation_proposals_path"), &assets);
+        let interest = read_optional_sidecar(
+            bundle.get("topic_interest_metadata_path"),
+            artifact_manifest,
+            &manifest,
+            "topic_interest_metadata",
+            &assets,
+        )?;
+        let concepts = read_optional_sidecar(
+            bundle.get("concept_cards_proposal_path"),
+            artifact_manifest,
+            &manifest,
+            "concept_cards_proposal",
+            &assets,
+        )?;
+        let relations = read_optional_sidecar(
+            bundle.get("topic_graph_relation_proposals_path"),
+            artifact_manifest,
+            &manifest,
+            "topic_graph_relation_proposals",
+            &assets,
+        )?;
         Ok(Self {
             bundle: Value::Object(bundle.clone()),
             operation,
@@ -1436,6 +1619,23 @@ impl ParsedApply {
             relations,
         })
     }
+}
+
+fn read_artifact_manifest<'a>(
+    bundle: &Map<String, Value>,
+    assets: &'a BTreeMap<String, Value>,
+) -> Result<Option<&'a Map<String, Value>>, String> {
+    bundle
+        .get("artifact_manifest_path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(|id| {
+            assets
+                .get(id)
+                .and_then(Value::as_object)
+                .ok_or_else(|| "invalid_request".to_owned())
+        })
+        .transpose()
 }
 
 struct Candidate {
@@ -1548,6 +1748,17 @@ fn read_manifest_sections(
     Ok(sections)
 }
 
+fn manifest_locator(manifest: Option<&Map<String, Value>>, keys: &[&str]) -> Option<String> {
+    let manifest = manifest?;
+    keys.iter().find_map(|key| {
+        manifest
+            .get(*key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    })
+}
+
 fn read_resolver(
     bundle: &Map<String, Value>,
     assets: &BTreeMap<String, Value>,
@@ -1561,10 +1772,18 @@ fn read_resolver(
     {
         return Ok((topic_resolver.clone(), resolved_paper_set.clone()));
     }
-    let id = bundle
+    let id = if let Some(id) = bundle
         .get("resolver_manifest_path")
         .and_then(Value::as_str)
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+    {
+        Some(id.to_owned())
+    } else {
+        manifest_locator(
+            read_artifact_manifest(bundle, assets)?,
+            &["resolver_manifest", "resolver"],
+        )
+    };
     let Some(id) = id else {
         return if required {
             Err("invalid_request".into())
@@ -1573,7 +1792,7 @@ fn read_resolver(
         };
     };
     let resolver = assets
-        .get(id)
+        .get(&id)
         .and_then(Value::as_object)
         .ok_or_else(|| "invalid_request".to_owned())?;
     let resolved = resolver
@@ -1593,12 +1812,40 @@ fn read_resolver(
     ))
 }
 
-fn read_optional_asset(id: Option<&Value>, assets: &BTreeMap<String, Value>) -> Value {
-    id.and_then(Value::as_str)
-        .and_then(|id| assets.get(id))
+fn read_optional_sidecar(
+    bundle_locator: Option<&Value>,
+    artifact_manifest: Option<&Map<String, Value>>,
+    analysis_manifest: &Value,
+    sidecar_key: &str,
+    assets: &BTreeMap<String, Value>,
+) -> Result<Option<Value>, String> {
+    let artifact_key = format!("{sidecar_key}_sidecar");
+    let locator = bundle_locator
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            analysis_manifest
+                .get("sidecars")
+                .and_then(|sidecars| sidecars.get(sidecar_key))
+                .and_then(|sidecar| sidecar.get("path"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            artifact_manifest
+                .and_then(|manifest| manifest.get(&artifact_key))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        });
+    let Some(locator) = locator else {
+        return Ok(None);
+    };
+    assets
+        .get(locator)
         .filter(|value| value.is_object())
         .cloned()
-        .unwrap_or_else(|| json!({}))
+        .map(Some)
+        .ok_or_else(|| "invalid_request".to_owned())
 }
 
 fn parse_object(text: &str) -> Result<Value, String> {
@@ -1711,9 +1958,286 @@ fn collect_library_candidates(
     }
 }
 
+fn topic_dependency_snapshot(
+    paper_refs: &[String],
+    artifacts: &[ReferenceArtifactRecord],
+) -> TopicDependencySnapshot {
+    let mut refs = paper_refs
+        .iter()
+        .map(|paper_ref| paper_ref.trim().to_owned())
+        .filter(|paper_ref| !paper_ref.is_empty())
+        .collect::<Vec<_>>();
+    refs.sort();
+    refs.dedup();
+    let by_key = artifacts
+        .iter()
+        .filter(|artifact| {
+            refs.binary_search(&artifact.paper_ref).is_ok()
+                && TOPIC_SOURCE_ARTIFACT_TYPES.contains(&artifact.artifact_type.as_str())
+        })
+        .map(|artifact| {
+            (
+                (artifact.paper_ref.clone(), artifact.artifact_type.clone()),
+                artifact,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut paper_artifacts = BTreeMap::new();
+    let mut missing_artifacts = Vec::new();
+    for paper_ref in &refs {
+        let mut dependencies = BTreeMap::new();
+        for artifact_type in TOPIC_SOURCE_ARTIFACT_TYPES {
+            let record = by_key.get(&(paper_ref.clone(), artifact_type.to_owned()));
+            let dependency = TopicDependencyArtifact {
+                status: record
+                    .map(|record| record.status.clone())
+                    .unwrap_or_else(|| "missing".into()),
+                hash: record
+                    .map(|record| record.payload_hash.clone())
+                    .unwrap_or_default(),
+            };
+            if dependency.status != "available" {
+                missing_artifacts.push(format!("{paper_ref}:{artifact_type}"));
+            }
+            dependencies.insert(artifact_type.into(), dependency);
+        }
+        paper_artifacts.insert(paper_ref.clone(), dependencies);
+    }
+    TopicDependencySnapshot {
+        paper_refs: refs,
+        paper_artifacts,
+        missing_artifacts,
+    }
+}
+
+fn topic_dependency_hash(snapshot: &TopicDependencySnapshot) -> String {
+    serde_json::to_value(snapshot)
+        .ok()
+        .and_then(|value| canonical_json_hash(&value).ok())
+        .unwrap_or_default()
+}
+
+fn source_materials_status(snapshot: &TopicDependencySnapshot) -> TopicSourceMaterialsStatus {
+    if snapshot.paper_refs.is_empty() {
+        return TopicSourceMaterialsStatus::Missing;
+    }
+    let total = snapshot.paper_refs.len() * TOPIC_SOURCE_ARTIFACT_TYPES.len();
+    if snapshot.missing_artifacts.is_empty() {
+        TopicSourceMaterialsStatus::Complete
+    } else if snapshot.missing_artifacts.len() >= total {
+        TopicSourceMaterialsStatus::Missing
+    } else {
+        TopicSourceMaterialsStatus::Partial
+    }
+}
+
+fn source_materials_percent(snapshot: &TopicDependencySnapshot) -> i64 {
+    if snapshot.paper_refs.is_empty() {
+        return 0;
+    }
+    let missing_refs = snapshot
+        .missing_artifacts
+        .iter()
+        .filter_map(|entry| entry.rsplit_once(':').map(|(paper_ref, _)| paper_ref))
+        .collect::<HashSet<_>>();
+    let complete = snapshot
+        .paper_refs
+        .iter()
+        .filter(|paper_ref| !missing_refs.contains(paper_ref.as_str()))
+        .count();
+    ((complete * 100) / snapshot.paper_refs.len()) as i64
+}
+
+fn stored_topic_readiness(projection: &Value) -> Option<TopicReadinessProjection> {
+    projection
+        .get("discovery")
+        .and_then(|discovery| discovery.get("readiness"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn topic_readiness_view(
+    state: &TopicApplicationStateRecord,
+    projection: &Value,
+    artifacts: &[ReferenceArtifactRecord],
+) -> TopicReadinessView {
+    let paper_refs = serde_json::from_str::<Value>(&state.resolved_paper_set_json)
+        .ok()
+        .map(|value| resolved_paper_refs(&value))
+        .unwrap_or_default();
+    let stored = stored_topic_readiness(projection);
+    let current = if artifacts.is_empty() {
+        stored
+            .as_ref()
+            .and_then(|readiness| readiness.current_dependencies.clone())
+            .or_else(|| {
+                stored
+                    .as_ref()
+                    .and_then(|readiness| readiness.baseline_dependencies.clone())
+            })
+            .unwrap_or_else(|| topic_dependency_snapshot(&paper_refs, artifacts))
+    } else {
+        topic_dependency_snapshot(&paper_refs, artifacts)
+    };
+    let current_hash = topic_dependency_hash(&current);
+    let status = source_materials_status(&current);
+    let percent = source_materials_percent(&current);
+    let mut stale_reasons = Vec::new();
+    let mut dirty_reasons = Vec::new();
+    let freshness = match stored.as_ref().and_then(|readiness| {
+        (!readiness.baseline_input_hash.is_empty()).then_some(&readiness.baseline_input_hash)
+    }) {
+        Some(baseline_hash) if baseline_hash == &current_hash => TopicFreshness::Fresh,
+        Some(_) => {
+            stale_reasons.push("topic_dependencies_changed".into());
+            TopicFreshness::Stale
+        }
+        None if matches!(status, TopicSourceMaterialsStatus::Complete) => TopicFreshness::Fresh,
+        None => {
+            dirty_reasons.push("readiness_baseline_missing".into());
+            TopicFreshness::Dirty
+        }
+    };
+    TopicReadinessView {
+        freshness,
+        source_materials_status: status,
+        source_materials_percent: percent,
+        stale_reasons,
+        dirty_reasons,
+        missing_sections: current.missing_artifacts.clone(),
+    }
+}
+
+fn topic_artifact_dependency_records(artifact: &Value) -> Vec<ReferenceArtifactRecord> {
+    artifact
+        .get("source_artifacts")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let paper_ref = entry.get("paper_ref")?.as_str()?.trim();
+            let artifact_type = entry.get("artifact_type")?.as_str()?.trim();
+            if paper_ref.is_empty() || !TOPIC_SOURCE_ARTIFACT_TYPES.contains(&artifact_type) {
+                return None;
+            }
+            Some(ReferenceArtifactRecord {
+                paper_ref: paper_ref.into(),
+                artifact_type: artifact_type.into(),
+                payload_type: entry
+                    .get("payload_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                status: entry
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("missing")
+                    .into(),
+                locator: entry
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                payload_hash: entry
+                    .get("hash")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                diagnostics_json: "[]".into(),
+                updated_at: entry
+                    .get("updated_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+            })
+        })
+        .collect()
+}
+
+fn topic_graph_proposal_kind(value: &str) -> Option<TopicGraphProposalKind> {
+    match value {
+        "target_is_broader_topic_candidate" => {
+            Some(TopicGraphProposalKind::TargetIsBroaderTopicCandidate)
+        }
+        "target_is_narrower_topic_candidate" => {
+            Some(TopicGraphProposalKind::TargetIsNarrowerTopicCandidate)
+        }
+        "overlap_topic_candidate" => Some(TopicGraphProposalKind::OverlapTopicCandidate),
+        "contrast_topic_candidate" => Some(TopicGraphProposalKind::ContrastTopicCandidate),
+        "related_topic_candidate" => Some(TopicGraphProposalKind::RelatedTopicCandidate),
+        _ => None,
+    }
+}
+
+fn topic_graph_ingest_request(
+    source_topic_id: &str,
+    expected_manifest_hash: &str,
+    relations: &Value,
+) -> Option<TopicGraphIngestRequest> {
+    let proposals = relations
+        .get("proposals")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|proposal| {
+            let proposal_type = proposal
+                .get("type")
+                .or_else(|| proposal.get("relation_type"))
+                .and_then(Value::as_str)
+                .and_then(topic_graph_proposal_kind)?;
+            let target_topic_id = proposal
+                .get("target_topic_id")
+                .or_else(|| proposal.get("targetTopicId"))
+                .and_then(Value::as_str)?
+                .trim()
+                .to_owned();
+            if target_topic_id.is_empty() {
+                return None;
+            }
+            let provenance = proposal
+                .get("provenance")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_else(|| {
+                    proposal
+                        .get("rationale")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .map(|rationale| vec![json!({"rationale":rationale})])
+                        .unwrap_or_default()
+                });
+            let evidence_refs = proposal
+                .get("evidence_refs")
+                .or_else(|| proposal.get("source_paper_refs"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            Some(TopicGraphProposal {
+                proposal_type,
+                target_topic_id,
+                target_title: proposal
+                    .get("target_title")
+                    .or_else(|| proposal.get("target_topic_title"))
+                    .or_else(|| proposal.get("targetTitle"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                confidence: proposal.get("confidence").and_then(Value::as_f64),
+                provenance,
+                evidence_refs,
+            })
+        })
+        .collect::<Vec<_>>();
+    (!proposals.is_empty()).then(|| TopicGraphIngestRequest {
+        expected_manifest_hash: expected_manifest_hash.into(),
+        source_topic_id: source_topic_id.into(),
+        proposals,
+    })
+}
+
 fn project_record(
     state: TopicApplicationStateRecord,
     projection: Option<TopicApplicationProjectionRecord>,
+    artifacts: &[ReferenceArtifactRecord],
 ) -> Result<TopicRecord, String> {
     let projection = projection
         .map(|projection| {
@@ -1726,6 +2250,25 @@ fn project_record(
         })
         .transpose()?
         .unwrap_or_else(|| json!({}));
+    let readiness = topic_readiness_view(&state, &projection, artifacts);
+    let mut projection = projection;
+    if let Some(object) = projection.as_object_mut() {
+        object.insert("freshness".into(), json!(readiness.freshness.as_str()));
+        object.insert(
+            "source_materials_status".into(),
+            json!(readiness.source_materials_status.as_str()),
+        );
+        object.insert(
+            "source_materials_percent".into(),
+            json!(readiness.source_materials_percent),
+        );
+        object.insert("stale_reasons".into(), json!(&readiness.stale_reasons));
+        object.insert("dirty_reasons".into(), json!(&readiness.dirty_reasons));
+        object.insert(
+            "missing_sections".into(),
+            json!(&readiness.missing_sections),
+        );
+    }
     Ok(TopicRecord {
         topic_id: state.topic_id,
         path_id: state.path_id,
@@ -1743,6 +2286,12 @@ fn project_record(
         topic_resolver: parse_object(&state.topic_resolver_json)?,
         resolved_paper_set: parse_object(&state.resolved_paper_set_json)?,
         projection,
+        freshness: readiness.freshness,
+        source_materials_status: readiness.source_materials_status,
+        source_materials_percent: readiness.source_materials_percent,
+        stale_reasons: readiness.stale_reasons,
+        dirty_reasons: readiness.dirty_reasons,
+        missing_sections: readiness.missing_sections,
     })
 }
 
@@ -2115,6 +2664,38 @@ mod tests {
         }
     }
 
+    fn flat_manifest_request(topic_id: &str) -> TopicApplyRequest {
+        let mut request = request(topic_id, "create");
+        let bundle = request.bundle.as_object_mut().expect("topic apply bundle");
+        bundle.remove("analysis_manifest_path");
+        bundle.remove("resolver_manifest_path");
+        bundle.insert(
+            "artifact_manifest_path".into(),
+            json!("asset/artifact-manifest"),
+        );
+        request.assets.push(TopicAsset {
+            id: "asset/artifact-manifest".into(),
+            media_type: "application/json".into(),
+            text: serde_json::to_string(&json!({
+                "topic_analysis": "asset/manifest",
+                "resolver_manifest": "asset/resolver",
+            }))
+            .expect("artifact manifest"),
+        });
+        request
+    }
+
+    #[test]
+    fn create_resolves_analysis_and_resolver_from_flat_artifact_manifest() {
+        let root = root("flat-artifact-manifest");
+        let application = make_application(&root);
+
+        let created = application.apply(flat_manifest_request("topic-flat-manifest"));
+
+        assert_eq!(created.status, TopicApplyStatus::Persisted);
+        assert!(created.ok);
+    }
+
     #[test]
     fn create_list_detail_duplicate_and_reopen_are_typed_and_durable() {
         let root = root("create");
@@ -2160,6 +2741,131 @@ mod tests {
             TopicDetailResult::Ready { .. }
         ));
         drop(reopened);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn apply_materializes_topic_graph_node_and_reopens_it() {
+        let root = root("apply-topic-graph");
+        let (repository, canonical) = owners(&root);
+        let graph = Arc::new(TopicGraphApplication::new(
+            Arc::new(repository.clone()),
+            Arc::new(FixtureTopicGraphCompute),
+        ));
+        let application = TopicApplication::with_factories(
+            Arc::new(repository),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+            Arc::new(|topic| format!("transaction:{topic}")),
+        )
+        .with_topic_graph(Arc::clone(&graph));
+
+        let applied = application.apply(request("topic-alpha", "create"));
+
+        assert_eq!(applied.status, TopicApplyStatus::Persisted);
+        assert!(applied.warnings.is_empty());
+        let snapshot = graph.load().expect("topic graph");
+        assert_eq!(snapshot.nodes.len(), 1);
+        assert_eq!(snapshot.nodes[0].topic_id, "topic-alpha");
+        assert_eq!(snapshot.nodes[0].node_type, "materialized");
+        assert_eq!(snapshot.nodes[0].definition_status, "has_synthesis");
+        drop(application);
+        drop(graph);
+
+        let reopened_repository = owners(&root).0;
+        let reopened_graph = TopicGraphApplication::new(
+            Arc::new(reopened_repository),
+            Arc::new(FixtureTopicGraphCompute),
+        );
+        assert_eq!(
+            reopened_graph.load().expect("reopened graph").nodes.len(),
+            1
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn apply_routes_relation_proposals_through_topic_graph_application() {
+        let root = root("apply-topic-graph-proposals");
+        let (repository, canonical) = owners(&root);
+        let graph = Arc::new(TopicGraphApplication::new(
+            Arc::new(repository.clone()),
+            Arc::new(FixtureTopicGraphCompute),
+        ));
+        let application = TopicApplication::with_factories(
+            Arc::new(repository),
+            Arc::new(canonical),
+            Arc::new(FixtureEngine),
+            Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
+            Arc::new(|topic| format!("operation:{topic}")),
+            Arc::new(|topic| format!("transaction:{topic}")),
+        )
+        .with_topic_graph(Arc::clone(&graph));
+        assert!(application.apply(request("topic-parent", "create")).ok);
+        let mut child = request("topic-child", "create");
+        child.bundle.as_object_mut().expect("bundle").insert(
+            "topic_graph_relation_proposals_path".into(),
+            json!("asset/relations"),
+        );
+        child.assets.push(TopicAsset {
+            id: "asset/relations".into(),
+            media_type: "application/json".into(),
+            text: serde_json::to_string(&json!({
+                "schema_id":"synthesis.topic_graph_relation_proposals",
+                "proposals":[{
+                    "relation_type":"target_is_broader_topic_candidate",
+                    "target_topic_id":"topic-parent",
+                    "target_topic_title":"Typed Topic",
+                    "confidence":0.9,
+                    "source_paper_refs":["1:AAAA"]
+                }]
+            }))
+            .expect("relations"),
+        });
+
+        let applied = application.apply(child);
+
+        assert_eq!(applied.status, TopicApplyStatus::Persisted);
+        assert!(applied.warnings.is_empty());
+        let snapshot = graph.load().expect("topic graph");
+        assert_eq!(snapshot.nodes.len(), 2);
+        assert_eq!(snapshot.edges.len(), 1);
+        assert_eq!(snapshot.edges[0].source_topic_id, "topic-parent");
+        assert_eq!(snapshot.edges[0].target_topic_id, "topic-child");
+        assert_eq!(snapshot.edges[0].status, "suggested");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn startup_reconciliation_backfills_legacy_topic_once() {
+        let root = root("reconcile-legacy-topic-graph");
+        let application = make_application(&root);
+        assert!(application.apply(request("topic-legacy", "create")).ok);
+        drop(application);
+        let (repository, _) = owners(&root);
+        let state = repository
+            .get_state("topic-legacy")
+            .expect("topic state")
+            .expect("legacy topic");
+        let graph =
+            TopicGraphApplication::new(Arc::new(repository), Arc::new(FixtureTopicGraphCompute));
+        let materialized = TopicGraphMaterializedTopic {
+            topic_id: state.topic_id,
+            title: state.title,
+            definition: state.definition,
+            current_artifact_path: format!("topics/{}/current/artifact.json", state.path_id),
+            paper_count: state.paper_count,
+            synthesized_at: state.updated_at,
+        };
+
+        let first = graph.reconcile_materialized_topics(std::slice::from_ref(&materialized));
+        let second = graph.reconcile_materialized_topics(&[materialized]);
+
+        assert_eq!(first.status, TopicGraphMutationStatus::Committed);
+        assert_eq!(second.status, TopicGraphMutationStatus::Unchanged);
+        assert_eq!(graph.load().expect("topic graph").nodes.len(), 1);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

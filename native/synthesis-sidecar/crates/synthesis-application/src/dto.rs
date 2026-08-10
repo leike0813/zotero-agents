@@ -142,6 +142,50 @@ pub struct TopicPurgeResult {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum TopicFreshness {
+    Fresh,
+    Stale,
+    Dirty,
+    Queued,
+    Running,
+    Failed,
+    Unknown,
+}
+
+impl TopicFreshness {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Fresh => "fresh",
+            Self::Stale => "stale",
+            Self::Dirty => "dirty",
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Failed => "failed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicSourceMaterialsStatus {
+    Complete,
+    Partial,
+    Missing,
+}
+
+impl TopicSourceMaterialsStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Partial => "partial",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TopicRecord {
     pub topic_id: String,
     pub path_id: String,
@@ -159,6 +203,12 @@ pub struct TopicRecord {
     pub topic_resolver: Value,
     pub resolved_paper_set: Value,
     pub projection: Value,
+    pub freshness: TopicFreshness,
+    pub source_materials_status: TopicSourceMaterialsStatus,
+    pub source_materials_percent: i64,
+    pub stale_reasons: Vec<String>,
+    pub dirty_reasons: Vec<String>,
+    pub missing_sections: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

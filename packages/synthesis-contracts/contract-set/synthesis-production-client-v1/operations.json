@@ -209,6 +209,10 @@
     "client.resolveWebDavSyncConflict": "mutation"
   },
   "semanticSuccess": {
+    "client.applyTopicSynthesisResult": {
+      "field": "status",
+      "values": ["persisted"]
+    },
     "client.startReferenceSidecarRefresh": {
       "field": "status",
       "values": ["promoted", "unchanged"]

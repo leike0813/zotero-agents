@@ -33,7 +33,7 @@ Health and handshake SHALL report the implementation, profile, schema, bundle fi
 
 ### Requirement: Reverse Host access SHALL be explicit and bounded
 
-The plugin SHALL expose a separately authenticated, instance-scoped reverse-Host endpoint containing only the declared paged library/artifact/image reads, export delivery, secret-free WebDAV transport, and preconditioned Host effects required by native applications. Every request MUST carry profile, service-instance, operation-correlation, root correlation when debug diagnostics are enabled, deadline, and bounded payload metadata.
+The plugin SHALL expose a separately authenticated, instance-scoped reverse-Host endpoint containing only the declared paged library/artifact/image reads, remote export delivery, operation-specific ACP run-workspace materialization, secret-free WebDAV transport, and preconditioned Host effects required by native applications. Every request MUST carry profile, service-instance, operation-correlation, root correlation when debug diagnostics are enabled, deadline, and bounded payload metadata.
 
 #### Scenario: Native application requests Host data
 - **WHEN** a current ready native instance invokes a declared Host port within its bounds
@@ -42,6 +42,11 @@ The plugin SHALL expose a separately authenticated, instance-scoped reverse-Host
 #### Scenario: Reverse Host authority is invalid
 - **WHEN** a request is stale, unknown, oversized, expired, disconnected, or fails its permission or precondition
 - **THEN** the plugin rejects it without reading or mutating Zotero state
+
+#### Scenario: Native filtered artifacts use local delivery
+- **WHEN** the native filtered-artifact application supplies bounded canonical entries for local delivery
+- **THEN** the plugin SHALL materialize them only beneath a validated ACP skill-run `run_root`
+- **AND** absolute, traversing, duplicate, oversized, or out-of-scope targets SHALL be rejected before file I/O
 
 ### Requirement: Production routing SHALL have no legacy fallback
 

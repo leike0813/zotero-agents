@@ -11,7 +11,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    TopicGraphEdgeRecord, TopicGraphReplacement, TopicGraphReviewItemRecord,
+    TopicGraphEdgeRecord, TopicGraphNodeRecord, TopicGraphReplacement, TopicGraphReviewItemRecord,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +57,16 @@ pub struct TopicGraphInspectResult {
 pub struct TopicGraphIndexOutput {
     pub index_hash: String,
     pub index_json: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TopicGraphMaterializedTopic {
+    pub topic_id: String,
+    pub title: String,
+    pub definition: String,
+    pub current_artifact_path: String,
+    pub paper_count: i64,
+    pub synthesized_at: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +219,13 @@ impl TopicGraphApplication {
         self.repository.load()
     }
 
+    pub fn load_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {
+        if limit == 0 || limit > 250 {
+            return Err("invalid_request".into());
+        }
+        self.repository.load_window(limit)
+    }
+
     pub fn replace_snapshot(
         &self,
         expected_manifest_hash: Option<&str>,
@@ -227,10 +244,121 @@ impl TopicGraphApplication {
 
     pub fn upsert_materialized_topic(
         &self,
-        expected_manifest_hash: Option<&str>,
-        replacement: &TopicGraphReplacement,
+        topic: &TopicGraphMaterializedTopic,
     ) -> TopicGraphMutationResult {
-        self.apply_replacement(expected_manifest_hash, replacement)
+        self.reconcile_materialized_topics(std::slice::from_ref(topic))
+    }
+
+    pub fn reconcile_materialized_topics(
+        &self,
+        topics: &[TopicGraphMaterializedTopic],
+    ) -> TopicGraphMutationResult {
+        if topics.is_empty()
+            || topics
+                .iter()
+                .any(|topic| topic.topic_id.trim().is_empty() || topic.title.trim().is_empty())
+        {
+            return self.result(
+                TopicGraphMutationStatus::InvalidRequest,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        let mut snapshot = match self.repository.load() {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return self.result(
+                    TopicGraphMutationStatus::RepairRequired,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                );
+            }
+        };
+        let expected_manifest_hash = self
+            .repository
+            .get_state()
+            .ok()
+            .flatten()
+            .map(|state| state.manifest_hash);
+        let now = (self.now)();
+        let mut changed = Vec::new();
+        for topic in topics {
+            let previous = snapshot
+                .nodes
+                .iter()
+                .find(|node| node.topic_id == topic.topic_id)
+                .cloned();
+            let next = TopicGraphNodeRecord {
+                topic_id: topic.topic_id.clone(),
+                title: topic.title.clone(),
+                definition: topic.definition.clone(),
+                aliases_json: previous
+                    .as_ref()
+                    .map(|node| node.aliases_json.clone())
+                    .unwrap_or_else(|| "[]".into()),
+                node_type: "materialized".into(),
+                definition_status: "has_synthesis".into(),
+                current_artifact_path: topic.current_artifact_path.clone(),
+                is_root: previous.as_ref().map_or(0, |node| node.is_root),
+                level: previous
+                    .as_ref()
+                    .map(|node| node.level.clone())
+                    .unwrap_or_default(),
+                paper_count: topic.paper_count,
+                last_synthesis_at: topic.synthesized_at.clone(),
+                created_at: previous
+                    .as_ref()
+                    .map(|node| node.created_at.clone())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| now.clone()),
+                updated_at: now.clone(),
+            };
+            let materially_equal = previous.as_ref().is_some_and(|node| {
+                node.topic_id == next.topic_id
+                    && node.title == next.title
+                    && node.definition == next.definition
+                    && node.aliases_json == next.aliases_json
+                    && node.node_type == next.node_type
+                    && node.definition_status == next.definition_status
+                    && node.current_artifact_path == next.current_artifact_path
+                    && node.is_root == next.is_root
+                    && node.level == next.level
+                    && node.paper_count == next.paper_count
+                    && node.last_synthesis_at == next.last_synthesis_at
+            });
+            if materially_equal {
+                continue;
+            }
+            snapshot
+                .nodes
+                .retain(|node| node.topic_id != topic.topic_id);
+            snapshot.nodes.push(next);
+            changed.push(topic.topic_id.clone());
+        }
+        if changed.is_empty() {
+            return self.result(
+                TopicGraphMutationStatus::Unchanged,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        snapshot
+            .nodes
+            .sort_by(|left, right| left.topic_id.cmp(&right.topic_id));
+        snapshot.state.singleton_id = 1;
+        snapshot.state.index_stale = 1;
+        if set_topic_graph_manifest(&mut snapshot).is_err() {
+            return self.result(
+                TopicGraphMutationStatus::RepairRequired,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        self.apply_replacement(expected_manifest_hash.as_deref(), &snapshot)
     }
 
     pub fn ingest_proposals(&self, request: &TopicGraphIngestRequest) -> TopicGraphMutationResult {

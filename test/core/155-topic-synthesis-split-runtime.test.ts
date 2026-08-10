@@ -1170,6 +1170,13 @@ describe("topic synthesis split skill runtime", function () {
       ],
       env,
     );
+    const resolverManifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(
+      resolverManifest.resolved_paper_set.papers,
+      resolverManifest.resolution_result.candidates,
+    );
 
     await writeJson(
       path.join(

@@ -23,7 +23,9 @@ use synthesis_application::tag_vocabulary::{
     TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolverPort,
     TagVocabularyComputePort,
 };
-use synthesis_application::topic_graph::{TopicGraphComputePort, TopicGraphIndexOutput};
+use synthesis_application::topic_graph::{
+    TopicGraphComputePort, TopicGraphIndexOutput, TopicGraphMaterializedTopic,
+};
 use synthesis_application::webdav_sync::{
     WebDavHostDescription, WebDavHostPort, WebDavReadResult, WebDavRetrySchedulerPort,
     WebDavStateStorePort, WebDavSyncState, WebDavWriteResult,
@@ -66,7 +68,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) citations: CitationGraphApplication,
     pub(crate) reference_canonical: ReferenceCanonicalApplication,
     pub(crate) tags: TagVocabularyApplication,
-    pub(crate) concepts: ConceptKbApplication,
+    pub(crate) concepts: Arc<ConceptKbApplication>,
     pub(crate) topic_graph: Arc<TopicGraphApplication>,
     pub(crate) debug: DebugMaintenanceApplication,
     pub(crate) webdav: WebDavSyncApplication,
@@ -136,6 +138,49 @@ pub(crate) fn build_production_applications(
             compute: Arc::clone(&compute),
         }),
     ));
+    let materialized_topics =
+        repository
+            .owner()
+            .lock()
+            .ok()
+            .and_then(|repository| {
+                let mut offset = 0;
+                let mut topics = Vec::new();
+                loop {
+                    let (records, total) = repository
+                        .list_topic_application_records(offset, 250)
+                        .ok()?;
+                    let returned = records.len();
+                    topics.extend(records.into_iter().map(|(state, _)| {
+                        TopicGraphMaterializedTopic {
+                            topic_id: state.topic_id,
+                            title: state.title,
+                            definition: state.definition,
+                            current_artifact_path: format!(
+                                "topics/{}/current/artifact.json",
+                                state.path_id
+                            ),
+                            paper_count: state.paper_count,
+                            synthesized_at: state.updated_at,
+                        }
+                    }));
+                    offset += returned;
+                    if returned == 0 || offset >= total {
+                        break;
+                    }
+                }
+                Some(topics)
+            })
+            .unwrap_or_default();
+    if !materialized_topics.is_empty() {
+        let _ = topic_graph.reconcile_materialized_topics(&materialized_topics);
+    }
+    let concepts = Arc::new(ConceptKbApplication::new(
+        repository.clone(),
+        Arc::new(NativeConceptKbComputePort {
+            compute: Arc::clone(&compute),
+        }),
+    ));
     let topics = TopicApplication::new(
         repository.clone(),
         canonical.clone(),
@@ -143,7 +188,8 @@ pub(crate) fn build_production_applications(
             compute: Arc::clone(&compute),
         }),
     )
-    .with_topic_graph(Arc::clone(&topic_graph));
+    .with_topic_graph(Arc::clone(&topic_graph))
+    .with_concept_kb(Arc::clone(&concepts));
     let citations = CitationGraphApplication::new(
         repository.clone(),
         Arc::new(NativeCitationGraphComputePort {
@@ -170,12 +216,6 @@ pub(crate) fn build_production_applications(
         }),
         host.clone(),
         host.clone(),
-    );
-    let concepts = ConceptKbApplication::new(
-        repository.clone(),
-        Arc::new(NativeConceptKbComputePort {
-            compute: Arc::clone(&compute),
-        }),
     );
     let debug = DebugMaintenanceApplication::new(repository.clone(), canonical.clone());
     let durable = DurableBundleApplication::with_runtime(

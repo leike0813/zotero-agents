@@ -3,6 +3,10 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common";
+import {
+  rebuildSynthesisSidecarOutputTransferReference,
+  type SynthesisSidecarOutputTransferReference,
+} from "./sidecarTransfer";
 
 export const SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX = 256 as const;
 export const SYNTHESIS_HOST_EXPORT_ENTRY_BYTES_MAX = 5 * 1024 * 1024;
@@ -30,6 +34,30 @@ export type SynthesisHostExportDeliveryRequest = {
   capability: SynthesisHostExportDeliveryCapability;
   displayName: string;
   entries: SynthesisHostExportDeliveryEntry[];
+};
+
+export type SynthesisHostRunWorkspaceMaterializationRequest = {
+  capability: "paper_artifacts.export_filtered";
+  runRoot: string;
+  entries: SynthesisHostExportDeliveryEntry[];
+};
+
+export type SynthesisHostExportDeliveryTransferRequest = {
+  capability: SynthesisHostExportDeliveryCapability;
+  displayName: string;
+  contentTransfer: SynthesisSidecarOutputTransferReference;
+};
+
+export type SynthesisHostRunWorkspaceMaterializationTransferRequest = {
+  capability: "paper_artifacts.export_filtered";
+  runRoot: string;
+  contentTransfer: SynthesisSidecarOutputTransferReference;
+};
+
+export type SynthesisHostRunWorkspaceMaterializationResult = {
+  status: "materialized";
+  capability: "paper_artifacts.export_filtered";
+  entryCount: number;
 };
 
 export type SynthesisHostExportDeliveryDescriptor = {
@@ -74,6 +102,12 @@ export interface SynthesisHostExportDeliveryPort {
   publishArchive(
     request: SynthesisHostExportDeliveryRequest,
   ): Promise<SynthesisHostExportDeliveryResult>;
+}
+
+export interface SynthesisHostRunWorkspaceMaterializationPort {
+  materialize(
+    request: SynthesisHostRunWorkspaceMaterializationRequest,
+  ): Promise<SynthesisHostRunWorkspaceMaterializationResult>;
 }
 
 function invalidRequest(message: string): never {
@@ -146,6 +180,41 @@ function rebuildEntryPath(value: unknown, location: string) {
     return invalidRequest(`${location} is invalid`);
   }
   return entryPath;
+}
+
+function rebuildEntries(
+  value: unknown,
+  location: string,
+): SynthesisHostExportDeliveryEntry[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX
+  ) {
+    return invalidRequest("Export delivery entries are invalid");
+  }
+  const paths = new Set<string>();
+  let totalBytes = 0;
+  return value.map((value, index) => {
+    const entry = toSynthesisJsonObject(value, `${location}[${index}]`);
+    const entryPath = rebuildEntryPath(entry.path, `entries[${index}].path`);
+    if (paths.has(entryPath)) {
+      return invalidRequest("Export delivery entry paths must be unique");
+    }
+    paths.add(entryPath);
+    if (typeof entry.text !== "string") {
+      return invalidRequest(`entries[${index}].text must be a string`);
+    }
+    const entryBytes = utf8ByteLength(entry.text);
+    if (entryBytes > SYNTHESIS_HOST_EXPORT_ENTRY_BYTES_MAX) {
+      return invalidRequest("Export delivery entry exceeds its byte limit");
+    }
+    totalBytes += entryBytes;
+    if (totalBytes > SYNTHESIS_HOST_EXPORT_TOTAL_BYTES_MAX) {
+      return invalidRequest("Export delivery request exceeds its byte limit");
+    }
+    return { path: entryPath, text: entry.text };
+  });
 }
 
 function utf8ByteLength(value: string) {
@@ -252,39 +321,97 @@ export function rebuildSynthesisHostExportDeliveryRequest(
   const json = toSynthesisJsonObject(value, "exportDeliveryRequest");
   const capability = rebuildCapability(json.capability);
   const displayName = rebuildDisplayName(json.displayName);
-  if (
-    !Array.isArray(json.entries) ||
-    json.entries.length < 1 ||
-    json.entries.length > SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX
-  ) {
-    return invalidRequest("Export delivery entries are invalid");
-  }
-  const paths = new Set<string>();
-  let totalBytes = 0;
-  const entries = json.entries.map((value, index) => {
-    const entry = toSynthesisJsonObject(
-      value,
-      `exportDeliveryRequest.entries[${index}]`,
-    );
-    const entryPath = rebuildEntryPath(entry.path, `entries[${index}].path`);
-    if (paths.has(entryPath)) {
-      return invalidRequest("Export delivery entry paths must be unique");
-    }
-    paths.add(entryPath);
-    if (typeof entry.text !== "string") {
-      return invalidRequest(`entries[${index}].text must be a string`);
-    }
-    const entryBytes = utf8ByteLength(entry.text);
-    if (entryBytes > SYNTHESIS_HOST_EXPORT_ENTRY_BYTES_MAX) {
-      return invalidRequest("Export delivery entry exceeds its byte limit");
-    }
-    totalBytes += entryBytes;
-    if (totalBytes > SYNTHESIS_HOST_EXPORT_TOTAL_BYTES_MAX) {
-      return invalidRequest("Export delivery request exceeds its byte limit");
-    }
-    return { path: entryPath, text: entry.text };
-  });
+  const entries = rebuildEntries(json.entries, "exportDeliveryRequest.entries");
   return { capability, displayName, entries };
+}
+
+export function rebuildSynthesisHostExportDeliveryTransferRequest(
+  value: unknown,
+): SynthesisHostExportDeliveryTransferRequest {
+  const json = toSynthesisJsonObject(value, "exportDeliveryTransferRequest");
+  return {
+    capability: rebuildCapability(json.capability),
+    displayName: rebuildDisplayName(json.displayName),
+    contentTransfer: rebuildSynthesisSidecarOutputTransferReference(
+      json.contentTransfer,
+    ),
+  };
+}
+
+export function rebuildSynthesisHostRunWorkspaceMaterializationRequest(
+  value: unknown,
+): SynthesisHostRunWorkspaceMaterializationRequest {
+  const json = toSynthesisJsonObject(
+    value,
+    "runWorkspaceMaterializationRequest",
+  );
+  if (json.capability !== "paper_artifacts.export_filtered") {
+    return invalidRequest(
+      "Run workspace materialization capability is invalid",
+    );
+  }
+  const runRoot = requiredTrimmedString(json.runRoot, "runRoot", 4096);
+  const entries = rebuildEntries(
+    json.entries,
+    "runWorkspaceMaterializationRequest.entries",
+  );
+  if (
+    !entries.some(
+      (entry) =>
+        entry.path === "runtime/payloads/paper-artifacts-manifest.json",
+    )
+  ) {
+    return invalidRequest("Run workspace materialization manifest is missing");
+  }
+  return {
+    capability: "paper_artifacts.export_filtered",
+    runRoot,
+    entries,
+  };
+}
+
+export function rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest(
+  value: unknown,
+): SynthesisHostRunWorkspaceMaterializationTransferRequest {
+  const json = toSynthesisJsonObject(
+    value,
+    "runWorkspaceMaterializationTransferRequest",
+  );
+  if (json.capability !== "paper_artifacts.export_filtered") {
+    return invalidRequest(
+      "Run workspace materialization capability is invalid",
+    );
+  }
+  return {
+    capability: "paper_artifacts.export_filtered",
+    runRoot: requiredTrimmedString(json.runRoot, "runRoot", 4096),
+    contentTransfer: rebuildSynthesisSidecarOutputTransferReference(
+      json.contentTransfer,
+    ),
+  };
+}
+
+export function rebuildSynthesisHostRunWorkspaceMaterializationResult(
+  value: unknown,
+): SynthesisHostRunWorkspaceMaterializationResult {
+  const json = toSynthesisJsonObject(
+    value,
+    "runWorkspaceMaterializationResult",
+  );
+  if (
+    json.status !== "materialized" ||
+    json.capability !== "paper_artifacts.export_filtered" ||
+    !Number.isSafeInteger(json.entryCount) ||
+    Number(json.entryCount) < 1 ||
+    Number(json.entryCount) > SYNTHESIS_HOST_EXPORT_ENTRY_COUNT_MAX
+  ) {
+    return invalidRequest("Run workspace materialization result is invalid");
+  }
+  return {
+    status: "materialized",
+    capability: "paper_artifacts.export_filtered",
+    entryCount: Number(json.entryCount),
+  };
 }
 
 export function rebuildSynthesisHostExportDeliveryResult(

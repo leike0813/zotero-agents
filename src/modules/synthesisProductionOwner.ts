@@ -8,7 +8,10 @@ import { getRuntimePersistencePaths } from "./runtimePersistence";
 import { invalidateDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { createSynthesisReverseHostEndpoint } from "./synthesisReverseHostEndpoint";
 import { createDefaultSynthesisReverseHostHandlers } from "./synthesisReverseHostHandlers";
-import { createSynthesisSidecarRpcClient } from "./synthesisSidecarRpcClient";
+import {
+  createSynthesisSidecarRpcClient,
+  type SynthesisSidecarRpcConnection,
+} from "./synthesisSidecarRpcClient";
 import {
   SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
   synthesisProductionTransportDeadlineMs,
@@ -276,6 +279,8 @@ async function createDefaultSynthesisProductionOwner(
     outcome: "succeeded",
   });
 
+  let transferConnection: SynthesisSidecarRpcConnection | null = null;
+
   const endpoint = createSynthesisReverseHostEndpoint({
     profileId,
     authorizationToken: reverseHostToken,
@@ -286,6 +291,7 @@ async function createDefaultSynthesisProductionOwner(
     allowUnboundServiceInstance: true,
     handlers: createDefaultSynthesisReverseHostHandlers({
       libraryId,
+      getTransferConnection: () => transferConnection,
     }),
   });
 
@@ -336,6 +342,12 @@ async function createDefaultSynthesisProductionOwner(
     },
     stopProductionSupervisor: stopSynthesisProductionRuntimeSupervisor,
     async afterReady(connection) {
+      transferConnection = {
+        baseUrl: `http://${connection.discovery.host}:${connection.discovery.port}`,
+        profileId,
+        clientToken: connection.clientToken,
+        serviceInstanceId: connection.discovery.serviceInstanceId,
+      };
       const reconcileTrace = createSynthesisSidecarTraceContext({
         parent: startupTrace,
       });
@@ -347,12 +359,7 @@ async function createDefaultSynthesisProductionOwner(
       await createSynthesisSidecarRpcClient({
         transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
       }).call({
-        connection: {
-          baseUrl: `http://${connection.discovery.host}:${connection.discovery.port}`,
-          profileId,
-          clientToken: connection.clientToken,
-          serviceInstanceId: connection.discovery.serviceInstanceId,
-        },
+        connection: transferConnection,
         capability: "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         payload: toSynthesisJsonObject({ args: [] }, "$.productionReconcile"),
         rebuildResult: (value) => value,

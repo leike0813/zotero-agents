@@ -3903,7 +3903,7 @@ function surfacesInvalidatedByCommand(
     command === "runSynthesizeTopic" ||
     command === "submitTopicSynthesisUpdate"
   ) {
-    return ["home", "topics", "graph", "review"];
+    return ["home", "topics", "concepts", "graph", "review"];
   }
   if (
     command === "acceptTopicGraphRelation" ||

@@ -138,3 +138,46 @@
 - A read-only query against the active Zotero Synthesis database found four staged suggestions, and the active sidecar's direct staged-list capability returned the same four public rows. Its Workbench Tags surface nevertheless omitted the `staged` field, reproducing the empty inbox independently of UI state and proving the projection defect.
 - The new real production-route assertion first failed because `tags.staged` was absent. The typed Workbench adapter now composes the Tags DTO directly from `load_public_vocabulary` and `list_public_staged`; the same route test passes with the staged row and its public facet, note, source flow, and stable parent binding, including cold reopen coverage from the enclosing case.
 - The debug native sidecar was rebuilt. The `synthesis-sidecar` package passed 1 library test, 67 binary tests, and 11 worker-pool integration tests; workspace Clippy with warnings denied, Rust format, project TypeScript, scoped ESLint, scoped Prettier, diff whitespace, and strict OpenSpec validation passed. The already-running Zotero process still owns the prior staged sidecar copy and must be restarted before desktop verification. No development server, release, publication, archive, or Gitee synchronization was run.
+
+## 13. Repair Artifact Export Control/Data Plane Separation
+
+- [x] 13.1 Add failing real production-route coverage for local and remote artifact exports whose content exceeds the 1 MiB reverse-Host request bound
+- [x] 13.2 Extend the existing authenticated output-transfer contract with a hash-bound artifact-export target and bounded reverse-Host descriptor
+- [x] 13.3 Stage export entries in Rust, drain and verify them in the plugin, preserve manifest-last local materialization, and cancel transfer sessions on every terminal outcome
+- [x] 13.4 Run focused contract, TypeScript, Rust, real production-route, formatting, lint, build, and strict OpenSpec gates and record the result
+
+### 2026-08-10 Artifact export control/data plane repair evidence
+
+- The real Rust production-route case exports a references artifact larger than 1 MiB through both local and remote delivery. Both reverse-Host calls contain only the destination fields and the hash-bound `contentTransfer` descriptor, remain below the unchanged 1 MiB request limit, and reproduce identical manifest/content bytes. A third injected remote-delivery failure proves that Rust cancels the staged transfer on both success and failure.
+- `host_export_entries` reuses the authenticated output-transfer lifecycle and canonical JSON chunk encoding. The plugin verifies transfer version, target, capability, root hash, ordered page descriptors, page bodies, aggregate byte length, and content hash before rebuilding the bounded export DTO. Local workspace materialization validates the complete request before I/O and writes `paper-artifacts-manifest.json` last; remote delivery continues through the existing ZIP/file port.
+- Project TypeScript and synthesis-contract checks passed. The focused Host export, native composition, reverse-Host, Artifact/Library/Debug surface, and large real-route suites passed 30, 15, and 1 cases in their final grouped runs. Production-capability, artifact-surface, worker-transfer, and native-runtime parity checks passed.
+- The Rust workspace passed all tests; the final `synthesis-sidecar` binary suite passed 68 cases, including hash-bound export publication and cleanup. Rust format, workspace Clippy with warnings denied, the debug build, scoped Prettier/ESLint, and diff checks passed. Strict OpenSpec validation passed for this change and all 353 main specs.
+- A verified Linux x64 candidate package was produced outside the worktree at `/tmp/zotero-agents-synthesis-sidecar-package-20260810` with bundle ID `dc9d10799319022a7b48b5ae8f5b926324fbce8988ed5303c8a2682c87346d39` and build fingerprint `6e2de256499a6bf5178dd52f6cc2fa872cd02f50f5333e510dc4dfaeb74599a6`. No development server, desktop process, prebuild, release, publication, or Gitee synchronization was run.
+
+## 14. Repair Topic and Concept Workbench Visibility
+
+- [x] 14.1 Add failing workflow and real production-route evidence for Topic apply invalidation, public Topic/Concept Workbench DTOs, controlled sidecar resolution, Concept ingestion, and cold reopen
+- [x] 14.2 Resolve optional sidecars from the controlled analysis manifest and route Concept proposals through the Concept application without weakening Topic commit semantics
+- [x] 14.3 Compose public Topic and Concept Workbench projections and invalidate every affected surface after successful workflow apply
+- [x] 14.4 Run focused TypeScript, Rust, production-route, formatting, lint, and strict OpenSpec gates and record the result
+
+### 2026-08-10 Topic and Concept Workbench visibility evidence
+
+- The workflow regression first completed Topic apply without publishing a Workbench invalidation event. The real Rust production route then persisted the Topic but returned an artifact without public `id`, so UI normalization discarded it; the same route had no public Concept row because proposal sidecars were neither resolved from the controlled analysis manifest nor ingested into Concept KB.
+- Topic apply now resolves optional sidecars through the materialized analysis manifest (with the artifact manifest as the controlled locator fallback), persists its owned Topic projection first, and then routes valid Concept proposals through `ConceptKbApplication`. A Concept projection failure records `concept_cards_proposal_failed` without rolling back the committed Topic.
+- The Workbench adapter now adds the public Topic artifact identity and reconstructs Concept DTOs from repository records by decoding stored JSON columns into snake-case domain arrays and objects. Successful workflow apply invalidates Home, Topics, Concepts, Graph, and Review; the same surface set is used by Workbench Topic synthesis commands.
+- The workflow suite passed 9 cases, the Workbench UI model suite passed 85, and the complete real Rust production-route suite passed 10, including controlled locator resolution, UI normalization, and Concept persistence after process reopen. Project TypeScript, scoped ESLint/Prettier, diff whitespace, Rust format, workspace Clippy, the debug sidecar build, all 211 Rust workspace tests, Topic/Workbench and Concept/Topic Graph parity checks, and strict validation of all 357 OpenSpec items passed. No development server, desktop process, release, publication, archive, or Gitee synchronization was run.
+
+## 15. Repair Topic Graph and Readiness Projection
+
+- [x] 15.1 Add failing application and real production-route evidence for Topic Graph materialization, Topics Graph surface composition, full Topic readiness DTOs, and cold reopen
+- [x] 15.2 Persist native Topic dependency readiness facts and derive typed freshness, source-material status, percentage, reasons, and update intent without legacy JSON state
+- [x] 15.3 Materialize committed Topics and controlled relation proposals through `TopicGraphApplication`, and compose the bounded canonical graph into the Topics surface
+- [x] 15.4 Correct active Topic/readiness documentation and run focused TypeScript, Rust, migration, production-route, formatting, lint, and strict OpenSpec gates
+
+### 2026-08-10 Topic Graph and readiness projection repair evidence
+
+- The application regression first reproduced a committed Topic with zero canonical Topic Graph nodes. The repaired Topic application materializes the committed node, preserves user-owned graph attributes during later reconciliation, ingests controlled relation proposals, and returns a stable projection warning without weakening Topic commit semantics. A separate regression proves that startup reconciliation backfills an existing Topic once and is unchanged on the second pass.
+- The real Rust production-route lifecycle now returns a public Topic row with `kind`, typed freshness, source-material status and percentage, plus a bounded canonical `topicGraph` projection. It passed apply, UI normalization, delete, cold reopen, rebuild, and purge; the complete production-route suite passed all 10 cases, including the closed 96-operation matrix.
+- Topic dependency readiness is stored with the existing native Topic projection and derives from the saved paper set plus `digest`, `references`, and `citation_analysis` status/hash facts. Existing rows without a baseline use complete current evidence deterministically or report `readiness_baseline_missing`; Workbench reads remain read-only. A read-only query of the active database found `33/33` available required dependencies for `large-language-models` and `12/51` for the LoRA Topic, demonstrating that the two rows no longer collapse to the same missing/zero state. The active database was not modified.
+- Shared synthesis-contract and project TypeScript checks, the 85-case Workbench UI model suite, Rust format, workspace Clippy with warnings denied, all Rust workspace tests, production capability/service-boundary checks, scoped Prettier/ESLint, diff checks, and strict OpenSpec validation passed. No development server, desktop process, release, publication, archive, or Gitee synchronization was run.

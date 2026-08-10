@@ -98,6 +98,27 @@ function semanticTerminal(
   };
 }
 
+function semanticFailureClassification(
+  status: string | undefined,
+): SynthesisSidecarBusinessAuditDetails["classification"] {
+  switch (status) {
+    case "canceled":
+      return "canceled";
+    case "timed_out":
+      return "timeout";
+    case "invalid_request":
+      return "invalid";
+    case "basis_mismatch":
+    case "conflict":
+    case "patch_conflict":
+    case "topic_exists":
+    case "topic_missing":
+      return "conflict";
+    default:
+      return "conflict";
+  }
+}
+
 function write(details: SynthesisSidecarBusinessAuditDetails) {
   appendRuntimeLog({
     level: details.outcome === "failed" ? "error" : "info",
@@ -152,7 +173,13 @@ export function beginSynthesisSidecarBusinessAudit(args: {
         ...(semantic.semanticStatus
           ? { semanticStatus: semantic.semanticStatus }
           : {}),
-        ...(semantic.succeeded ? {} : { classification: "conflict" }),
+        ...(semantic.succeeded
+          ? {}
+          : {
+              classification: semanticFailureClassification(
+                semantic.semanticStatus,
+              ),
+            }),
       });
       return semantic;
     },

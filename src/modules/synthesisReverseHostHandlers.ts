@@ -1,6 +1,9 @@
 import {
   SynthesisClientError,
   rebuildSynthesisHostExportDeliveryRequest,
+  rebuildSynthesisHostExportDeliveryTransferRequest,
+  rebuildSynthesisHostRunWorkspaceMaterializationRequest,
+  rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest,
   rebuildSynthesisHostRelatedItemsEffectBatchRequest,
   rebuildSynthesisHostRepresentativeImageReadRequest,
   rebuildSynthesisHostStagedTagBindingResolutionRequest,
@@ -8,9 +11,11 @@ import {
   rebuildSynthesisHostWebDavSyncEnsureCollectionRequest,
   rebuildSynthesisHostWebDavSyncReadRequest,
   rebuildSynthesisHostWebDavSyncWriteRequest,
+  toSynthesisJsonObject,
   type SynthesisHostArtifactReadRequest,
   type SynthesisHostArtifactScanPageRequest,
   type SynthesisHostExportDeliveryPort,
+  type SynthesisHostRunWorkspaceMaterializationPort,
   type SynthesisHostLibraryItemsByRefRequest,
   type SynthesisHostPageRequest,
   type SynthesisHostReadPort,
@@ -20,8 +25,12 @@ import {
   type SynthesisHostTagEffectPort,
   type SynthesisHostWebDavSyncPort,
   type SynthesisJsonObject,
+  type SynthesisSidecarOutputTransferReference,
 } from "../../packages/synthesis-contracts/src";
-import { createSynthesisHostExportDeliveryPort } from "./synthesis/exportDeliveryAdapter";
+import {
+  createSynthesisHostExportDeliveryPort,
+  createSynthesisHostRunWorkspaceMaterializationPort,
+} from "./synthesis/exportDeliveryAdapter";
 import { createZoteroSynthesisHostReadPort } from "./synthesis/libraryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "./synthesis/representativeImageReadAdapter";
 import { createZoteroSynthesisRelatedItemsEffectPort } from "./synthesis/relatedItemsEffectAdapter";
@@ -34,15 +43,27 @@ import type {
   SynthesisReverseHostHandler,
   SynthesisReverseHostHandlers,
 } from "./synthesisReverseHostBroker";
+import {
+  consumeSynthesisSidecarOutputJson,
+  type SynthesisSidecarTransferConnection,
+  type SynthesisSidecarTransferRpcClient,
+} from "./synthesisSidecarTransferClient";
+import { createSynthesisSidecarRpcClient } from "./synthesisSidecarRpcClient";
+import { SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS } from "./synthesisProductionRpcPolicy";
 
 type Ports = {
   hostReadPort: SynthesisHostReadPort;
   exportDeliveryPort: SynthesisHostExportDeliveryPort;
+  runWorkspaceMaterializationPort: SynthesisHostRunWorkspaceMaterializationPort;
   representativeImagePort: SynthesisHostRepresentativeImageReadPort;
   relatedItemsEffectPort: SynthesisHostRelatedItemsEffectPort;
   stagedTagBindingPort: SynthesisHostStagedTagBindingMigrationPort;
   tagEffectPort: SynthesisHostTagEffectPort;
   webDavPort: SynthesisHostWebDavSyncPort;
+  exportTransfer?: {
+    rpcClient: SynthesisSidecarTransferRpcClient;
+    getConnection(): SynthesisSidecarTransferConnection | null;
+  };
 };
 
 const HOST_SNAPSHOT_TTL_MS = 10_000;
@@ -70,6 +91,32 @@ function exactPayload(
 export function createSynthesisReverseHostHandlers(
   ports: Ports,
 ): SynthesisReverseHostHandlers {
+  const consumeExportEntries = async (
+    capability: string,
+    contentTransfer: SynthesisSidecarOutputTransferReference,
+  ) => {
+    const source = ports.exportTransfer;
+    const connection = source?.getConnection();
+    if (!source || !connection) {
+      throw new SynthesisClientError(
+        "unavailable",
+        "The Synthesis export transfer connection is unavailable",
+      );
+    }
+    const content = toSynthesisJsonObject(
+      await consumeSynthesisSidecarOutputJson({
+        rpcClient: source.rpcClient,
+        connection,
+        reference: contentTransfer,
+        target: "host_export_entries",
+        capability,
+        cancelAfterRead: false,
+      }),
+      "$.hostExportTransfer",
+    );
+    exactPayload(content, ["entries"]);
+    return content.entries;
+  };
   return {
     "library.items.list_page": async (payload) =>
       ports.hostReadPort.library.listItemsPage(
@@ -105,10 +152,39 @@ export function createSynthesisReverseHostHandlers(
       ports.representativeImagePort.read(
         rebuildSynthesisHostRepresentativeImageReadRequest(payload),
       ),
-    "delivery.export.publish_archive": async (payload) =>
-      ports.exportDeliveryPort.publishArchive(
-        rebuildSynthesisHostExportDeliveryRequest(payload),
-      ),
+    "delivery.export.publish_archive": async (payload) => {
+      const request = rebuildSynthesisHostExportDeliveryTransferRequest(
+        exactPayload(payload, ["capability", "displayName", "contentTransfer"]),
+      );
+      const entries = await consumeExportEntries(
+        request.capability,
+        request.contentTransfer,
+      );
+      return ports.exportDeliveryPort.publishArchive(
+        rebuildSynthesisHostExportDeliveryRequest({
+          capability: request.capability,
+          displayName: request.displayName,
+          entries,
+        }),
+      );
+    },
+    "delivery.export.materialize_run_workspace": async (payload) => {
+      const request =
+        rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest(
+          exactPayload(payload, ["capability", "runRoot", "contentTransfer"]),
+        );
+      const entries = await consumeExportEntries(
+        request.capability,
+        request.contentTransfer,
+      );
+      return ports.runWorkspaceMaterializationPort.materialize(
+        rebuildSynthesisHostRunWorkspaceMaterializationRequest({
+          capability: request.capability,
+          runRoot: request.runRoot,
+          entries,
+        }),
+      );
+    },
     "webdav.describe": async (payload) => {
       exactPayload(payload, []);
       return ports.webDavPort.describe();
@@ -279,6 +355,7 @@ export function createScopedSynthesisReverseHostHandlers(
 
 export function createDefaultSynthesisReverseHostHandlers(args: {
   libraryId: number;
+  getTransferConnection(): SynthesisSidecarTransferConnection | null;
 }) {
   return createScopedSynthesisReverseHostHandlers({
     libraryId: args.libraryId,
@@ -286,10 +363,18 @@ export function createDefaultSynthesisReverseHostHandlers(args: {
       libraryId: args.libraryId,
     }),
     exportDeliveryPort: createSynthesisHostExportDeliveryPort(),
+    runWorkspaceMaterializationPort:
+      createSynthesisHostRunWorkspaceMaterializationPort(),
     representativeImagePort: createZoteroSynthesisRepresentativeImageReadPort(),
     relatedItemsEffectPort: createZoteroSynthesisRelatedItemsEffectPort(),
     stagedTagBindingPort: createZoteroSynthesisStagedTagBindingMigrationPort(),
     tagEffectPort: createZoteroSynthesisTagEffectPort(),
     webDavPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
+    exportTransfer: {
+      rpcClient: createSynthesisSidecarRpcClient({
+        transportErrors: SYNTHESIS_PRODUCTION_RPC_TRANSPORT_ERRORS,
+      }),
+      getConnection: args.getTransferConnection,
+    },
   });
 }

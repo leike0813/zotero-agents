@@ -1528,6 +1528,7 @@ def collect_resolver_cascade(
         "resolver_reasoning": payload.get("resolver_reasoning", ""),
         "operation_intent": payload.get("operation_intent", operation),
         "resolution_result": resolved,
+        "resolved_paper_set": {"papers": papers},
         "paper_refs": refs,
         "diagnostics": payload.get("diagnostics", []),
     }

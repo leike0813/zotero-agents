@@ -28,6 +28,7 @@ export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING =
 export const SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_TARGETS = [
   "topic_apply_assets",
   "production_client_result",
+  "host_export_entries",
 ] as const;
 
 export type SynthesisProductionContentTransferTarget =
@@ -96,6 +97,11 @@ export type SynthesisSidecarTransferSnapshot = {
   state: "idle" | "active" | "stopping";
   sessions: number;
   stagedBytes: number;
+};
+
+export type SynthesisSidecarOutputTransferReference = {
+  sessionId: string;
+  rootSha256: string;
 };
 
 export type SynthesisSidecarTransferAction =
@@ -299,6 +305,21 @@ export function rebuildSynthesisSidecarTransferPage(
       object.descriptor,
     ),
     rows,
+  };
+}
+
+export function rebuildSynthesisSidecarOutputTransferReference(
+  value: unknown,
+): SynthesisSidecarOutputTransferReference {
+  const object = toSynthesisJsonObject(value, "outputTransferReference");
+  exactFields(object, ["sessionId", "rootSha256"], "outputTransferReference");
+  return {
+    sessionId: boundedString(
+      object.sessionId,
+      "outputTransferReference.sessionId",
+      SYNTHESIS_SIDECAR_TRANSFER_LIMITS.sessionIdLength,
+    ),
+    rootSha256: sha256(object.rootSha256, "outputTransferReference.rootSha256"),
   };
 }
 

@@ -98,6 +98,26 @@ Citation self-loops remain valid durable graph facts and continue contributing t
 
 The worker parent owns crash classification because release workers use aborting panics and cannot rely on `catch_unwind`. It captures only a bounded stderr tail, consumes it internally after the child closes, and maps identifiable Rust panic evidence to `worker_panicked`; other unexpected exits remain `worker_crashed`. No raw stderr becomes part of the public failure contract.
 
+### 11. Carry export content through the existing authenticated transfer plane
+
+Artifact export keeps projection, entry ordering, and manifest construction in Rust, but it does not place entry text in a reverse-Host JSON request. Rust serializes the validated export entries into the existing authenticated output-transfer facility and sends the reverse Host only a bounded, hash-bound transfer descriptor together with the local `runRoot` or remote `displayName`. The plugin drains the output transfer through the ready sidecar connection, verifies its session identity, target, byte length, and SHA-256 digest, rebuilds the strict export entry DTO, and only then invokes the existing local-workspace or remote-archive delivery port.
+
+The reverse-Host request-body limit remains 1 MiB. Export delivery uses its existing 50 MiB aggregate and 5 MiB per-entry limits, while transfer pages retain their existing bound. Rust cancels the transfer session after every terminal delivery outcome, including reverse-Host rejection or timeout. Local workspace materialization validates the complete request before filesystem mutation and writes `manifest.json` last, so a rejected or incomplete transfer cannot leave a success-shaped export.
+
+Alternative: increase the reverse-Host JSON limit. Rejected because reverse Host is a bounded control plane shared by unrelated capabilities, and raising it would duplicate large content in request parsing and validation.
+
+Alternative: add an export-only streaming protocol. Rejected because the authenticated sidecar transfer facility already provides bounded pages, session scoping, integrity metadata, and cleanup semantics.
+
+### 12. Keep Topic readiness and Topic Graph projections application-owned
+
+The Topic aggregate keeps its compact state row and stores dependency readiness in its existing projection record rather than creating a second Topic entity. The readiness projection records the saved/current paper sets, required source-artifact availability, baseline/current hashes, structured reasons, and scan timestamps. Status and percentage are derived from those facts. Existing foundation-v2 databases receive a registered forward migration; rows whose historical baseline cannot be reconstructed remain explicitly dirty or missing until the next successful Topic apply establishes a baseline.
+
+Topic apply persists its owned aggregate first, then asks `TopicGraphApplication` to materialize the current Topic and ingest controlled relation proposals. Topic Graph failure remains a warned partial projection failure, matching Concept projection semantics. The Topics Workbench projection composes its artifact page with the bounded canonical Topic Graph projection required by Graph view; Home does not load Topic Graph content it does not render. Workbench reads remain read-only and do not initialize or mutate readiness state.
+
+Alternative: synthesize readiness defaults in the Workbench adapter. Rejected because it would preserve the false-green DTO while losing dependency history.
+
+Alternative: derive Topics Graph from each Topic's `topic_graph_json`. Rejected because it would create a second graph fact source and bypass Topic Graph review and relation rules.
+
 ## Risks / Trade-offs
 
 - [The fixed baseline contains behavior later judged undesirable] → Preserve it unless an explicit spec and user-approved disposition changes that behavior; do not silently reinterpret it during migration.

@@ -18,6 +18,55 @@ export const SYNTHESIS_WORKBENCH_SURFACES = [
 export type SynthesisWorkbenchSurfaceName =
   (typeof SYNTHESIS_WORKBENCH_SURFACES)[number];
 
+export type SynthesisWorkbenchTopicFreshness =
+  | "fresh"
+  | "stale"
+  | "dirty"
+  | "queued"
+  | "running"
+  | "failed"
+  | "unknown";
+
+export type SynthesisWorkbenchTopicSourceMaterialsStatus =
+  | "complete"
+  | "partial"
+  | "missing";
+
+export type SynthesisWorkbenchTopicUpdateIntent = {
+  topicId: string;
+  language: string;
+  updateScope: string;
+  updateMode: "auto" | "update_patch" | "update_full";
+  updateReason: string;
+  actionLabel: "Update";
+  changedSections: string[];
+  blocked?: boolean;
+};
+
+export type SynthesisWorkbenchTopicArtifactRow = {
+  id: string;
+  title: string;
+  kind: "topic_synthesis";
+  source_materials_status: SynthesisWorkbenchTopicSourceMaterialsStatus;
+  source_materials_percent: number;
+  freshness: SynthesisWorkbenchTopicFreshness;
+  updated_at?: string;
+  definition?: string;
+  markdown_preview?: string;
+  paper_count?: number;
+  summary?: string;
+  status?: string;
+  readerMode?: string;
+  language?: string;
+  external_literature_count?: number;
+  discovery_status?: "none" | "candidates" | "rejected" | "unknown";
+  candidate_count?: number;
+  stale_reasons?: string[];
+  dirty_reasons?: string[];
+  missing_sections?: string[];
+  updateIntent?: SynthesisWorkbenchTopicUpdateIntent;
+};
+
 export type SynthesisWorkbenchReadState = SynthesisJsonObject;
 export type SynthesisWorkbenchProjection = SynthesisJsonObject;
 

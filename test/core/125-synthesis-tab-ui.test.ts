@@ -1781,7 +1781,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(
       topicSynthesisBranch,
-      'return ["home", "topics", "graph", "review"]',
+      'return ["home", "topics", "concepts", "graph", "review"]',
     );
     assert.include(
       topicGraphReviewBranch,

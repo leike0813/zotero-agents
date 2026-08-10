@@ -842,6 +842,71 @@ impl Repository {
         )
     }
 
+    pub fn load_topic_graph_window(&self, limit: usize) -> Result<TopicGraphReplacement, String> {
+        let limit = limit.clamp(1, 250);
+        let nodes = self
+            .query(
+                "SELECT * FROM synt_topic_graph_node ORDER BY topic_id LIMIT ?1",
+                &[json!(limit)],
+            )?
+            .into_iter()
+            .map(decode)
+            .collect::<Result<Vec<TopicGraphNodeRecord>, _>>()?;
+        let topic_ids = nodes
+            .iter()
+            .map(|node| node.topic_id.clone())
+            .collect::<Vec<_>>();
+        let (edges, reviews) = if topic_ids.is_empty() {
+            (Vec::new(), Vec::new())
+        } else {
+            let placeholders = (1..=topic_ids.len())
+                .map(|index| format!("?{index}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let values = topic_ids
+                .iter()
+                .map(|topic_id| json!(topic_id))
+                .collect::<Vec<_>>();
+            let edges = self
+                .query(
+                    &format!(
+                        "SELECT * FROM synt_topic_graph_edge
+                         WHERE source_topic_id IN ({placeholders})
+                           AND target_topic_id IN ({placeholders})
+                         ORDER BY edge_id LIMIT {}",
+                        limit * 4
+                    ),
+                    &values,
+                )?
+                .into_iter()
+                .map(decode)
+                .collect::<Result<Vec<TopicGraphEdgeRecord>, _>>()?;
+            let reviews = self
+                .query(
+                    &format!(
+                        "SELECT * FROM synt_topic_graph_review_item
+                         WHERE source_topic_id IN ({placeholders})
+                           AND target_topic_id IN ({placeholders})
+                         ORDER BY review_id LIMIT {}",
+                        limit * 2
+                    ),
+                    &values,
+                )?
+                .into_iter()
+                .map(decode)
+                .collect::<Result<Vec<TopicGraphReviewItemRecord>, _>>()?;
+            (edges, reviews)
+        };
+        Ok(TopicGraphReplacement {
+            state: self
+                .get_topic_graph_application_state()?
+                .unwrap_or_default(),
+            nodes,
+            edges,
+            reviews,
+        })
+    }
+
     pub fn replace_topic_graph_application_state(
         &mut self,
         expected_manifest_hash: Option<&str>,

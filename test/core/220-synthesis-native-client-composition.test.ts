@@ -258,6 +258,72 @@ describe("Synthesis native client composition", function () {
     }
   });
 
+  it("records a rejected Topic apply as a failed semantic trace", async function () {
+    setDebugModeOverrideForTests(true);
+    setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
+    try {
+      const composition = createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 1234,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-1",
+          },
+          clientToken: "token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({
+              ok: false,
+              status: "invalid_request",
+              topicId: "large-language-models",
+              operationId: "",
+              hashes: {},
+              mismatches: [],
+              warnings: [],
+            });
+          },
+        },
+      });
+
+      const result =
+        await composition.client.workflowApply.applyTopicSynthesisResult({
+          bundle: { topic_id: "large-language-models" },
+          assets: [],
+        });
+
+      assert.equal(result.status, "invalid_request");
+      const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
+      const terminal = trace.events.find(
+        (event) =>
+          event.boundary === "operation" && event.phase === "terminal",
+      )!;
+      assert.equal(terminal.outcome, "failed");
+      assert.equal(terminal.code, "semantic_non_success");
+      assert.deepEqual(terminal.facts, {
+        semanticStatus: "invalid_request",
+      });
+
+      const audit = listRuntimeLogs({
+        component: "synthesis-sidecar-business",
+        order: "asc",
+      }).find(
+        (entry) =>
+          entry.operation === "client.applyTopicSynthesisResult" &&
+          entry.stage === "failed",
+      );
+      assert.deepInclude(audit?.details as Record<string, unknown>, {
+        semanticStatus: "invalid_request",
+        classification: "invalid",
+      });
+    } finally {
+      resetSynthesisSidecarTraceForTests();
+      setSynthesisSidecarDiagnosticsSourceOverrideForTests(undefined);
+      setDebugModeOverrideForTests(undefined);
+    }
+  });
+
   it("keeps the TypeScript port and Rust manifest on one closed fingerprint", function () {
     const report = inspectSynthesisProductionCapabilities();
     assert.equal(report.capabilityCount, 96);

@@ -13,6 +13,7 @@ use crate::runtime_diagnostics::{
 const REVERSE_HOST_PATH: &str = "/synthesis/v1/host-call";
 const REVERSE_HOST_TIMEOUT: Duration = Duration::from_secs(2);
 const REFERENCE_ARTIFACT_TIMEOUT: Duration = Duration::from_secs(10);
+const EXPORT_DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REVERSE_HOST_RESPONSE_HEADER_BYTES: u64 = 16 * 1024;
 const MAX_REVERSE_HOST_RESPONSE_BODY_BYTES: u64 = 1024 * 1024;
 const MAX_REFERENCE_ARTIFACT_RESPONSE_BODY_BYTES: u64 = 8 * 1024 * 1024;
@@ -148,8 +149,11 @@ pub(crate) fn call_reverse_host(
         "library.artifacts.scan_page" | "library.artifacts.read"
     );
     let artifact_read = capability == "library.artifacts.read";
+    let export_delivery = capability.starts_with("delivery.export.");
     let timeout = bounded_timeout(if reference_artifact {
         REFERENCE_ARTIFACT_TIMEOUT
+    } else if export_delivery {
+        EXPORT_DELIVERY_TIMEOUT
     } else {
         REVERSE_HOST_TIMEOUT
     })?;

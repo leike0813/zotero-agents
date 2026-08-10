@@ -2,6 +2,10 @@ import {
   rebuildSynthesisHostItemRefs,
   type SynthesisHostItemRef,
   type SynthesisWorkbenchSurfaceName,
+  type SynthesisWorkbenchTopicArtifactRow,
+  type SynthesisWorkbenchTopicFreshness,
+  type SynthesisWorkbenchTopicSourceMaterialsStatus,
+  type SynthesisWorkbenchTopicUpdateIntent,
 } from "../../../packages/synthesis-contracts/src/index";
 
 export type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
@@ -18,9 +22,7 @@ export type SynthesisUiTab =
 
 export type SynthesisUiCoverage = "complete" | "partial" | "missing";
 export type SynthesisUiSourceMaterialsStatus =
-  | "complete"
-  | "partial"
-  | "missing";
+  SynthesisWorkbenchTopicSourceMaterialsStatus;
 export type SynthesisUiCacheReadiness =
   | "missing"
   | "refreshing"
@@ -28,14 +30,7 @@ export type SynthesisUiCacheReadiness =
   | "stale"
   | "failed";
 
-export type SynthesisUiFreshness =
-  | "fresh"
-  | "stale"
-  | "dirty"
-  | "queued"
-  | "running"
-  | "failed"
-  | "unknown";
+export type SynthesisUiFreshness = SynthesisWorkbenchTopicFreshness;
 export type SynthesisUiDiscoveryStatus =
   | "none"
   | "candidates"
@@ -96,40 +91,9 @@ export type SynthesisUiGraphElement =
   | { kind: "node"; id: string }
   | { kind: "edge"; id: string };
 
-export type SynthesisUiTopicUpdateIntent = {
-  topicId: string;
-  language: string;
-  updateScope: string;
-  updateMode: "auto" | "update_patch" | "update_full";
-  updateReason: string;
-  actionLabel: "Update";
-  changedSections: string[];
-  blocked?: boolean;
-};
+export type SynthesisUiTopicUpdateIntent = SynthesisWorkbenchTopicUpdateIntent;
 
-export type SynthesisUiArtifactRow = {
-  id: string;
-  title: string;
-  kind: "topic_synthesis";
-  source_materials_status: SynthesisUiSourceMaterialsStatus;
-  source_materials_percent: number;
-  freshness: SynthesisUiFreshness;
-  updated_at?: string;
-  definition?: string;
-  markdown_preview?: string;
-  paper_count?: number;
-  summary?: string;
-  status?: string;
-  readerMode?: string;
-  language?: string;
-  external_literature_count?: number;
-  discovery_status?: SynthesisUiDiscoveryStatus;
-  candidate_count?: number;
-  stale_reasons?: string[];
-  dirty_reasons?: string[];
-  missing_sections?: string[];
-  updateIntent?: SynthesisUiTopicUpdateIntent;
-};
+export type SynthesisUiArtifactRow = SynthesisWorkbenchTopicArtifactRow;
 
 export type SynthesisUiRegistryRow = {
   libraryId?: number;

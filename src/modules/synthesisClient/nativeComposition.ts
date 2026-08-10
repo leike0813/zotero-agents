@@ -24,7 +24,10 @@ import {
   synthesisProductionOperationPolicy,
   synthesisProductionTransportDeadlineMs,
 } from "../synthesisProductionRpcPolicy";
-import { createSynthesisSidecarContentTransferClient } from "../synthesisSidecarTransferClient";
+import {
+  consumeSynthesisSidecarOutputJson,
+  createSynthesisSidecarContentTransferClient,
+} from "../synthesisSidecarTransferClient";
 import { beginSynthesisSidecarBusinessAudit } from "../synthesisSidecarBusinessAudit";
 import {
   createSynthesisSidecarTraceContext,
@@ -184,90 +187,13 @@ async function resolveContentTransferResult(args: {
       "The native Synthesis content locator is invalid",
     );
   }
-  const client = createSynthesisSidecarContentTransferClient({
+  return consumeSynthesisSidecarOutputJson({
     rpcClient: args.rpcClient,
+    connection: rpcConnection(args.connection),
+    reference: { sessionId: transferReference.sessionId },
+    target: "production_client_result",
+    capability: args.operation,
   });
-  const connection = rpcConnection(args.connection);
-  const sessionId = transferReference.sessionId;
-  try {
-    const manifest = await client.getOutputManifest(connection, sessionId);
-    const header = toSynthesisJsonObject(
-      manifest.header,
-      "$.nativeSynthesisLocator.header",
-    );
-    const manifestBody = {
-      transferVersion: manifest.transferVersion,
-      encoding: manifest.encoding,
-      direction: manifest.direction,
-      header: manifest.header,
-      pages: manifest.pages,
-    };
-    if (
-      manifest.transferVersion !==
-        SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION ||
-      manifest.encoding !== SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING ||
-      manifest.direction !== "output" ||
-      header.target !== "production_client_result" ||
-      header.capability !== args.operation ||
-      typeof header.byteLength !== "number" ||
-      !Number.isSafeInteger(header.byteLength) ||
-      header.byteLength < 0 ||
-      typeof header.sha256 !== "string" ||
-      manifest.rootSha256 !==
-        hashSynthesisContractCanonicalJson(manifestBody) ||
-      manifest.pages.some(
-        (descriptor, index) =>
-          descriptor.kind !== "content" || descriptor.pageIndex !== index,
-      )
-    ) {
-      throw new SynthesisClientError(
-        "unavailable",
-        "The native Synthesis content manifest is invalid",
-      );
-    }
-    const chunks: string[] = [];
-    for (const descriptor of manifest.pages) {
-      const page = await client.getOutputPage(
-        connection,
-        sessionId,
-        descriptor.kind,
-        descriptor.pageIndex,
-      );
-      if (
-        JSON.stringify(page.descriptor) !== JSON.stringify(descriptor) ||
-        page.rows.length !== 1 ||
-        typeof page.rows[0] !== "string"
-      ) {
-        throw new SynthesisClientError(
-          "unavailable",
-          "The native Synthesis content page is invalid",
-        );
-      }
-      chunks.push(page.rows[0]);
-    }
-    const content = chunks.join("");
-    if (
-      new TextEncoder().encode(content).byteLength !== header.byteLength ||
-      hashSynthesisContractCanonicalJson(content) !== header.sha256
-    ) {
-      throw new SynthesisClientError(
-        "unavailable",
-        "The native Synthesis content hash is invalid",
-      );
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      throw new SynthesisClientError(
-        "unavailable",
-        "The native Synthesis content result is invalid",
-      );
-    }
-    return toSynthesisJsonValue(parsed, "$.nativeSynthesisContentResult");
-  } finally {
-    await client.cancel(connection, sessionId).catch(() => undefined);
-  }
 }
 
 function rpcConnection(

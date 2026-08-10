@@ -1,12 +1,19 @@
 import { assert } from "chai";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { rebuildSynthesisSidecarObservationEvent } from "../../packages/synthesis-contracts/src/sidecarObservability";
+import {
+  SYNTHESIS_REVERSE_HOST_LIMITS,
+  rebuildSynthesisSidecarObservationEvent,
+  toSynthesisJsonObject,
+} from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 import { buildSynthesisUiSnapshot } from "../../src/modules/synthesis/uiModel";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
+import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesisSidecarRpcClient";
+import { consumeSynthesisSidecarOutputJson } from "../../src/modules/synthesisSidecarTransferClient";
 import { createSyntheticSynthesisProductionRouteDataset } from "../fixtures/synthesisSyntheticDatasets";
 import {
   SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN as CLIENT_TOKEN,
@@ -197,7 +204,29 @@ function topicApplyRequest(topicId: string) {
       },
       body: "This bounded report records a production Topic lifecycle through the real authenticated sidecar route. It establishes a durable active artifact, archives that artifact under a stable deleted identifier, reopens the process against the same repository and canonical root, rebuilds an active Topic without erasing the tombstone, and finally purges only deleted state. The fixture intentionally keeps its literature claims narrow because the observable contract under test is storage ownership and transition safety. ",
     },
-    source_artifacts: [],
+    source_artifacts: [
+      {
+        paper_ref: sourcePaperRef,
+        artifact_type: "digest",
+        payload_type: "digest-markdown",
+        status: "available",
+        hash: "sha256:topic-fixture-digest",
+      },
+      {
+        paper_ref: sourcePaperRef,
+        artifact_type: "references",
+        payload_type: "references-json",
+        status: "available",
+        hash: "sha256:topic-fixture-references",
+      },
+      {
+        paper_ref: sourcePaperRef,
+        artifact_type: "citation_analysis",
+        payload_type: "citation-analysis-json",
+        status: "available",
+        hash: "sha256:topic-fixture-citation-analysis",
+      },
+    ],
     diagnostics: { warnings: [] },
   };
   const sectionAssets = Object.entries(sectionValues).map(([name, value]) => ({
@@ -216,12 +245,19 @@ function topicApplyRequest(topicId: string) {
         title: "Production Topic",
         definition: "A durable production-route Topic",
       },
-      resolver_manifest_path: "asset/resolver",
-      analysis_manifest_path: "asset/manifest",
+      artifact_manifest_path: "asset/artifact-manifest",
       artifact_metadata: {},
       markdown: "",
     },
     assets: [
+      {
+        id: "asset/artifact-manifest",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          topic_analysis: "asset/manifest",
+          resolver_manifest: "asset/resolver",
+        }),
+      },
       {
         id: "asset/manifest",
         mediaType: "application/json",
@@ -261,6 +297,54 @@ function topicApplyRequest(topicId: string) {
         text: JSON.stringify({
           resolver: { query: "durable production topic" },
           resolved_paper_set: { papers: [{ paper_ref: sourcePaperRef }] },
+        }),
+      },
+      {
+        id: "asset/sidecar/concept_cards_proposal",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          schema_id: "synthesis.concept_cards_proposal",
+          schema_version: "1.0.0",
+          cards: [
+            {
+              label: "Production concept",
+              aliases: ["Durable concept"],
+              concept_type: "method",
+              domain: "information-science",
+              short_definition: "A concept projected by Topic apply.",
+              definition:
+                "A durable Concept KB fact produced through the Topic proposal boundary.",
+              topic_relevance: "Defines the production lifecycle fixture.",
+              confidence: "high",
+              evidence: [{ paper_ref: sourcePaperRef }],
+              relations: [],
+            },
+          ],
+        }),
+      },
+      {
+        id: "asset/sidecar/topic_interest_metadata",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          schema: "topic_interest_metadata.v1",
+          topic_id: topicId,
+          include_terms: ["production lifecycle"],
+        }),
+      },
+      {
+        id: "asset/sidecar/topic_graph_relation_proposals",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          schema_id: "synthesis.topic_graph_relation_proposals",
+          proposals: [],
+        }),
+      },
+      {
+        id: "asset/sidecar/prospective_topic_relation_proposals",
+        mediaType: "application/json",
+        text: JSON.stringify({
+          schema_id: "synthesis.prospective_topic_relation_proposals",
+          proposals: [],
         }),
       },
     ],
@@ -433,18 +517,59 @@ describe("Synthesis Rust production client route", function () {
       path.join(os.tmpdir(), "zs-rust-content-route-"),
     );
     const hostCalls: string[] = [];
+    let publishedEntries: Array<{ path: string; text: string }> = [];
+    let maxExportControlBytes = 0;
+    const exportTransferSessionIds: string[] = [];
+    let rejectNextExportDelivery = false;
+    let transferConnection: {
+      baseUrl: string;
+      profileId: string;
+      clientToken: string;
+      serviceInstanceId: string;
+    } | null = null;
+    const transferRpcClient = createSynthesisSidecarRpcClient();
+    const largeReferenceTitle = `Transferred reference ${"x".repeat(1_100_000)}`;
+    const readExportEntries = async (payload: Record<string, unknown>) => {
+      if (!transferConnection)
+        throw new Error("transfer connection unavailable");
+      const content = toSynthesisJsonObject(
+        await consumeSynthesisSidecarOutputJson({
+          rpcClient: transferRpcClient,
+          connection: transferConnection,
+          reference: payload.contentTransfer as never,
+          target: "host_export_entries",
+          capability: "paper_artifacts.export_filtered",
+          cancelAfterRead: false,
+        }),
+        "$.testExportTransfer",
+      );
+      return content.entries as Array<{ path: string; text: string }>;
+    };
     const reverseHost = http.createServer((request, response) => {
       let source = "";
       request.setEncoding("utf8");
       request.on("data", (chunk) => {
         source += chunk;
       });
-      request.on("end", () => {
+      request.on("end", async () => {
         const requestCall = JSON.parse(source) as {
           capability: string;
           payload: Record<string, unknown>;
         };
         hostCalls.push(requestCall.capability);
+        if (requestCall.capability.startsWith("delivery.export.")) {
+          maxExportControlBytes = Math.max(
+            maxExportControlBytes,
+            Buffer.byteLength(source),
+          );
+          assert.notProperty(requestCall.payload, "entries");
+          exportTransferSessionIds.push(
+            String(
+              (requestCall.payload.contentTransfer as { sessionId: string })
+                .sessionId,
+            ),
+          );
+        }
         let result: Record<string, unknown>;
         if (requestCall.capability === "library.artifacts.scan_page") {
           result = {
@@ -474,33 +599,59 @@ describe("Synthesis Rust production client route", function () {
               kind: "json",
               value: {
                 padding: "x".repeat(900_000),
-                references: [{ title: "Transferred reference" }],
+                references: [{ title: largeReferenceTitle }],
               },
             },
             diagnostics: [],
           };
         } else if (
+          requestCall.capability === "delivery.export.materialize_run_workspace"
+        ) {
+          const runRoot = String(requestCall.payload.runRoot || "");
+          const entries = await readExportEntries(requestCall.payload);
+          for (const entry of entries) {
+            const target = path.join(runRoot, entry.path);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, entry.text, "utf8");
+          }
+          result = {
+            status: "materialized",
+            capability: "paper_artifacts.export_filtered",
+            entryCount: entries.length,
+          };
+        } else if (
           requestCall.capability === "delivery.export.publish_archive"
         ) {
-          result = {
-            status: "available",
-            capability: "paper_artifacts.export_filtered",
-            delivery: {
-              mode: "bridge-download",
-              bundle: {
-                fileId: "file-content-1",
-                sourceKind: "bridge-export",
-                displayName: "paper-artifacts.zip",
-                contentType: "application/zip",
-                size: 1,
-                sha256: `sha256:${"b".repeat(64)}`,
-                createdAt: "2026-08-02T00:00:00.000Z",
-                expiresAt: "2026-08-02T01:00:00.000Z",
-                owner: { capability: "paper_artifacts.export_filtered" },
-              },
-            },
-            diagnostics: [],
-          };
+          publishedEntries = await readExportEntries(requestCall.payload);
+          result = rejectNextExportDelivery
+            ? {
+                status: "unavailable",
+                capability: "paper_artifacts.export_filtered",
+                diagnostics: ["injected_export_delivery_failure"],
+              }
+            : {
+                status: "available",
+                capability: "paper_artifacts.export_filtered",
+                delivery: {
+                  mode: "bridge-download",
+                  bundle: {
+                    fileId: "file-content-1",
+                    sourceKind: "bridge-export",
+                    displayName: requestCall.payload.displayName,
+                    contentType: "application/zip",
+                    size: 1,
+                    sha256: `sha256:${"b".repeat(64)}`,
+                    createdAt: "2026-08-02T00:00:00.000Z",
+                    expiresAt: "2026-08-02T01:00:00.000Z",
+                    owner: { capability: "paper_artifacts.export_filtered" },
+                  },
+                  downloadCommand:
+                    "zotero-bridge file download file-content-1 --output paper-artifacts-1_CONTENT1.zip",
+                  unpackHint: "unzip paper-artifacts-1_CONTENT1.zip -d .",
+                },
+                diagnostics: [],
+              };
+          rejectNextExportDelivery = false;
         } else {
           result = {};
         }
@@ -539,6 +690,12 @@ describe("Synthesis Rust production client route", function () {
       const health = (await (
         await fetch(`http://127.0.0.1:${port}/synthesis/v1/health`)
       ).json()) as { serviceInstanceId: string };
+      transferConnection = {
+        baseUrl: `http://127.0.0.1:${port}`,
+        profileId: "1".repeat(64),
+        clientToken: CLIENT_TOKEN,
+        serviceInstanceId: health.serviceInstanceId,
+      };
       const composition = createNativeSynthesisClientComposition({
         getReadyConnection: () => ({
           discovery: {
@@ -567,36 +724,122 @@ describe("Synthesis Rust production client route", function () {
         artifact_types: ["references"],
       });
       assert.equal(
-        (artifacts.artifacts[0].payload as any).value.padding.length,
+        (artifacts.artifacts[0].payload as any).padding.length,
         900_000,
       );
       assert.notInclude(JSON.stringify(artifacts), "native-transfer:");
+
+      const runRoot = path.join(
+        root,
+        "runtime",
+        "acp",
+        "skill-runs",
+        "acp-skill-content-export",
+      );
+      const localExport = await composition.client.artifacts.exportFiltered(
+        {
+          run_root: runRoot,
+          paper_refs: ["1:CONTENT1"],
+          artifact_types: ["references"],
+        },
+        { mode: "local" },
+      );
+      assert.notProperty(localExport, "delivery");
+      assert.equal(
+        localExport.manifest_file,
+        "runtime/payloads/paper-artifacts-manifest.json",
+      );
+      const localManifestText = fs.readFileSync(
+        path.join(runRoot, localExport.manifest_file as string),
+        "utf8",
+      );
+      const localManifest = JSON.parse(localManifestText);
+      assert.equal(localManifest.schema_version, "1.1.0");
+      assert.equal(localManifest.papers[0].paper_ref, "1:CONTENT1");
+      assert.match(
+        localManifest.papers[0].artifacts[0].content_hash,
+        /^sha256:[a-f0-9]{64}$/,
+      );
+      const referencesPath = localManifest.papers[0].artifacts[0].content_file;
+      assert.equal(
+        referencesPath,
+        "runtime/payloads/artifacts/1_CONTENT1/references.json",
+      );
+      const localReferencesText = fs.readFileSync(
+        path.join(runRoot, referencesPath),
+        "utf8",
+      );
+      assert.equal(
+        localManifest.papers[0].artifacts[0].content_hash,
+        `sha256:${crypto.createHash("sha256").update(localReferencesText).digest("hex")}`,
+      );
+      const localReferences = JSON.parse(localReferencesText);
+      assert.equal(localReferences.references[0].title, largeReferenceTitle);
+      assert.isAbove(Buffer.byteLength(localReferencesText), 1024 * 1024);
+      assert.notInclude(hostCalls, "delivery.export.publish_archive");
 
       const exported = await composition.client.artifacts.exportFiltered(
         { paper_refs: ["1:CONTENT1"], artifact_types: ["references"] },
         { mode: "remote" },
       );
       assert.deepEqual(exported.delivery, {
-        status: "available",
-        capability: "paper_artifacts.export_filtered",
-        delivery: {
-          mode: "bridge-download",
-          bundle: {
-            fileId: "file-content-1",
-            sourceKind: "bridge-export",
-            displayName: "paper-artifacts.zip",
-            contentType: "application/zip",
-            size: 1,
-            sha256: `sha256:${"b".repeat(64)}`,
-            createdAt: "2026-08-02T00:00:00.000Z",
-            expiresAt: "2026-08-02T01:00:00.000Z",
-            owner: { capability: "paper_artifacts.export_filtered" },
-          },
+        mode: "bridge-download",
+        bundle: {
+          fileId: "file-content-1",
+          sourceKind: "bridge-export",
+          displayName: "paper-artifacts-1_CONTENT1.zip",
+          contentType: "application/zip",
+          size: 1,
+          sha256: `sha256:${"b".repeat(64)}`,
+          createdAt: "2026-08-02T00:00:00.000Z",
+          expiresAt: "2026-08-02T01:00:00.000Z",
+          owner: { capability: "paper_artifacts.export_filtered" },
         },
-        diagnostics: [],
+        downloadCommand:
+          "zotero-bridge file download file-content-1 --output paper-artifacts-1_CONTENT1.zip",
+        unpackHint: "unzip paper-artifacts-1_CONTENT1.zip -d .",
       });
       assert.include(hostCalls, "delivery.export.publish_archive");
+      assert.deepEqual(
+        publishedEntries.map((entry) => entry.path),
+        ["runtime/payloads/paper-artifacts-manifest.json", referencesPath],
+      );
+      assert.equal(publishedEntries[1].text, localReferencesText);
+      const remoteManifest = JSON.parse(publishedEntries[0].text);
+      delete remoteManifest.exported_at;
+      delete localManifest.exported_at;
+      assert.deepEqual(remoteManifest, localManifest);
       assert.notInclude(JSON.stringify(exported), "900000");
+      assert.isBelow(
+        maxExportControlBytes,
+        SYNTHESIS_REVERSE_HOST_LIMITS.requestBodyBytes,
+      );
+      rejectNextExportDelivery = true;
+      let rejectedExport: unknown;
+      try {
+        await composition.client.artifacts.exportFiltered(
+          { paper_refs: ["1:CONTENT1"], artifact_types: ["references"] },
+          { mode: "remote" },
+        );
+      } catch (error) {
+        rejectedExport = error;
+      }
+      assert.exists(rejectedExport);
+      assert.lengthOf(exportTransferSessionIds, 3);
+      for (const sessionId of exportTransferSessionIds) {
+        let failure: unknown;
+        try {
+          await transferRpcClient.call({
+            connection: transferConnection,
+            capability: "transfer.content",
+            payload: { action: "status", sessionId },
+            rebuildResult: (value) => value,
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.exists(failure, `${sessionId} must be canceled by Rust`);
+      }
       await composition.dispose();
     } finally {
       if (sidecar.child.exitCode === null) {
@@ -954,6 +1197,55 @@ describe("Synthesis Rust production client route", function () {
         topicId,
       });
 
+      const topicProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["topics", { artifacts: {} }] },
+      );
+      assert.equal(topicProjection.status, 200);
+      assert.deepInclude(topicProjection.body.data.artifacts[0], {
+        id: topicId,
+        title: "Production Topic",
+        kind: "topic_synthesis",
+        freshness: "fresh",
+        source_materials_status: "complete",
+        source_materials_percent: 100,
+      });
+      assert.deepInclude(topicProjection.body.data.topicGraph.nodes[0], {
+        topic_id: topicId,
+        title: "Production Topic",
+        node_type: "materialized",
+        definition_status: "has_synthesis",
+      });
+      assert.lengthOf(
+        buildSynthesisUiSnapshot(topicProjection.body.data).artifacts.rows,
+        1,
+      );
+      assert.lengthOf(
+        buildSynthesisUiSnapshot(topicProjection.body.data).topicGraph.nodes,
+        1,
+      );
+
+      const conceptProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["concepts", { concepts: {} }] },
+      );
+      assert.equal(conceptProjection.status, 200);
+      assert.deepInclude(conceptProjection.body.data.concepts.concepts[0], {
+        label: "Production concept",
+        aliases: ["Durable concept", "Production concept"],
+        concept_type: "method",
+        domain: "information-science",
+      });
+      assert.isNotEmpty(
+        conceptProjection.body.data.concepts.concepts[0].concept_id,
+      );
+      assert.lengthOf(
+        buildSynthesisUiSnapshot(conceptProjection.body.data).concepts.rows,
+        1,
+      );
+
       reverseHostCalls.length = 0;
       const deleted = await call(port, "client.deleteTopicArtifact", {
         args: [{ topicId }],
@@ -1004,6 +1296,15 @@ describe("Synthesis Rust production client route", function () {
         reopenedProjection.body.data.deletedArtifacts.rows[0].deleted_path_id,
         deletedPathId,
       );
+      const reopenedConceptProjection = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["concepts", { concepts: {} }] },
+      );
+      assert.equal(
+        reopenedConceptProjection.body.data.concepts.concepts[0].label,
+        "Production concept",
+      );
 
       const rebuilt = await call(port, "client.applyTopicSynthesisResult", {
         args: [topicApplyRequest(topicId)],
@@ -1016,6 +1317,7 @@ describe("Synthesis Rust production client route", function () {
         { args: ["topics", { artifacts: {} }] },
       );
       assert.lengthOf(coexistProjection.body.data.artifacts, 1);
+      assert.lengthOf(coexistProjection.body.data.topicGraph.nodes, 1);
       assert.lengthOf(coexistProjection.body.data.deletedArtifacts.rows, 1);
 
       const firstPurge = await call(port, "client.purgeDeletedTopicArtifacts", {
