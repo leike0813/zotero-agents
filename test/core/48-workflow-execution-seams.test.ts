@@ -22,7 +22,10 @@ import {
   buildWorkflowExecutionUnitPreview,
   runWorkflowPreparationSeam,
 } from "../../src/modules/workflowExecution/preparationSeam";
-import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
+import {
+  resolveProviderTerminalOutcome,
+  runWorkflowApplySeam,
+} from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
 import {
   executePreparedWorkflowUnit,
@@ -31,8 +34,13 @@ import {
 import { WorkflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
   listSkillRunnerRunRecords,
   projectSkillRunnerRun,
+  recordSkillRunnerProgress,
+  resetSkillRunnerRunStoreForTests,
+  updateSkillRunnerRunApplyState,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -56,6 +64,12 @@ import {
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { loadAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeSemanticTrace";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  initializeSequenceRunState,
+  markSequenceRunTerminal,
+  recordSequenceStepRequestCreated,
+  recordSequenceStepSucceeded,
+} from "../../src/modules/workflowExecution/sequenceStateStore";
 
 const parentInputPlanningV2 = {
   schemaVersion: 2,
@@ -2859,6 +2873,190 @@ describe("workflow execution seams", function () {
     assert.deepEqual(capturedSequence.steps[1].resultContext.resultJson, {
       add_tags: ["topic:sequence"],
     });
+  });
+
+  it("keeps the workflow terminal observer pending until the sequence root is terminal", async function () {
+    for (const backendType of ["acp", "skillrunner"] as const) {
+      resetPluginStateStoreForTests();
+      resetAcpSkillRunsForTests();
+      resetSkillRunnerRunStoreForTests();
+      const backendId = `${backendType}-observer-backend`;
+      const requestId = `${backendType}-observer-prepare-request`;
+      const request = {
+        kind: "skillrunner.sequence.v1" as const,
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto" as const,
+            workspace: "new" as const,
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            mode: "auto" as const,
+            workspace: "reuse-workflow" as const,
+          },
+        ],
+        final_step_id: "finalize",
+      };
+      let rootJob: any;
+      const runState = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: `${backendType}-observer-workflow`,
+                label: `${backendType} Observer Workflow`,
+                provider: backendType,
+                request: { kind: "skillrunner.sequence.v1" },
+              },
+            } as any,
+            requests: [request],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: backendType,
+              requestKind: "skillrunner.sequence.v1",
+              providerOptions: {},
+              backend: {
+                id: backendId,
+                type: backendType,
+                baseUrl:
+                  backendType === "acp"
+                    ? "local://acp"
+                    : "http://127.0.0.1:8030",
+              },
+            },
+          },
+        },
+        {
+          createQueue: () =>
+            ({
+              enqueue(job: any) {
+                rootJob = job;
+                rootJob.id = "job-1";
+                rootJob.state = "running";
+                return rootJob.id;
+              },
+              getJob() {
+                return rootJob;
+              },
+              waitForIdle() {
+                return Promise.resolve();
+              },
+            }) as any,
+        },
+      );
+      const jobId = runState.jobIds[0];
+      const sequenceRunId = `${runState.runId}-${jobId}`;
+      rootJob.meta.requestId = requestId;
+      initializeSequenceRunState({
+        request,
+        backend: {
+          id: backendId,
+          type: backendType,
+          baseUrl:
+            backendType === "acp" ? "local://acp" : "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        workflowId: `${backendType}-observer-workflow`,
+        workflowRunId: sequenceRunId,
+        jobId,
+      });
+      recordSequenceStepRequestCreated({
+        sequenceRunId,
+        stepIndex: 0,
+        requestId,
+      });
+      recordSequenceStepSucceeded({
+        sequenceRunId,
+        stepIndex: 0,
+        requestId,
+        output: { status: "short_circuit" },
+        result: {
+          status: "succeeded",
+          requestId,
+          fetchType: "result",
+          resultJson: { status: "short_circuit" },
+          responseJson: { provider: backendType },
+        },
+      });
+
+      let terminalSettled = false;
+      void runState.terminalPromise.then(() => {
+        terminalSettled = true;
+      });
+      if (backendType === "acp") {
+        upsertAcpSkillRun({
+          requestId,
+          status: "succeeded",
+          backendId,
+          backendType,
+          applyResultState: "succeeded",
+          conversationState: "ended",
+          conversationRecoveryState: "unavailable",
+        });
+      } else {
+        const run = createSkillRunnerRun({
+          backendId,
+          workflowId: `${backendType}-observer-workflow`,
+          workflowRunId: sequenceRunId,
+          jobId: `${jobId}:prepare`,
+          taskName: "Observer Workflow / prepare",
+          skillId: "prepare-skill",
+          sequenceRunId,
+          sequenceJobId: jobId,
+          sequenceStepId: "prepare",
+        });
+        assert.isOk(run);
+        attachSkillRunnerRequestId({
+          runKey: run!.runKey,
+          requestId,
+        });
+        recordSkillRunnerProgress({
+          runKey: run!.runKey,
+          event: {
+            type: "sequence-step-succeeded",
+            requestId,
+          } as any,
+        });
+        updateSkillRunnerRunApplyState({
+          backendId,
+          requestId,
+          state: "succeeded",
+        });
+      }
+      await flushMicrotasks();
+      assert.isFalse(
+        terminalSettled,
+        `${backendType} observer must ignore a terminal non-final child`,
+      );
+      assert.isNull(
+        resolveProviderTerminalOutcome({
+          queue: runState.queue,
+          runId: runState.runId,
+          jobId,
+          requestId,
+        }),
+      );
+
+      markSequenceRunTerminal({
+        sequenceRunId,
+        status: "completed",
+      });
+      await runState.terminalPromise;
+      assert.isTrue(terminalSettled);
+      assert.deepEqual(
+        resolveProviderTerminalOutcome({
+          queue: runState.queue,
+          runId: runState.runId,
+          jobId,
+          requestId,
+        }),
+        { status: "succeeded" },
+        `${backendType} completed short-circuit root should use its last materialized step`,
+      );
+    }
   });
 
   it("settles a running ACP job from the canonical canceled run state", async function () {

@@ -119,8 +119,16 @@ export function resolveProviderTerminalOutcome(args: {
   if (requestKind === "skillrunner.sequence.v1") {
     const sequenceState = getSequenceRunState(`${args.runId}-${args.jobId}`);
     if (
-      sequenceState?.status === "failed" ||
-      sequenceState?.status === "canceled"
+      !sequenceState ||
+      (sequenceState.status !== "completed" &&
+        sequenceState.status !== "failed" &&
+        sequenceState.status !== "canceled")
+    ) {
+      return null;
+    }
+    if (
+      sequenceState.status === "failed" ||
+      sequenceState.status === "canceled"
     ) {
       return {
         status: "failed" as const,
@@ -131,7 +139,7 @@ export function resolveProviderTerminalOutcome(args: {
         reason: sequenceState.error || `sequence ${sequenceState.status}`,
       };
     }
-    if (sequenceState?.status === "completed") {
+    if (sequenceState.status === "completed") {
       terminalRequestId =
         [...sequenceState.steps]
           .reverse()

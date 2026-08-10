@@ -147,6 +147,9 @@
 - [x] 为 zotero-librarian-profile 增加“按连接 profile 隔离工作区”的功能。简单来说，现在的 zotero-librarian-profile 如果在使用中切换连接 profile 会导致数据串台，应该给每个连接 profile 划定一个刚性的、对 Agent 接近透明的隔离工作区（well-known profile 也算一个 profile，而且是默认 profile）。
 - [x] export-research-bundle 导出包中应该增加一个便于Agent检索的index文件。此外，现在的导出有BUG或者说设计缺陷，按理来说被选中的Topics中关联的所有文献都应该被选中作为Papers（并去重），但实际似乎没有做这一步。
 - [x] export-literature-bundle 改为默认导出与 export-research-bundle 相同格式的、可被其他 Agent 消费的bundle（纯原文模式仍保留）；增加导出模式选项，默认`Selection`，支持`Collection`和`Library`。
+- [ ] 分析并修复 export-research-bundle 经常因为搜不到论文而取消的问题（Agent回复类似：Evidence preparation found no paper candidates despite six successful searches, so Stage 50 was skipped. I’m running deterministic enrichment and selection. 或者：The stage 40 result shows assessment_batches 0 and candidate_count 0. Hmm, that's concerning. The searches succeeded but no candidates? ）（最终返回：kind: research_bundle_canceled, status: canceled, reason: no_related_literature, message: No related Zotero literature met the relevance threshold.）
+- [ ] export-research-bundle 的 topic/core/paper数量上限应该提高，并且在参数label中给出提示，输入框也应该先校验，避免提交后才报错
+- [ ] 对 workflow 的成功条件进一步细分，那些包含取消路径的 workflow 当返回取消路径结果时，不应该弹出“成功”语义的 toast。
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

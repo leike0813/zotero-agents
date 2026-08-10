@@ -307,6 +307,17 @@ function observeWorkflowRunTerminal(args: {
       if (!job) {
         return false;
       }
+      if (args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+        const sequenceState = getSequenceRunState(`${args.runId}-${jobId}`);
+        if (
+          !sequenceState ||
+          (sequenceState.status !== "completed" &&
+            sequenceState.status !== "failed" &&
+            sequenceState.status !== "canceled")
+        ) {
+          return false;
+        }
+      }
       const providerTerminal = resolveProviderTerminalOutcome({
         queue: args.queue,
         runId: args.runId,
@@ -328,53 +339,6 @@ function observeWorkflowRunTerminal(args: {
           job.state === "failed" ||
           job.state === "canceled"
         );
-      }
-      if (args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
-        const sequenceRunId = `${args.runId}-${jobId}`;
-        const state = getSequenceRunState(sequenceRunId);
-        if (state) {
-          if (state.status === "failed" || state.status === "canceled") {
-            return true;
-          }
-          if (state.status !== "completed") {
-            return false;
-          }
-          const terminalStep = [...state.steps]
-            .reverse()
-            .find((step) => normalizeText(step.requestId));
-          const terminalRequestId = normalizeText(terminalStep?.requestId);
-          if (!terminalRequestId) {
-            return false;
-          }
-          if (args.backendType === "skillrunner") {
-            const record = getSkillRunnerRunRecordByRequest({
-              backendId: state.backendId,
-              requestId: terminalRequestId,
-            });
-            if (record?.status === "failed" || record?.status === "canceled") {
-              return true;
-            }
-            return (
-              record?.status === "succeeded" &&
-              (record.apply.state === "succeeded" ||
-                record.apply.state === "failed" ||
-                record.apply.state === "skipped")
-            );
-          }
-          if (args.backendType === ACP_BACKEND_TYPE) {
-            const record = getAcpSkillRunRecord(terminalRequestId);
-            if (record?.status === "failed" || record?.status === "canceled") {
-              return true;
-            }
-            return Boolean(
-              record &&
-              isTerminalAcpSkillRunStatus(record.status) &&
-              (record.applyResultState === "succeeded" ||
-                record.applyResultState === "failed"),
-            );
-          }
-          return true;
-        }
       }
       if (
         args.requestKind === "skillrunner.job.v1" &&

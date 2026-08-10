@@ -75,6 +75,14 @@ SkillRunner job progress:
 
 Apply summary inspects job outcomes and reports workflow-level completion.
 
+For `skillrunner.sequence.v1` on both ACP and SkillRunner backends, the
+sequence root exclusively owns workflow terminal settlement. Terminal or
+applied child-step records remain step lifecycle facts while the root is
+running; they cannot complete the submission, invoke outer `applyResult`, or
+emit the workflow finish summary. Once the root is `completed`, settlement
+uses the last actually materialized step request so short-circuited sequences
+retain their terminal result. A `failed` or `canceled` root skips outer apply.
+
 For single SkillRunner jobs, terminal provider success is final workflow
 business completion only after foreground `applyResult` succeeds. Backend
 terminal failure and cancellation settle as local terminal job outcomes. Normal
@@ -83,7 +91,9 @@ recovery-owned SkillRunner work is recorded as reconciler-owned pending work and
 reflected through deferred completion tracking.
 
 For ACP skill runs, ACP's conversation path continues to own its foreground
-result and apply behavior.
+result and apply behavior. Directly valid and output-repaired final results
+enter the same pending-apply state, and repair metadata does not change
+sequence terminal ownership.
 
 ## Deferred Completion Tracker
 
