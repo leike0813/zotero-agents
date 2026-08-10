@@ -95,6 +95,7 @@ import {
 import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
 import {
   BoundedWaitError,
+  createCancellationController,
   waitForBoundedPromise,
   watchPromiseSettlement,
   type BoundedWaitStartupOptions,
@@ -1038,7 +1039,7 @@ export async function recoverAcpSkillRunConversation(args: {
       zoteroMajor: resolveAcpProfileZoteroMajor(),
     });
   }
-  const setupAbortController = new AbortController();
+  const setupAbortController = createCancellationController();
   let recoveryCanceled = false;
   const setupAdapterRef: { current?: AcpConnectionAdapter } = {};
   const setupController: AcpSkillRunSetupController = {

@@ -2,8 +2,57 @@ export type PromiseSettlementWatchdog = {
   clear: () => void;
 };
 
+export type CancellationSignal = {
+  readonly aborted: boolean;
+  addEventListener: (
+    type: "abort",
+    listener: () => void,
+    options?: { once?: boolean },
+  ) => void;
+  removeEventListener: (type: "abort", listener: () => void) => void;
+};
+
+export type CancellationController = {
+  readonly signal: CancellationSignal;
+  abort: () => void;
+};
+
+export function createCancellationController(): CancellationController {
+  let aborted = false;
+  const listeners = new Set<() => void>();
+  const signal: CancellationSignal = {
+    get aborted() {
+      return aborted;
+    },
+    addEventListener(_type, listener) {
+      if (aborted) {
+        listener();
+        return;
+      }
+      listeners.add(listener);
+    },
+    removeEventListener(_type, listener) {
+      listeners.delete(listener);
+    },
+  };
+  return {
+    signal,
+    abort() {
+      if (aborted) {
+        return;
+      }
+      aborted = true;
+      const pending = Array.from(listeners);
+      listeners.clear();
+      for (const listener of pending) {
+        listener();
+      }
+    },
+  };
+}
+
 export type BoundedWaitStartupOptions = {
-  signal?: AbortSignal;
+  signal?: CancellationSignal;
   timeoutMs?: number;
 };
 

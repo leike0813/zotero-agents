@@ -1002,6 +1002,41 @@ describe("ACP SkillRunner-compatible runner", function () {
     seedRecoveredRunBackendsForTests();
   });
 
+  it("starts an ACP workflow without a global AbortController", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const abortControllerDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "AbortController",
+    );
+    try {
+      Object.defineProperty(globalThis, "AbortController", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter: createFinalOutputAdapter({ ok: true }),
+      });
+
+      assert.equal(result.status, "succeeded");
+    } finally {
+      if (abortControllerDescriptor) {
+        Object.defineProperty(
+          globalThis,
+          "AbortController",
+          abortControllerDescriptor,
+        );
+      } else {
+        delete (globalThis as { AbortController?: unknown }).AbortController;
+      }
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   for (const effortId of ["none", "high"] as const) {
     it(`falls back when Kilo rejects explicit ${effortId} reasoning`, async function () {
       const root = await mkTempRoot();

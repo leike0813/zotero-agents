@@ -9,6 +9,7 @@ import {
   resetAcpNpxLaunchCacheForTests,
   resolveAcpNpxLaunchSpec,
 } from "../../src/modules/acpNpxLaunchCache";
+import { createCancellationController } from "../../src/utils/wait";
 
 describe("ACP npx launch cache", function () {
   afterEach(function () {
@@ -154,7 +155,16 @@ describe("ACP npx launch cache", function () {
 
   it("removes a canceled waiter without blocking the next lease", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-npx-cancel-"));
+    const abortControllerDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "AbortController",
+    );
     try {
+      Object.defineProperty(globalThis, "AbortController", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
       const input = {
         backendId: "shared-cancel",
         command: "npx",
@@ -162,7 +172,7 @@ describe("ACP npx launch cache", function () {
         cacheRoot: root,
       };
       const first = await acquireAcpNpxLaunchCacheLease(input);
-      const controller = new AbortController();
+      const controller = createCancellationController();
       const canceledPromise = acquireAcpNpxLaunchCacheLease({
         ...input,
         startup: { signal: controller.signal },
@@ -181,6 +191,15 @@ describe("ACP npx launch cache", function () {
       assert.isNotNull(third);
       third?.release();
     } finally {
+      if (abortControllerDescriptor) {
+        Object.defineProperty(
+          globalThis,
+          "AbortController",
+          abortControllerDescriptor,
+        );
+      } else {
+        delete (globalThis as { AbortController?: unknown }).AbortController;
+      }
       await fs.rm(root, { recursive: true, force: true });
     }
   });

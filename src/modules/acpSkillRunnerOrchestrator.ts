@@ -93,6 +93,7 @@ import {
 } from "./acpSkillRunAuditTrail";
 import {
   BoundedWaitError,
+  createCancellationController,
   waitForBoundedPromise,
   watchPromiseSettlement,
   type BoundedWaitStartupOptions,
@@ -597,7 +598,7 @@ export async function executeAcpSkillRunnerJob(args: {
 }): Promise<ProviderExecutionResult> {
   const request = assertAcpSkillRunRequest(args.request);
   let cancellationRequested = false;
-  const setupAbortController = new AbortController();
+  const setupAbortController = createCancellationController();
   let setupAdapter: AcpConnectionAdapter | undefined;
   const workspaceFactory =
     args.dependencies?.createWorkspace || createAcpSkillRunnerWorkspace;

@@ -62,6 +62,7 @@ import {
 } from "./acpRuntimeSemanticTraceRecorder";
 import {
   BoundedWaitError,
+  createCancellationController,
   waitForBoundedPromise,
   type BoundedWaitStartupOptions,
 } from "../utils/wait";
@@ -472,7 +473,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     }
   >();
   private closing = false;
-  private readonly startupController = new AbortController();
+  private readonly startupController = createCancellationController();
   private readonly startupTimeoutMs: number;
   private removeExternalStartupAbort: () => void = () => undefined;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;

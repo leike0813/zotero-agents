@@ -96,15 +96,8 @@ export type AcpRuntimeReplayResult = {
   warnings: string[];
 };
 
-export type AcpRuntimeReplayCancellationSignal = {
-  readonly aborted: boolean;
-  addEventListener: (
-    type: "abort",
-    listener: () => void,
-    options?: { once?: boolean },
-  ) => void;
-  removeEventListener: (type: "abort", listener: () => void) => void;
-};
+export type AcpRuntimeReplayCancellationSignal =
+  import("../utils/wait").CancellationSignal;
 
 export type AcpRuntimeReplayLogicalRunPort = AcpRuntimeReplayLogicalTimePort & {
   registerOwner: (owner: AcpRuntimeTraceOwner) => void;
