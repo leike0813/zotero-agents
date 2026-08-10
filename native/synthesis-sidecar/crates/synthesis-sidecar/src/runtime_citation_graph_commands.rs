@@ -9,6 +9,7 @@ use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CacheBasisRecord, CanonicalReferenceRecord, OperationQuery, OperationRecord,
     RawReferenceRecord, ReferenceBindingFactRecord, ReferenceRedirectFactRecord,
+    ReferenceRedirectGraph,
 };
 
 use crate::runtime_host_collection::{
@@ -268,24 +269,6 @@ fn stale_delta(record: Option<&CacheBasisRecord>) -> StaleDelta {
     delta
 }
 
-fn resolve_effective_canonical(
-    canonical_id: &str,
-    redirects: &[ReferenceRedirectFactRecord],
-) -> Result<String, String> {
-    let mut current = canonical_id.to_owned();
-    let mut visited = BTreeSet::new();
-    while let Some(redirect) = redirects
-        .iter()
-        .find(|redirect| redirect.from_canonical_reference_id == current)
-    {
-        if !visited.insert(current.clone()) {
-            return Err("canonical_redirect_cycle".into());
-        }
-        current = redirect.to_canonical_reference_id.clone();
-    }
-    Ok(current)
-}
-
 struct DurableFacts {
     raw: Vec<RawReferenceRecord>,
     canonicals: Vec<CanonicalReferenceRecord>,
@@ -321,14 +304,16 @@ fn durable_facts(apps: &ProductionApplications) -> Result<DurableFacts, String> 
 }
 
 fn affected_source_refs(facts: &DurableFacts, delta: &StaleDelta) -> Result<Vec<String>, String> {
+    let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
     let effective_changed = delta
         .canonical_ids
         .iter()
-        .map(|canonical| resolve_effective_canonical(canonical, &facts.redirects))
+        .map(|canonical| redirect_graph.resolve(canonical))
         .collect::<Result<BTreeSet<_>, _>>()?;
     let mut affected = delta.source_refs.clone();
     for raw in &facts.raw {
-        let effective = resolve_effective_canonical(&raw.canonical_reference_id, &facts.redirects)
+        let effective = redirect_graph
+            .resolve(&raw.canonical_reference_id)
             .unwrap_or_else(|_| raw.canonical_reference_id.clone());
         if effective_changed.contains(&effective) {
             affected.insert(raw.source_ref.clone());
@@ -404,6 +389,7 @@ fn build_input(
     if source_refs.len() > SOURCE_LIMIT || facts.raw.len() > REFERENCE_LIMIT {
         return Err("reverse_host_input_too_large".into());
     }
+    let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
     let source_set = source_refs.iter().cloned().collect::<HashSet<_>>();
     let item_by_ref = items
         .into_iter()
@@ -417,7 +403,7 @@ fn build_input(
     let mut binding_by_effective = BTreeMap::new();
     for binding in &facts.bindings {
         binding_by_effective.insert(
-            resolve_effective_canonical(&binding.canonical_reference_id, &facts.redirects)?,
+            redirect_graph.resolve(&binding.canonical_reference_id)?,
             binding,
         );
     }
@@ -445,7 +431,7 @@ fn build_input(
         let effective = if raw.canonical_reference_id.is_empty() {
             raw.raw_reference_id.clone()
         } else {
-            resolve_effective_canonical(&raw.canonical_reference_id, &facts.redirects)?
+            redirect_graph.resolve(&raw.canonical_reference_id)?
         };
         let binding = binding_by_effective.get(&effective).copied();
         let bound_ref =
@@ -587,6 +573,7 @@ fn run_rebuild(
                 (source_refs, "source_slice", items)
             }
             None if intent == RebuildIntent::Incremental => {
+                let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
                 let delta = stale_delta(facts.cache_basis.as_ref());
                 let source_refs = affected_source_refs(&facts, &delta)?;
                 if source_refs.is_empty() || current_graph_hash(apps)?.is_none() {
@@ -603,16 +590,11 @@ fn run_rebuild(
                         .iter()
                         .filter(|raw| source_refs.binary_search(&raw.source_ref).is_ok())
                     {
-                        let effective = resolve_effective_canonical(
-                            &raw.canonical_reference_id,
-                            &facts.redirects,
-                        )?;
+                        let effective = redirect_graph.resolve(&raw.canonical_reference_id)?;
                         if let Some(binding) = facts.bindings.iter().find(|binding| {
-                            resolve_effective_canonical(
-                                &binding.canonical_reference_id,
-                                &facts.redirects,
-                            )
-                            .is_ok_and(|candidate| candidate == effective)
+                            redirect_graph
+                                .resolve(&binding.canonical_reference_id)
+                                .is_ok_and(|candidate| candidate == effective)
                         }) {
                             metadata_refs
                                 .push(format!("{}:{}", binding.library_id, binding.item_key));

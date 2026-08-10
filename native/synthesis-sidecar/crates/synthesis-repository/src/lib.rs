@@ -14,6 +14,8 @@ mod citation_reference;
 pub use citation_reference::*;
 mod checkpoint_bundle_webdav_debug;
 pub use checkpoint_bundle_webdav_debug::*;
+mod reference_redirect_graph;
+pub use reference_redirect_graph::*;
 mod tag_concept_topic_graph;
 pub use tag_concept_topic_graph::*;
 
@@ -23,6 +25,8 @@ pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-repository.v1";
 const PRODUCTION_IDENTITY_SCHEMA: &str = "synthesis-rust-production-repository.v1";
+const REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY: &str = "reference_redirect_graph_schema_version";
+const REFERENCE_REDIRECT_GRAPH_SCHEMA: &str = "synthesis-reference-redirect-graph.v1";
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -152,6 +156,10 @@ const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     (
         "durable_import_repository_schema_version",
         "synthesis-durable-import-repository.v1",
+    ),
+    (
+        REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY,
+        REFERENCE_REDIRECT_GRAPH_SCHEMA,
     ),
 ];
 
@@ -617,7 +625,237 @@ pub fn prepare_production_schema(database_path: &Path, backup_root: &Path) -> Re
         database_path,
         backup_root,
         REGISTERED_PRODUCTION_SCHEMA_MIGRATIONS,
+    )?;
+    prepare_reference_redirect_graph_schema(database_path, backup_root)
+}
+
+fn stored_timestamp_millis(value: &str) -> i64 {
+    value
+        .parse::<i64>()
+        .ok()
+        .or_else(|| unix_millis_from_utc_iso8601(value))
+        .unwrap_or_default()
+}
+
+fn repair_reference_redirect_cycles(
+    connection: &Connection,
+    now: &str,
+) -> Result<Vec<RemovedReferenceRedirect>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT from_canonical_reference_id,to_canonical_reference_id,reason,
+                    diagnostics_json,created_at,updated_at
+             FROM synt_reference_redirect ORDER BY from_canonical_reference_id",
+        )
+        .map_err(map_sqlite_error)?;
+    let redirects = statement
+        .query_map([], |row| {
+            Ok(ReferenceRedirectFactRecord {
+                from_canonical_reference_id: row.get(0)?,
+                to_canonical_reference_id: row.get(1)?,
+                reason: row.get(2)?,
+                diagnostics_json: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)?;
+    drop(statement);
+    let mut graph = ReferenceRedirectGraph::from_records(&redirects)?;
+    if graph.cycles().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut statement = connection
+        .prepare(
+            "SELECT target_canonical_reference_id,reasons_json,updated_at
+             FROM synt_reference_match_proposal
+             WHERE kind='canonical_merge' AND status='accepted'",
+        )
+        .map_err(map_sqlite_error)?;
+    let accepted_proposals = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)?;
+    drop(statement);
+    let mut statement = connection
+        .prepare(
+            "SELECT canonical_reference_id FROM synt_reference_binding
+             WHERE status='accepted' ORDER BY canonical_reference_id",
+        )
+        .map_err(map_sqlite_error)?;
+    let accepted_bindings = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(map_sqlite_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_sqlite_error)?;
+    drop(statement);
+    let (explicit_targets, automatic_targets): (Vec<_>, Vec<_>) = accepted_proposals
+        .into_iter()
+        .map(|(target, reasons, updated_at)| {
+            (target, stored_timestamp_millis(&updated_at), reasons)
+        })
+        .partition(|(_, _, reasons)| is_explicit_reference_redirect_reason(reasons));
+    let preferred_roots = rank_reference_redirect_roots(
+        explicit_targets
+            .into_iter()
+            .map(|(target, updated_at, _)| (target, updated_at))
+            .collect(),
+        accepted_bindings,
+        automatic_targets
+            .into_iter()
+            .map(|(target, updated_at, _)| (target, updated_at))
+            .collect(),
+    );
+
+    let removed = graph.repair_cycles(&preferred_roots);
+    graph.validate_acyclic()?;
+    for edge in &removed {
+        connection
+            .execute(
+                "DELETE FROM synt_reference_redirect WHERE from_canonical_reference_id=?1",
+                [&edge.from_canonical_reference_id],
+            )
+            .map_err(map_sqlite_error)?;
+        connection
+            .execute(
+                "UPDATE synt_reference_match_proposal
+                 SET status='superseded',updated_at=?3
+                 WHERE kind='canonical_merge' AND status IN ('open','accepted')
+                   AND source_canonical_reference_id=?1
+                   AND target_canonical_reference_id=?2",
+                params![
+                    edge.from_canonical_reference_id,
+                    edge.to_canonical_reference_id,
+                    now,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+    }
+    connection
+        .execute(
+            "UPDATE synt_cache_basis SET status='stale',active_operation_id='',
+               stale_reason='canonical_redirect_cycle_repair',updated_at=?1
+             WHERE cache_kind IN ('citation_graph','related_items')",
+            [now],
+        )
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute(
+            "UPDATE synt_reference_matching_state
+             SET graph_ready=0,related_items_ready=0,updated_at=?1",
+            [now],
+        )
+        .map_err(map_sqlite_error)?;
+    let diagnostics = serde_json::to_string(&json!({
+        "code":"canonical_redirect_cycle_repaired",
+        "rootSelection": if removed.iter().all(|edge| preferred_roots.contains(&edge.from_canonical_reference_id)) {
+            "evidence"
+        } else {
+            "stable_fallback"
+        },
+        "preferredRoots": preferred_roots,
+        "removed":removed.iter().map(|edge| json!({
+            "from":edge.from_canonical_reference_id,
+            "to":edge.to_canonical_reference_id,
+        })).collect::<Vec<_>>(),
+    }))
+    .map_err(|_| "repository_migration_diagnostics_invalid".to_owned())?;
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO synt_operation(
+               operation_id,operation_type,status,label,phase,message,progress_mode,
+               basis_kind,basis_value,diagnostics_json,created_at,started_at,completed_at,updated_at
+             ) VALUES(?1,'canonical_redirect_repair','completed','Canonical redirect repair',
+               'completed','Canonical redirect cycles repaired.','determinate',
+               'reference_redirect_graph_schema',?2,?3,?4,?4,?4,?4)",
+            params![
+                "canonical-redirect-repair:synthesis-reference-redirect-graph.v1",
+                REFERENCE_REDIRECT_GRAPH_SCHEMA,
+                diagnostics,
+                now,
+            ],
+        )
+        .map_err(map_sqlite_error)?;
+    Ok(removed)
+}
+
+fn prepare_reference_redirect_graph_schema(
+    database_path: &Path,
+    backup_root: &Path,
+) -> Result<(), String> {
+    let current = {
+        let connection = open_production_database_read_only(database_path)?;
+        connection
+            .query_row(
+                "SELECT value FROM synt_schema_meta WHERE key=?1",
+                [REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(map_sqlite_error)?
+    };
+    match current.as_deref() {
+        Some(REFERENCE_REDIRECT_GRAPH_SCHEMA) => return Ok(()),
+        Some(_) => return Err("repository_schema_mismatch".into()),
+        None => {}
+    }
+    let backup_path = migration_backup_path(
+        backup_root,
+        "synthesis-reference-redirect-graph.unversioned",
+        REFERENCE_REDIRECT_GRAPH_SCHEMA,
+    );
+    create_or_verify_migration_backup(database_path, &backup_path, SCHEMA_VERSION)?;
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_FULL_MUTEX,
     )
+    .map_err(map_sqlite_error)?;
+    connection
+        .busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MILLIS))
+        .map_err(map_sqlite_error)?;
+    connection
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(map_sqlite_error)?;
+    let migrated = (|| -> Result<(), String> {
+        let current = connection
+            .query_row(
+                "SELECT value FROM synt_schema_meta WHERE key=?1",
+                [REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(map_sqlite_error)?;
+        if current.is_some() {
+            return Err("repository_schema_changed_during_migration".into());
+        }
+        let now = synthesis_protocol::utc_now_iso8601();
+        repair_reference_redirect_cycles(&connection, &now)?;
+        connection
+            .execute(
+                "INSERT INTO synt_schema_meta(key,value) VALUES(?1,?2)",
+                params![
+                    REFERENCE_REDIRECT_GRAPH_SCHEMA_KEY,
+                    REFERENCE_REDIRECT_GRAPH_SCHEMA,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+        connection.execute_batch("COMMIT").map_err(map_sqlite_error)
+    })();
+    if let Err(error) = migrated {
+        let _ = connection.execute_batch("ROLLBACK");
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn write_marker(path: &Path, marker: &IdentityMarker) -> Result<(), String> {
@@ -2684,6 +2922,86 @@ mod tests {
             "repository_schema_migration_unregistered"
         );
         assert!(!backup_root.exists());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn redirect_graph_migration_repairs_cycle_using_explicit_reverse_audit() {
+        let root = root("production-redirect-cycle");
+        let database_path = root.join("state").join("synthesis.db");
+        Repository::initialize_production(&database_path, identity())
+            .expect("initialize")
+            .close()
+            .expect("close");
+        let connection = Connection::open(&database_path).expect("open fixture");
+        connection
+            .execute_batch(
+                "DELETE FROM synt_schema_meta
+                   WHERE key='reference_redirect_graph_schema_version';
+                 INSERT INTO synt_reference_redirect(
+                   from_canonical_reference_id,to_canonical_reference_id,reason,
+                   diagnostics_json,created_at,updated_at
+                 ) VALUES
+                   ('canonical:a','canonical:b','reference_matching','[]','1','1'),
+                   ('canonical:b','canonical:a','reference_matching','[]','2','2'),
+                   ('canonical:c','canonical:b','reference_matching','[]','1','1');
+                 INSERT INTO synt_reference_match_proposal(
+                   proposal_id,kind,status,source_canonical_reference_id,
+                   target_canonical_reference_id,reasons_json,updated_at
+                 ) VALUES
+                   ('proposal:forward','canonical_merge','accepted','canonical:a',
+                    'canonical:b','[\"cluster_exact\"]','2026-08-10T08:26:24.886Z'),
+                   ('proposal:reverse','canonical_merge','accepted','canonical:b',
+                    'canonical:a','[\"reverse_accept\"]','2026-08-10T10:16:56.901Z');",
+            )
+            .expect("cycle fixture");
+        drop(connection);
+
+        let backup_root = root.join("state/synthesis-migration-backups");
+        prepare_production_schema(&database_path, &backup_root).expect("repair");
+        prepare_production_schema(&database_path, &backup_root).expect("idempotent");
+        let repository =
+            Repository::open_production(&database_path, identity(), "2026-08-10T10:17:00.000Z")
+                .expect("open repaired");
+        let redirects = repository.list_reference_redirects().expect("redirects");
+        let graph = ReferenceRedirectGraph::from_records(&redirects).expect("graph");
+        assert!(graph.validate_acyclic().is_ok());
+        assert_eq!(graph.resolve("canonical:a").unwrap(), "canonical:a");
+        assert_eq!(graph.resolve("canonical:b").unwrap(), "canonical:a");
+        assert_eq!(graph.resolve("canonical:c").unwrap(), "canonical:a");
+        assert_eq!(graph.target("canonical:a"), None);
+        assert_eq!(graph.target("canonical:b"), Some("canonical:a"));
+        let (proposals, _) = repository
+            .list_reference_match_proposals(0, 10)
+            .expect("proposals");
+        assert_eq!(
+            proposals
+                .iter()
+                .find(|proposal| proposal.proposal_id == "proposal:forward")
+                .map(|proposal| proposal.status.as_str()),
+            Some("superseded")
+        );
+        assert!(
+            repository
+                .list_operations(&OperationQuery {
+                    operation_types: vec!["canonical_redirect_repair".into()],
+                    include_completed: true,
+                    limit: 10,
+                    ..OperationQuery::default()
+                })
+                .expect("repair receipt")
+                .iter()
+                .any(|operation| operation.status == "completed")
+        );
+        repository.close().expect("close");
+        assert_eq!(
+            fs::read_dir(&backup_root)
+                .expect("backup root")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("backups")
+                .len(),
+            1
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

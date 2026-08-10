@@ -647,6 +647,15 @@ impl Repository {
             for entry in &request.entries {
                 apply_durable_entry(repository, entry)?;
             }
+            let repair_operation_id = format!(
+                "canonical-redirect-repair:import:{:x}",
+                Sha256::digest(request.receipt_id.as_bytes())
+            );
+            repository.normalize_imported_reference_redirect_graph(
+                &repair_operation_id,
+                &request.receipt_id,
+                &request.now,
+            )?;
             update_domain_bases(
                 repository,
                 &request.manifest_hash,
@@ -1086,6 +1095,97 @@ mod tests {
                 .query("SELECT * FROM synt_durable_import_commit", &[])
                 .expect("receipts")
                 .is_empty()
+        );
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn durable_import_repairs_redirect_cycles_before_commit() {
+        let root = root("redirect-cycle");
+        let identity = RepositoryIdentity {
+            profile_id: "profile-final-r7-redirect-cycle".into(),
+            data_root_id: "data-final-r7-redirect-cycle".into(),
+        };
+        let mut repository = Repository::open(&root, identity).expect("open");
+        let captured = repository.capture_durable_import_state().expect("capture");
+        let now = "2026-08-10T00:00:00.000Z";
+        let redirect = |source: &str, target: &str| DurableDraft {
+            entity_kind: "canonical_reference_redirect".into(),
+            entity_id: source.into(),
+            schema_id: "synthesis-reference-redirect.v1".into(),
+            data: json!({
+                "from_canonical_reference_id": source,
+                "to_canonical_reference_id": target,
+                "reason": "reference_matching",
+                "diagnostics_json": "[]",
+                "created_at": now,
+                "updated_at": now,
+            }),
+            updated_at: now.into(),
+        };
+        let reverse_audit = DurableDraft {
+            entity_kind: "reference_match_proposal".into(),
+            entity_id: "proposal:reverse".into(),
+            schema_id: "synthesis-reference-match-proposal.v1".into(),
+            data: json!({
+                "proposal_id": "proposal:reverse",
+                "kind": "canonical_merge",
+                "status": "accepted",
+                "source_canonical_reference_id": "canonical:b",
+                "source_raw_reference_ids_json": "[]",
+                "target_canonical_reference_id": "canonical:a",
+                "target_library_id": 0,
+                "target_item_key": "",
+                "confidence": "manual",
+                "score": 1.0,
+                "reasons_json": "[\"reverse_accept\"]",
+                "evidence_json": "[]",
+                "diagnostics_json": "[]",
+                "basis_hash": "basis:reverse",
+                "source_hash": "source:reverse",
+                "created_at": now,
+                "updated_at": now,
+            }),
+            updated_at: now.into(),
+        };
+        assert!(
+            repository
+                .apply_durable_import_state(&DurableImportApply {
+                    expected_aggregate_basis: captured.bundle.aggregate_basis,
+                    expected_index_revision: captured.index_revision,
+                    receipt_id: "receipt-final-r7-redirect-cycle".into(),
+                    manifest_hash: format!("sha256:{}", "a".repeat(64)),
+                    entries: vec![
+                        redirect("canonical:a", "canonical:b"),
+                        redirect("canonical:b", "canonical:a"),
+                        reverse_audit,
+                    ],
+                    facts: Vec::new(),
+                    topic_targets: Vec::new(),
+                    run_id: "run:redirect-cycle".into(),
+                    now: now.into(),
+                })
+                .expect("apply")
+        );
+        let redirects = repository.list_reference_redirects().expect("redirects");
+        let graph = crate::ReferenceRedirectGraph::from_records(&redirects).expect("graph");
+        assert!(graph.validate_acyclic().is_ok());
+        assert_eq!(graph.resolve("canonical:a").unwrap(), "canonical:a");
+        assert_eq!(graph.resolve("canonical:b").unwrap(), "canonical:a");
+        assert_eq!(graph.target("canonical:a"), None);
+        assert_eq!(graph.target("canonical:b"), Some("canonical:a"));
+        assert!(
+            repository
+                .list_operations(&OperationQuery {
+                    operation_types: vec!["canonical_redirect_repair".into()],
+                    include_completed: true,
+                    limit: 10,
+                    ..OperationQuery::default()
+                })
+                .expect("repair receipt")
+                .iter()
+                .any(|operation| operation.basis_value == "receipt-final-r7-redirect-cycle")
         );
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");

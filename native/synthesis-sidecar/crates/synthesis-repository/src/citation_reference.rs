@@ -5,7 +5,9 @@
 //! selection is internal and fixed so callers cannot turn this into a generic store.
 
 use crate::{
-    Repository, ReviewPage, ReviewPageQuery, row_integer, row_text, validate_identity_part,
+    ReferenceRedirectGraph, Repository, ReviewPage, ReviewPageQuery,
+    is_explicit_reference_redirect_reason, rank_reference_redirect_roots, row_integer, row_text,
+    validate_identity_part,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -427,6 +429,8 @@ pub struct ReferenceReviewTransition {
     pub binding: Option<ReferenceBindingFactRecord>,
     pub redirects: Vec<ReferenceRedirectFactRecord>,
     pub audit_proposals: Vec<ReferenceMatchProposalRecord>,
+    #[serde(default)]
+    pub preferred_root_canonical_id: String,
     pub graph_facts_changed: bool,
     pub updated_at: String,
 }
@@ -2207,7 +2211,7 @@ impl Repository {
                     return Ok(false);
                 }
             }
-            let graph_facts_changed = transitions
+            let requested_graph_facts_changed = transitions
                 .iter()
                 .any(|transition| transition.graph_facts_changed);
             let updated_at = transitions
@@ -2216,6 +2220,9 @@ impl Repository {
                 .max()
                 .unwrap_or_default()
                 .to_owned();
+            let original_redirects = repository.list_reference_redirects()?;
+            let mut redirect_graph = ReferenceRedirectGraph::from_records(&original_redirects)?;
+            let mut redirect_templates = Vec::new();
             for transition in transitions {
                 if !transition.revoke_binding_id.is_empty() {
                     repository.execute(
@@ -2224,22 +2231,45 @@ impl Repository {
                     )?;
                 }
                 for source in &transition.revoke_redirect_source_ids {
-                    repository.execute(
-                        "DELETE FROM synt_reference_redirect WHERE from_canonical_reference_id=?1",
-                        &[json!(source)],
-                    )?;
+                    redirect_graph.remove_source(source);
                 }
                 if let Some(binding) = &transition.binding {
                     upsert_binding(repository, binding)?;
                 }
                 for redirect in &transition.redirects {
-                    upsert_redirect(repository, redirect)?;
+                    if transition.preferred_root_canonical_id.is_empty() {
+                        redirect_graph.merge(
+                            &redirect.from_canonical_reference_id,
+                            &redirect.to_canonical_reference_id,
+                        )?;
+                    } else {
+                        redirect_graph.reroot(&transition.preferred_root_canonical_id)?;
+                        redirect_graph.merge(
+                            &redirect.from_canonical_reference_id,
+                            &transition.preferred_root_canonical_id,
+                        )?;
+                    }
+                    redirect_templates.push(redirect.clone());
                 }
                 repository.upsert_reference_match_proposal(&transition.proposal)?;
                 for proposal in &transition.audit_proposals {
                     repository.upsert_reference_match_proposal(proposal)?;
                 }
             }
+            let persisted_redirects = persist_redirect_graph(
+                repository,
+                &original_redirects,
+                &redirect_graph,
+                &redirect_templates,
+                &updated_at,
+            )?;
+            supersede_displaced_redirect_proposals(
+                repository,
+                &persisted_redirects.removed,
+                &updated_at,
+            )?;
+            supersede_redundant_open_redirect_proposals(repository, &redirect_graph, &updated_at)?;
+            let graph_facts_changed = requested_graph_facts_changed || persisted_redirects.changed;
             let counts = proposal_counts(repository)?;
             let mut state = repository
                 .get_reference_matching_state()?
@@ -2257,6 +2287,113 @@ impl Repository {
             }
             Ok(true)
         })
+    }
+
+    pub(crate) fn normalize_imported_reference_redirect_graph(
+        &mut self,
+        operation_id: &str,
+        import_receipt_id: &str,
+        now: &str,
+    ) -> Result<bool, String> {
+        let original_redirects = self.list_reference_redirects()?;
+        let mut redirect_graph = ReferenceRedirectGraph::from_records(&original_redirects)?;
+        if redirect_graph.cycles().is_empty() {
+            return Ok(false);
+        }
+
+        let accepted_proposals = self
+            .query(
+                "SELECT target_canonical_reference_id,reasons_json,updated_at
+                 FROM synt_reference_match_proposal
+                 WHERE kind='canonical_merge' AND status='accepted'",
+                &[],
+            )?
+            .into_iter()
+            .map(|row| {
+                Ok((
+                    row_text(&row, "target_canonical_reference_id")?,
+                    row_text(&row, "reasons_json")?,
+                    row_text(&row, "updated_at")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let (explicit_targets, automatic_targets): (Vec<_>, Vec<_>) = accepted_proposals
+            .into_iter()
+            .map(|(target, reasons, updated_at)| {
+                (target, crate::stored_timestamp_millis(&updated_at), reasons)
+            })
+            .partition(|(_, _, reasons)| is_explicit_reference_redirect_reason(reasons));
+        let preferred_roots = rank_reference_redirect_roots(
+            explicit_targets
+                .into_iter()
+                .map(|(target, updated_at, _)| (target, updated_at))
+                .collect(),
+            self.list_reference_bindings()?
+                .into_iter()
+                .filter(|binding| binding.status == "accepted")
+                .map(|binding| binding.canonical_reference_id)
+                .collect(),
+            automatic_targets
+                .into_iter()
+                .map(|(target, updated_at, _)| (target, updated_at))
+                .collect(),
+        );
+
+        redirect_graph.repair_cycles(&preferred_roots);
+        let persisted =
+            persist_redirect_graph(self, &original_redirects, &redirect_graph, &[], now)?;
+        supersede_displaced_redirect_proposals(self, &persisted.removed, now)?;
+        supersede_redundant_open_redirect_proposals(self, &redirect_graph, now)?;
+        self.execute(
+            "UPDATE synt_cache_basis
+             SET status='stale',active_operation_id='',
+                 stale_reason='canonical_redirect_cycle_repair',updated_at=?1
+             WHERE cache_kind IN ('citation_graph','related_items')",
+            &[json!(now)],
+        )?;
+        let counts = proposal_counts(self)?;
+        let mut state = self.get_reference_matching_state()?.unwrap_or_default();
+        state.proposal_count = counts.0;
+        state.open_proposal_count = counts.1;
+        state.graph_ready = false;
+        state.related_items_ready = false;
+        state.updated_at = now.into();
+        upsert_matching_state(self, &state)?;
+        self.upsert_operation(&crate::OperationRecord {
+            operation_id: operation_id.into(),
+            operation_type: "canonical_redirect_repair".into(),
+            status: "completed".into(),
+            label: "Canonical redirect repair".into(),
+            phase: "completed".into(),
+            message: "Canonical redirect cycles repaired.".into(),
+            progress_mode: "determinate".into(),
+            processed_count: persisted.removed.len() as i64,
+            total_count: persisted.removed.len() as i64,
+            basis_kind: "durable_import_receipt".into(),
+            basis_value: import_receipt_id.into(),
+            diagnostics_json: serde_json::to_string(&json!({
+                "code": "canonical_redirect_cycle_repaired",
+                "rootSelection": if persisted.removed.iter().all(|edge| {
+                    preferred_roots.contains(&edge.from_canonical_reference_id)
+                }) {
+                    "evidence"
+                } else {
+                    "stable_fallback"
+                },
+                "preferredRoots": preferred_roots,
+                "removed": persisted.removed.iter().map(|edge| json!({
+                    "from": edge.from_canonical_reference_id,
+                    "to": edge.to_canonical_reference_id,
+                })).collect::<Vec<_>>(),
+            }))
+            .map_err(|_| "reference_redirect_repair_diagnostics_invalid".to_owned())?,
+            created_at: now.into(),
+            started_at: now.into(),
+            completed_at: now.into(),
+            updated_at: now.into(),
+            ..crate::OperationRecord::default()
+        })?;
+        Ok(true)
     }
 }
 
@@ -2975,7 +3112,7 @@ fn upsert_binding(
     Ok(())
 }
 
-fn upsert_redirect(
+fn upsert_redirect_row(
     repository: &Repository,
     record: &ReferenceRedirectFactRecord,
 ) -> Result<(), String> {
@@ -2999,6 +3136,147 @@ fn upsert_redirect(
             json!(record.updated_at),
         ],
     )?;
+    Ok(())
+}
+
+fn upsert_redirect(
+    repository: &Repository,
+    record: &ReferenceRedirectFactRecord,
+) -> Result<(), String> {
+    let original = repository.list_reference_redirects()?;
+    let mut graph = ReferenceRedirectGraph::from_records(&original)?;
+    graph.merge(
+        &record.from_canonical_reference_id,
+        &record.to_canonical_reference_id,
+    )?;
+    persist_redirect_graph(
+        repository,
+        &original,
+        &graph,
+        std::slice::from_ref(record),
+        &record.updated_at,
+    )?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct PersistedRedirectGraph {
+    changed: bool,
+    removed: Vec<ReferenceRedirectFactRecord>,
+}
+
+fn persist_redirect_graph(
+    repository: &Repository,
+    original: &[ReferenceRedirectFactRecord],
+    graph: &ReferenceRedirectGraph,
+    templates: &[ReferenceRedirectFactRecord],
+    now: &str,
+) -> Result<PersistedRedirectGraph, String> {
+    graph.validate_acyclic()?;
+    let original_by_source = original
+        .iter()
+        .map(|record| (record.from_canonical_reference_id.as_str(), record))
+        .collect::<BTreeMap<_, _>>();
+    let final_edges = graph.edges().collect::<BTreeMap<_, _>>();
+    let mut result = PersistedRedirectGraph::default();
+    for record in original {
+        if final_edges
+            .get(record.from_canonical_reference_id.as_str())
+            .copied()
+            != Some(record.to_canonical_reference_id.as_str())
+        {
+            repository.execute(
+                "DELETE FROM synt_reference_redirect WHERE from_canonical_reference_id=?1",
+                &[json!(record.from_canonical_reference_id)],
+            )?;
+            result.changed = true;
+            result.removed.push(record.clone());
+        }
+    }
+    for (source, target) in final_edges {
+        if original_by_source
+            .get(source)
+            .is_some_and(|record| record.to_canonical_reference_id == target)
+        {
+            continue;
+        }
+        let template = templates
+            .iter()
+            .find(|record| {
+                record.from_canonical_reference_id == source
+                    && record.to_canonical_reference_id == target
+            })
+            .or_else(|| templates.last());
+        let record = ReferenceRedirectFactRecord {
+            from_canonical_reference_id: source.into(),
+            to_canonical_reference_id: target.into(),
+            reason: template
+                .map(|record| record.reason.clone())
+                .filter(|reason| !reason.is_empty())
+                .unwrap_or_else(|| "reference_redirect_normalized".into()),
+            diagnostics_json: template
+                .map(|record| record.diagnostics_json.clone())
+                .filter(|diagnostics| !diagnostics.is_empty())
+                .unwrap_or_else(|| "[]".into()),
+            created_at: template
+                .map(|record| record.created_at.clone())
+                .filter(|created_at| !created_at.is_empty())
+                .unwrap_or_else(|| now.into()),
+            updated_at: now.into(),
+        };
+        upsert_redirect_row(repository, &record)?;
+        result.changed = true;
+    }
+    Ok(result)
+}
+
+fn supersede_displaced_redirect_proposals(
+    repository: &Repository,
+    removed: &[ReferenceRedirectFactRecord],
+    now: &str,
+) -> Result<(), String> {
+    for edge in removed {
+        repository.execute(
+            "UPDATE synt_reference_match_proposal
+             SET status='superseded',updated_at=?3
+             WHERE kind='canonical_merge' AND status IN ('open','accepted')
+               AND source_canonical_reference_id=?1
+               AND target_canonical_reference_id=?2",
+            &[
+                json!(edge.from_canonical_reference_id),
+                json!(edge.to_canonical_reference_id),
+                json!(now),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn supersede_redundant_open_redirect_proposals(
+    repository: &Repository,
+    graph: &ReferenceRedirectGraph,
+    now: &str,
+) -> Result<(), String> {
+    let rows = repository.query(
+        "SELECT proposal_id,source_canonical_reference_id,target_canonical_reference_id
+         FROM synt_reference_match_proposal
+         WHERE kind='canonical_merge' AND status='open'",
+        &[],
+    )?;
+    for row in rows {
+        let source = row_text(&row, "source_canonical_reference_id")?;
+        let target = row_text(&row, "target_canonical_reference_id")?;
+        if !source.is_empty()
+            && !target.is_empty()
+            && graph.resolve(&source).ok() == graph.resolve(&target).ok()
+        {
+            repository.execute(
+                "UPDATE synt_reference_match_proposal
+                 SET status='superseded',updated_at=?2 WHERE proposal_id=?1",
+                &[json!(row_text(&row, "proposal_id")?), json!(now)],
+            )?;
+        }
+    }
     Ok(())
 }
 

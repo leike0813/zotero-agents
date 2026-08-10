@@ -23,8 +23,8 @@ use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
     CanonicalReferenceRecord, LiteratureMatchingMetadataRecord, OperationRecord,
     RawReferenceRecord, ReferenceArtifactRecord, ReferenceBindingFactRecord,
-    ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, ReferenceRevisionReviewRecord,
-    Repository, ReviewPageQuery,
+    ReferenceMatchProposalRecord, ReferenceRedirectFactRecord, ReferenceRedirectGraph,
+    ReferenceRevisionReviewRecord, Repository, ReviewPageQuery,
 };
 
 use crate::runtime_deadline::bounded_timeout;
@@ -2211,13 +2211,12 @@ impl ReferenceCanonicalApplication {
             .filter(|reference| reference.status == "active")
             .collect::<Vec<_>>();
         let redirects = repository.list_reference_redirects()?;
+        let redirect_graph = ReferenceRedirectGraph::from_records(&redirects)?;
         let mut effective_canonical_ids = BTreeSet::new();
         for reference in &raw_references {
             if !reference.canonical_reference_id.is_empty() {
-                effective_canonical_ids.insert(resolve_effective_canonical_id(
-                    &reference.canonical_reference_id,
-                    &redirects,
-                )?);
+                effective_canonical_ids
+                    .insert(redirect_graph.resolve(&reference.canonical_reference_id)?);
             }
         }
         let bindings = repository.list_reference_bindings_for_canonicals(
@@ -2254,8 +2253,7 @@ impl ReferenceCanonicalApplication {
             let binding = if raw.canonical_reference_id.is_empty() {
                 None
             } else {
-                let effective =
-                    resolve_effective_canonical_id(&raw.canonical_reference_id, &redirects)?;
+                let effective = redirect_graph.resolve(&raw.canonical_reference_id)?;
                 binding_by_canonical.get(&effective).cloned()
             };
             references_by_source
@@ -3337,27 +3335,6 @@ fn all_proposals(repository: &Repository) -> Result<Vec<ReferenceMatchProposalRe
     }
 }
 
-fn resolve_effective_canonical_id(
-    canonical_id: &str,
-    redirects: &[ReferenceRedirectFactRecord],
-) -> Result<String, String> {
-    if canonical_id.is_empty() {
-        return Err("invalid_request".into());
-    }
-    let mut current = canonical_id.to_owned();
-    let mut visited = BTreeSet::new();
-    while let Some(redirect) = redirects
-        .iter()
-        .find(|redirect| redirect.from_canonical_reference_id == current)
-    {
-        if !visited.insert(current.clone()) {
-            return Err("canonical_redirect_cycle".into());
-        }
-        current = redirect.to_canonical_reference_id.clone();
-    }
-    Ok(current)
-}
-
 fn plan_merge(
     repository: &Repository,
     source_requested: &str,
@@ -3368,8 +3345,9 @@ fn plan_merge(
         return Ok(Err(MergeFailure::InvalidTarget));
     }
     let redirects = repository.list_reference_redirects()?;
-    let source = resolve_effective_canonical_id(source_requested, &redirects)?;
-    let target = resolve_effective_canonical_id(target_requested, &redirects)?;
+    let redirect_graph = ReferenceRedirectGraph::from_records(&redirects)?;
+    let source = redirect_graph.resolve(source_requested)?;
+    let target = redirect_graph.resolve(target_requested)?;
     if source == target {
         return Ok(Err(MergeFailure::InvalidTarget));
     }
@@ -3399,7 +3377,8 @@ fn plan_merge(
     let incoming = redirects
         .iter()
         .filter(|redirect| {
-            resolve_effective_canonical_id(&redirect.to_canonical_reference_id, &redirects)
+            redirect_graph
+                .resolve(&redirect.to_canonical_reference_id)
                 .ok()
                 .as_deref()
                 == Some(source.as_str())
@@ -3412,30 +3391,12 @@ fn plan_merge(
 }
 
 fn creates_redirect_cycle(repository: &Repository, plans: &[PlannedMerge]) -> Result<bool, String> {
-    let mut targets = repository
-        .list_reference_redirects()?
-        .into_iter()
-        .map(|redirect| {
-            (
-                redirect.from_canonical_reference_id,
-                redirect.to_canonical_reference_id,
-            )
-        })
-        .collect::<HashMap<_, _>>();
+    let redirects = repository.list_reference_redirects()?;
+    let mut graph = ReferenceRedirectGraph::from_records(&redirects)?;
     for plan in plans {
-        targets.insert(plan.source.clone(), plan.target.clone());
+        graph.merge(&plan.source, &plan.target)?;
     }
-    for source in targets.keys() {
-        let mut current = source.as_str();
-        let mut seen = HashSet::new();
-        while let Some(target) = targets.get(current) {
-            if !seen.insert(current.to_owned()) {
-                return Ok(true);
-            }
-            current = target;
-        }
-    }
-    Ok(false)
+    Ok(graph.validate_acyclic().is_err())
 }
 
 fn canonical_archive_blockers(
@@ -3443,11 +3404,13 @@ fn canonical_archive_blockers(
     canonical_id: &str,
 ) -> Result<Vec<String>, String> {
     let redirects = repository.list_reference_redirects()?;
-    let effective = resolve_effective_canonical_id(canonical_id, &redirects)?;
+    let redirect_graph = ReferenceRedirectGraph::from_records(&redirects)?;
+    let effective = redirect_graph.resolve(canonical_id)?;
     let mut blockers = Vec::new();
     if repository.list_raw_references()?.iter().any(|raw| {
         raw.status == "active"
-            && resolve_effective_canonical_id(&raw.canonical_reference_id, &redirects)
+            && redirect_graph
+                .resolve(&raw.canonical_reference_id)
                 .ok()
                 .as_deref()
                 == Some(effective.as_str())
@@ -3456,7 +3419,8 @@ fn canonical_archive_blockers(
     }
     if repository.list_reference_bindings()?.iter().any(|binding| {
         binding.status != "revoked"
-            && resolve_effective_canonical_id(&binding.canonical_reference_id, &redirects)
+            && redirect_graph
+                .resolve(&binding.canonical_reference_id)
                 .ok()
                 .as_deref()
                 == Some(effective.as_str())

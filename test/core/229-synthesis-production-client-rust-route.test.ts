@@ -4,6 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   SYNTHESIS_REVERSE_HOST_LIMITS,
   rebuildSynthesisSidecarObservationEvent,
@@ -375,6 +376,140 @@ describe("Synthesis Rust production client route", function () {
       observables: 18,
       errors: [],
     });
+  });
+
+  it("repairs a legacy canonical redirect cycle before loading the Workbench Index", async function () {
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-redirect-repair-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "redirect-repair-initialize",
+      root,
+    });
+    try {
+      await harness.stop();
+      const databasePath = path.join(root, "state", "synthesis.db");
+      const database = new DatabaseSync(databasePath);
+      const now = "2026-08-10T00:00:00.000Z";
+      database.exec("BEGIN IMMEDIATE");
+      database
+        .prepare("DELETE FROM synt_schema_meta WHERE key=?")
+        .run("reference_redirect_graph_schema_version");
+      const insertRedirect = database.prepare(
+        `INSERT INTO synt_reference_redirect(
+           from_canonical_reference_id,to_canonical_reference_id,reason,
+           diagnostics_json,created_at,updated_at
+         ) VALUES(?,?,?,?,?,?)`,
+      );
+      insertRedirect.run(
+        "canonical:a",
+        "canonical:b",
+        "reference_matching",
+        "[]",
+        now,
+        now,
+      );
+      insertRedirect.run(
+        "canonical:b",
+        "canonical:a",
+        "reference_matching",
+        "[]",
+        now,
+        now,
+      );
+      const insertProposal = database.prepare(
+        `INSERT INTO synt_reference_match_proposal(
+           proposal_id,kind,status,source_canonical_reference_id,
+           source_raw_reference_ids_json,target_canonical_reference_id,
+           target_library_id,target_item_key,confidence,score,reasons_json,
+           evidence_json,diagnostics_json,basis_hash,source_hash,created_at,updated_at
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      );
+      insertProposal.run(
+        "proposal:forward",
+        "canonical_merge",
+        "accepted",
+        "canonical:a",
+        "[]",
+        "canonical:b",
+        0,
+        "",
+        "automatic",
+        1,
+        '["automatic_match"]',
+        "[]",
+        "[]",
+        "basis:forward",
+        "source:forward",
+        now,
+        now,
+      );
+      insertProposal.run(
+        "proposal:reverse",
+        "canonical_merge",
+        "accepted",
+        "canonical:b",
+        "[]",
+        "canonical:a",
+        0,
+        "",
+        "manual",
+        1,
+        '["reverse_accept"]',
+        "[]",
+        "[]",
+        "basis:reverse",
+        "source:reverse",
+        now,
+        "2026-08-10T00:01:00.000Z",
+      );
+      database.exec("COMMIT");
+      database.close();
+
+      harness = await startSynthesisProductionRouteHarness({
+        id: "redirect-repair-reopen",
+        root,
+      });
+      const index = (await harness.call(
+        "client.getSynthesisWorkbenchSurfaceInput",
+        {
+          args: [
+            "index",
+            { registry: { scope: "library", expandedSourceRefs: [] } },
+          ],
+        },
+      )) as { registry: { rows: unknown[] } };
+      assert.deepEqual(index.registry.rows, []);
+
+      const repaired = new DatabaseSync(databasePath, { readOnly: true });
+      const redirects = repaired
+        .prepare(
+          `SELECT from_canonical_reference_id AS source,
+                  to_canonical_reference_id AS target
+           FROM synt_reference_redirect ORDER BY source`,
+        )
+        .all() as Array<{ source: string; target: string }>;
+      assert.deepEqual(redirects, [
+        { source: "canonical:b", target: "canonical:a" },
+      ]);
+      assert.equal(
+        (
+          repaired
+            .prepare(
+              `SELECT COUNT(*) AS count FROM synt_operation
+               WHERE operation_type='canonical_redirect_repair'
+                 AND status='completed'`,
+            )
+            .get() as { count: number }
+        ).count,
+        1,
+      );
+      repaired.close();
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("replays every fixed-baseline read observable through the real production route", async function () {

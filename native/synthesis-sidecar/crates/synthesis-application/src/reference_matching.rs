@@ -789,9 +789,11 @@ impl ReferenceMatchingApplication {
                         "reference-matching-application",
                         now,
                     )?),
-                    ReferenceMatchKind::Redirect => {
-                        redirects.push(redirect_from_proposal(&proposal, now)?)
-                    }
+                    ReferenceMatchKind::Redirect => redirects.push(redirect_from_proposal(
+                        &proposal,
+                        "reference_matching",
+                        now,
+                    )?),
                 }
             } else {
                 proposals.push(proposal);
@@ -893,6 +895,8 @@ impl ReferenceMatchingApplication {
                 audit.created_at = now.into();
                 audit.updated_at = now.into();
                 transition.audit_proposals.push(audit.clone());
+                transition.preferred_root_canonical_id =
+                    proposal.source_canonical_reference_id.clone();
                 accepted = Some(audit);
             }
             ReferenceReviewAction::Reject => proposal.status = "rejected".into(),
@@ -942,9 +946,16 @@ impl ReferenceMatchingApplication {
                 transition.binding =
                     Some(binding_from_proposal(&accepted, "reviewer", now).map_err(|_| "failed")?);
             } else if accepted.kind == "canonical_merge" {
+                let reason = if accepted.reasons_json.contains("reverse_accept") {
+                    "reference_review_reverse"
+                } else if accepted.reasons_json.contains("manual_target") {
+                    "reference_review_retarget"
+                } else {
+                    "reference_review_accept"
+                };
                 transition
                     .redirects
-                    .push(redirect_from_proposal(&accepted, now).map_err(|_| "failed")?);
+                    .push(redirect_from_proposal(&accepted, reason, now).map_err(|_| "failed")?);
             } else {
                 return Err("invalid_request");
             }
@@ -1087,6 +1098,7 @@ fn binding_from_proposal(
 
 fn redirect_from_proposal(
     proposal: &ReferenceMatchProposalRecord,
+    reason: &str,
     now: &str,
 ) -> Result<ReferenceRedirectFactRecord, String> {
     if proposal.target_canonical_reference_id.is_empty() {
@@ -1095,7 +1107,7 @@ fn redirect_from_proposal(
     Ok(ReferenceRedirectFactRecord {
         from_canonical_reference_id: proposal.source_canonical_reference_id.clone(),
         to_canonical_reference_id: proposal.target_canonical_reference_id.clone(),
-        reason: "reference_matching".into(),
+        reason: reason.into(),
         diagnostics_json: proposal.diagnostics_json.clone(),
         created_at: now.into(),
         updated_at: now.into(),
@@ -1606,6 +1618,101 @@ mod tests {
                 .has_prepared_reference_matching_preparation()
                 .unwrap()
         );
+        drop(repository);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reverse_accepting_open_duplicate_reroots_materialized_sibling() {
+        let root = root();
+        let mut repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile".into(),
+                data_root_id: "data".into(),
+            },
+        )
+        .expect("open repository");
+        seed(&mut repository);
+        for (proposal_id, status) in [("proposal:accepted", "accepted"), ("proposal:open", "open")]
+        {
+            repository
+                .upsert_reference_match_proposal(&ReferenceMatchProposalRecord {
+                    proposal_id: proposal_id.into(),
+                    kind: "canonical_merge".into(),
+                    status: status.into(),
+                    source_canonical_reference_id: "canonical:1".into(),
+                    target_canonical_reference_id: "canonical:2".into(),
+                    confidence: "review".into(),
+                    reasons_json: "[\"cluster_contained_extension_risk\"]".into(),
+                    evidence_json: "{}".into(),
+                    diagnostics_json: "[]".into(),
+                    basis_hash: "sha256:basis".into(),
+                    source_hash: format!("sha256:{proposal_id}"),
+                    created_at: "2026-07-26T00:00:00.000Z".into(),
+                    updated_at: "2026-07-26T00:00:00.000Z".into(),
+                    ..ReferenceMatchProposalRecord::default()
+                })
+                .expect("proposal");
+        }
+        repository
+            .upsert_canonical_reference_redirect(&ReferenceRedirectFactRecord {
+                from_canonical_reference_id: "canonical:1".into(),
+                to_canonical_reference_id: "canonical:2".into(),
+                reason: "reference_matching".into(),
+                diagnostics_json: "[]".into(),
+                created_at: "2026-07-26T00:00:00.000Z".into(),
+                updated_at: "2026-07-26T00:00:00.000Z".into(),
+            })
+            .expect("redirect");
+        let owner = Arc::new(Mutex::new(repository));
+        let application = ReferenceMatchingApplication::with_factories(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(FixtureMatcher {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(|| "2026-07-26T00:01:00.000Z".into()),
+            Arc::new(|| "matching:reverse".into()),
+        );
+
+        let reviewed = application.review(&[ReferenceReviewDecision {
+            proposal_id: "proposal:open".into(),
+            action: ReferenceReviewAction::Reverse,
+            target_canonical_reference_id: String::new(),
+            target_library_id: 0,
+            target_item_key: String::new(),
+        }]);
+        assert_eq!(reviewed.status, ReferenceMatchingStatus::ReviewApplied);
+
+        let repository = owner.lock().expect("repository");
+        let redirects = repository.list_reference_redirects().expect("redirects");
+        assert_eq!(redirects.len(), 1);
+        assert_eq!(redirects[0].from_canonical_reference_id, "canonical:2");
+        assert_eq!(redirects[0].to_canonical_reference_id, "canonical:1");
+        assert_eq!(redirects[0].reason, "reference_review_reverse");
+        let (proposals, _) = repository
+            .list_reference_match_proposals(0, 20)
+            .expect("proposals");
+        assert_eq!(
+            proposals
+                .iter()
+                .find(|proposal| proposal.proposal_id == "proposal:accepted")
+                .map(|proposal| proposal.status.as_str()),
+            Some("superseded")
+        );
+        assert_eq!(
+            proposals
+                .iter()
+                .find(|proposal| proposal.proposal_id == "proposal:open")
+                .map(|proposal| proposal.status.as_str()),
+            Some("superseded")
+        );
+        assert!(proposals.iter().any(|proposal| {
+            proposal.status == "accepted"
+                && proposal.source_canonical_reference_id == "canonical:2"
+                && proposal.target_canonical_reference_id == "canonical:1"
+                && proposal.reasons_json.contains("reverse_accept")
+        }));
         drop(repository);
         let _ = std::fs::remove_dir_all(root);
     }
