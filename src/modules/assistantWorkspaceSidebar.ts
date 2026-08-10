@@ -81,6 +81,8 @@ import { AssistantWorkspacePublicationCoordinator } from "./assistantWorkspacePu
 import {
   ASSISTANT_WORKSPACE_MESSAGE_PREFIX,
   ASSISTANT_WORKSPACE_MESSAGE_TYPES,
+  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
+  ASSISTANT_WORKSPACE_SHELL_ACTIONS,
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
   type AssistantWorkspaceMessageType,
   type AssistantWorkspaceTab,
@@ -258,6 +260,35 @@ const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
 ];
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY;
 const localize = getStringOrFallback;
+
+// High-frequency control-plane actions that should not flood the info channel.
+// `ready` (shell and child) stays at info because it is a lifecycle event,
+// not control-plane chatter.
+const ASSISTANT_WORKSPACE_DEBUG_LEVEL_SHELL_ACTIONS = new Set<string>([
+  ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB,
+  ASSISTANT_WORKSPACE_SHELL_ACTIONS.CLOSE_SIDEBAR,
+]);
+const ASSISTANT_WORKSPACE_DEBUG_LEVEL_CHILD_ACTIONS = new Set<string>([
+  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.PUBLICATION_ACK,
+  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.PUBLICATION_RENDER_OBSERVATION,
+  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.LOAD_TRANSCRIPT_PAGE,
+  ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.REQUEST_OWNER_DETAILS,
+]);
+
+export function resolveAssistantWorkspaceAuditLogLevel(args: {
+  tab: AssistantWorkspaceLogTab;
+  action: string;
+  result: "ok" | "error";
+}) {
+  if (args.result === "error") {
+    return "warn" as const;
+  }
+  const set =
+    args.tab === "shell"
+      ? ASSISTANT_WORKSPACE_DEBUG_LEVEL_SHELL_ACTIONS
+      : ASSISTANT_WORKSPACE_DEBUG_LEVEL_CHILD_ACTIONS;
+  return set.has(args.action) ? ("debug" as const) : ("info" as const);
+}
 
 configureAssistantWorkspacePublicationShellHost({
   logAssistantWorkspaceDebug,
@@ -1185,8 +1216,9 @@ function logAssistantShellAction(args: {
   result: "ok" | "error";
   error?: string;
 }) {
+  const level = resolveAssistantWorkspaceAuditLogLevel(args);
   appendRuntimeLog({
-    level: args.result === "error" ? "warn" : "info",
+    level,
     scope: "system",
     component: "assistant-shell",
     operation: args.tab === "shell" ? "shell-action" : "child-action",

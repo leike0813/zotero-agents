@@ -3722,6 +3722,26 @@
     }
     toolbar.appendChild(contextWrap);
 
+    const budget = view.budget || {};
+    const budgetValue = [
+      "warn/error " +
+        Number(budget.importantEntryCount || 0) +
+        "/" +
+        Number(budget.maxImportantEntries || 0),
+      "total " +
+        Number(view.totalEntries || 0) +
+        "/" +
+        Number(budget.maxEntries || 0),
+    ].join(" · ");
+    const budgetText = labelText(
+      labels,
+      "runtimeLogsBudget",
+      "Budget: { $value }",
+    ).replace("{ $value }", budgetValue);
+    const budgetStatus = el("div", "logs-budget-status", budgetText);
+    budgetStatus.dataset.runtimeLogBudget = "true";
+    toolbar.appendChild(budgetStatus);
+
     // Action Buttons
     const actionWrap = el("div", "logs-action-wrap");
 

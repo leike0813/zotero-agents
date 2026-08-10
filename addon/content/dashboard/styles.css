@@ -1007,6 +1007,13 @@ tr.clickable {
   font-size: 11px;
 }
 
+.logs-budget-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .audit-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));

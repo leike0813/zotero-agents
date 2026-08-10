@@ -148,6 +148,8 @@ type RuntimeLogSnapshot = {
   maxEntries: number;
   maxBytes: number;
   estimatedBytes: number;
+  maxImportantEntries: number;
+  importantEntryCount: number;
   retentionMode: RuntimeLogRetentionMode;
   diagnosticMode: boolean;
   sanitizationPolicy: {
@@ -215,6 +217,8 @@ export type RuntimeDiagnosticBundleV1 = {
       estimatedBytes: number;
       droppedEntries: number;
       droppedByReason: RuntimeLogDropReasonCounter;
+      maxImportantEntries: number;
+      importantEntryCount: number;
     };
     sanitization: {
       redactedPlaceholder: string;
@@ -262,6 +266,8 @@ export type RuntimeIssueDiagnosticBundleV1 = {
       estimatedBytes: number;
       droppedEntries: number;
       droppedByReason: RuntimeLogDropReasonCounter;
+      maxImportantEntries: number;
+      importantEntryCount: number;
     };
   };
   context: {
@@ -339,8 +345,10 @@ type RuntimeLogDropReasonCounter = {
 
 const NORMAL_MAX_ENTRIES = 2000;
 const NORMAL_MAX_BYTES = 0;
+const NORMAL_MAX_IMPORTANT_ENTRIES = 500;
 const DIAGNOSTIC_MAX_ENTRIES = 3000;
 const DIAGNOSTIC_MAX_BYTES = 20 * 1024 * 1024;
+const DIAGNOSTIC_MAX_IMPORTANT_ENTRIES = 1000;
 const HISTORY_PREF_KEY = "runtimeLogsJson";
 const RETENTION_DAYS = 30;
 const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -360,6 +368,10 @@ const SENSITIVE_KEY =
 const PERSIST_IDLE_DEBOUNCE_MS = 250;
 const PERSIST_MAX_DELAY_MS = 2000;
 
+function isImportantLevel(level: RuntimeLogLevel): boolean {
+  return level === "warn" || level === "error";
+}
+
 let sequence = 0;
 let droppedEntries = 0;
 let droppedByReason: RuntimeLogDropReasonCounter = {
@@ -367,9 +379,12 @@ let droppedByReason: RuntimeLogDropReasonCounter = {
   byte_budget: 0,
   expired: 0,
 };
-const entries: RuntimeLogEntry[] = [];
+const infoEntries: RuntimeLogEntry[] = [];
+const importantEntries: RuntimeLogEntry[] = [];
 const entryByteSizes = new Map<string, number>();
 const serializedEntries = new Map<string, string>();
+const entryRetentionOrdinals = new Map<string, number>();
+let nextEntryRetentionOrdinal = 0;
 let estimatedBytes = 0;
 const listeners = new Set<RuntimeLogListener>();
 const allowedLevels = new Set<RuntimeLogLevel>(DEFAULT_ALLOWED_LEVELS);
@@ -664,8 +679,11 @@ function utf8ByteLength(value: string) {
 function retainSerializedEntry(entry: RuntimeLogEntry) {
   const serialized = JSON.stringify(entry);
   entrySerializationCount += 1;
-  entries.push(entry);
+  const queue = isImportantLevel(entry.level) ? importantEntries : infoEntries;
+  queue.push(entry);
   serializedEntries.set(entry.id, serialized);
+  entryRetentionOrdinals.set(entry.id, nextEntryRetentionOrdinal);
+  nextEntryRetentionOrdinal += 1;
   const byteSize = utf8ByteLength(serialized);
   entryByteSizes.set(entry.id, byteSize);
   estimatedBytes += byteSize;
@@ -677,30 +695,45 @@ function resolveActiveRetentionBudget() {
       mode: "diagnostic" as RuntimeLogRetentionMode,
       maxEntries: DIAGNOSTIC_MAX_ENTRIES,
       maxBytes: DIAGNOSTIC_MAX_BYTES,
+      maxImportantEntries: DIAGNOSTIC_MAX_IMPORTANT_ENTRIES,
     };
   }
   return {
     mode: "normal" as RuntimeLogRetentionMode,
     maxEntries: NORMAL_MAX_ENTRIES,
     maxBytes: NORMAL_MAX_BYTES,
+    maxImportantEntries: NORMAL_MAX_IMPORTANT_ENTRIES,
   };
 }
 
-function removeEntryAt(
-  index: number,
+function releaseRetainedEntry(
+  removed: RuntimeLogEntry,
   reason: keyof RuntimeLogDropReasonCounter,
 ) {
-  const [removed] = entries.splice(index, 1);
-  if (!removed) {
-    return undefined;
-  }
-  droppedEntries += 1;
-  droppedByReason[reason] += 1;
   const byteSize = entryByteSizes.get(removed.id) || 0;
   entryByteSizes.delete(removed.id);
   serializedEntries.delete(removed.id);
+  entryRetentionOrdinals.delete(removed.id);
   estimatedBytes = Math.max(0, estimatedBytes - byteSize);
+  droppedEntries += 1;
+  droppedByReason[reason] += 1;
   return removed.id;
+}
+
+function popQueueHead(
+  queue: RuntimeLogEntry[],
+  reason: keyof RuntimeLogDropReasonCounter,
+): string | null {
+  const removed = queue.shift();
+  return removed ? releaseRetainedEntry(removed, reason) : null;
+}
+
+function retainedEntriesInGlobalOrder(): RuntimeLogEntry[] {
+  return [...importantEntries, ...infoEntries].sort(
+    (left, right) =>
+      (entryRetentionOrdinals.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (entryRetentionOrdinals.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
 function parseRuntimeLogEntry(raw: unknown): RuntimeLogEntry | null {
@@ -793,7 +826,8 @@ function markRuntimeLogPersistenceDirty(options: { schedule?: boolean } = {}) {
 }
 
 function captureRuntimeLogPersistenceDocument() {
-  const serialized = entries
+  const merged = retainedEntriesInGlobalOrder();
+  const serialized = merged
     .map((entry) => serializedEntries.get(entry.id))
     .filter((entry): entry is string => typeof entry === "string");
   const capturedDroppedEntries = droppedEntries;
@@ -821,7 +855,7 @@ function captureRuntimeLogPersistenceDocument() {
       serialized.reduce(
         (total, entry, index) =>
           total +
-          (entryByteSizes.get(entries[index]?.id || "") ||
+          (entryByteSizes.get(merged[index]?.id || "") ||
             utf8ByteLength(entry)),
         0,
       ),
@@ -922,29 +956,64 @@ async function drainRuntimeLogPersistence() {
   }
 }
 
-function pruneExpiredRuntimeLogs(nowMs = Date.now()) {
-  const evictedEntryIds: string[] = [];
-  const threshold = nowMs - RETENTION_MS;
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const ts = Date.parse(entries[i].ts || "");
+function pruneExpiredFromQueue(
+  queue: RuntimeLogEntry[],
+  threshold: number,
+): string[] {
+  const evicted: string[] = [];
+  for (let i = queue.length - 1; i >= 0; i -= 1) {
+    const ts = Date.parse(queue[i].ts || "");
     if (!Number.isFinite(ts) || ts >= threshold) {
       continue;
     }
-    const removedId = removeEntryAt(i, "expired");
-    if (removedId) {
-      evictedEntryIds.push(removedId);
+    const removed = queue.splice(i, 1)[0];
+    if (!removed) {
+      continue;
     }
+    evicted.push(releaseRetainedEntry(removed, "expired"));
   }
-  return evictedEntryIds;
+  return evicted;
+}
+
+function pruneExpiredRuntimeLogs(nowMs = Date.now()) {
+  const threshold = nowMs - RETENTION_MS;
+  return [
+    ...pruneExpiredFromQueue(infoEntries, threshold),
+    ...pruneExpiredFromQueue(importantEntries, threshold),
+  ];
 }
 
 function pruneOverflowByEntryBudget() {
   const evictedEntryIds: string[] = [];
   const { maxEntries } = resolveActiveRetentionBudget();
-  while (entries.length > maxEntries) {
-    const removedId = removeEntryAt(0, "entry_limit");
-    if (removedId) {
-      evictedEntryIds.push(removedId);
+  while (infoEntries.length + importantEntries.length > maxEntries) {
+    if (infoEntries.length === 0) {
+      const evicted = popQueueHead(importantEntries, "entry_limit");
+      if (evicted) {
+        evictedEntryIds.push(evicted);
+      }
+      if (importantEntries.length === 0) {
+        break;
+      }
+      continue;
+    }
+    const evicted = popQueueHead(infoEntries, "entry_limit");
+    if (evicted) {
+      evictedEntryIds.push(evicted);
+    }
+  }
+  return evictedEntryIds;
+}
+
+function pruneOverflowByImportantBudget() {
+  const evictedEntryIds: string[] = [];
+  const { maxImportantEntries } = resolveActiveRetentionBudget();
+  while (importantEntries.length > maxImportantEntries) {
+    const evicted = popQueueHead(importantEntries, "entry_limit");
+    if (evicted) {
+      evictedEntryIds.push(evicted);
+    } else {
+      break;
     }
   }
   return evictedEntryIds;
@@ -956,10 +1025,22 @@ function pruneOverflowByByteBudget() {
   if (!(maxBytes > 0)) {
     return evictedEntryIds;
   }
-  while (entries.length > 0 && estimatedBytes > maxBytes) {
-    const removedId = removeEntryAt(0, "byte_budget");
-    if (removedId) {
-      evictedEntryIds.push(removedId);
+  while (estimatedBytes > maxBytes) {
+    if (infoEntries.length === 0) {
+      const evicted = popQueueHead(importantEntries, "byte_budget");
+      if (evicted) {
+        evictedEntryIds.push(evicted);
+      }
+      if (importantEntries.length === 0) {
+        break;
+      }
+      continue;
+    }
+    const evicted = popQueueHead(infoEntries, "byte_budget");
+    if (evicted) {
+      evictedEntryIds.push(evicted);
+    } else {
+      break;
     }
   }
   return evictedEntryIds;
@@ -968,15 +1049,19 @@ function pruneOverflowByByteBudget() {
 function enforceRetentionBudgets() {
   return [
     ...pruneExpiredRuntimeLogs(),
+    ...pruneOverflowByImportantBudget(),
     ...pruneOverflowByEntryBudget(),
     ...pruneOverflowByByteBudget(),
   ];
 }
 
 function resetRuntimeLogMemory() {
-  entries.length = 0;
+  infoEntries.length = 0;
+  importantEntries.length = 0;
   entryByteSizes.clear();
   serializedEntries.clear();
+  entryRetentionOrdinals.clear();
+  nextEntryRetentionOrdinal = 0;
   estimatedBytes = 0;
   droppedEntries = 0;
   droppedByReason = {
@@ -1237,7 +1322,7 @@ export function listRuntimeLogs(filters: RuntimeLogListFilters = {}) {
   const fromTs = filters.fromTs ? Date.parse(String(filters.fromTs)) : NaN;
   const toTs = filters.toTs ? Date.parse(String(filters.toTs)) : NaN;
 
-  let result = entries.filter((entry) => {
+  let result = retainedEntriesInGlobalOrder().filter((entry) => {
     if (levels && !levels.has(entry.level)) {
       return false;
     }
@@ -1311,13 +1396,16 @@ registerRuntimeLogClearer(clearRuntimeLogs);
 
 function snapshotRuntimeLogsInternal(): RuntimeLogSnapshot {
   const budget = resolveActiveRetentionBudget();
+  const merged = retainedEntriesInGlobalOrder();
   return {
-    entries: entries.map((entry) => cloneEntry(entry)),
+    entries: merged.map((entry) => cloneEntry(entry)),
     droppedEntries,
     droppedByReason: { ...droppedByReason },
     maxEntries: budget.maxEntries,
     maxBytes: budget.maxBytes,
     estimatedBytes,
+    maxImportantEntries: budget.maxImportantEntries,
+    importantEntryCount: importantEntries.length,
     retentionMode: budget.mode,
     diagnosticMode,
     sanitizationPolicy: {
@@ -1335,7 +1423,8 @@ export function getRuntimeLogSummary(): RuntimeLogSummary {
   const budget = resolveActiveRetentionBudget();
   const backendIds = new Set<string>();
   const workflowIds = new Set<string>();
-  for (const entry of entries) {
+  const merged = retainedEntriesInGlobalOrder();
+  for (const entry of merged) {
     if (entry.backendId) {
       backendIds.add(entry.backendId);
     }
@@ -1344,12 +1433,14 @@ export function getRuntimeLogSummary(): RuntimeLogSummary {
     }
   }
   return {
-    entryCount: entries.length,
+    entryCount: merged.length,
     droppedEntries,
     droppedByReason: { ...droppedByReason },
     maxEntries: budget.maxEntries,
     maxBytes: budget.maxBytes,
     estimatedBytes,
+    maxImportantEntries: budget.maxImportantEntries,
+    importantEntryCount: importantEntries.length,
     retentionMode: budget.mode,
     diagnosticMode,
     sanitizationPolicy: {
@@ -1895,6 +1986,8 @@ export function buildRuntimeDiagnosticBundle(
         estimatedBytes,
         droppedEntries,
         droppedByReason: { ...droppedByReason },
+        maxImportantEntries: budget.maxImportantEntries,
+        importantEntryCount: importantEntries.length,
       },
       sanitization: {
         redactedPlaceholder: REDACTED,
@@ -1966,6 +2059,8 @@ export function buildRuntimeIssueDiagnosticBundle(
         estimatedBytes,
         droppedEntries,
         droppedByReason: { ...droppedByReason },
+        maxImportantEntries: budget.maxImportantEntries,
+        importantEntryCount: importantEntries.length,
       },
     },
     context: {
@@ -2129,16 +2224,19 @@ export function getRuntimeLogRetentionConfig() {
   return {
     maxEntries: budget.maxEntries,
     maxBytes: budget.maxBytes,
+    maxImportantEntries: budget.maxImportantEntries,
     retentionMode: budget.mode,
     retentionDays: RETENTION_DAYS,
     retentionMs: RETENTION_MS,
     normal: {
       maxEntries: NORMAL_MAX_ENTRIES,
       maxBytes: NORMAL_MAX_BYTES,
+      maxImportantEntries: NORMAL_MAX_IMPORTANT_ENTRIES,
     },
     diagnostic: {
       maxEntries: DIAGNOSTIC_MAX_ENTRIES,
       maxBytes: DIAGNOSTIC_MAX_BYTES,
+      maxImportantEntries: DIAGNOSTIC_MAX_IMPORTANT_ENTRIES,
     },
   };
 }

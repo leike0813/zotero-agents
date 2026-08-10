@@ -318,6 +318,8 @@ type DashboardSnapshot = {
         expired: number;
       };
       retentionMode: string;
+      maxImportantEntries: number;
+      importantEntryCount: number;
     };
     logs: DashboardLogRow[];
     selectedEntryIds: string[];
@@ -1840,6 +1842,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-diagnostic-mode",
       "Diagnostic Mode",
     ),
+    runtimeLogsBudget: localize("log-viewer-budget", "Budget: { $value }"),
     runtimeLogsClearContext: localize(
       "task-dashboard-runtime-logs-clear-context",
       "Clear Context",
@@ -2253,6 +2256,8 @@ async function buildDashboardSnapshot(args: {
         droppedEntries: logSummary.droppedEntries,
         droppedByReason: logSummary.droppedByReason,
         retentionMode: logSummary.retentionMode,
+        maxImportantEntries: logSummary.maxImportantEntries,
+        importantEntryCount: logSummary.importantEntryCount,
       },
       logs: rawLogs.map((entry) => mapLogRow(entry)),
       selectedEntryIds: Array.from(args.state.runtimeLogSelectedIdSet),

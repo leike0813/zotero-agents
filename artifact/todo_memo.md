@@ -140,7 +140,7 @@
 - [x] 提交任务所用的选择上下文应该在“点击触发workflow”的那一刻锁定，而不是在提交workflow的确定按钮按下后再动态判定。也就是说，出现在提交workflow窗口中的执行单元必须是最后点击确认提交任务时的最终提交执行单元，而不应该是点击确认提交那一时刻的实时选择上下文。
 - [x] ACP Skills 疑似存在并发数大于1时只有一个任务会真的提交并执行，其他任务看似提交但不会开始执行的bug，需要排查（确认在windows下，最大并发数2，后端Kilo ACP，稳定复现；提交后，第一个任务正常运行，第二个任务处于“看起来提交了，实际上不会进入执行，无法断开，只能取消“的诡异状态）
 - [x] ACP Skills状态机还是有点问题，已完成任务无法继续对话，和最初设计意图不一致。需要进行一次整体升级，合理设计自由对话和任务执行的关系。
-- [ ] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
+- [x] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
 - [x] literature-analysis 中的引用文献抽取步骤，考虑加入公共API查询以减轻Agent负担，加快执行效率，优化抽取质量
 - [ ] literature-search-ingest 吸纳 instSCI 项目
 - [x] 通过 zotero-bridge CLI 调用 workflow 时，需要避免 Agent 不先向用户确定 providerProfile 就直接发起调用的问题（也有可能是直接按查询到的 providerProfile 形状随便填一个值就提交了）。总之，providerProfile 的合法性校验、用户确定门禁、不传值时的默认行为，该如何在披露给 Agent 的同时确保 Agent 能和用户充分沟通，需要仔细考虑。此外，现在的 providerProfile 的披露和校验本身有 BUG (见K3论文工作区内的反馈工件 `/home/joshua/Workspace/Paper/ShiRuiXue/JiaoYu-AI/feedback-zotero-bridge-acp-qwen37.md`)

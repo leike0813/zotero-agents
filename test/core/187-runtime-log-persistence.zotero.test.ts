@@ -4,6 +4,7 @@ import {
   clearRuntimeLogs,
   flushRuntimeLogsPersistence,
   getRuntimeLogPersistenceStateForTests,
+  getRuntimeLogSummary,
   initializeRuntimeLogsPersistence,
   listRuntimeLogs,
   resetRuntimeLogHydrationForTests,
@@ -49,7 +50,7 @@ describe("runtime log persistence in Zotero", function () {
         JSON.stringify({
           entries: [
             {
-              id: "log-zotero-hydration",
+              id: "log-1",
               ts: new Date().toISOString(),
               level: "info",
               scope: "system",
@@ -57,6 +58,16 @@ describe("runtime log persistence in Zotero", function () {
               diagnosticMode: false,
               stage: "zotero-hydration",
               message: "hydrated through IOUtils",
+            },
+            {
+              id: "log-2",
+              ts: new Date().toISOString(),
+              level: "warn",
+              scope: "system",
+              schemaVersion: 1,
+              diagnosticMode: false,
+              stage: "zotero-hydration-warn",
+              message: "hydrated warn through IOUtils",
             },
           ],
           droppedEntries: 0,
@@ -70,6 +81,11 @@ describe("runtime log persistence in Zotero", function () {
       resetRuntimeLogHydrationForTests();
       await initializeRuntimeLogsPersistence();
       assert.equal(listRuntimeLogs()[0]?.stage, "zotero-hydration");
+      assert.deepEqual(
+        listRuntimeLogs().map((entry) => entry.stage),
+        ["zotero-hydration", "zotero-hydration-warn"],
+      );
+      assert.equal(getRuntimeLogSummary().importantEntryCount, 1);
 
       await clearRuntimeLogs();
       const documents: string[] = [];
@@ -101,7 +117,7 @@ describe("runtime log persistence in Zotero", function () {
       const firstFlush = flushRuntimeLogsPersistence();
       await firstStarted;
       appendRuntimeLog({
-        level: "info",
+        level: "warn",
         scope: "system",
         stage: "zotero-second-revision",
         message: "second",
@@ -111,7 +127,13 @@ describe("runtime log persistence in Zotero", function () {
       await Promise.all([firstFlush, secondFlush]);
       assert.equal(maxActive, 1);
       assert.equal(documents.length, 2);
-      assert.lengthOf(JSON.parse(documents[1]).entries, 2);
+      const orderedEntries = JSON.parse(documents[1]).entries as Array<{
+        stage: string;
+      }>;
+      assert.deepEqual(
+        orderedEntries.map((entry) => entry.stage),
+        ["zotero-first-revision", "zotero-second-revision"],
+      );
 
       setRuntimeLogPersistenceWriterForTests(null);
       await clearRuntimeLogs();
