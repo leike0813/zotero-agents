@@ -16,6 +16,7 @@ state.
 | --- | --- | --- |
 | Synthesis runtime DB | `state/synthesis.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
 | Synthesis production lock | `state/synthesis.lock` | OS file-lock target held by the Rust process for its lifetime. File contents are not ownership authority. |
+| Native WebDAV runtime state | `state/native-webdav-state.json` with `.pending` and `.previous` siblings | Secret-free queue, retry, conflict, and last-run state persisted atomically by Rust; it is local runtime state rather than a durable exchange asset. |
 | Schema migration backups | `data/synthesis-migration-backups/**` | Created only by Rust immediately before a registered schema migration. Same-schema startup creates no backup. |
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
@@ -41,6 +42,7 @@ zotero-agents/
     zotero-agents.db
     synthesis.db
     synthesis.lock
+    native-webdav-state.json
     workflow-registry-status.json
     *.bak
   data/
@@ -125,7 +127,10 @@ The Rust WebDAV application composes that durable port with a secret-free
 reverse-Host port. The plugin adapter alone reads preferences and encrypted
 credentials, resolves remote URLs, performs HTTP, and owns abort authority. The
 Rust application receives no credentials or unrestricted filesystem/network
-access; WebDAV never gains a second repository or canonical owner.
+access; WebDAV never gains a second repository or canonical owner. Its local
+queue and recovery state is written atomically beside `synthesis.db` as
+`state/native-webdav-state.json`; pending and previous siblings exist only for
+the file-store commit and recovery protocol.
 
 The production Topic canonical store uses the opaque profile/data-root identity
 and never accepts a caller-supplied canonical path. Complete snapshots are

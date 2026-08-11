@@ -2524,6 +2524,108 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
+  it("migrates native WebDAV millisecond state during startup reconciliation", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-webdav-timestamp-migration-"),
+    );
+    const statePath = path.join(root, "state", "native-webdav-state.json");
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        schema_id: "synthesis.webdav_sync_state",
+        schema_version: "1.0.0",
+        queue_state: "disabled",
+        paused: false,
+        adapter_configured: false,
+        config_status: "disabled",
+        base_url: "",
+        remote_path: "zotero-agents",
+        username: "",
+        credential_updated_at: "",
+        connection_test: null,
+        retry_attempt: 0,
+        next_retry_at: "",
+        last_phase: "",
+        progress: null,
+        last_run: null,
+        conflict_report: null,
+        diagnostics: [
+          {
+            code: "webdav_sync_disabled",
+            severity: "info",
+            message: "webdav_sync_disabled",
+          },
+        ],
+        allowed_actions: [],
+        conflict_actions: [],
+        updated_at: "1785602031063",
+      }),
+    );
+    const hostFixture = {
+      handle({ capability }: { capability: string }) {
+        if (capability === "webdav.describe") {
+          return {
+            status: "disabled",
+            configStatus: "disabled",
+            autoSyncEnabled: false,
+            autoRetryEnabled: false,
+            baseUrl: "",
+            remotePath: "zotero-agents",
+            username: "",
+            diagnostics: ["webdav_sync_disabled"],
+          };
+        }
+        return { status: "unavailable", diagnostics: [] };
+      },
+    };
+
+    try {
+      const first = await startSynthesisProductionRouteHarness({
+        id: "webdav-timestamp-migration-first",
+        root,
+        hostFixture,
+      });
+      try {
+        const reconciled = (await first.call(
+          "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+          { args: [] },
+        )) as Record<string, any>;
+        assert.equal(reconciled.status, "ready");
+        assert.equal(reconciled.webdav.queue_state, "disabled");
+        assert.isFalse(reconciled.webdav.adapter_configured);
+      } finally {
+        await first.stop();
+      }
+
+      const persisted = JSON.parse(fs.readFileSync(statePath, "utf8")) as {
+        updated_at: string;
+      };
+      assert.match(
+        persisted.updated_at,
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
+
+      const reopened = await startSynthesisProductionRouteHarness({
+        id: "webdav-timestamp-migration-reopen",
+        root,
+        hostFixture,
+      });
+      try {
+        const reconciled = (await reopened.call(
+          "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+          { args: [] },
+        )) as Record<string, any>;
+        assert.equal(reconciled.status, "ready");
+        assert.equal(reconciled.webdav.queue_state, "disabled");
+      } finally {
+        await reopened.stop();
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("admits and materializes a production literature apply with a large string", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(

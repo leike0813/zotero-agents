@@ -6,7 +6,7 @@ WebDAV is the sole durable-sync transport for Synthesis. It exchanges determinis
 
 The Rust production application owns durable export/import orchestration, conflict handling, retry state, progress, and lifecycle. The plugin Host adapter owns preferences, encrypted credentials, remote URL construction, the HTTP client, and the abort signal. Rust sees only the strict, secret-free `SynthesisHostWebDavSyncPort` and the durable bundle port.
 
-The remote collection contains immutable snapshots and one mutable `HEAD.json` pointer. Local staging lives under `runtime/synthesis/webdav-sync/**` and is disposable.
+The remote collection contains immutable snapshots and one mutable `HEAD.json` pointer. Local staging lives under `runtime/synthesis/webdav-sync/**` and is disposable. Rust persists its secret-free queue, retry, conflict, and last-run state atomically in `state/native-webdav-state.json`; that file is local runtime state and never enters a durable bundle.
 
 ## Bundle Contract
 
@@ -37,6 +37,10 @@ Automatic retry is also disabled by default. When enabled, each manual or autosy
 
 ## Concurrency and Recovery
 
-`HEAD.json` is parsed before any snapshot asset and its updates use the observed ETag. If the remote pointer changes during a run, the run fails retryably rather than overwriting the newer pointer. Invalid manifests, paths, hashes, schemas, persisted state, and malformed pointers fail closed. Shutdown stops admission, cancels pending trigger chains, and drains the one active run.
+`HEAD.json` is parsed before any snapshot asset and its updates use the observed ETag. If the remote pointer changes during a run, the run fails retryably rather than overwriting the newer pointer.
+
+The first native production clock wrote decimal Unix milliseconds into its local WebDAV state and remote HEAD. On read, Rust recognizes only that exact historical encoding for native-owned state, last-run, retry-base, and HEAD timestamps, converts it to ISO-8601, and then applies the normal strict validator. Valid local state is saved atomically in canonical form. A remote HEAD is not rewritten merely for migration; the next successful ETag-guarded publication writes the canonical timestamp. Signed, fractional, overflowing, structurally invalid, or unknown timestamp forms still fail closed, as do invalid manifests, paths, hashes, schemas, persisted state, and malformed pointers.
+
+Shutdown stops admission, cancels pending trigger chains, and drains the one active run.
 
 The runtime state machine is documented in [State Machines](./state-machines.md), and the complete exchange flow is documented in [Sequences](./sequences.md).

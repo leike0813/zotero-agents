@@ -140,6 +140,14 @@ Workbench reducers omit cleared optional properties and the native adapter rebui
 
 Runtime status is a transient top-bar projection composed from the supervisor lifecycle and the bounded health response. It contains no paths, credentials, logs, or repository payloads. Foreground observation is coalesced and stops with the Workbench runtime; compute-pool degradation enters the existing bounded recovery policy only after the worker pool has exhausted its own replacement budget.
 
+### 15. Canonicalize known WebDAV timestamp residue at persistence boundaries
+
+The first native WebDAV production build wrote its application clock as a decimal Unix-millisecond string. Later builds corrected new writes to ISO-8601 but validated the already-persisted state before replacing its timestamp, so a valid disabled profile could fail every startup reconciliation. The same clock also reached completed-run timestamps, retry timestamps, and remote `HEAD.json` pointers.
+
+Rust recognizes only that exact historical encoding at the local-state and remote-pointer read boundaries. It canonicalizes non-negative decimal milliseconds for state `updated_at`, last-run start/completion, the base of the established retry representation, and remote HEAD `updated_at`; the existing strict validators then run unchanged. Local state is persisted atomically only after the complete state validates. A remote pointer is not rewritten merely to migrate its timestamp: normal ETag-guarded synchronization publishes the next canonical HEAD after all existing preview and promotion gates pass.
+
+Public DTO rebuilders remain canonical-only. Host-owned credential timestamps, unrelated progress payloads, malformed text, signed or fractional numbers, overflow, reversed run intervals, unknown fields, and invalid schemas continue to fail closed. The state schema version remains `1.0.0` because the durable meaning is unchanged and all new bytes were already canonical.
+
 ## Risks / Trade-offs
 
 - [The fixed baseline contains behavior later judged undesirable] → Preserve it unless an explicit spec and user-approved disposition changes that behavior; do not silently reinterpret it during migration.
@@ -148,6 +156,7 @@ Runtime status is a transient top-bar projection composed from the supervisor li
 - [Repository concurrency creates writer/read races] → Keep one writer, read through WAL-compatible read-only connections, and use basis/CAS checks before promotion.
 - [Timing tests are noisy] → Keep query/Host-call/byte bounds as deterministic CI gates and run p50/p95 latency/RSS on the governed benchmark runner against the same fixed baseline.
 - [Existing uncommitted repairs overlap] → Rebase behavior logically, never reset files, and preserve a repair only when the new differential test accepts it.
+- [Persistence compatibility weakens strict validation] → Recognize only the historical producer's exact decimal-millisecond encoding before the unchanged canonical validators; do not add a second public DTO shape.
 
 ## Migration Plan
 

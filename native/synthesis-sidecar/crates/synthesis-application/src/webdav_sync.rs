@@ -277,6 +277,7 @@ impl WebDavSyncApplication {
             ..WebDavSyncState::default()
         });
         if loaded.is_some() {
+            normalize_native_millis_state_timestamps(&mut state);
             normalize_legacy_retry_timestamp(&mut state)?;
         }
         validate_state(&state)?;
@@ -650,8 +651,9 @@ impl WebDavSyncApplication {
         if result.status != "read" {
             return Err(Failure::Code("webdav_sync_host_read_failed".into(), true));
         }
-        let pointer: WebDavHead = serde_json::from_str(&result.text)
+        let mut pointer: WebDavHead = serde_json::from_str(&result.text)
             .map_err(|_| Failure::Code("webdav_sync_head_invalid".into(), false))?;
+        normalize_native_millis_timestamp(&mut pointer.updated_at);
         validate_head(&pointer)?;
         Ok(ObservedHead {
             pointer: Some(pointer),
@@ -882,6 +884,33 @@ fn validate_head(head: &WebDavHead) -> Result<(), Failure> {
     }
 }
 
+fn normalize_native_millis_timestamp(value: &mut String) {
+    if synthesis_protocol::unix_millis_from_utc_iso8601(value).is_some()
+        || value.is_empty()
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return;
+    }
+    let Ok(unix_millis) = value.parse::<i64>() else {
+        return;
+    };
+    if unix_millis.to_string() != *value {
+        return;
+    }
+    let canonical = synthesis_protocol::utc_iso8601_from_unix_millis(unix_millis);
+    if synthesis_protocol::unix_millis_from_utc_iso8601(&canonical) == Some(unix_millis) {
+        *value = canonical;
+    }
+}
+
+fn normalize_native_millis_state_timestamps(state: &mut WebDavSyncState) {
+    normalize_native_millis_timestamp(&mut state.updated_at);
+    if let Some(last_run) = &mut state.last_run {
+        normalize_native_millis_timestamp(&mut last_run.started_at);
+        normalize_native_millis_timestamp(&mut last_run.completed_at);
+    }
+}
+
 fn normalize_legacy_retry_timestamp(state: &mut WebDavSyncState) -> Result<(), String> {
     if state.next_retry_at.is_empty()
         || synthesis_protocol::unix_millis_from_utc_iso8601(&state.next_retry_at).is_some()
@@ -892,11 +921,13 @@ fn normalize_legacy_retry_timestamp(state: &mut WebDavSyncState) -> Result<(), S
         .next_retry_at
         .rsplit_once('+')
         .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+    let mut base = base.to_owned();
+    normalize_native_millis_timestamp(&mut base);
     let delay = delay
         .strip_suffix("ms")
         .and_then(|value| value.parse::<u64>().ok())
         .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
-    state.next_retry_at = synthesis_protocol::utc_iso8601_after_millis(base, delay)
+    state.next_retry_at = synthesis_protocol::utc_iso8601_after_millis(&base, delay)
         .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
     Ok(())
 }
@@ -1281,6 +1312,124 @@ mod tests {
                 .next_retry_at,
             "2026-07-26T00:00:05.000Z"
         );
+    }
+
+    #[test]
+    fn canonicalizes_native_millis_state_when_reopening() {
+        let mut legacy = persisted_state("1785602031063");
+        legacy.queue_state = "failed_retryable".into();
+        legacy.retry_attempt = 1;
+        legacy.next_retry_at = "1785602031063+5000ms".into();
+        legacy.last_run = Some(WebDavLastRun {
+            run_id: "webdav-sync-1785602000000".into(),
+            status: "failed_retryable".into(),
+            started_at: "1785602000000".into(),
+            completed_at: "1785602010000".into(),
+            diagnostics: vec![diagnostic("webdav_sync_host_read_failed", "error")],
+            ..WebDavLastRun::default()
+        });
+        let state = Arc::new(MemoryState(Mutex::new(Some(legacy))));
+        let application = WebDavSyncApplication::new(
+            Arc::new(Host),
+            state.clone(),
+            Arc::new(Scheduler),
+            Arc::new(Durable),
+            Arc::new(|| "2026-08-01T16:34:00.000Z".into()),
+        );
+
+        let reopened = application.load_webdav_sync_state().expect("reopen");
+        assert_eq!(reopened.updated_at, "2026-08-01T16:34:00.000Z");
+        assert_eq!(reopened.next_retry_at, "2026-08-01T16:33:56.063Z");
+        let last_run = reopened.last_run.as_ref().expect("last run");
+        assert_eq!(last_run.started_at, "2026-08-01T16:33:20.000Z");
+        assert_eq!(last_run.completed_at, "2026-08-01T16:33:30.000Z");
+        assert_eq!(
+            state.0.lock().expect("state").as_ref(),
+            Some(&reopened),
+            "the canonical state must be persisted after validation"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_native_millis_remote_head_before_validation() {
+        struct LegacyHeadHost;
+
+        impl WebDavHostPort for LegacyHeadHost {
+            fn describe(&self) -> Result<WebDavHostDescription, String> {
+                Host.describe()
+            }
+
+            fn read_text(&self, path: &str) -> Result<WebDavReadResult, String> {
+                assert_eq!(path, "HEAD.json");
+                Ok(WebDavReadResult {
+                    status: "read".into(),
+                    text: serde_json::to_string(&WebDavHead {
+                        schema_id: "synthesis.webdav_sync_head".into(),
+                        schema_version: "1.0.0".into(),
+                        snapshot_id: "1785602031063-aaaaaaaaaaaa".into(),
+                        manifest_hash: format!("sha256:{}", "a".repeat(64)),
+                        updated_at: "1785602031063".into(),
+                        producer_version: "synthesis-sidecar".into(),
+                    })
+                    .expect("head"),
+                    etag: "\"legacy-head\"".into(),
+                    diagnostics: Vec::new(),
+                })
+            }
+
+            fn ensure_collection(&self, _path: &str) -> Result<WebDavWriteResult, String> {
+                Err("unexpected_write".into())
+            }
+
+            fn write_text(
+                &self,
+                _path: &str,
+                _text: &str,
+                _if_match: Option<&str>,
+            ) -> Result<WebDavWriteResult, String> {
+                Err("unexpected_write".into())
+            }
+        }
+
+        let application = WebDavSyncApplication::new(
+            Arc::new(LegacyHeadHost),
+            Arc::new(MemoryState::default()),
+            Arc::new(Scheduler),
+            Arc::new(Durable),
+            Arc::new(|| "2026-08-01T16:34:00.000Z".into()),
+        );
+
+        let observed = application
+            .read_remote_head()
+            .unwrap_or_else(|_| panic!("legacy head"));
+        let pointer = observed.pointer.expect("pointer");
+        assert_eq!(pointer.updated_at, "2026-08-01T16:33:51.063Z");
+        assert_eq!(observed.etag, "\"legacy-head\"");
+    }
+
+    #[test]
+    fn rejects_non_historical_persisted_timestamp_encodings() {
+        for updated_at in [
+            "+1785602031063",
+            "-1785602031063",
+            "1785602031063.0",
+            "01785602031063",
+            "999999999999999999999999999999",
+        ] {
+            let application = WebDavSyncApplication::new(
+                Arc::new(Host),
+                Arc::new(MemoryState(Mutex::new(Some(persisted_state(updated_at))))),
+                Arc::new(Scheduler),
+                Arc::new(Durable),
+                Arc::new(|| "2026-08-01T16:34:00.000Z".into()),
+            );
+
+            assert_eq!(
+                application.load_webdav_sync_state(),
+                Err("webdav_sync_state_invalid".into()),
+                "{updated_at} must remain invalid"
+            );
+        }
     }
 
     #[test]
