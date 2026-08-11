@@ -18,10 +18,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["query", "focus"],
+        "required": ["query", "focus", "fallback_queries"],
         "properties": {
           "query": { "type": "string", "minLength": 1, "maxLength": 500 },
-          "focus": { "type": "string", "minLength": 1 }
+          "focus": { "type": "string", "minLength": 1 },
+          "fallback_queries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+          }
         }
       }
     }

@@ -78,6 +78,7 @@ export type WorkflowParameterSchema = {
   optionsSource?: WorkflowParameterOptionsSource;
   min?: number;
   max?: number;
+  integer?: boolean;
 };
 
 export type WorkflowI18nLocaleMessages = Record<string, string>;

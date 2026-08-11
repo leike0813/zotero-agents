@@ -776,7 +776,7 @@ describe("workflow settings dialog model", function () {
     );
     assert.include(
       workflowDialogHtml,
-      "workflow-settings-dialog.js?ui=20260723-native-queue-v4",
+      "workflow-settings-dialog.js?ui=20260811-number-contract-v1",
     );
     assert.notInclude(dashboardApp, "tail-preserve-select");
     assert.notInclude(workflowDialogJs, "tail-preserve-select");

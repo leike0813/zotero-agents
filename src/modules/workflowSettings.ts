@@ -100,6 +100,7 @@ type WorkflowSettingsSchemaEntry = {
   }>;
   min?: number;
   max?: number;
+  integer?: boolean;
 };
 
 export function rebaseWorkflowProviderOptionsForBackendChange(args: {
@@ -715,6 +716,7 @@ async function toWorkflowSchemaEntries(
           dynamicDiagnostics.length > 0 ? dynamicDiagnostics : undefined,
         min: entry.type === "number" ? entry.min : undefined,
         max: entry.type === "number" ? entry.max : undefined,
+        integer: entry.type === "number" && entry.integer === true,
       };
     }),
   );

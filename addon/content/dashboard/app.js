@@ -1554,16 +1554,22 @@
 
   function validateNumberFieldValue(args) {
     const raw = String(args.rawValue == null ? "" : args.rawValue).trim();
-    if (!raw) {
-      return { ok: true, remove: true };
-    }
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) {
+    const contract = window.zoteroAgentsWorkflowNumberFields.validate({
+      entry: args.entry,
+      rawValue: raw,
+    });
+    if (!contract.valid) {
       return {
         ok: false,
-        message: labelText(args.labels, "workflowSettingsNumberInvalid"),
+        message:
+          contract.message ||
+          labelText(args.labels, "workflowSettingsNumberInvalid"),
       };
     }
+    if (contract.remove) {
+      return { ok: true, remove: true };
+    }
+    const parsed = contract.value;
     if (isNonNegativeIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed < 0) {
         return {
@@ -1614,8 +1620,10 @@
       isWarningProviderOptionKey(args.entry.key)
         ? "workflow-settings-field-label workflow-settings-field-label-warning"
         : "workflow-settings-field-label",
-      (args.entry.title || args.entry.key) +
-        (args.entry.required === true ? " *" : ""),
+      window.zoteroAgentsWorkflowNumberFields.formatLabel({
+        ...args.entry,
+        title: args.entry.title || args.entry.key,
+      }) + (args.entry.required === true ? " *" : ""),
     );
     row.appendChild(label);
     if (args.entry.disabled === true) {
@@ -1763,6 +1771,12 @@
       control.className = "workflow-settings-field-control";
       if (args.entry.type === "number") {
         control.classList.add("numeric");
+        control.setAttribute(
+          "inputmode",
+          args.entry.integer === true || isPositiveIntegerField(args.entry)
+            ? "numeric"
+            : "decimal",
+        );
       }
     }
     const errorNode = el("div", "workflow-settings-field-error");
@@ -1826,6 +1840,7 @@
     control.addEventListener("input", function () {
       if (args.entry.type === "number") {
         setFieldError("");
+        return;
       }
       args.values[args.entry.key] = control.value;
     });

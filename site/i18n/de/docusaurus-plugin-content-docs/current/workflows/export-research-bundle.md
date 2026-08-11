@@ -11,16 +11,16 @@ Automatisches Zusammenstellen eines schreibgeschützten Research Bundles in Dash
 | `paperTitle` | Ja | Arbeitstitel des Manuskripts, der zur Findung von Forschungsmaterialien verwendet wird. |
 | `researchContent` | Ja | Forschungsproblem, Methoden, Umfang und vorgesehener Beitrag. |
 | `articleType` | Nein | Manuskripttyp (Standard: `original research`). |
-| `maxTopics` | Nein | Maximale Anzahl relevanter Topics, Bereich 0–5 (Standard: 5). |
-| `maxCorePapers` | Nein | Maximale Anzahl von Kernarbeiten, Bereich 1–20 (Standard: 20). |
-| `maxRelatedPapers` | Nein | Maximale Gesamtanzahl verwandter Arbeiten einschließlich Kern, Bereich 1–80 (Standard: 80). |
+| `maxTopics` | Nein | Maximale Anzahl relevanter Topics, Bereich 0–10 (Standard: 5). |
+| `maxCorePapers` | Nein | Maximale Anzahl von Kernarbeiten, Bereich 1–50 (Standard: 20). |
+| `maxRelatedPapers` | Nein | Maximale Anzahl zusätzlicher Arbeiten außerhalb ausgewählter Topics, Bereich 1–200 (Standard: 80). Aus Topics aufgelöste Arbeiten bleiben darüber hinaus erhalten. |
 
 Keine Zotero-Elementauswahl erforderlich.
 
 ## Verhalten
 
 1. Die Papierabsichtsparameter vom Benutzer empfangen.
-2. Kandidatenmaterialien aus bestehenden Synthesis Topics, Zotero-Bibliothekselementen und verfügbarem Zitierungsgraphkontext entdecken.
+2. Kandidatenmaterialien aus bestehenden Synthesis Topics und begrenzten Zotero-Metadatenankern entdecken. Die Suche gleicht indizierte Metadaten wie Titel, Autoren, Jahre, Publikationstitel und Tags ab; sie ist keine semantische Volltextsuche.
 3. Begrenzte Evaluierung durchführen, um Kernarbeiten von verwandten Arbeiten zu unterscheiden.
 4. Das Research Bundle mit Topic-Berichten, bibliografischen Metadaten und verfügbaren v2-Analyseartefakten (Digests, Referenzen, Zitationsanalysen, Gesprächsinhalte) zusammenstellen.
 5. Für Kernarbeiten Markdown-Quelle mit lokalen Bildern bevorzugen; auf PDF zurückfallen; eine Warnung aufzeichnen, wenn keines verfügbar ist.

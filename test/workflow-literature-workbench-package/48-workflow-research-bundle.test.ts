@@ -91,6 +91,21 @@ describe("export research bundle workflow", function () {
     assert.equal(workflow?.parameters?.maxTopics?.default, 5);
     assert.equal(workflow?.parameters?.maxCorePapers?.default, 20);
     assert.equal(workflow?.parameters?.maxRelatedPapers?.default, 80);
+    assert.deepInclude(workflow?.parameters?.maxTopics || {}, {
+      min: 0,
+      max: 10,
+      integer: true,
+    });
+    assert.deepInclude(workflow?.parameters?.maxCorePapers || {}, {
+      min: 1,
+      max: 50,
+      integer: true,
+    });
+    assert.deepInclude(workflow?.parameters?.maxRelatedPapers || {}, {
+      min: 1,
+      max: 200,
+      integer: true,
+    });
   });
 
   it("ships a self-contained automatic skill package", async function () {
@@ -115,6 +130,24 @@ describe("export research bundle workflow", function () {
       ),
     );
     assert.notProperty(parameters.properties, "language");
+    assert.deepEqual(parameters.properties.maxTopics, {
+      type: "integer",
+      minimum: 0,
+      maximum: 10,
+      default: 5,
+    });
+    assert.deepEqual(parameters.properties.maxCorePapers, {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      default: 20,
+    });
+    assert.deepEqual(parameters.properties.maxRelatedPapers, {
+      type: "integer",
+      minimum: 1,
+      maximum: 200,
+      default: 80,
+    });
   });
 
   it("validates bounded selection and core subset invariants", function () {

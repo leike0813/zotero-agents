@@ -24,14 +24,14 @@ STAGE_CONTRACT = {
     },
     "stage_10_intent_query_plan": {
         "kind": "payload",
-        "task": "Derive research dimensions and 2-8 precise Zotero library queries from the manuscript intent.",
+        "task": "Derive research dimensions and 2-8 metadata anchors with bounded fallback anchors from the manuscript intent.",
         "payload": "runtime/payloads/intent-query-plan.json",
         "schema": "assets/schemas/stage-10-intent-query-plan.schema.json",
         "required_reads": [],
     },
     "stage_20_discovery_collect": {
         "kind": "command",
-        "task": "Page through Topic inventory and execute the submitted bounded library queries.",
+        "task": "Page through the current Topic inventory.",
     },
     "stage_30_topic_assessment": {
         "kind": "payload",
@@ -42,7 +42,7 @@ STAGE_CONTRACT = {
     },
     "stage_40_evidence_prepare": {
         "kind": "command",
-        "task": "Collect Topic review inputs, graph neighbors, reference diagnostics, digests, and assessment packets.",
+        "task": "Resolve selected Topic papers, page bounded Zotero metadata anchors, merge canonical candidates, and prepare assessment evidence.",
     },
     "stage_50_paper_assessment": {
         "kind": "payload",

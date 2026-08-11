@@ -322,6 +322,9 @@
         },
         "max": {
           "type": "number"
+        },
+        "integer": {
+          "type": "boolean"
         }
       },
       "allOf": [
