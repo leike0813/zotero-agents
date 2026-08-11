@@ -1412,6 +1412,9 @@ synthesis-graph-legend-node-size = Размер узла = входящие ци
 synthesis-graph-legend-halo = Ореол = самые цитируемые видимые узлы
 synthesis-graph-legend-current-paper = Текущая статья
 synthesis-graph-citations-title = Цитирования
+synthesis-graph-incoming-source-papers-current-view = Входящие статьи-источники (текущий вид)
+synthesis-graph-incoming-citation-records-current-view = Входящие записи цитирования (текущий вид)
+synthesis-graph-interaction-neighbors-previewed-current-view = Показанные интерактивные соседи (текущий вид)
 synthesis-topic-graph-legend-hierarchy = Иерархия
 synthesis-topic-graph-legend-related = Связанные
 synthesis-topic-graph-legend-overlap = Перекрытие

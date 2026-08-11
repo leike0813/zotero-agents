@@ -89,6 +89,26 @@ export function createSynthesisWorkbenchGraphLayoutFailure(args: {
   };
 }
 
+export function isSynthesisWorkbenchGraphApplicationBusyError(error: unknown) {
+  const record =
+    error && typeof error === "object"
+      ? (error as {
+          code?: unknown;
+          status?: unknown;
+          message?: unknown;
+          details?: Record<string, unknown>;
+        })
+      : undefined;
+  return [
+    record?.details?.sidecarCode,
+    record?.details?.code,
+    record?.details?.status,
+    record?.code,
+    record?.status,
+    record?.message,
+  ].some((value) => String(value || "").includes("graph_application_busy"));
+}
+
 export function selectSynthesisWorkbenchGraphLayoutFailure(args: {
   graphHash?: unknown;
   layoutAlgorithm?: unknown;

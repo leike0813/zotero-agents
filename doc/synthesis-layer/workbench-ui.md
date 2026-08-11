@@ -130,19 +130,24 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 ## Graph UI
 
 - Show all library nodes by default.
-- Show shared external nodes when more than one distinct library paper cites the target. Repeated reference instances from one library paper increase edge mentions but do not increase incoming degree.
-- Keep single-degree external nodes hover-only by default and exclude them from the default graph layout.
+- Project external visibility after the active topic, kind, role, and low-signal filters. A target with no currently visible library source stays hidden, one distinct source remains hover-only, and at least two distinct sources admit the target to the default projection. Repeated reference instances or evidence edges from one library paper do not increase the source count.
+- Keep every edge hidden at rest. Selection and pointer hover are independent interaction owners: their incident edges are shown as a union, while explicit edge selection keeps that edge visible. Default external admission controls mounted topology, not a separate always-visible edge tier; library nodes may remain visible without an edge.
+- Keep single-source external nodes hover-only and exclude them from the default graph layout.
 - Apply the same 20,000-node/80,000-edge default projection to public Graph pages and layout input. Library nodes precede shared external nodes, and every selected edge has both endpoints in the projection.
-- Materialize a hover-only external node and its incident edges only while its visible neighbor is hovered or selected. Remove that ephemeral neighborhood before merging the next Graph page so Sigma cannot retain stale nodes or edges.
+- Materialize a hover-only external node and its incident edges only while its visible neighbor is hovered or selected. When selection and pointer hover differ, rebuild the union of both ephemeral neighborhoods; leaving the pointer target removes only its transient part. Same-query page merges preserve valid pointer state, titles, and incident-edge presentation, while query or graph-basis changes discard transient pointer state without changing selection.
+- Aggregate filtered raw citation rows into one deterministic visual edge per directed endpoint pair before feeding Graphology or SVG. Keep raw rows for details; show distinct incoming library papers separately from normalized citation-record count.
+- Bound each selected or pointer-hovered interaction neighborhood to a stable top 100 and place temporary nodes in screen-relative concentric rings so they do not cover their owner. Slice merges preserve known coordinates and do not replace the continuation-page request owner.
+- Apply the same projection before the first standalone WebGL frame and in the SVG fallback. Reapplying unchanged filters must not change the partitions; the SVG fallback draws no edge at rest and materializes the union of its selected and pointer-hover neighborhoods.
 - If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; after a successful stale refresh, the host may run scoped related-items sync for the final affected source refs. Full rebuild remains the fallback when no delta is recorded.
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
 - If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.
 - If graph structure exists but layout is missing/stale, draw what is available and offer `manualRecomputeLayout`.
-- Route manual and automatic layout recomputation through `SynthesisClient.graph`; manual recomputation is forced, while automatic recomputation retains the layout-ready and graph-hash guards and is not forced.
+- Route manual and automatic layout recomputation through one host-owned `SynthesisClient.graph` coordinator. Manual recomputation is forced, automatic recomputation retains the layout-ready and graph-hash guards, rendering never mutates layout, and `graph_application_busy` converges by observing existing work without an error toast.
+- Accept fallback Workbench actions only from the runtime's exact frame window, and apply latest-wins sequencing to chrome/progress reads so an older Running response cannot overwrite a terminal state. Only an actual `refreshing` layout state may display layout-refresh activity.
 - Route full rebuild, incremental refresh, and failed rebuild retry through no-argument `SynthesisClient.graph` commands. These commands do not carry UI progress callbacks; the existing 500 ms `workbench.readProgress()` poll remains the progress source.
 - If graph cache is stale, failed, or missing, show a visible cache badge and keep topic workflows available.
 - Graph search is explicit: typing in the control does not refresh the surface until `Search` is pressed; `Clear` resets search immediately.
-- Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Hovering a visible neighbor of a selected node should show that neighbor title, including external reference nodes.
+- Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Pointer hover takes precedence only for the direction color of an edge incident to both interaction owners. Hovering any node must show its title, including external references and nodes with an importance or current-paper halo, without changing the selected node or its drawer.
 
 Graph data rebuild and layout rebuild must remain different UI actions. Layout rebuild never repairs missing graph data.
 

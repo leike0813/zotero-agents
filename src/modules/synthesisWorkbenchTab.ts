@@ -36,6 +36,7 @@ import {
 import {
   classifySynthesisWorkbenchGraphMutationResult,
   createSynthesisWorkbenchGraphLayoutFailure,
+  isSynthesisWorkbenchGraphApplicationBusyError,
   resolveSynthesisWorkbenchGraphLayoutStatus,
   selectSynthesisWorkbenchGraphLayoutFailure,
   toSynthesisUiSnapshotInput,
@@ -156,6 +157,7 @@ type SynthesisWorkbenchRuntime = {
   frame: Element;
   frameWindow: Window | null;
   removeMessageListener?: () => void;
+  removeFrameLoadListener?: () => void;
   handshakeTimer?: ReturnType<typeof setInterval>;
   commandProgressTimer?: ReturnType<typeof setInterval>;
   commandProgressSnapshotRunning?: boolean;
@@ -168,6 +170,7 @@ type SynthesisWorkbenchRuntime = {
   loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>;
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
   surfaceRequestSeq: number;
+  chromeReadRevision: number;
   latestSurfaceRequestBySurface: Partial<
     Record<SynthesisWorkbenchSurfaceName, number>
   >;
@@ -188,6 +191,7 @@ type SynthesisWorkbenchRuntime = {
     SynthesisUiGraphEdge
   >;
   graphPageLoop?: Promise<void>;
+  graphLayoutRefreshes: Map<string, Promise<unknown>>;
   cleanedUp?: boolean;
   sidecarStatusTimer?: ReturnType<typeof setInterval>;
   sidecarStatusObservationRunning?: boolean;
@@ -1035,6 +1039,7 @@ async function refreshWorkbenchCommandProgress(
     return;
   }
   runtime.commandProgressSnapshotRunning = true;
+  const readRevision = ++runtime.chromeReadRevision;
   try {
     if (hasInFlightSyncCommand(runtime)) {
       await sendChrome(runtime, {
@@ -1044,10 +1049,13 @@ async function refreshWorkbenchCommandProgress(
     }
     if (!runtime.snapshotInputLocked) {
       const client = await getDefaultSynthesisClient();
-      mergeRuntimeSnapshotInput(
-        runtime,
-        toSynthesisUiSnapshotInput(await client.workbench.readProgress()),
+      const input = toSynthesisUiSnapshotInput(
+        await client.workbench.readProgress(),
       );
+      if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+        return;
+      }
+      mergeRuntimeSnapshotInput(runtime, input);
     }
     await sendChrome(runtime, {
       refreshFromService: false,
@@ -1288,6 +1296,7 @@ async function sendChrome(
   if (!runtime?.frameWindow) {
     return;
   }
+  const readRevision = ++runtime.chromeReadRevision;
   if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
     const client = await getDefaultSynthesisClient();
     const input = await client.workbench
@@ -1296,7 +1305,13 @@ async function sendChrome(
       })
       .then(toSynthesisUiSnapshotInput)
       .catch((error) => buildSnapshotErrorInput(error));
+    if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+      return;
+    }
     mergeRuntimeSnapshotInput(runtime, input);
+  }
+  if (readRevision !== runtime.chromeReadRevision || runtime.cleanedUp) {
+    return;
   }
   postWorkbenchMessage(
     runtime,
@@ -1480,16 +1495,7 @@ async function loadGraphContinuationPages(
 function currentGraphSurfaceRequest(
   runtime: SynthesisWorkbenchRuntime,
 ): SurfaceRefreshRequestMeta | undefined {
-  const requestId = runtime.latestSurfaceRequestBySurface.graph;
-  if (!requestId) return undefined;
-  return {
-    requestId,
-    surface: "graph",
-    selectedTabAtRequest: "graph",
-    refreshFromService: true,
-    libraryReadModelRevision: runtime.libraryReadModelRevision,
-    startedAt: new Date().toISOString(),
-  };
+  return currentSurfaceRequest(runtime, "graph");
 }
 
 async function expandGraphNeighborhood(
@@ -1521,10 +1527,9 @@ async function expandGraphNeighborhood(
     querySignature: window.querySignature,
     layoutAlgorithm: runtime.state.graph.layoutAlgorithm,
     filters: {
-      topicId:
-        runtime.state.graph.topicId === "all"
-          ? undefined
-          : runtime.state.graph.topicId,
+      ...(runtime.state.graph.topicId === "all"
+        ? {}
+        : { topicId: runtime.state.graph.topicId }),
       nodeKinds: runtime.state.graph.nodeKinds,
       roles:
         runtime.state.graph.role === "all" ? [] : [runtime.state.graph.role],
@@ -1590,11 +1595,10 @@ async function performSurfaceSend(
     return;
   }
   const refreshFromService = options.refreshFromService !== false;
-  const request = beginSurfaceRefreshRequest(
-    runtime,
-    surface,
-    refreshFromService,
-  );
+  const presentationOnly = !refreshFromService;
+  const request =
+    (presentationOnly ? currentSurfaceRequest(runtime, surface) : undefined) ||
+    beginSurfaceRefreshRequest(runtime, surface, refreshFromService);
   const graphGeneration =
     surface === "graph" && refreshFromService
       ? ++runtime.graphGeneration
@@ -1679,6 +1683,10 @@ async function sendSurface(
   options: { refreshFromService?: boolean } = {},
 ) {
   const refreshFromService = options.refreshFromService !== false;
+  if (!refreshFromService) {
+    await performSurfaceSend(runtime, surface, { refreshFromService: false });
+    return;
+  }
   const inFlight = runtime.inFlightSurfaceRefreshes[surface];
   if (inFlight) {
     if (refreshFromService) {
@@ -1688,7 +1696,7 @@ async function sendSurface(
   }
 
   const run = (async () => {
-    let nextRefreshFromService = refreshFromService;
+    let nextRefreshFromService: boolean = refreshFromService;
     do {
       runtime.queuedServiceSurfaceRefreshes.delete(surface);
       await performSurfaceSend(runtime, surface, {
@@ -1707,6 +1715,22 @@ async function sendSurface(
       delete runtime.inFlightSurfaceRefreshes[surface];
     }
   }
+}
+
+function currentSurfaceRequest(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+): SurfaceRefreshRequestMeta | undefined {
+  const requestId = runtime.latestSurfaceRequestBySurface[surface];
+  if (!requestId) return undefined;
+  return {
+    requestId,
+    surface,
+    selectedTabAtRequest: runtime.state.selectedTab,
+    refreshFromService: true,
+    libraryReadModelRevision: runtime.libraryReadModelRevision,
+    startedAt: new Date().toISOString(),
+  };
 }
 
 async function sendActiveSurface(
@@ -2617,35 +2641,91 @@ async function recomputeWorkbenchCitationGraphLayout(
   force = false,
 ) {
   const basis = currentGraphLayoutBasis(runtime, layoutAlgorithm);
-  try {
-    const client = await getDefaultSynthesisClient();
-    const result = classifySynthesisWorkbenchGraphMutationResult(
-      (await observePublicMaintenanceOperation(
-        client,
-        await client.graph.recomputeCitationGraphLayout({
-          algorithm: layoutAlgorithm,
-          ...(force ? { force: true } : {}),
-        }),
-        {
-          deadlineMs: 130_000,
-          isDisposed: () => Boolean(runtime.cleanedUp),
-        },
-      )) as SynthesisGraphCommandResult,
-    );
-    runtime.graphLayoutFailure = undefined;
-    return result;
-  } catch (error) {
-    if (basis) {
-      runtime.graphLayoutFailure = createSynthesisWorkbenchGraphLayoutFailure({
-        ...basis,
-        error,
-      });
-      await sendSurface(runtime, "graph", {
-        refreshFromService: false,
-      }).catch(() => undefined);
+  const key = `${basis?.graphHash || "missing"}:${layoutAlgorithm}`;
+  const existing = runtime.graphLayoutRefreshes.get(key);
+  if (existing) return existing;
+  const refresh = (async () => {
+    const otherRefresh = Array.from(
+      runtime.graphLayoutRefreshes.entries(),
+    ).find(([otherKey]) => otherKey !== key)?.[1];
+    if (otherRefresh) await otherRefresh.catch(() => undefined);
+    try {
+      const client = await getDefaultSynthesisClient();
+      const result = classifySynthesisWorkbenchGraphMutationResult(
+        (await observePublicMaintenanceOperation(
+          client,
+          await client.graph.recomputeCitationGraphLayout({
+            algorithm: layoutAlgorithm,
+            ...(force ? { force: true } : {}),
+          }),
+          {
+            deadlineMs: 130_000,
+            isDisposed: () => Boolean(runtime.cleanedUp),
+          },
+        )) as SynthesisGraphCommandResult,
+      );
+      runtime.graphLayoutFailure = undefined;
+      return result;
+    } catch (error) {
+      if (isSynthesisWorkbenchGraphApplicationBusyError(error)) {
+        runtime.graphLayoutFailure = undefined;
+        await observeCurrentCitationGraphLayout(runtime, layoutAlgorithm);
+        return { status: "busy_observed" };
+      }
+      if (basis) {
+        runtime.graphLayoutFailure = createSynthesisWorkbenchGraphLayoutFailure(
+          {
+            ...basis,
+            error,
+          },
+        );
+        await sendSurface(runtime, "graph", {
+          refreshFromService: false,
+        }).catch(() => undefined);
+      }
+      throw error;
     }
-    throw error;
+  })();
+  runtime.graphLayoutRefreshes.set(key, refresh);
+  try {
+    return await refresh;
+  } finally {
+    if (runtime.graphLayoutRefreshes.get(key) === refresh) {
+      runtime.graphLayoutRefreshes.delete(key);
+    }
   }
+}
+
+async function observeCurrentCitationGraphLayout(
+  runtime: SynthesisWorkbenchRuntime,
+  layoutAlgorithm: SynthesisUiLayoutAlgorithm,
+) {
+  const deadline = Date.now() + 130_000;
+  const expectedGraphHash = String(
+    runtime.snapshotInput?.graph?.graph_hash || "",
+  ).trim();
+  const client = await getDefaultSynthesisClient();
+  while (!runtime.cleanedUp && Date.now() < deadline) {
+    const layout = await client.graph.getPersistedLayout({
+      scope: "full",
+      algorithm: layoutAlgorithm,
+      maxNodes: 1,
+      maxEdges: 1,
+      allowTruncated: true,
+    });
+    if (
+      expectedGraphHash &&
+      layout.graph_hash &&
+      layout.graph_hash !== expectedGraphHash
+    ) {
+      return undefined;
+    }
+    if (layout.layout_status === "ready" || layout.layout_status === "failed") {
+      return layout.layout_status;
+    }
+    await delay(250);
+  }
+  return undefined;
 }
 
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
@@ -2793,7 +2873,13 @@ function handleAction(
   }
   if (envelope.action === "selectTab") {
     void sendChrome(runtime, { refreshFromService: false });
-    scheduleActiveSurfaceRefresh(runtime);
+    if (runtime.state.selectedTab === "graph") {
+      void refreshGraphLayoutIfNeeded(runtime).catch((error) =>
+        reportWorkbenchError(error, runtime.window),
+      );
+    } else {
+      scheduleActiveSurfaceRefresh(runtime);
+    }
     return;
   }
   if (envelope.action === "setFilters") {
@@ -4012,22 +4098,26 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
     layoutStatus: graph?.layoutStatus,
     failure: runtime.graphLayoutFailure,
   });
-  if (
-    status === "ready" ||
-    status === "failed" ||
-    !runtime.snapshotInput?.graph?.graph_hash
-  ) {
+  if (status === "ready" || status === "failed" || !graph?.graph_hash) {
     return;
   }
   try {
-    await recomputeWorkbenchCitationGraphLayout(
-      runtime,
-      runtime.state.graph.layoutAlgorithm,
-    );
+    if (status === "refreshing") {
+      await observeCurrentCitationGraphLayout(
+        runtime,
+        runtime.state.graph.layoutAlgorithm,
+      );
+    } else {
+      await recomputeWorkbenchCitationGraphLayout(
+        runtime,
+        runtime.state.graph.layoutAlgorithm,
+      );
+    }
   } finally {
     await sendSurface(runtime, "graph", {
       refreshFromService: true,
     });
+    await sendChrome(runtime, { refreshFromService: true });
   }
 }
 
@@ -4036,6 +4126,7 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.graphGeneration += 1;
   runtime.graphWindow = undefined;
   runtime.graphPageLoop = undefined;
+  runtime.graphLayoutRefreshes.clear();
   if (runtime.handshakeTimer) {
     clearInterval(runtime.handshakeTimer);
     runtime.handshakeTimer = undefined;
@@ -4052,6 +4143,8 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
   runtime.removeSidecarStatusListener?.();
   runtime.removeSidecarStatusListener = undefined;
   clearSynthesisWorkbenchBridge(runtime);
+  runtime.removeFrameLoadListener?.();
+  runtime.removeFrameLoadListener = undefined;
   runtime.removeMessageListener?.();
   synthesisWorkbenchRuntimes.delete(runtime);
 }
@@ -4065,12 +4158,19 @@ function cleanupSynthesisWorkbenchTab() {
 
 function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
   const frame = runtime.frame;
-  frame.addEventListener("load", () => {
+  const onLoad = () => {
     void ensureWorkbenchHandshake(runtime);
-  });
+  };
+  frame.addEventListener("load", onLoad);
+  runtime.removeFrameLoadListener = () => {
+    frame.removeEventListener("load", onLoad);
+  };
   const onMessage = (event: MessageEvent) => {
     const data = event.data as { type?: unknown };
     if (!data || data.type !== "synthesis:action") {
+      return;
+    }
+    if (!runtime.frameWindow || event.source !== runtime.frameWindow) {
       return;
     }
     handleAction(runtime, data as SynthesisWorkbenchActionEnvelope);
@@ -4185,6 +4285,7 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     loadedSurfaces: new Set(),
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
+    chromeReadRevision: 0,
     latestSurfaceRequestBySurface: {},
     inFlightSurfaceRefreshes: {},
     queuedServiceSurfaceRefreshes: new Set(),
@@ -4192,6 +4293,7 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     inFlightCommands: new Map(),
     actionWarnings: [],
     graphGeneration: 0,
+    graphLayoutRefreshes: new Map(),
   };
   registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
@@ -4264,6 +4366,7 @@ export async function openSynthesisWorkbenchTab(
     loadedSurfaces: new Set(),
     dirtySurfaces: new Set(),
     surfaceRequestSeq: 0,
+    chromeReadRevision: 0,
     latestSurfaceRequestBySurface: {},
     inFlightSurfaceRefreshes: {},
     queuedServiceSurfaceRefreshes: new Set(),
@@ -4271,6 +4374,7 @@ export async function openSynthesisWorkbenchTab(
     inFlightCommands: new Map(),
     actionWarnings: [],
     graphGeneration: 0,
+    graphLayoutRefreshes: new Map(),
   };
   synthesisWorkbenchTab = runtime;
   registerSynthesisWorkbenchRuntime(runtime);

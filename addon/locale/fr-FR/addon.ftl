@@ -1356,6 +1356,9 @@ synthesis-graph-legend-node-size = Taille du nœud = citations entrantes
 synthesis-graph-legend-halo = Halo = nœuds visibles les plus cités
 synthesis-graph-legend-current-paper = Article courant
 synthesis-graph-citations-title = Citations
+synthesis-graph-incoming-source-papers-current-view = Articles sources entrants (vue actuelle)
+synthesis-graph-incoming-citation-records-current-view = Enregistrements de citation entrants (vue actuelle)
+synthesis-graph-interaction-neighbors-previewed-current-view = Voisins d’interaction affichés (vue actuelle)
 synthesis-topic-graph-legend-hierarchy = Hiérarchie
 synthesis-topic-graph-legend-related = Relation
 synthesis-topic-graph-legend-overlap = Chevauchement

@@ -2,12 +2,14 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import { drawDiscNodeHover } from "sigma/rendering";
 import {
+  aggregateCitationGraphVisualEdges,
   buildCitationGraphNodeImportance,
-  citationGraphFallbackIncomingDegrees,
-  citationGraphIncomingDegree,
+  citationGraphIncomingCounts,
+  citationGraphInteractionOffsets,
   citationGraphNodeSize,
   CITATION_GRAPH_EDGE_SIZE,
   CITATION_GRAPH_INCOMING_EDGE_COLOR,
+  CITATION_GRAPH_INTERACTION_NEIGHBOR_LIMIT,
   CITATION_GRAPH_OUTGOING_EDGE_COLOR,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT,
@@ -20,6 +22,8 @@ import {
   GRAPH_MAX_ZOOM_RATIO,
   GRAPH_MIN_ZOOM_RATIO,
   GRAPH_ZOOM_SLIDER_MAX,
+  projectCitationGraphVisibility,
+  selectCitationGraphInteractionEdges,
   type CitationGraphNodeImportance,
 } from "./shared/citationGraphVisualRules";
 import {
@@ -640,8 +644,8 @@ const state: {
   graphQuerySignature?: string;
   graphBasisHash?: string;
   graph?: Graph;
-  hoveredNode?: string;
-  hoverLabelNode?: string;
+  pointerHoveredNode?: string;
+  focusedLabelNode?: string;
   hoverClearTimer?: number;
   graphSearchDraft?: string;
   graphReturnTopicId?: string;
@@ -681,7 +685,6 @@ const state: {
   jobPopoverOpen: boolean;
   tagImportOpen: boolean;
   dismissedTagImportPreviewSignature?: string;
-  autoLayoutRequests: Set<string>;
   registryExpandedRows: Set<string>;
   registryLoadingReferenceRows: Set<string>;
   canonicalDetailTab: "overview" | "redirects" | "reviews";
@@ -714,7 +717,6 @@ const state: {
   statusbarExpirations: new Map(),
   jobPopoverOpen: false,
   tagImportOpen: false,
-  autoLayoutRequests: new Set(),
   registryExpandedRows: new Set(),
   registryLoadingReferenceRows: new Set(),
   canonicalDetailTab: "overview",
@@ -987,9 +989,8 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
       payload.layoutAlgorithm || payload.layoutPreset,
       state.snapshot.graph.layoutAlgorithm,
     );
-    const layoutGraph = normalizeStandaloneGraphSnapshot(
-      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph,
-    );
+    const layoutGraph =
+      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph;
     const filters = {
       ...layoutGraph.filters,
       ...state.snapshot.graph.filters,
@@ -1006,15 +1007,14 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
           ? Boolean(payload.showLowSignalReferences)
           : state.snapshot.graph.filters.showLowSignalReferences,
     };
-    const filtered = filterStandaloneGraph(layoutGraph, filters);
+    const projectedGraph = normalizeStandaloneGraphSnapshot(
+      layoutGraph,
+      filters,
+    );
     state.snapshot = {
       ...state.snapshot,
       graph: {
-        ...layoutGraph,
-        filters,
-        layoutAlgorithm: normalizeGraphLayoutAlgorithm(nextAlgorithm),
-        visibleNodes: filtered.visibleNodes,
-        visibleEdges: filtered.visibleEdges,
+        ...projectedGraph,
         selectedElement:
           selected === null
             ? undefined
@@ -1164,16 +1164,33 @@ function normalizeGraphLayoutAlgorithm(value: unknown) {
     : "force";
 }
 
-function normalizeStandaloneGraphSnapshot(graph: Snapshot["graph"]) {
-  const layoutAlgorithm = normalizeGraphLayoutAlgorithm(graph.layoutAlgorithm);
+function normalizeStandaloneGraphSnapshot(
+  graph: Snapshot["graph"],
+  filterOverrides: Partial<Snapshot["graph"]["filters"]> = {},
+) {
+  const layoutAlgorithm = normalizeGraphLayoutAlgorithm(
+    filterOverrides.layoutAlgorithm || graph.layoutAlgorithm,
+  );
+  const filters = {
+    ...graph.filters,
+    ...filterOverrides,
+    layoutAlgorithm,
+  };
+  const projection = projectCitationGraphVisibility({
+    nodes: graph.nodes,
+    edges: graph.edges,
+    filters,
+    topicScopes: graph.topicScopes,
+  });
   return {
     ...graph,
     layoutStatus: "ready" as const,
     layoutAlgorithm,
-    filters: {
-      ...graph.filters,
-      layoutAlgorithm,
-    },
+    filters,
+    visibleNodes: projection.defaultNodes,
+    visibleEdges: projection.defaultEdges,
+    hoverOnlyNodes: projection.hoverOnlyNodes,
+    hoverOnlyEdges: projection.hoverOnlyEdges,
     diagnostics: {
       ...(graph.diagnostics || {}),
       cache_status: "ready",
@@ -2504,7 +2521,6 @@ function renderSelectedTabShell() {
     (runtime?.status === "failed" && runtime.snapshot)
   ) {
     renderWorkbenchMain(main, state.snapshot);
-    maybeRequestGraphLayoutRefresh(state.snapshot);
   } else {
     renderWorkbenchSurfaceLoading(main, surface);
   }
@@ -2614,7 +2630,6 @@ function renderSurface(surface: WorkbenchSurfaceName) {
   restoreWorkbenchRenderState(root, renderState);
   localizeWorkbenchDom(root);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
-  maybeRequestGraphLayoutRefresh(state.snapshot);
 }
 
 function scheduleSigmaResize() {
@@ -13938,6 +13953,11 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
       makeCitationGraphLayoutFailureBanner(snapshot, layoutFailure),
     );
   } else if (snapshot.graph.layoutStatus !== "ready" && !layoutFailure) {
+    const layoutRefreshing = snapshot.graph.layoutStatus === "refreshing";
+    const layoutUnavailableKey =
+      snapshot.graph.layoutStatus === "stale"
+        ? "synthesis-graph-diagnostic-stale"
+        : "synthesis-graph-diagnostic-missing";
     const banner = el("div", "graph-layout-banner");
     banner.appendChild(
       el(
@@ -13945,9 +13965,9 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         "",
         snapshot.graph.layoutStatus === "failed"
           ? t("synthesis-layout-failed")
-          : snapshot.graph.layoutStatus === "refreshing"
+          : layoutRefreshing
             ? t("synthesis-graph-drawing")
-            : t("synthesis-graph-refreshing-layout"),
+            : t(layoutUnavailableKey),
       ),
     );
     banner.appendChild(
@@ -13956,14 +13976,12 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         "muted",
         snapshot.graph.layoutStatus === "failed"
           ? t("synthesis-graph-layout-failed-body")
-          : t("synthesis-graph-layout-refreshing-body"),
+          : layoutRefreshing
+            ? t("synthesis-graph-layout-refreshing-body")
+            : t(layoutUnavailableKey),
       ),
     );
-    if (
-      snapshot.graph.layoutStatus === "failed" &&
-      !state.standaloneExport &&
-      hasVisibleCoordinates
-    ) {
+    if (!state.standaloneExport && hasVisibleCoordinates && !layoutRefreshing) {
       banner.appendChild(makeGraphLayoutRecomputeButton(snapshot));
     }
     stage.appendChild(banner);
@@ -13971,18 +13989,27 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   if (!hasVisibleCoordinates) {
     const layoutFailed =
       Boolean(layoutFailure) || snapshot.graph.layoutStatus === "failed";
+    const layoutRefreshing = snapshot.graph.layoutStatus === "refreshing";
+    const layoutUnavailableKey =
+      snapshot.graph.layoutStatus === "stale"
+        ? "synthesis-graph-diagnostic-stale"
+        : "synthesis-graph-diagnostic-missing";
     const pending = el("div", "graph-empty");
     pending.appendChild(
       renderEmptyState({
         title: layoutFailed
           ? t("synthesis-layout-failed")
-          : t("synthesis-graph-drawing"),
+          : layoutRefreshing
+            ? t("synthesis-graph-drawing")
+            : t(layoutUnavailableKey),
         message: layoutFailed
           ? layoutFailure?.message || t("synthesis-graph-layout-failed-body")
-          : t("synthesis-graph-layout-computing"),
+          : layoutRefreshing
+            ? t("synthesis-graph-layout-computing")
+            : t(layoutUnavailableKey),
         action: layoutFailure
           ? graphLayoutFailureAction(snapshot, layoutFailure)
-          : layoutFailed && !state.standaloneExport
+          : !layoutRefreshing && !state.standaloneExport
             ? makeGraphLayoutRecomputeButton(snapshot)
             : undefined,
         tone: layoutFailed ? "warning" : "info",
@@ -14145,57 +14172,6 @@ function setGraphZoomFromSlider(renderer: Sigma, slider: HTMLInputElement) {
   });
   renderer.refresh();
   syncGraphZoomSlider(renderer);
-}
-
-function filterStandaloneGraph(
-  graph: Snapshot["graph"],
-  filters: Snapshot["graph"]["filters"],
-) {
-  const selectedScope =
-    filters.topicId === "all"
-      ? undefined
-      : graph.topicScopes.find((scope) => scope.topicId === filters.topicId);
-  const isTopicScoped = filters.topicId !== "all";
-  const topicSourceIds = new Set(selectedScope?.nodeIds || []);
-  const topicScopedNodeIds = new Set(topicSourceIds);
-  if (isTopicScoped) {
-    graph.edges.forEach((edge) => {
-      if (topicSourceIds.has(edge.source)) {
-        topicScopedNodeIds.add(edge.source);
-        topicScopedNodeIds.add(edge.target);
-      }
-      if (topicSourceIds.has(edge.target)) {
-        topicScopedNodeIds.add(edge.source);
-        topicScopedNodeIds.add(edge.target);
-      }
-    });
-  }
-  const visibleNodes = graph.nodes.filter((node) => {
-    if (!filters.nodeKinds.includes(node.kind)) return false;
-    if (!filters.showLowSignalReferences && node.low_signal) return false;
-    if (node.visibility === "hover_only") return false;
-    if (isTopicScoped && !topicScopedNodeIds.has(node.id)) return false;
-    return true;
-  });
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = graph.edges.filter((edge) => {
-    if (edge.visibility === "hover_only") return false;
-    if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
-      return false;
-    }
-    if (
-      isTopicScoped &&
-      !topicSourceIds.has(edge.source) &&
-      !topicSourceIds.has(edge.target)
-    ) {
-      return false;
-    }
-    if (filters.role !== "all" && edge.primary_role !== filters.role) {
-      return false;
-    }
-    return true;
-  });
-  return { visibleNodes, visibleEdges };
 }
 
 function renderStandaloneGraphControls(snapshot: Snapshot) {
@@ -14446,7 +14422,7 @@ function graphNodeMatchesSearchText(searchable: unknown, query: string) {
 
 function refreshGraphSearchHighlight() {
   if (!currentGraphSearchQuery(state.snapshot || undefined)) {
-    state.hoverLabelNode = undefined;
+    state.focusedLabelNode = undefined;
   }
   state.sigma?.refresh();
 }
@@ -14620,7 +14596,7 @@ function drawGraphNodeHover(
   data: Record<string, unknown>,
   settings: Record<string, unknown>,
 ) {
-  if (data.importanceHalo && !data.importanceInteractive) {
+  if (data.importanceHalo) {
     drawGraphImportanceHalo(
       context,
       data as {
@@ -14632,7 +14608,7 @@ function drawGraphNodeHover(
         currentPaperNode?: unknown;
       },
     );
-    return;
+    if (!data.importanceInteractive) return;
   }
   drawDiscNodeHover(context as any, data as any, settings as any);
 }
@@ -14659,61 +14635,131 @@ function cancelScheduledHoverClear() {
   }
 }
 
-function scheduleHoverClear(
-  renderer: Sigma,
-  graph: Graph,
-  pinnedNode?: string,
-) {
+function scheduleHoverClear(renderer: Sigma, graph: Graph) {
   cancelScheduledHoverClear();
   state.hoverClearTimer = window.setTimeout(() => {
     state.hoverClearTimer = undefined;
     if (state.sigma !== renderer || state.graph !== graph) {
       return;
     }
-    if (pinnedNode && graph.hasNode(pinnedNode)) {
-      addHoverNeighborhood(graph, pinnedNode);
-      state.hoveredNode = pinnedNode;
-    } else {
-      clearDynamicHoverGraph(graph);
-      state.hoveredNode = undefined;
-    }
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = undefined;
+    reconcileDynamicInteractionGraph(graph);
     renderer.refresh();
   }, 80);
 }
 
-function addHoverNeighborhood(graph: Graph, hoveredNode: string) {
+function graphHasInteractionNode(
+  snapshot: Snapshot,
+  graph: Graph,
+  nodeId: string,
+) {
+  return (
+    graph.hasNode(nodeId) ||
+    snapshot.graph.hoverOnlyNodes.some((node) => node.id === nodeId)
+  );
+}
+
+function selectedGraphInteractionNode(snapshot: Snapshot, graph: Graph) {
+  const selected = snapshot.graph.selectedElement;
+  if (
+    selected?.kind !== "node" ||
+    !graphHasInteractionNode(snapshot, graph, selected.id)
+  ) {
+    return undefined;
+  }
+  return selected.id;
+}
+
+function graphInteractionOwnerIds(snapshot: Snapshot, graph: Graph) {
+  const selectedNode = selectedGraphInteractionNode(snapshot, graph);
+  const pointerNode =
+    state.pointerHoveredNode &&
+    graphHasInteractionNode(snapshot, graph, state.pointerHoveredNode)
+      ? state.pointerHoveredNode
+      : undefined;
+  return Array.from(
+    new Set([selectedNode, pointerNode].filter((id): id is string => !!id)),
+  );
+}
+
+function reconcileDynamicInteractionGraph(graph: Graph) {
   clearDynamicHoverGraph(graph);
-  if (!graph.hasNode(hoveredNode)) return;
   const snapshot = state.snapshot;
   if (!snapshot) return;
+  const ownerIds = graphInteractionOwnerIds(snapshot, graph);
+  if (!ownerIds.length) return;
   const hoverNodeById = new Map(
     snapshot.graph.hoverOnlyNodes.map((node) => [node.id, node]),
   );
-  const edges = snapshot.graph.hoverOnlyEdges.filter(
-    (edge) => edge.source === hoveredNode || edge.target === hoveredNode,
-  );
-  const origin = graph.getNodeAttributes(hoveredNode) as Record<
+  const edges = selectCitationGraphInteractionEdges({
+    ownerIds,
+    nodes: [...snapshot.graph.visibleNodes, ...snapshot.graph.hoverOnlyNodes],
+    edges: snapshot.graph.hoverOnlyEdges,
+  });
+  const requiredHoverNodeIds = Array.from(
+    new Set(edges.flatMap((edge) => [edge.source, edge.target])),
+  ).filter((nodeId) => hoverNodeById.has(nodeId) && !graph.hasNode(nodeId));
+  const placementByNodeId = new Map<
     string,
-    unknown
-  >;
-  const neighbors = Array.from(
-    new Set(
-      edges.map((edge) =>
-        edge.source === hoveredNode ? edge.target : edge.source,
-      ),
-    ),
-  );
-  neighbors.forEach((nodeId, index) => {
-    const node = hoverNodeById.get(nodeId);
-    if (!node || graph.hasNode(nodeId)) return;
-    const angle = (index / Math.max(1, neighbors.length)) * Math.PI * 2;
-    const radius = 0.035 + Math.min(0.035, neighbors.length * 0.002);
-    graph.addNode(nodeId, {
-      ...sigmaNodeAttributes(node, undefined),
-      x: Number(origin.x || 0) + Math.cos(angle) * radius,
-      y: Number(origin.y || 0) + Math.sin(angle) * radius,
+    { anchorId: string; offset: { x: number; y: number } }
+  >();
+  const graphUnitsPerPixel = citationGraphUnitsPerPixel(graph);
+  for (const ownerId of ownerIds) {
+    const neighborIds = edges
+      .filter((edge) => edge.source === ownerId || edge.target === ownerId)
+      .map((edge) => (edge.source === ownerId ? edge.target : edge.source))
+      .filter(
+        (nodeId, index, values) =>
+          hoverNodeById.has(nodeId) && values.indexOf(nodeId) === index,
+      );
+    const offsets = citationGraphInteractionOffsets(
+      neighborIds.length,
+      graphUnitsPerPixel,
+    );
+    neighborIds.forEach((nodeId, index) => {
+      if (!placementByNodeId.has(nodeId)) {
+        placementByNodeId.set(nodeId, {
+          anchorId: ownerId,
+          offset: offsets[index],
+        });
+      }
     });
+  }
+  const fallbackNodesByAnchor = new Map<string, string[]>();
+  for (const nodeId of requiredHoverNodeIds) {
+    if (placementByNodeId.has(nodeId)) continue;
+    const anchorId = edges
+      .filter((edge) => edge.source === nodeId || edge.target === nodeId)
+      .map((edge) => (edge.source === nodeId ? edge.target : edge.source))
+      .find((candidate) => graph.hasNode(candidate));
+    if (!anchorId) continue;
+    const pending = fallbackNodesByAnchor.get(anchorId) || [];
+    pending.push(nodeId);
+    fallbackNodesByAnchor.set(anchorId, pending);
+  }
+  for (const [anchorId, nodeIds] of fallbackNodesByAnchor) {
+    const offsets = citationGraphInteractionOffsets(
+      nodeIds.length,
+      graphUnitsPerPixel,
+    );
+    nodeIds.forEach((nodeId, index) => {
+      placementByNodeId.set(nodeId, { anchorId, offset: offsets[index] });
+    });
+  }
+  requiredHoverNodeIds.forEach((nodeId) => {
+    const node = hoverNodeById.get(nodeId);
+    if (!node) return;
+    const placement = placementByNodeId.get(nodeId);
+    const anchorId = placement?.anchorId;
+    const anchor = anchorId
+      ? (graph.getNodeAttributes(anchorId) as Record<string, unknown>)
+      : undefined;
+    const attributes = sigmaNodeAttributes(node, undefined);
+    if (anchor && placement) {
+      attributes.x = Number(anchor.x || 0) + placement.offset.x;
+      attributes.y = Number(anchor.y || 0) + placement.offset.y;
+    }
+    graph.addNode(nodeId, attributes);
     state.dynamicHoverNodeIds.add(nodeId);
   });
   edges.forEach((edge) => {
@@ -14734,15 +14780,38 @@ function addHoverNeighborhood(graph: Graph, hoveredNode: string) {
   });
 }
 
-function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
-  const selected = snapshot.graph.selectedElement;
-  if (selected?.kind !== "node" || !graph.hasNode(selected.id)) {
-    return undefined;
+function citationGraphUnitsPerPixel(graph: Graph) {
+  const renderer = state.sigma as
+    | (Sigma & {
+        viewportToGraph?: (point: { x: number; y: number }) => {
+          x: number;
+          y: number;
+        };
+      })
+    | undefined;
+  if (renderer?.viewportToGraph) {
+    const first = renderer.viewportToGraph({ x: 0, y: 0 });
+    const second = renderer.viewportToGraph({ x: 1, y: 0 });
+    const units = Math.hypot(second.x - first.x, second.y - first.y);
+    if (Number.isFinite(units) && units > 0) return units;
   }
-  return selected.id;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  graph.forEachNode((_nodeId, attributes) => {
+    const x = Number(attributes.x);
+    if (!Number.isFinite(x)) return;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+  });
+  const width = Math.max(1, state.sigmaStage?.clientWidth || 800);
+  const span = maxX > minX ? maxX - minX : 1;
+  return span / width;
 }
 
 function sigmaGraphModelSignature(snapshot: Snapshot) {
+  const visualEdges = aggregateCitationGraphVisualEdges(
+    snapshot.graph.visibleEdges,
+  );
   return JSON.stringify({
     nodes: snapshot.graph.visibleNodes.map((node) => [
       node.id,
@@ -14756,7 +14825,7 @@ function sigmaGraphModelSignature(snapshot: Snapshot) {
       node.is_focus,
       node.focus_role,
     ]),
-    edges: snapshot.graph.visibleEdges.map((edge) => [
+    edges: visualEdges.map((edge) => [
       edge.id,
       edge.source,
       edge.target,
@@ -14774,26 +14843,38 @@ function sigmaGraphLayoutSignature(snapshot: Snapshot) {
   });
 }
 
-function syncSelectedGraphHover(snapshot: Snapshot, graph: Graph) {
+function syncGraphInteractionState(
+  snapshot: Snapshot,
+  graph: Graph,
+  preserveTransientHover: boolean,
+) {
+  const previousPointerNode = preserveTransientHover
+    ? state.pointerHoveredNode
+    : undefined;
   clearDynamicHoverGraph(graph);
-  const pinnedHoverNode = selectedGraphHoverNode(snapshot, graph);
-  state.hoveredNode = pinnedHoverNode;
-  state.hoverLabelNode = undefined;
-  if (pinnedHoverNode) {
-    addHoverNeighborhood(graph, pinnedHoverNode);
-  }
+  state.pointerHoveredNode =
+    previousPointerNode &&
+    graphHasInteractionNode(snapshot, graph, previousPointerNode)
+      ? previousPointerNode
+      : undefined;
+  reconcileDynamicInteractionGraph(graph);
+  state.focusedLabelNode =
+    state.focusedLabelNode && graph.hasNode(state.focusedLabelNode)
+      ? state.focusedLabelNode
+      : undefined;
 }
 
 function sigmaNodeAttributes(
   node: GraphNode,
   importance: CitationGraphNodeImportance | undefined,
+  fallbackPosition?: { x: number; y: number },
 ) {
   const currentPaperNode = isCurrentPaperGraphNode(node);
   return {
     title: node.label,
     label: "",
-    x: typeof node.x === "number" ? node.x : 0,
-    y: typeof node.y === "number" ? node.y : 0,
+    x: typeof node.x === "number" ? node.x : fallbackPosition?.x || 0,
+    y: typeof node.y === "number" ? node.y : fallbackPosition?.y || 0,
     size: citationGraphNodeSize(node, importance, currentPaperNode),
     color:
       importance?.halo || currentPaperNode
@@ -14831,9 +14912,10 @@ function mergeSigmaGraphPage(snapshot: Snapshot) {
   const desiredNodeIds = new Set(
     snapshot.graph.visibleNodes.map((node) => node.id),
   );
-  const desiredEdgeIds = new Set(
-    snapshot.graph.visibleEdges.map((edge) => edge.id),
+  const visualEdges = aggregateCitationGraphVisualEdges(
+    snapshot.graph.visibleEdges,
   );
+  const desiredEdgeIds = new Set(visualEdges.map((edge) => edge.id));
   graph.forEachEdge((edgeId) => {
     if (!desiredEdgeIds.has(edgeId)) graph.dropEdge(edgeId);
   });
@@ -14842,17 +14924,29 @@ function mergeSigmaGraphPage(snapshot: Snapshot) {
   });
   const importanceByNodeId = buildCitationGraphNodeImportance(
     snapshot.graph.visibleNodes,
-    snapshot.graph.visibleEdges,
+    visualEdges,
+  );
+  const fallbackPositions = citationGraphMissingNodePositions(
+    snapshot,
+    graph,
+    visualEdges,
   );
   for (const node of snapshot.graph.visibleNodes) {
+    const existingPosition = graph.hasNode(node.id)
+      ? {
+          x: Number(graph.getNodeAttribute(node.id, "x") || 0),
+          y: Number(graph.getNodeAttribute(node.id, "y") || 0),
+        }
+      : fallbackPositions.get(node.id);
     const attributes = sigmaNodeAttributes(
       node,
       importanceByNodeId.get(node.id),
+      existingPosition,
     );
     if (graph.hasNode(node.id)) graph.mergeNodeAttributes(node.id, attributes);
     else graph.addNode(node.id, attributes);
   }
-  for (const edge of snapshot.graph.visibleEdges) {
+  for (const edge of visualEdges) {
     if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target)) continue;
     const attributes = sigmaEdgeAttributes(edge);
     if (graph.hasEdge(edge.id)) graph.mergeEdgeAttributes(edge.id, attributes);
@@ -14864,7 +14958,48 @@ function mergeSigmaGraphPage(snapshot: Snapshot) {
         attributes,
       );
   }
-  syncSelectedGraphHover(snapshot, graph);
+  syncGraphInteractionState(snapshot, graph, true);
+}
+
+function citationGraphMissingNodePositions(
+  snapshot: Snapshot,
+  graph: Graph,
+  edges: readonly GraphEdge[],
+) {
+  const nodeIds = new Set(snapshot.graph.visibleNodes.map((node) => node.id));
+  const missingByAnchor = new Map<string, string[]>();
+  for (const node of snapshot.graph.visibleNodes) {
+    if (
+      graph.hasNode(node.id) ||
+      (typeof node.x === "number" && typeof node.y === "number")
+    ) {
+      continue;
+    }
+    const anchorId = edges
+      .filter((edge) => edge.source === node.id || edge.target === node.id)
+      .map((edge) => (edge.source === node.id ? edge.target : edge.source))
+      .find((candidate) => nodeIds.has(candidate) && graph.hasNode(candidate));
+    if (!anchorId) continue;
+    const pending = missingByAnchor.get(anchorId) || [];
+    pending.push(node.id);
+    missingByAnchor.set(anchorId, pending);
+  }
+  const positions = new Map<string, { x: number; y: number }>();
+  const unitsPerPixel = citationGraphUnitsPerPixel(graph);
+  for (const [anchorId, missingIds] of missingByAnchor) {
+    const anchor = graph.getNodeAttributes(anchorId) as Record<string, unknown>;
+    const offsets = citationGraphInteractionOffsets(
+      missingIds.length,
+      unitsPerPixel,
+    );
+    missingIds.sort().forEach((nodeId, index) => {
+      positions.set(nodeId, {
+        x: Number(anchor.x || 0) + offsets[index].x,
+        y: Number(anchor.y || 0) + offsets[index].y,
+      });
+    });
+  }
+  return positions;
 }
 
 function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
@@ -14876,7 +15011,12 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     state.graph &&
     state.graphModelSignature === modelSignature
   ) {
-    syncSelectedGraphHover(snapshot, state.graph);
+    const preserveTransientHover =
+      state.graphQuerySignature === querySignature &&
+      state.graphBasisHash === snapshot.graph.graph_hash;
+    syncGraphInteractionState(snapshot, state.graph, preserveTransientHover);
+    state.graphQuerySignature = querySignature;
+    state.graphBasisHash = snapshot.graph.graph_hash;
     state.sigma.refresh();
     scheduleSigmaResize();
     return;
@@ -14900,9 +15040,12 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     clearDynamicHoverGraph(state.graph);
   }
   const graph = new Graph({ multi: false, type: "directed" });
+  const visualEdges = aggregateCitationGraphVisualEdges(
+    snapshot.graph.visibleEdges,
+  );
   const importanceByNodeId = buildCitationGraphNodeImportance(
     snapshot.graph.visibleNodes,
-    snapshot.graph.visibleEdges,
+    visualEdges,
   );
   state.dynamicHoverNodeIds.clear();
   state.dynamicHoverEdgeIds.clear();
@@ -14913,7 +15056,7 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     const importance = importanceByNodeId.get(node.id);
     graph.addNode(node.id, sigmaNodeAttributes(node, importance));
   }
-  for (const edge of snapshot.graph.visibleEdges) {
+  for (const edge of visualEdges) {
     if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
       graph.mergeDirectedEdgeWithKey(
         edge.id,
@@ -14925,7 +15068,7 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   }
 
   state.graph = graph;
-  syncSelectedGraphHover(snapshot, graph);
+  syncGraphInteractionState(snapshot, graph, false);
   if (state.sigma) {
     const layoutChanged =
       Boolean(state.graphLayoutSignature) &&
@@ -14961,7 +15104,18 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       const searchActive = !!query.trim();
       const searchMatch = graphNodeMatchesSearchText(data.searchable, query);
       const currentPaperNode = Boolean(data.currentPaperNode);
-      if (!state.hoveredNode || !graph.hasNode(state.hoveredNode)) {
+      const snapshot = state.snapshot;
+      const selectedNode = snapshot
+        ? selectedGraphInteractionNode(snapshot, graph)
+        : undefined;
+      const pointerNode =
+        state.pointerHoveredNode && graph.hasNode(state.pointerHoveredNode)
+          ? state.pointerHoveredNode
+          : undefined;
+      const ownerIds = Array.from(
+        new Set([selectedNode, pointerNode].filter((id): id is string => !!id)),
+      );
+      if (!ownerIds.length) {
         if (!searchActive) return data;
         return {
           ...data,
@@ -14986,18 +15140,17 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           label: searchMatch ? data.title : "",
         };
       }
-      const neighbor =
-        node === state.hoveredNode ||
-        graph.areNeighbors(node, state.hoveredNode);
+      const neighbor = ownerIds.some(
+        (ownerId) => node === ownerId || graph.areNeighbors(node, ownerId),
+      );
       const activeHaloNode = Boolean(
-        data.importanceHalo && node === state.hoveredNode,
+        data.importanceHalo && node === pointerNode,
       );
       const showHoverLabel =
         searchMatch ||
-        node === state.hoverLabelNode ||
-        node === state.hoveredNode ||
-        (neighbor &&
-          (data.kind === "library_paper" || data.visibility === "hover_only"));
+        node === state.focusedLabelNode ||
+        node === pointerNode ||
+        (node === selectedNode && !pointerNode);
       return {
         ...data,
         color: searchMatch
@@ -15012,9 +15165,17 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
             : Math.max(1, Number(data.size || 1) * 0.6),
         zIndex: searchMatch
           ? Math.max(30, Number(data.zIndex || 0))
-          : neighbor
-            ? Math.max(10, Number(data.zIndex || 0))
-            : Number(data.zIndex || 0),
+          : node === pointerNode || node === selectedNode
+            ? Math.max(
+                data.kind === "library_paper" ? 24 : 12,
+                Number(data.zIndex || 0),
+              )
+            : neighbor
+              ? Math.max(
+                  data.visibility === "hover_only" ? 3 : 10,
+                  Number(data.zIndex || 0),
+                )
+              : Number(data.zIndex || 0),
         highlighted: Boolean(
           currentPaperNode ||
           (data.importanceHalo && (searchMatch || neighbor)),
@@ -15032,19 +15193,32 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
         state.snapshot?.graph.selectedElement?.kind === "edge"
           ? state.snapshot.graph.selectedElement.id
           : undefined;
-      const activeNode =
-        state.hoveredNode && graph.hasNode(state.hoveredNode)
-          ? state.hoveredNode
-          : undefined;
       const source = graph.source(edge);
       const target = graph.target(edge);
-      const connectedToActiveNode = activeNode
-        ? source === activeNode || target === activeNode
+      const snapshot = state.snapshot;
+      const selectedNode = snapshot
+        ? selectedGraphInteractionNode(snapshot, graph)
+        : undefined;
+      const pointerNode =
+        state.pointerHoveredNode && graph.hasNode(state.pointerHoveredNode)
+          ? state.pointerHoveredNode
+          : undefined;
+      const connectedToSelectedNode = selectedNode
+        ? source === selectedNode || target === selectedNode
+        : false;
+      const connectedToPointerNode = pointerNode
+        ? source === pointerNode || target === pointerNode
         : false;
       const selectedEdge = selectedEdgeId === edge;
-      const visible = connectedToActiveNode || selectedEdge;
+      const visible =
+        connectedToSelectedNode || connectedToPointerNode || selectedEdge;
+      const directionOwner = connectedToPointerNode
+        ? pointerNode
+        : connectedToSelectedNode
+          ? selectedNode
+          : undefined;
       const directionColor =
-        activeNode && target === activeNode
+        directionOwner && target === directionOwner
           ? CITATION_GRAPH_INCOMING_EDGE_COLOR
           : CITATION_GRAPH_OUTGOING_EDGE_COLOR;
       return {
@@ -15073,49 +15247,20 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   scheduleSigmaResize();
   renderer.on("enterNode", ({ node }: { node: string }) => {
     const graph = state.graph;
-    const snapshot = state.snapshot;
-    if (!graph || !snapshot) {
-      return;
-    }
-    const pinnedNode = selectedGraphHoverNode(snapshot, graph);
-    if (pinnedNode && node !== pinnedNode) {
-      state.hoverLabelNode = graph.areNeighbors(node, pinnedNode)
-        ? node
-        : undefined;
-      renderer.refresh();
+    if (!graph || !state.snapshot) {
       return;
     }
     cancelScheduledHoverClear();
-    if (
-      state.dynamicHoverNodeIds.has(node) &&
-      state.hoveredNode &&
-      graph.hasNode(state.hoveredNode)
-    ) {
-      renderer.refresh();
-      return;
-    }
-    if (node === state.hoveredNode) {
-      state.hoverLabelNode = undefined;
-      renderer.refresh();
-      return;
-    }
-    addHoverNeighborhood(graph, node);
-    state.hoveredNode = node;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = node;
+    reconcileDynamicInteractionGraph(graph);
     renderer.refresh();
   });
   renderer.on("leaveNode", () => {
     const graph = state.graph;
-    const snapshot = state.snapshot;
-    if (!graph || !snapshot) {
+    if (!graph || !state.snapshot) {
       return;
     }
-    state.hoverLabelNode = undefined;
-    scheduleHoverClear(
-      renderer,
-      graph,
-      selectedGraphHoverNode(snapshot, graph),
-    );
+    scheduleHoverClear(renderer, graph);
   });
   renderer.on("clickNode", ({ node }: { node: string }) => {
     const graph = state.graph;
@@ -15123,16 +15268,15 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       return;
     }
     cancelScheduledHoverClear();
-    addHoverNeighborhood(graph, node);
-    state.hoveredNode = node;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = node;
+    reconcileDynamicInteractionGraph(graph);
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "node", id: node } });
   });
   renderer.on("clickEdge", ({ edge }: { edge: string }) => {
     cancelScheduledHoverClear();
-    state.hoveredNode = undefined;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = undefined;
+    if (state.graph) reconcileDynamicInteractionGraph(state.graph);
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "edge", id: edge } });
   });
@@ -15143,8 +15287,8 @@ function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     }
     cancelScheduledHoverClear();
     clearDynamicHoverGraph(graph);
-    state.hoveredNode = undefined;
-    state.hoverLabelNode = undefined;
+    state.pointerHoveredNode = undefined;
+    state.focusedLabelNode = undefined;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: null });
   });
@@ -15155,7 +15299,7 @@ function focusSearch(query: string) {
   if (!normalized || !state.snapshot || !state.graph || !state.sigma) {
     return;
   }
-  state.hoverLabelNode = undefined;
+  state.focusedLabelNode = undefined;
   const match = state.snapshot.graph.visibleNodes.find(
     (node) =>
       graphNodeSearchText(node).includes(normalized) &&
@@ -15164,7 +15308,7 @@ function focusSearch(query: string) {
   if (!match || !state.graph.hasNode(match.id)) {
     return;
   }
-  state.hoverLabelNode = match.id;
+  state.focusedLabelNode = match.id;
   state.sigma.refresh();
 }
 
@@ -15182,9 +15326,17 @@ function renderSelectedDetail(snapshot: Snapshot) {
   }
   if (selected.kind === "node") {
     const node = graphNodeById(snapshot).get(selected.id);
-    const incomingDegrees = citationGraphFallbackIncomingDegrees(
-      snapshot.graph.visibleNodes,
-      snapshot.graph.visibleEdges,
+    const loadedEdges = Array.from(
+      new Map(
+        [...snapshot.graph.visibleEdges, ...snapshot.graph.hoverOnlyEdges].map(
+          (edge) => [edge.id, edge],
+        ),
+      ).values(),
+    );
+    const incomingCounts = citationGraphIncomingCounts(
+      selected.id,
+      loadedEdges,
+      [...snapshot.graph.visibleNodes, ...snapshot.graph.hoverOnlyNodes],
     );
     const fields: Array<[string, unknown]> = [
       ["title", node?.label || selected.id],
@@ -15195,9 +15347,31 @@ function renderSelectedDetail(snapshot: Snapshot) {
     ];
     if (!state.standaloneGraphOnly) {
       fields.splice(4, 0, [
-        "incoming citations",
-        node ? citationGraphIncomingDegree(node, incomingDegrees) : "-",
+        t("synthesis-graph-incoming-source-papers-current-view"),
+        node ? incomingCounts.sourcePaperCount : "-",
       ]);
+      fields.splice(5, 0, [
+        t("synthesis-graph-incoming-citation-records-current-view"),
+        node ? incomingCounts.citationRecordCount : "-",
+      ]);
+      const interactionNeighborTotal = new Set(
+        snapshot.graph.hoverOnlyEdges
+          .filter(
+            (edge) =>
+              edge.source === selected.id || edge.target === selected.id,
+          )
+          .map((edge) =>
+            edge.source === selected.id ? edge.target : edge.source,
+          ),
+      ).size;
+      if (
+        interactionNeighborTotal > CITATION_GRAPH_INTERACTION_NEIGHBOR_LIMIT
+      ) {
+        fields.splice(6, 0, [
+          t("synthesis-graph-interaction-neighbors-previewed-current-view"),
+          `${CITATION_GRAPH_INTERACTION_NEIGHBOR_LIMIT} / ${interactionNeighborTotal}`,
+        ]);
+      }
     }
     if (!state.standaloneExport) {
       fields.push(["id", selected.id]);
@@ -15930,7 +16104,6 @@ function render() {
   localizeWorkbenchDom(root as HTMLElement);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
   state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
-  maybeRequestGraphLayoutRefresh(state.snapshot);
 }
 
 function renderStandaloneGraphExportShell(
@@ -15945,39 +16118,6 @@ function renderStandaloneGraphExportShell(
   main.appendChild(graphSurface);
   setGraphSurfaceActive(true);
   renderGraph(graphSurface, snapshot);
-}
-
-function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
-  if (state.standaloneExport) {
-    return;
-  }
-  if (!snapshot || snapshot.selectedTab !== "graph") {
-    return;
-  }
-  if (
-    !snapshot.graph.graph_hash ||
-    snapshot.graph.nodes.length === 0 ||
-    (snapshot.graph.layoutStatus !== "missing" &&
-      snapshot.graph.layoutStatus !== "stale")
-  ) {
-    return;
-  }
-  const algorithm =
-    snapshot.graph.filters.layoutAlgorithm || snapshot.graph.layoutAlgorithm;
-  const key = `${snapshot.graph.graph_hash}:${algorithm}`;
-  if (
-    state.autoLayoutRequests.has(key) ||
-    isOperationPending("manualRecomputeLayout", { algorithm })
-  ) {
-    return;
-  }
-  state.autoLayoutRequests.add(key);
-  window.setTimeout(() => {
-    sendAction("hostCommand", {
-      command: "manualRecomputeLayout",
-      args: { reason: "auto", algorithm },
-    });
-  }, 0);
 }
 
 function buildDigestOutline(markdownNode: HTMLElement) {
@@ -16416,7 +16556,6 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (!contentChanged) {
       state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
       renderWorkbenchChrome();
-      maybeRequestGraphLayoutRefresh(state.snapshot);
       return;
     }
     render();

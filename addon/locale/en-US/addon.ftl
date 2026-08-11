@@ -1412,6 +1412,9 @@ synthesis-graph-legend-node-size = Node size = incoming citations
 synthesis-graph-legend-halo = Halo = top cited visible nodes
 synthesis-graph-legend-current-paper = Current paper
 synthesis-graph-citations-title = Citations
+synthesis-graph-incoming-source-papers-current-view = Incoming source papers (current view)
+synthesis-graph-incoming-citation-records-current-view = Incoming citation records (current view)
+synthesis-graph-interaction-neighbors-previewed-current-view = Interaction neighbors previewed (current view)
 synthesis-topic-graph-legend-hierarchy = Hierarchy
 synthesis-topic-graph-legend-related = Related
 synthesis-topic-graph-legend-overlap = Overlap

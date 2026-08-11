@@ -8,6 +8,7 @@ import {
   type SynthesisWorkbenchTopicUpdateIntent,
   type SynthesisWorkbenchSidecarStatus,
 } from "../../../packages/synthesis-contracts/src/index";
+import { projectCitationGraphVisibility } from "../../shared/citationGraphVisualRules";
 
 export type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
 
@@ -3569,59 +3570,18 @@ function filterGraph(
   filters: SynthesisUiState["graph"],
   topicScopes: SynthesisUiGraphTopicScope[] = [],
 ) {
-  const selectedScope =
-    filters.topicId === "all"
-      ? undefined
-      : topicScopes.find((scope) => scope.topicId === filters.topicId);
-  const isTopicScoped = filters.topicId !== "all";
-  const topicSourceIds = new Set(selectedScope?.nodeIds || []);
-  const topicScopedNodeIds = new Set(topicSourceIds);
-  if (isTopicScoped) {
-    edges.forEach((edge) => {
-      if (topicSourceIds.has(edge.source)) {
-        topicScopedNodeIds.add(edge.source);
-        topicScopedNodeIds.add(edge.target);
-      }
-      if (topicSourceIds.has(edge.target)) {
-        topicScopedNodeIds.add(edge.source);
-        topicScopedNodeIds.add(edge.target);
-      }
-    });
-  }
-  const matchesNodeBaseFilters = (node: SynthesisUiGraphNode) =>
-    filters.nodeKinds.includes(node.kind) &&
-    (filters.showLowSignalReferences || !node.low_signal) &&
-    (!isTopicScoped || topicScopedNodeIds.has(node.id));
-  const visibleNodes = nodes.filter((node) => {
-    if (!matchesNodeBaseFilters(node)) {
-      return false;
-    }
-    if (node.visibility === "hover_only") {
-      return false;
-    }
-    return true;
+  const projection = projectCitationGraphVisibility({
+    nodes,
+    edges,
+    filters,
+    topicScopes,
   });
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = edges.filter((edge) => {
-    if (edge.visibility === "hover_only") {
-      return false;
-    }
-    if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
-      return false;
-    }
-    if (
-      isTopicScoped &&
-      !topicSourceIds.has(edge.source) &&
-      !topicSourceIds.has(edge.target)
-    ) {
-      return false;
-    }
-    if (filters.role !== "all" && edge.primary_role !== filters.role) {
-      return false;
-    }
-    return true;
-  });
-  return { visibleNodes, visibleEdges };
+  return {
+    visibleNodes: projection.defaultNodes,
+    visibleEdges: projection.defaultEdges,
+    hoverOnlyNodes: projection.hoverOnlyNodes,
+    hoverOnlyEdges: projection.hoverOnlyEdges,
+  };
 }
 
 function normalizeLatestUsableEntry(value: unknown) {
@@ -4021,12 +3981,6 @@ export function buildSynthesisUiSnapshot(
       ? { ...edge, visibility: "hover_only" as const }
       : edge,
   );
-  const hoverOnlyGraphNodes = normalizedGraphNodes.filter(
-    (node) => node.visibility === "hover_only",
-  );
-  const hoverOnlyGraphEdges = normalizedGraphEdges.filter(
-    (edge) => edge.visibility === "hover_only",
-  );
   const deletedArtifactRows = normalizeDeletedArtifactRows(
     input.deletedArtifacts?.rows,
   );
@@ -4257,8 +4211,8 @@ export function buildSynthesisUiSnapshot(
             ),
       nodes: normalizedGraphNodes,
       edges: normalizedGraphEdges,
-      hoverOnlyNodes: hoverOnlyGraphNodes,
-      hoverOnlyEdges: hoverOnlyGraphEdges,
+      hoverOnlyNodes: filteredGraph.hoverOnlyNodes,
+      hoverOnlyEdges: filteredGraph.hoverOnlyEdges,
       diagnostics:
         input.graph?.diagnostics && typeof input.graph.diagnostics === "object"
           ? { ...input.graph.diagnostics }

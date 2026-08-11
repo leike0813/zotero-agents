@@ -1412,6 +1412,9 @@ synthesis-graph-legend-node-size = Tamaño del nodo = citaciones entrantes
 synthesis-graph-legend-halo = Halo = nodos visibles más citados
 synthesis-graph-legend-current-paper = Artículo actual
 synthesis-graph-citations-title = Citaciones
+synthesis-graph-incoming-source-papers-current-view = Artículos fuente entrantes (vista actual)
+synthesis-graph-incoming-citation-records-current-view = Registros de cita entrantes (vista actual)
+synthesis-graph-interaction-neighbors-previewed-current-view = Vecinos de interacción mostrados (vista actual)
 synthesis-topic-graph-legend-hierarchy = Jerarquía
 synthesis-topic-graph-legend-related = Relacionado
 synthesis-topic-graph-legend-overlap = Superposición

@@ -107,6 +107,7 @@ function mergeById<Item>(
   current: readonly Item[],
   patch: readonly Item[],
   getId: (item: Item) => string,
+  mergeItem: (current: Item, patch: Item) => Item = (_current, next) => next,
 ) {
   const result = [...current];
   const indexes = new Map(
@@ -122,10 +123,18 @@ function mergeById<Item>(
       result.push(item);
       added += 1;
     } else {
-      result[index] = item;
+      result[index] = mergeItem(result[index], item);
     }
   }
   return { items: result, added };
+}
+
+function mergeDefinedFields<Item extends object>(current: Item, patch: Item) {
+  const merged = { ...current } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged as Item;
 }
 
 function rejectMerge<Node extends GraphNode, Edge extends GraphEdge>(
@@ -157,12 +166,18 @@ function mergePatch<Node extends GraphNode, Edge extends GraphEdge>(
 ): SynthesisCitationGraphMergeResult<Node, Edge> {
   const invalid = validatePatch(window, patch);
   if (invalid) return rejectMerge(window, invalid);
-  const nodes = mergeById(window.nodes, patch.nodes, nodeId);
+  const nodes = mergeById(
+    window.nodes,
+    patch.nodes,
+    nodeId,
+    mergeDefinedFields,
+  );
   const edges = mergeById(window.edges, patch.edges, edgeId);
   const hoverNodes = mergeById(
     window.hoverOnlyNodes,
     patch.hoverOnlyNodes || [],
     nodeId,
+    mergeDefinedFields,
   );
   const hoverEdges = mergeById(
     window.hoverOnlyEdges,

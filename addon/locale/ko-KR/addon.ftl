@@ -1412,6 +1412,9 @@ synthesis-graph-legend-node-size = 노드 크기 = 들어오는 인용 수
 synthesis-graph-legend-halo = 헤일로 = 상위 피인표시 노드
 synthesis-graph-legend-current-paper = 현재 논문
 synthesis-graph-citations-title = 인용
+synthesis-graph-incoming-source-papers-current-view = 들어오는 출처 논문(현재 보기)
+synthesis-graph-incoming-citation-records-current-view = 들어오는 인용 기록(현재 보기)
+synthesis-graph-interaction-neighbors-previewed-current-view = 미리 본 상호작용 이웃(현재 보기)
 synthesis-topic-graph-legend-hierarchy = 계층
 synthesis-topic-graph-legend-related = 관련
 synthesis-topic-graph-legend-overlap = 중복

@@ -1356,6 +1356,9 @@ synthesis-graph-legend-node-size = ノードサイズ = 被引用数
 synthesis-graph-legend-halo = ハロー = 可視ノード中の高被引用
 synthesis-graph-legend-current-paper = 現在の論文
 synthesis-graph-citations-title = 引用
+synthesis-graph-incoming-source-papers-current-view = 入力元論文（現在のビュー）
+synthesis-graph-incoming-citation-records-current-view = 入力引用レコード（現在のビュー）
+synthesis-graph-interaction-neighbors-previewed-current-view = 表示中のインタラクション近傍（現在のビュー）
 synthesis-topic-graph-legend-hierarchy = 階層
 synthesis-topic-graph-legend-related = 関連
 synthesis-topic-graph-legend-overlap = 重複

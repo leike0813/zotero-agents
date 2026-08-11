@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { pathToFileURL } from "url";
+import { build } from "esbuild";
 import { chromium, type Browser, type Page } from "playwright";
 import {
   applySynthesisUiAction,
@@ -736,6 +737,127 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     );
   }
 
+  function interactionSnapshot(selectedNodeId?: string) {
+    let uiState = createDefaultSynthesisUiState();
+    uiState = applySynthesisUiAction(uiState, {
+      action: "selectTab",
+      payload: { tab: "graph" },
+    }).state;
+    if (selectedNodeId) {
+      uiState = applySynthesisUiAction(uiState, {
+        action: "setGraphView",
+        payload: {
+          selectedElement: { kind: "node", id: selectedNodeId },
+        },
+      }).state;
+    }
+    const nodes = [
+      {
+        id: "zotero:item:A",
+        label: "Alpha",
+        kind: "library_paper" as const,
+        is_focus: true,
+        x: -1,
+        y: 0,
+      },
+      {
+        id: "zotero:item:B",
+        label: "Beta",
+        kind: "library_paper" as const,
+        x: 0,
+        y: 1,
+      },
+      {
+        id: "zotero:item:C",
+        label: "Gamma",
+        kind: "library_paper" as const,
+        x: 0,
+        y: -1,
+      },
+      {
+        id: "ref:X",
+        label: "Shared external",
+        kind: "external_reference" as const,
+        x: 1,
+        y: 0,
+      },
+      {
+        id: "ref:Y",
+        label: "Alpha-only external",
+        kind: "external_reference" as const,
+        x: -0.5,
+        y: 0.5,
+      },
+      {
+        id: "ref:Z",
+        label: "Beta-only external",
+        kind: "external_reference" as const,
+        x: 0.5,
+        y: 1,
+      },
+    ];
+    const edges = [
+      {
+        id: "edge:A:X",
+        source: "zotero:item:A",
+        target: "ref:X",
+        primary_role: "background",
+      },
+      {
+        id: "edge:C:X",
+        source: "zotero:item:C",
+        target: "ref:X",
+        primary_role: "method",
+      },
+      {
+        id: "edge:A:Y",
+        source: "zotero:item:A",
+        target: "ref:Y",
+        primary_role: "background",
+      },
+      {
+        id: "edge:A:Y:repeat",
+        source: "zotero:item:A",
+        target: "ref:Y",
+        primary_role: "background",
+      },
+      {
+        id: "edge:B:Z",
+        source: "zotero:item:B",
+        target: "ref:Z",
+        primary_role: "method",
+      },
+    ];
+    return buildSynthesisUiSnapshot(
+      {
+        libraryId: 1,
+        graph: {
+          graph_hash: "sha256:interaction-union",
+          layoutStatus: "ready",
+          nodes,
+          edges,
+          page: {
+            nextCursor: "",
+            hasMore: false,
+            totalNodes: nodes.length,
+            totalEdges: edges.length,
+            totalHoverNodes: 2,
+            totalHoverEdges: 2,
+            returnedNodes: nodes.length,
+            returnedEdges: edges.length,
+            returnedHoverNodes: 2,
+            returnedHoverEdges: 2,
+            querySignature: "sha256:interaction-query",
+            layoutStatus: "ready",
+            windowStatus: "complete",
+            roleOptions: ["background", "method"],
+          },
+        },
+      },
+      uiState,
+    );
+  }
+
   async function sendSnapshot(snapshot: unknown, target = page) {
     await target.evaluate((payload) => {
       window.postMessage({ type: "synthesis:snapshot", payload }, "*");
@@ -845,14 +967,46 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     const htmlPath = path.join(tempRoot, "index.html");
     const debugHtmlPath = path.join(tempRoot, "index-debug.html");
     const esbuildBin = path.resolve("node_modules", ".bin", "esbuild");
-    await execFileAsync(esbuildBin, [
-      path.resolve("src", "synthesisWorkbenchApp.ts"),
-      "--bundle",
-      "--format=iife",
-      "--target=es2020",
-      "--define:__debug_mode__=false",
-      `--outfile=${bundlePath}`,
-    ]);
+    const synthesisEntry = path.resolve("src", "synthesisWorkbenchApp.ts");
+    await build({
+      entryPoints: [synthesisEntry],
+      bundle: true,
+      format: "iife",
+      target: "es2020",
+      define: { __debug_mode__: "false" },
+      outfile: bundlePath,
+      plugins: [
+        {
+          name: "citation-graph-test-renderer",
+          setup(buildApi) {
+            buildApi.onLoad(
+              { filter: /synthesisWorkbenchApp\.ts$/ },
+              async () => {
+                const source = await fs.readFile(synthesisEntry, "utf8");
+                const assignment = "state.sigma = renderer;";
+                assert.include(source, assignment);
+                const standaloneBootstrap =
+                  "if (\n  !applyStandaloneGraphExportEnvelope(";
+                assert.include(source, standaloneBootstrap);
+                return {
+                  contents: source
+                    .replace(
+                      assignment,
+                      `${assignment}\n  (window as Window & { __citationGraphTestSigma?: Sigma }).__citationGraphTestSigma = renderer;`,
+                    )
+                    .replace(
+                      standaloneBootstrap,
+                      `(window as Window & { __citationGraphTestApplyStandalone?: typeof applyStandaloneGraphExportEnvelope; __citationGraphTestSendAction?: typeof sendAction; __citationGraphTestDrawNodeHover?: typeof drawGraphNodeHover }).__citationGraphTestApplyStandalone = applyStandaloneGraphExportEnvelope;\n(window as Window & { __citationGraphTestSendAction?: typeof sendAction }).__citationGraphTestSendAction = sendAction;\n(window as Window & { __citationGraphTestDrawNodeHover?: typeof drawGraphNodeHover }).__citationGraphTestDrawNodeHover = drawGraphNodeHover;\n\n${standaloneBootstrap}`,
+                    ),
+                  loader: "ts",
+                  resolveDir: path.dirname(synthesisEntry),
+                };
+              },
+            );
+          },
+        },
+      ],
+    });
     await execFileAsync(esbuildBin, [
       path.resolve("src", "synthesisWorkbenchApp.ts"),
       "--bundle",
@@ -935,6 +1089,692 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.isTrue(afterUpdates.sameCanvases);
     assert.isTrue(afterUpdates.sameContexts);
     assert.isFalse(afterUpdates.contextLost);
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("promotes external nodes after a second library source while keeping edges interaction-only", async function () {
+    await page.reload({ waitUntil: "load" });
+    await sendSnapshot(lifecycleSnapshot());
+    await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+
+    const firstPage = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getNodeDisplayData: (node: string) => unknown;
+            getEdgeDisplayData: (edge: string) => unknown;
+          };
+        }
+      ).__citationGraphTestSigma;
+      return renderer
+        ? {
+            external: renderer.getNodeDisplayData("ref:X"),
+            edge: renderer.getEdgeDisplayData("edge:A:X"),
+          }
+        : null;
+    });
+    assert.deepEqual(firstPage, { external: undefined, edge: undefined });
+
+    const identityBeforePromotion = await graphIdentity();
+    await sendGraphPage(lifecycleSnapshot({ expanded: true }));
+    const promoted = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getNodeDisplayData: (node: string) => unknown;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+            graphToViewport: (point: { x: number; y: number }) => {
+              x: number;
+              y: number;
+            };
+          };
+        }
+      ).__citationGraphTestSigma;
+      return renderer
+        ? {
+            externalPresent: Boolean(renderer.getNodeDisplayData("ref:X")),
+            firstEdgeHidden: renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+            secondEdgeHidden: renderer.getEdgeDisplayData("edge:B:X")?.hidden,
+          }
+        : null;
+    });
+    const identityAfterPromotion = await graphIdentity();
+
+    assert.deepEqual(promoted, {
+      externalPresent: true,
+      firstEdgeHidden: true,
+      secondEdgeHidden: true,
+    });
+    assert.isTrue(identityBeforePromotion.sameSurface);
+    assert.isTrue(identityAfterPromotion.sameSurface);
+    assert.isTrue(identityAfterPromotion.sameStage);
+    assert.isTrue(identityAfterPromotion.sameCanvases);
+    assert.isTrue(identityAfterPromotion.sameContexts);
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("projects a standalone graph before first render and keeps no-op filter results identical", async function () {
+    await page.reload({ waitUntil: "load" });
+    const base = lifecycleSnapshot({ expanded: true });
+    const graph = base.graph;
+    const singleNode = {
+      id: "ref:Y",
+      label: "Single external",
+      kind: "external_reference" as const,
+      x: 0.5,
+      y: -1,
+    };
+    const disconnectedNode = {
+      id: "ref:Z",
+      label: "Disconnected external",
+      kind: "external_reference" as const,
+      x: -0.5,
+      y: -1,
+    };
+    const singleEdge = {
+      id: "edge:A:Y",
+      source: "zotero:item:A",
+      target: "ref:Y",
+      primary_role: "background",
+      mention_count: 1,
+    };
+    const rawGraph = {
+      ...graph,
+      nodes: [...graph.nodes, singleNode, disconnectedNode],
+      edges: [...graph.edges, singleEdge],
+      visibleNodes: [...graph.nodes, singleNode, disconnectedNode],
+      visibleEdges: [...graph.edges, singleEdge],
+      hoverOnlyNodes: [],
+      hoverOnlyEdges: [],
+    };
+
+    await page.evaluate(
+      ({ snapshot, standaloneGraph }) => {
+        const testWindow = window as Window & {
+          __citationGraphTestApplyStandalone?: (envelope: unknown) => boolean;
+        };
+        testWindow.__citationGraphTestApplyStandalone?.({
+          version: 1,
+          scopeLabel: "Test graph",
+          focusNodeId: "zotero:item:A",
+          snapshot: { ...snapshot, graph: standaloneGraph },
+          graphLayouts: { force: standaloneGraph },
+        });
+      },
+      { snapshot: base, standaloneGraph: rawGraph },
+    );
+    await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+
+    const readProjection = () =>
+      page.evaluate(() => {
+        const testWindow = window as Window & {
+          __citationGraphTestSigma?: {
+            getNodeDisplayData: (node: string) => unknown;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        };
+        const renderer = testWindow.__citationGraphTestSigma;
+        return renderer
+          ? {
+              sharedPresent: Boolean(renderer.getNodeDisplayData("ref:X")),
+              singlePresent: Boolean(renderer.getNodeDisplayData("ref:Y")),
+              disconnectedPresent: Boolean(
+                renderer.getNodeDisplayData("ref:Z"),
+              ),
+              sharedEdgesHidden: [
+                renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+                renderer.getEdgeDisplayData("edge:B:X")?.hidden,
+              ],
+              singleEdgePresent: Boolean(
+                renderer.getEdgeDisplayData("edge:A:Y"),
+              ),
+            }
+          : null;
+      });
+
+    const initial = await readProjection();
+    assert.deepEqual(initial, {
+      sharedPresent: true,
+      singlePresent: false,
+      disconnectedPresent: false,
+      sharedEdgesHidden: [true, true],
+      singleEdgePresent: false,
+    });
+
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        __citationGraphTestSendAction?: (
+          action: string,
+          payload: Record<string, unknown>,
+        ) => void;
+      };
+      testWindow.__citationGraphTestSendAction?.("setGraphView", {
+        showLowSignalReferences: true,
+      });
+    });
+    await page.waitForTimeout(100);
+    assert.deepEqual(await readProjection(), initial);
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("projects SVG fallback nodes and draws only the active neighborhood", async function () {
+    const fallbackBundlePath = path.join(tempRoot, "citation-fallback.js");
+    await build({
+      entryPoints: [path.resolve("src/shared/citationGraphStandalone.ts")],
+      bundle: true,
+      format: "iife",
+      target: "es2020",
+      outfile: fallbackBundlePath,
+    });
+    const fallbackPage = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    try {
+      await fallbackPage.setContent(
+        '<div data-citation-graph style="width:800px;height:600px"></div>',
+      );
+      await fallbackPage.addScriptTag({ path: fallbackBundlePath });
+      await fallbackPage.evaluate(() => {
+        const model = {
+          start_node_id: "library:A",
+          nodes: [
+            {
+              id: "library:A",
+              title: "A",
+              kind: "library_paper" as const,
+              x: -1,
+              y: 0,
+            },
+            {
+              id: "library:B",
+              title: "B",
+              kind: "library_paper" as const,
+              x: 0,
+              y: 1,
+            },
+            {
+              id: "external:shared",
+              title: "Shared",
+              kind: "external_reference" as const,
+              x: 1,
+              y: 0,
+            },
+            {
+              id: "external:single",
+              title: "Single",
+              kind: "external_reference" as const,
+              x: 0,
+              y: -1,
+            },
+            {
+              id: "external:zero",
+              title: "Zero",
+              kind: "external_reference" as const,
+              x: 1,
+              y: -1,
+            },
+          ],
+          edges: [
+            {
+              id: "edge:A:shared",
+              source: "library:A",
+              target: "external:shared",
+            },
+            {
+              id: "edge:B:shared",
+              source: "library:B",
+              target: "external:shared",
+            },
+            {
+              id: "edge:A:single",
+              source: "library:A",
+              target: "external:single",
+            },
+          ],
+        };
+        (
+          window as Window & {
+            __citationGraphFallbackModel?: typeof model;
+          }
+        ).__citationGraphFallbackModel = model;
+        window.ZoteroSkillsCitationGraph?.renderCitationGraph(
+          document.querySelector("[data-citation-graph]") as HTMLElement,
+          model,
+        );
+      });
+
+      const readSvg = () =>
+        fallbackPage.evaluate(() => ({
+          nodeIds: Array.from(document.querySelectorAll("[data-node-id]")).map(
+            (node) => (node as HTMLElement).dataset.nodeId,
+          ),
+          edgeCount: document.querySelectorAll(".graph-edge").length,
+        }));
+      assert.deepEqual(await readSvg(), {
+        nodeIds: ["library:A", "library:B", "external:shared"],
+        edgeCount: 0,
+      });
+
+      await fallbackPage.locator('[data-node-id="library:A"]').hover();
+      await fallbackPage.waitForTimeout(180);
+      const hovered = await readSvg();
+      assert.sameMembers(hovered.nodeIds, [
+        "library:A",
+        "library:B",
+        "external:shared",
+        "external:single",
+      ]);
+      assert.equal(hovered.edgeCount, 2);
+
+      await fallbackPage.mouse.move(850, 650);
+      await fallbackPage.waitForTimeout(180);
+      assert.deepEqual(await readSvg(), {
+        nodeIds: ["library:A", "library:B", "external:shared"],
+        edgeCount: 0,
+      });
+
+      await fallbackPage.evaluate(() => {
+        const testWindow = window as Window & {
+          __citationGraphFallbackModel?: NonNullable<
+            Parameters<
+              NonNullable<
+                typeof window.ZoteroSkillsCitationGraph
+              >["renderCitationGraph"]
+            >[1]
+          >;
+        };
+        const model = testWindow.__citationGraphFallbackModel;
+        if (!model) return;
+        window.ZoteroSkillsCitationGraph?.renderCitationGraph(
+          document.querySelector("[data-citation-graph]") as HTMLElement,
+          {
+            ...model,
+            selectedElement: { kind: "node", id: "library:A" },
+          },
+        );
+      });
+      await fallbackPage.waitForTimeout(100);
+      assert.equal((await readSvg()).edgeCount, 2);
+
+      await fallbackPage.locator('[data-node-id="library:B"]').hover();
+      await fallbackPage.waitForTimeout(180);
+      const selectedAndHovered = await readSvg();
+      assert.equal(selectedAndHovered.edgeCount, 3);
+      assert.include(
+        await fallbackPage.locator(".graph-node-label").allTextContents(),
+        "B",
+      );
+
+      await fallbackPage.mouse.move(850, 650);
+      await fallbackPage.waitForTimeout(180);
+      assert.equal((await readSvg()).edgeCount, 2);
+    } finally {
+      await fallbackPage.close();
+    }
+  });
+
+  it("preserves hover titles and incident edges when the current graph page expands", async function () {
+    await page.reload({ waitUntil: "load" });
+    await sendSnapshot(lifecycleSnapshot());
+    await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+
+    const beforePage = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload: { node: string }) => void;
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      if (!renderer) return null;
+      renderer.emit("enterNode", { node: "zotero:item:A" });
+      return {
+        label: renderer.getNodeDisplayData("zotero:item:A")?.label,
+        edgeHidden: renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+      };
+    });
+    assert.deepEqual(beforePage, { label: "Alpha", edgeHidden: false });
+
+    await sendGraphPage(lifecycleSnapshot({ expanded: true }));
+    const afterPage = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      if (!renderer) return null;
+      return {
+        label: renderer.getNodeDisplayData("zotero:item:A")?.label,
+        edgeHidden: renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+      };
+    });
+    assert.deepEqual(afterPage, { label: "Alpha", edgeHidden: false });
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("renders selected and pointer-hovered neighborhoods as a stable union", async function () {
+    await page.reload({ waitUntil: "load" });
+    const crowdedSnapshot = interactionSnapshot("zotero:item:A");
+    for (let index = 0; index < 100; index += 1) {
+      const node = {
+        id: `ref:CROWD:${String(index).padStart(3, "0")}`,
+        label: `Crowded external ${String(index).padStart(3, "0")}`,
+        kind: "external_reference" as const,
+        visibility: "hover_only" as const,
+        display_tier: "single_external" as const,
+      };
+      const edge = {
+        id: `edge:A:CROWD:${String(index).padStart(3, "0")}`,
+        source: "zotero:item:A",
+        target: node.id,
+        primary_role: "background",
+        mention_count: 1,
+        visibility: "hover_only" as const,
+      };
+      crowdedSnapshot.graph.nodes.push(node);
+      crowdedSnapshot.graph.edges.push(edge);
+      crowdedSnapshot.graph.hoverOnlyNodes.push(node);
+      crowdedSnapshot.graph.hoverOnlyEdges.push(edge);
+    }
+    await sendSnapshot(crowdedSnapshot);
+    await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+    const identityBefore = await graphIdentity();
+
+    const selectedOnly = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload: { node: string }) => void;
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      if (!renderer) return null;
+      return {
+        alphaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Y")),
+        betaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Z")),
+        alphaSharedHidden: renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+        gammaSharedHidden: renderer.getEdgeDisplayData("edge:C:X")?.hidden,
+        alphaOnlyHidden: renderer.getEdgeDisplayData("edge:A:Y")?.hidden,
+      };
+    });
+    assert.deepEqual(selectedOnly, {
+      alphaOnlyPresent: true,
+      betaOnlyPresent: false,
+      alphaSharedHidden: false,
+      gammaSharedHidden: true,
+      alphaOnlyHidden: false,
+    });
+
+    const selectedAndHovered = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload: { node: string }) => void;
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      if (!renderer) return null;
+      renderer.emit("enterNode", { node: "zotero:item:B" });
+      return {
+        betaLabel: renderer.getNodeDisplayData("zotero:item:B")?.label,
+        alphaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Y")),
+        betaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Z")),
+        alphaSharedHidden: renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+        alphaOnlyHidden: renderer.getEdgeDisplayData("edge:A:Y")?.hidden,
+        betaOnlyHidden: renderer.getEdgeDisplayData("edge:B:Z")?.hidden,
+        parallelEdgePresent: Boolean(
+          renderer.getEdgeDisplayData("edge:A:Y:repeat"),
+        ),
+      };
+    });
+    assert.deepEqual(selectedAndHovered, {
+      betaLabel: "Beta",
+      alphaOnlyPresent: true,
+      betaOnlyPresent: true,
+      alphaSharedHidden: false,
+      alphaOnlyHidden: false,
+      betaOnlyHidden: false,
+      parallelEdgePresent: false,
+    });
+    assert.include(
+      (await page.locator(".graph-selection-drawer").textContent()) || "",
+      "Alpha",
+    );
+
+    await sendGraphPage(crowdedSnapshot);
+    const identityAfterPage = await graphIdentity();
+    const afterPage = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      return renderer
+        ? {
+            betaLabel: renderer.getNodeDisplayData("zotero:item:B")?.label,
+            alphaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Y")),
+            betaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Z")),
+            alphaOnlyHidden: renderer.getEdgeDisplayData("edge:A:Y")?.hidden,
+            betaOnlyHidden: renderer.getEdgeDisplayData("edge:B:Z")?.hidden,
+          }
+        : null;
+    });
+    assert.deepEqual(afterPage, {
+      betaLabel: "Beta",
+      alphaOnlyPresent: true,
+      betaOnlyPresent: true,
+      alphaOnlyHidden: false,
+      betaOnlyHidden: false,
+    });
+    assert.isTrue(identityBefore.sameSurface);
+    assert.isTrue(identityAfterPage.sameStage);
+    assert.isTrue(identityAfterPage.sameCanvases);
+    assert.isTrue(identityAfterPage.sameContexts);
+
+    const ownerPoint = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getGraph: () => {
+              getNodeAttributes: (node: string) => { x: number; y: number };
+            };
+            graphToViewport: (point: { x: number; y: number }) => {
+              x: number;
+              y: number;
+            };
+          };
+        }
+      ).__citationGraphTestSigma;
+      const point = renderer
+        ? renderer.graphToViewport(
+            renderer.getGraph().getNodeAttributes("zotero:item:A"),
+          )
+        : undefined;
+      return point && typeof point.x === "number" && typeof point.y === "number"
+        ? { x: point.x, y: point.y }
+        : null;
+    });
+    const canvasBox = await page
+      .locator(".sigma-stage canvas")
+      .first()
+      .boundingBox();
+    assert.isNotNull(ownerPoint);
+    assert.isNotNull(canvasBox);
+    await page.mouse.move(
+      (canvasBox?.x || 0) + (ownerPoint?.x || 0),
+      (canvasBox?.y || 0) + (ownerPoint?.y || 0),
+    );
+    await page.waitForTimeout(120);
+    const pickedOwner = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getGraph: () => { order: number };
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      return renderer
+        ? {
+            label: renderer.getNodeDisplayData("zotero:item:A")?.label,
+            order: renderer.getGraph().order,
+          }
+        : null;
+    });
+    assert.deepEqual(pickedOwner, { label: "Alpha", order: 104 });
+
+    await page.evaluate(() => {
+      (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload?: object) => void;
+          };
+        }
+      ).__citationGraphTestSigma?.emit("leaveNode", {});
+    });
+    await page.waitForTimeout(120);
+    const afterLeave = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            getNodeDisplayData: (node: string) => unknown;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      return renderer
+        ? {
+            alphaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Y")),
+            betaOnlyPresent: Boolean(renderer.getNodeDisplayData("ref:Z")),
+            alphaOnlyHidden: renderer.getEdgeDisplayData("edge:A:Y")?.hidden,
+          }
+        : null;
+    });
+    assert.deepEqual(afterLeave, {
+      alphaOnlyPresent: true,
+      betaOnlyPresent: false,
+      alphaOnlyHidden: false,
+    });
+
+    const sharedHovered = await page.evaluate(() => {
+      const renderer = (
+        window as Window & {
+          __citationGraphTestSigma?: {
+            emit: (event: string, payload: { node: string }) => void;
+            getNodeDisplayData: (
+              node: string,
+            ) => { label?: string } | undefined;
+            getEdgeDisplayData: (
+              edge: string,
+            ) => { hidden?: boolean } | undefined;
+          };
+        }
+      ).__citationGraphTestSigma;
+      if (!renderer) return null;
+      renderer.emit("enterNode", { node: "ref:X" });
+      return {
+        label: renderer.getNodeDisplayData("ref:X")?.label,
+        alphaEdgeHidden: renderer.getEdgeDisplayData("edge:A:X")?.hidden,
+        gammaEdgeHidden: renderer.getEdgeDisplayData("edge:C:X")?.hidden,
+      };
+    });
+    assert.deepEqual(sharedHovered, {
+      label: "Shared external",
+      alphaEdgeHidden: false,
+      gammaEdgeHidden: false,
+    });
+    assert.deepEqual(pageErrors, []);
+  });
+
+  it("draws a pointer-hover title after drawing an importance halo", async function () {
+    await page.reload({ waitUntil: "load" });
+    const result = await page.evaluate(() => {
+      const draw = (
+        window as Window & {
+          __citationGraphTestDrawNodeHover?: (
+            context: CanvasRenderingContext2D,
+            data: Record<string, unknown>,
+            settings: Record<string, unknown>,
+          ) => void;
+        }
+      ).__citationGraphTestDrawNodeHover;
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!draw || !context) return null;
+      const labels: string[] = [];
+      let strokes = 0;
+      const fillText = context.fillText.bind(context);
+      const stroke = context.stroke.bind(context);
+      context.fillText = (value, x, y, maxWidth) => {
+        labels.push(value);
+        if (maxWidth === undefined) fillText(value, x, y);
+        else fillText(value, x, y, maxWidth);
+      };
+      context.stroke = () => {
+        strokes += 1;
+        stroke();
+      };
+      const data = {
+        x: 40,
+        y: 40,
+        size: 8,
+        label: "Alpha",
+        color: "#dc2626",
+        kind: "library_paper",
+        importanceHalo: true,
+        importanceInteractive: true,
+        currentPaperNode: true,
+      };
+      const settings = {
+        labelSize: 14,
+        labelFont: "Arial",
+        labelWeight: "normal",
+        labelColor: { color: "#111827" },
+      };
+      draw(context, data, settings);
+      return { labels, strokes };
+    });
+    assert.deepEqual(result, { labels: ["Alpha"], strokes: 2 });
     assert.deepEqual(pageErrors, []);
   });
 

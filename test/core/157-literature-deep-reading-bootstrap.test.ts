@@ -1431,6 +1431,89 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.notInclude(rendererCss, ".graph-detail");
   });
 
+  it("partitions deep-reading graph envelope rows by transport visibility", function () {
+    const runtimePath = path.resolve(
+      "skills_src/literature-deep-reading/runtime/deep_reading_runtime.py",
+    );
+    const model = {
+      start_node_id: "library:A",
+      nodes: [
+        { id: "library:A", kind: "library_paper", visibility: "default" },
+        {
+          id: "external:shared",
+          kind: "external_reference",
+          visibility: "default",
+        },
+        {
+          id: "external:single",
+          kind: "external_reference",
+          visibility: "hover_only",
+        },
+      ],
+      edges: [
+        {
+          id: "edge:shared",
+          source: "library:A",
+          target: "external:shared",
+          visibility: "default",
+        },
+        {
+          id: "edge:single",
+          source: "library:A",
+          target: "external:single",
+          visibility: "hover_only",
+        },
+      ],
+    };
+    const output = pythonCommand(
+      [
+        "-c",
+        [
+          "import json, runpy, sys",
+          "module = runpy.run_path(sys.argv[1])",
+          "model = json.loads(sys.argv[2])",
+          "print(json.dumps(module['build_synthesis_graph_from_model'](model)))",
+        ].join("; "),
+        runtimePath,
+        JSON.stringify(model),
+      ],
+      process.cwd(),
+    );
+    const graph = JSON.parse(output) as {
+      nodes: Array<{ id: string }>;
+      edges: Array<{ id: string }>;
+      visibleNodes: Array<{ id: string }>;
+      visibleEdges: Array<{ id: string }>;
+      hoverOnlyNodes: Array<{ id: string }>;
+      hoverOnlyEdges: Array<{ id: string }>;
+    };
+
+    assert.deepEqual(
+      graph.nodes.map((node) => node.id),
+      ["library:A", "external:shared", "external:single"],
+    );
+    assert.deepEqual(
+      graph.edges.map((edge) => edge.id),
+      ["edge:shared", "edge:single"],
+    );
+    assert.deepEqual(
+      graph.visibleNodes.map((node) => node.id),
+      ["library:A", "external:shared"],
+    );
+    assert.deepEqual(
+      graph.visibleEdges.map((edge) => edge.id),
+      ["edge:shared"],
+    );
+    assert.deepEqual(
+      graph.hoverOnlyNodes.map((node) => node.id),
+      ["external:single"],
+    );
+    assert.deepEqual(
+      graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["edge:single"],
+    );
+  });
+
   it("renders deterministic self-contained packages", async function () {
     const rootA = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-render-a-"),

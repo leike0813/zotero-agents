@@ -46,7 +46,7 @@ Workbench SHALL present reference sidecar refresh progress from real stage count
 - **AND** it SHALL NOT display an invented percent for a long stage with unknown total.
 
 ### Requirement: Workbench separates graph data rebuild from layout rebuild
-Workbench SHALL present Citation Graph cache rebuild and Citation Graph layout rebuild as separate operations.
+Workbench SHALL present Citation Graph cache rebuild and Citation Graph layout rebuild as separate operations. Its visible Citation Graph projection SHALL retain library nodes without edges. It SHALL keep an external or unresolved node hidden with no currently visible library source, expose it only through the source's hover neighborhood with one distinct currently visible library source, and admit it to the default projection only with at least two distinct currently visible library sources.
 
 #### Scenario: Graph cache is missing
 - **WHEN** Graph tab has missing graph cache basis
@@ -68,7 +68,50 @@ Workbench SHALL present Citation Graph cache rebuild and Citation Graph layout r
 #### Scenario: Graph direction and hover labels are visible
 - **WHEN** Citation Graph edges are rendered
 - **THEN** Workbench SHALL use directed edge rendering and target-tinted edge color
-- **AND** hovering an external neighbor of a selected library node SHALL show the external node title.
+- **AND** every edge SHALL remain hidden without hover or selection
+- **AND** edges incident to the selected node, the pointer-hovered node, or an explicitly selected edge SHALL be visible
+- **AND** selected and pointer-hovered neighborhoods SHALL be rendered as a union
+- **AND** hovering any visible node while another node is selected SHALL show the hovered node title without changing the selection.
+
+#### Scenario: Selection and pointer hover overlap
+- **WHEN** one node is selected and the pointer hovers another node
+- **THEN** Workbench SHALL retain both nodes' eligible one-source neighborhoods and incident edges
+- **AND** leaving the pointer-hovered node SHALL remove only its transient neighborhood
+- **AND** the selected node SHALL continue to own the selection drawer.
+
+#### Scenario: A halo node is pointer-hovered
+- **WHEN** the pointer hovers a current-paper or importance-halo node
+- **THEN** Workbench SHALL draw both its halo and its title.
+
+#### Scenario: Hover remains stable while pages arrive
+- **WHEN** a continuation page for the current Graph query arrives while a visible node is hovered
+- **THEN** the hovered node title and its incident edges SHALL remain visible without requiring the pointer to leave and re-enter the node.
+
+#### Scenario: An external node has no visible library source
+- **WHEN** an external or unresolved node has no incoming edge from a currently visible library node
+- **THEN** Workbench SHALL exclude that node and its edges from both the default and hover-only projections.
+
+#### Scenario: An external node has one visible library source
+- **WHEN** exactly one distinct currently visible library node cites an external or unresolved node
+- **THEN** Workbench SHALL exclude that external node from the default projection
+- **AND** it SHALL materialize the node and its qualifying edge only while the visible library source is hovered or selected.
+
+#### Scenario: An external node has two visible library sources
+- **WHEN** at least two distinct currently visible library nodes cite an external or unresolved node
+- **THEN** Workbench SHALL retain that external node in the default projection
+- **AND** it SHALL retain every qualifying incoming edge from those visible library sources
+- **AND** those retained edges SHALL remain interaction-scoped
+- **AND** repeated mentions or parallel evidence from one library source SHALL NOT increase the distinct-source count.
+
+#### Scenario: A library node has no visible edge
+- **WHEN** a library node has no edge under the current visible projection
+- **THEN** Workbench SHALL retain the library node.
+
+#### Scenario: SVG fallback applies the shared projection
+- **WHEN** the constrained standalone renderer uses its SVG fallback
+- **THEN** zero-source external nodes SHALL be omitted and one-source external nodes SHALL be absent at rest
+- **AND** hovering a visible library source SHALL temporarily materialize only its eligible one-source neighbors and incident edges
+- **AND** the fallback SHALL render no edge at rest.
 
 #### Scenario: Graph cache is ready but layout is missing
 - **WHEN** graph data exists but layout coordinates are missing or dirty
@@ -222,3 +265,27 @@ paper rows without exposing the internal score-only parameter.
 
 - **WHEN** the parent row's mode is `unavailable`
 - **THEN** the Analyze action SHALL be disabled.
+
+### Requirement: Workbench SHALL render a bounded, endpoint-closed Citation Graph interaction topology
+
+After active filters and distinct-source visibility projection, Workbench SHALL collapse parallel raw citation records into one directed visual edge per source-target pair while preserving raw records for details. A selected or pointer-hovered owner SHALL materialize at most 100 deterministically ranked interaction-only neighbors with screen-relative separation from the owner.
+
+#### Scenario: Parallel citation records share endpoints
+
+- **WHEN** multiple filtered citation records have the same source and target
+- **THEN** Workbench SHALL render one visual edge whose count is their normalized sum
+- **AND** it SHALL NOT leave an interaction-only node visible without an incident visual edge.
+
+#### Scenario: A graph node is selected
+
+- **WHEN** Workbench renders the node detail drawer
+- **THEN** it SHALL separately report distinct incoming library source papers and incoming citation records for the current loaded view.
+
+### Requirement: Workbench SHALL describe Citation Graph layout activity truthfully
+
+The host SHALL own layout mutations and SHALL coalesce requests for the same graph hash and algorithm. Rendering and node selection SHALL NOT trigger layout mutation.
+
+#### Scenario: Layout state is not running
+
+- **WHEN** layout state is missing, stale, ready, or failed
+- **THEN** Workbench SHALL NOT describe it as refreshing.

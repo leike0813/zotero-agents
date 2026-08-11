@@ -1412,6 +1412,9 @@ synthesis-graph-legend-node-size = Knotengröße = eingehende Zitate
 synthesis-graph-legend-halo = Halo = am häufigsten zitierte sichtbare Knoten
 synthesis-graph-legend-current-paper = Aktuelle Arbeit
 synthesis-graph-citations-title = Zitate
+synthesis-graph-incoming-source-papers-current-view = Eingehende Quellpublikationen (aktuelle Ansicht)
+synthesis-graph-incoming-citation-records-current-view = Eingehende Zitationsnachweise (aktuelle Ansicht)
+synthesis-graph-interaction-neighbors-previewed-current-view = Angezeigte Interaktionsnachbarn (aktuelle Ansicht)
 synthesis-topic-graph-legend-hierarchy = Hierarchie
 synthesis-topic-graph-legend-related = Verwandt
 synthesis-topic-graph-legend-overlap = Überlappung

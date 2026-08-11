@@ -1412,6 +1412,9 @@ synthesis-graph-legend-node-size = 节点大小 = 入站引用数
 synthesis-graph-legend-halo = 光环 = 可见节点中高被引项
 synthesis-graph-legend-current-paper = 当前论文
 synthesis-graph-citations-title = 引用
+synthesis-graph-incoming-source-papers-current-view = 入向来源论文（当前视图）
+synthesis-graph-incoming-citation-records-current-view = 入向引用记录（当前视图）
+synthesis-graph-interaction-neighbors-previewed-current-view = 已预览交互邻居（当前视图）
 synthesis-topic-graph-legend-hierarchy = 层级
 synthesis-topic-graph-legend-related = 相关
 synthesis-topic-graph-legend-overlap = 重叠

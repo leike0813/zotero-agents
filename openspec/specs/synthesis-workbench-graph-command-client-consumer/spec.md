@@ -194,7 +194,7 @@ This migration SHALL retain 125 public Synthesis service methods, exactly four d
 - **AND** Graph algorithms, repositories, operation persistence, and public service methods SHALL remain unchanged
 
 ### Requirement: Workbench SHALL load Citation Graph pages incrementally
-The Workbench SHALL render the first bounded Graph page and then request continuation pages serially while the Graph tab and current generation remain active. It SHALL merge nodes and edges by stable ID without rebuilding the graph canvas or managed control and selection regions.
+The Workbench SHALL render the first bounded Graph page and then request continuation pages serially while the Graph tab and current generation remain active. It SHALL merge nodes and edges by stable ID without rebuilding the graph canvas or managed control and selection regions, SHALL preserve valid graph interaction state across same-query page merges, and SHALL derive external-node visibility from the distinct currently visible library sources accumulated for the active projection.
 
 #### Scenario: Background loading completes within the soft limit
 - **WHEN** the active graph contains 7,432 nodes and 11,377 edges under the current query
@@ -203,6 +203,24 @@ The Workbench SHALL render the first bounded Graph page and then request continu
 #### Scenario: A page arrives
 - **WHEN** a valid continuation page is merged
 - **THEN** existing Sigma canvas, camera, selection, focus, control drawer, and selection drawer identities are preserved
+- **AND** a hovered node that remains visible keeps its title and incident-edge presentation
+- **AND** a selected node and a distinct hovered node retain the union of their neighborhoods.
+
+#### Scenario: External source edges arrive on separate pages
+- **WHEN** an external or unresolved node and its first incoming edge from a visible library source have arrived
+- **THEN** the Workbench SHALL keep that external neighborhood hover-only
+- **WHEN** an incoming edge from a second distinct visible library source arrives for the same node
+- **THEN** the Workbench SHALL promote the node and its qualifying incoming edges into the default projection without replacing the graph canvas
+- **AND** the promoted edges SHALL remain hidden until their node neighborhood is hovered or selected
+
+#### Scenario: Repeated evidence from one source arrives
+- **WHEN** multiple edges or reference mentions from the same visible library source target one external or unresolved node
+- **THEN** they SHALL count as one source for projection visibility
+
+#### Scenario: Initial standalone projection matches subsequent projection
+- **WHEN** a standalone Citation Graph envelope is opened before any control interaction
+- **THEN** the Workbench SHALL derive its default and hover-only partitions from the complete graph using the active filters
+- **AND** applying the same filters again SHALL NOT change those partitions
 
 ### Requirement: Workbench Graph windows SHALL reject stale work
 The Workbench SHALL bind page and slice merges to generation, graph hash, and query signature. Leaving the Graph tab, changing filters, invalidating the graph, changing layout, or cleaning up the runtime SHALL stop subsequent requests and cause in-flight stale results to be discarded.
@@ -228,6 +246,23 @@ Incoming, outgoing, and bidirectional one-hop patches SHALL use the same ID-base
 #### Scenario: The same neighborhood is expanded twice
 - **WHEN** an identical valid slice patch is merged repeatedly
 - **THEN** no duplicate node or edge is created and the next page cursor is unchanged
+
+#### Scenario: Neighborhood expansion has no topic filter
+- **WHEN** the active topic scope is all topics
+- **THEN** the slice request SHALL omit `topicId` instead of serializing an undefined value
+- **AND** merging the slice SHALL preserve known node coordinates and the active continuation-page owner.
+
+### Requirement: Workbench SHALL coordinate Citation Graph layout operations in the host
+Automatic and manual layout requests SHALL share a host-owned singleflight keyed by graph hash and algorithm. Existing refreshing work SHALL be observed instead of duplicated, and stale asynchronous chrome reads SHALL NOT replace a newer terminal state.
+
+#### Scenario: The graph application is already busy
+- **WHEN** layout mutation returns `graph_application_busy`
+- **THEN** Workbench SHALL treat it as non-fatal contention and observe the current layout state
+- **AND** it SHALL NOT publish an error toast or preserve a false Running state.
+
+#### Scenario: Workbench frames share one host window
+- **WHEN** a fallback action message is received
+- **THEN** only the runtime whose exact frame window is the message source SHALL handle it.
 
 ### Requirement: Topic graph exports SHALL be complete or explicitly fail
 Topic HTML and graph export SHALL aggregate every required topic page and layout page under one stable basis. If an export safety limit is reached before completion, the operation SHALL return a typed failure and SHALL NOT emit a silently incomplete graph.

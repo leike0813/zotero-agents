@@ -20,6 +20,7 @@ import {
 import {
   classifySynthesisWorkbenchGraphMutationResult,
   createSynthesisWorkbenchGraphLayoutFailure,
+  isSynthesisWorkbenchGraphApplicationBusyError,
   resolveSynthesisWorkbenchGraphLayoutStatus,
   selectSynthesisWorkbenchGraphLayoutFailure,
   toSynthesisWorkbenchReadState,
@@ -241,13 +242,30 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(failure.message, "\u0000");
   });
 
+  it("recognizes graph application contention without converting it to a layout failure", function () {
+    assert.isTrue(
+      isSynthesisWorkbenchGraphApplicationBusyError(
+        new SynthesisClientError("storage_busy", "Citation Graph is busy", {
+          status: "graph_application_busy",
+        }),
+      ),
+    );
+    assert.isFalse(
+      isSynthesisWorkbenchGraphApplicationBusyError(
+        new SynthesisClientError("invalid_request", "Bad layout request", {
+          status: "invalid_request",
+        }),
+      ),
+    );
+  });
+
   it("merges Citation Graph pages by id and rejects stale generations", function () {
     const initial = createSynthesisCitationGraphWindow({ generation: 3 });
     const first = mergeSynthesisCitationGraphPage(initial, {
       generation: 3,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [{ id: "a" }, { id: "b" }],
+      nodes: [{ id: "a", x: 12, y: 24 }, { id: "b" }],
       edges: [{ id: "a-b", source: "a", target: "b" }],
       nextCursor: "cursor-1",
       hasMore: true,
@@ -259,7 +277,11 @@ describe("Synthesis tab UI model", function () {
       generation: 3,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [{ id: "b" }, { id: "c" }],
+      nodes: [
+        { id: "a", x: undefined, y: undefined },
+        { id: "b" },
+        { id: "c" },
+      ],
       edges: [
         { id: "a-b", source: "a", target: "b" },
         { id: "b-c", source: "b", target: "c" },
@@ -304,7 +326,7 @@ describe("Synthesis tab UI model", function () {
       generation: 1,
       graphHash: "graph-a",
       querySignature: "query-a",
-      nodes: [{ id: "a" }, { id: "b" }],
+      nodes: [{ id: "a", x: 12, y: 24 }, { id: "b" }],
       edges: [{ id: "a-b", source: "a", target: "b" }],
       nextCursor: "cursor-1",
       hasMore: true,
@@ -326,6 +348,7 @@ describe("Synthesis tab UI model", function () {
     });
     assert.isTrue(sliced.accepted);
     assert.equal(sliced.window.nextCursor, "cursor-1");
+    assert.deepInclude(sliced.window.nodes[0], { id: "a", x: 12, y: 24 });
     const repeated = mergeSynthesisCitationGraphSlice(sliced.window, {
       generation: 1,
       graphHash: "graph-a",
@@ -647,7 +670,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-concepts-empty");
     assert.include(source, "synthesis-graph-no-data");
     assert.include(source, "synthesis-graph-drawing");
-    assert.include(source, "function addHoverNeighborhood");
     assert.include(source, "synthesis-graph-node-counts");
     assert.include(source, "display_tier");
     assert.include(source, "synthesis-tags-cache-ready");
@@ -743,7 +765,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "state.sigma?.refresh()");
     const focusSearchBlock = extractFunctionBlock(app, "focusSearch");
     assert.notInclude(focusSearchBlock, ".animate(");
-    assert.include(focusSearchBlock, "state.hoverLabelNode = match.id");
+    assert.include(focusSearchBlock, "state.focusedLabelNode = match.id");
     assert.include(app, "function currentGraphSearchQuery");
     assert.include(app, "function graphNodeMatchesSearchText");
     assert.include(app, "function graphTopicScopeOptions");
@@ -785,15 +807,14 @@ describe("Synthesis tab UI model", function () {
     assert.include(uiModel, "refreshCitationGraphCacheIncrementalNow");
     const filterGraphBlock = extractFunctionBlock(uiModel, "filterGraph");
     assert.include(filterGraphBlock, "topicScopes");
-    assert.include(filterGraphBlock, "topicSourceIds");
-    assert.include(filterGraphBlock, "topicScopedNodeIds");
+    assert.include(filterGraphBlock, "projectCitationGraphVisibility");
     assert.notInclude(
       filterGraphBlock,
       "includesText(searchable(node), filters.search)",
     );
   });
 
-  it("renders citation graph direction and hover labels for pinned external neighbors", async function () {
+  it("renders citation graph direction and interaction labels", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
     const block = extractFunctionBlock(source, "syncSigmaGraph");
@@ -817,12 +838,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(edgeAttributes, "hidden: true");
     assert.include(edgeAttributes, "size: CITATION_GRAPH_EDGE_SIZE");
     assert.include(block, "hidden: !visible");
-    assert.include(block, "target === activeNode");
+    assert.include(block, "target === directionOwner");
     assert.include(block, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(block, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
-    assert.include(block, "hoverLabelNode");
-    assert.include(block, "graph.areNeighbors(node, pinnedNode)");
-    assert.include(block, "node === state.hoverLabelNode");
     assert.include(css, ".citation-graph-legend");
     assert.include(css, ".citation-graph-legend-edge::after");
     assert.include(css, ".graph-zoom-overlay");
@@ -1943,10 +1961,15 @@ describe("Synthesis tab UI model", function () {
 
     assert.deepEqual(
       snapshot.graph.visibleNodes.map((node) => node.id),
-      ["paper:a", "ref:external:x"],
+      ["paper:a"],
+    );
+    assert.deepEqual(snapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      snapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["ref:external:x"],
     );
     assert.deepEqual(
-      snapshot.graph.visibleEdges.map((edge) => edge.id),
+      snapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
       ["e1"],
     );
     assert.deepEqual(
@@ -2000,11 +2023,16 @@ describe("Synthesis tab UI model", function () {
 
     assert.deepEqual(
       snapshot.graph.visibleNodes.map((node) => node.id),
-      ["zotero:item:A", "ref:X", "ref:Y"],
+      ["zotero:item:A"],
+    );
+    assert.deepEqual(snapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      snapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["ref:X"],
     );
     assert.deepEqual(
-      snapshot.graph.visibleEdges.map((edge) => edge.id),
-      ["e1", "e2"],
+      snapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e1"],
     );
     assert.equal(snapshot.graph.selectedTopicScope?.title, "Topic A");
 
@@ -2015,84 +2043,95 @@ describe("Synthesis tab UI model", function () {
     assert.equal(allState.graph.topicId, "all");
   });
 
-  it("keeps low-degree external graph nodes out of the rendered graph while preserving drawer data", function () {
+  it("derives filtered external visibility from distinct library sources while preserving drawer data", function () {
     const input = {
       libraryId: 1,
       graph: {
         graph_hash: "sha256:graph",
-        nodes: [{ id: "paper:a", label: "A", kind: "library_paper" as const }],
-        edges: [],
-        hoverOnlyNodes: [
+        nodes: [
+          { id: "paper:a", label: "A", kind: "library_paper" as const },
+          { id: "paper:b", label: "B", kind: "library_paper" as const },
+          {
+            id: "lit:shared",
+            label: "Shared External",
+            kind: "external_reference" as const,
+          },
           {
             id: "lit:single",
-            label: "Unique External",
+            label: "Single External",
             kind: "external_reference" as const,
-            visibility: "hover_only" as const,
-            display_tier: "single_external" as const,
-            external_degree: 1,
+          },
+          {
+            id: "lit:zero",
+            label: "Disconnected External",
+            kind: "unresolved_reference" as const,
           },
         ],
-        hoverOnlyEdges: [
+        edges: [
           {
-            id: "e-single",
+            id: "e-a-shared",
+            source: "paper:a",
+            target: "lit:shared",
+            primary_role: "background",
+          },
+          {
+            id: "e-b-shared",
+            source: "paper:b",
+            target: "lit:shared",
+            primary_role: "method",
+          },
+          {
+            id: "e-a-single",
             source: "paper:a",
             target: "lit:single",
-            primary_role: "citation",
-            visibility: "hover_only" as const,
+            primary_role: "background",
           },
         ],
       },
     };
 
-    input.graph.nodes.push({
-      id: "lit:misclassified-single",
-      label: "Misclassified Single",
-      kind: "external_reference",
-      visibility: "default",
-      display_tier: "shared_external",
-      external_degree: 1,
-    });
-    input.graph.edges.push({
-      id: "e-misclassified-single",
-      source: "paper:a",
-      target: "lit:misclassified-single",
-      visibility: "default",
-    });
-
     const defaultSnapshot = buildSynthesisUiSnapshot(
       input,
       createDefaultSynthesisUiState(),
     );
-    const searchState = applySynthesisUiAction(
-      createDefaultSynthesisUiState(),
-      {
-        action: "setFilters",
-        payload: { graph: { search: "Unique" } },
-      },
-    ).state;
-    const searchedSnapshot = buildSynthesisUiSnapshot(input, searchState);
+    const roleState = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "setGraphView",
+      payload: { role: "background" },
+    }).state;
+    const roleSnapshot = buildSynthesisUiSnapshot(input, roleState);
 
     assert.deepEqual(
       defaultSnapshot.graph.visibleNodes.map((node) => node.id),
-      ["paper:a"],
+      ["paper:a", "paper:b", "lit:shared"],
     );
-    assert.deepEqual(defaultSnapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      defaultSnapshot.graph.visibleEdges.map((edge) => edge.id),
+      ["e-a-shared", "e-b-shared"],
+    );
     assert.deepEqual(
       defaultSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
-      ["lit:misclassified-single", "lit:single"],
+      ["lit:single"],
     );
     assert.deepEqual(
-      searchedSnapshot.graph.visibleNodes.map((node) => node.id),
-      ["paper:a"],
-    );
-    assert.deepEqual(searchedSnapshot.graph.visibleEdges, []);
-    assert.deepEqual(
-      searchedSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
-      ["lit:misclassified-single", "lit:single"],
+      defaultSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e-a-single"],
     );
     assert.deepEqual(
-      searchedSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
-      ["e-misclassified-single", "e-single"],
+      roleSnapshot.graph.visibleNodes.map((node) => node.id),
+      ["paper:a", "paper:b"],
+    );
+    assert.deepEqual(roleSnapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      roleSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["lit:shared", "lit:single"],
+    );
+    assert.sameMembers(
+      roleSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e-a-shared", "e-a-single"],
+    );
+    assert.sameMembers(
+      defaultSnapshot.graph.nodes.map((node) => node.id),
+      ["paper:a", "paper:b", "lit:shared", "lit:single", "lit:zero"],
     );
   });
 
@@ -2203,14 +2242,75 @@ describe("Synthesis tab UI model", function () {
       tabSource,
       ".rebuildCitationGraphProjection()\n      .finally",
     );
-    assert.include(appSource, "maybeRequestGraphLayoutRefresh");
-    assert.include(appSource, 'reason: "auto"');
+    assert.notInclude(appSource, "maybeRequestGraphLayoutRefresh");
+    assert.include(tabSource, "graphLayoutRefreshes");
+    assert.include(tabSource, "event.source !== runtime.frameWindow");
     assert.include(renderGraphBlock, "layoutFailed");
     assert.include(renderGraphBlock, "synthesis-graph-layout-failed-body");
     assert.include(renderGraphBlock, "makeGraphLayoutRecomputeButton");
     assert.include(appSource, "graphLayoutFailure(snapshot)");
     assert.include(appSource, "makeCitationGraphLayoutFailureDebugDetails");
     assert.include(appSource, "mutation status");
+  });
+
+  it("omits absent graph slice filters and keeps local publications on the current graph owner", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const expandBlock = extractFunctionBlock(host, "expandGraphNeighborhood");
+    const sendBlock = extractFunctionBlock(host, "performSurfaceSend");
+
+    assert.include(expandBlock, '...(runtime.state.graph.topicId === "all"');
+    assert.notInclude(
+      expandBlock,
+      "topicId:\n        runtime.state.graph.topicId",
+    );
+    assert.include(sendBlock, "currentSurfaceRequest");
+    assert.include(sendBlock, "presentationOnly");
+  });
+
+  it("coordinates graph layout once and rejects stale or cross-frame state", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const refreshBlock = extractFunctionBlock(
+      host,
+      "refreshGraphLayoutIfNeeded",
+    );
+    const recomputeBlock = extractFunctionBlock(
+      host,
+      "recomputeWorkbenchCitationGraphLayout",
+    );
+    const observeBlock = extractFunctionBlock(
+      host,
+      "observeCurrentCitationGraphLayout",
+    );
+    const bridgeBlock = extractFunctionBlock(host, "attachWorkbenchBridge");
+    const chromeBlock = extractFunctionBlock(host, "sendChrome");
+    const progressBlock = extractFunctionBlock(
+      host,
+      "refreshWorkbenchCommandProgress",
+    );
+
+    assert.notInclude(app, "maybeRequestGraphLayoutRefresh");
+    assert.include(refreshBlock, 'status === "refreshing"');
+    assert.include(refreshBlock, "observeCurrentCitationGraphLayout");
+    assert.include(recomputeBlock, "graphLayoutRefreshes.get(key)");
+    assert.include(
+      recomputeBlock,
+      "isSynthesisWorkbenchGraphApplicationBusyError",
+    );
+    assert.include(bridgeBlock, "event.source !== runtime.frameWindow");
+    assert.include(chromeBlock, "readRevision !== runtime.chromeReadRevision");
+    assert.include(
+      progressBlock,
+      "readRevision !== runtime.chromeReadRevision",
+    );
+    assert.include(observeBlock, "client.graph.getPersistedLayout");
+    assert.notInclude(observeBlock, "sendSurface");
   });
 
   it("routes Citation Graph commands through the callback-free Graph client", async function () {
@@ -2280,10 +2380,8 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(automaticLayoutBlock, 'status === "ready"');
     assert.include(automaticLayoutBlock, 'status === "failed"');
-    assert.include(
-      automaticLayoutBlock,
-      "!runtime.snapshotInput?.graph?.graph_hash",
-    );
+    assert.include(automaticLayoutBlock, "!graph?.graph_hash");
+    assert.include(automaticLayoutBlock, 'status === "refreshing"');
     assert.notInclude(automaticLayoutBlock, "force: true");
     assert.notInclude(automaticLayoutBlock, "getDefaultSynthesisService");
     assert.notMatch(
@@ -4920,33 +5018,26 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'from "sigma/rendering"');
     assert.include(source, "function drawGraphImportanceHalo");
     assert.include(source, "function drawGraphNodeHover");
-    assert.include(
-      source,
-      "if (data.importanceHalo && !data.importanceInteractive)",
-    );
     assert.include(source, "drawDiscNodeHover");
     assert.include(source, "defaultDrawNodeHover: drawGraphNodeHover");
     assert.include(source, "function graphNodeImportanceColor");
-    assert.include(source, "importanceInteractive");
-    assert.include(source, "activeHaloNode");
     assert.include(source, "GRAPH_LIBRARY_IMPORTANCE_HALO_DARK");
     assert.include(source, "GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT");
     assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK");
     assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT");
     assert.include(source, "importanceHalo");
-    assert.include(
-      source,
-      "highlighted: importance?.halo || currentPaperNode || false",
-    );
     assert.include(source, "currentPaperNode");
     assert.include(source, "isCurrentPaperGraphNode");
     assert.include(source, "synthesis-graph-legend-current-paper");
     assert.include(source, "graph-selection-drawer-compact");
     assert.include(
       source,
-      "currentPaperNode || (data.importanceHalo && searchMatch)",
+      '"synthesis-graph-incoming-source-papers-current-view"',
     );
-    assert.include(source, '"incoming citations"');
+    assert.include(
+      source,
+      '"synthesis-graph-incoming-citation-records-current-view"',
+    );
     assert.include(source, "if (!state.standaloneExport) {\n      fields.push");
     assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
@@ -4964,13 +5055,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(uiModel, "function normalizeGraphNodeMetrics");
     assert.include(uiModel, "internal_in_degree");
     assert.include(uiModel, "internal_out_degree");
-    assert.include(source, "addHoverNeighborhood");
     assert.include(source, "scheduleHoverClear");
     assert.include(source, "cancelScheduledHoverClear");
     assert.include(source, "showHoverLabel");
-    assert.include(source, "node === state.hoveredNode");
-    assert.include(source, "selectedGraphHoverNode");
-    assert.include(source, "pinnedHoverNode");
     assert.include(source, 'renderer.on("clickStage"');
     assert.include(source, "selectedElement: null");
     assert.include(source, "collectSelectedNodeCitations");
@@ -4990,6 +5077,9 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(source, "state.dynamicHoverNodeIds.add");
     assert.include(source, "state.dynamicHoverEdgeIds.add");
+    assert.include(source, "aggregateCitationGraphVisualEdges");
+    assert.include(source, "selectCitationGraphInteractionEdges");
+    assert.include(source, "citationGraphInteractionOffsets");
     assert.include(source, "graph.dropEdge");
     assert.include(source, "graph.dropNode");
     assert.include(source, "sidecar-runtime-indicator");
