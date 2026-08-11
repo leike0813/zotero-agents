@@ -44,7 +44,11 @@ import type {
   SynthesisOperationRecord,
   SynthesisOperationStatusUpdate,
 } from "../../synthesis-repository/src/index.js";
-import { projectSynthesisCitationGraphBuildRecords } from "./citationGraphProjection.js";
+import {
+  projectSynthesisCitationGraphBuildRecords,
+  projectSynthesisCitationGraphDefaultRecords,
+  synthesisCitationGraphRecordKind,
+} from "./citationGraphProjection.js";
 
 export type SynthesisCitationGraphApplicationRepository = {
   initializeCitationGraphApplication(): void;
@@ -126,23 +130,6 @@ function emptyMutation(
   });
 }
 
-function graphKind(record: SynthesisCitationNodeRecord) {
-  try {
-    const summary = JSON.parse(record.summaryJson || "{}") as {
-      kind?: unknown;
-    };
-    if (
-      summary.kind === "external_reference" ||
-      summary.kind === "unresolved_reference"
-    ) {
-      return summary.kind;
-    }
-  } catch {
-    // Strict repository rebuilding owns corruption handling; use binding here.
-  }
-  return record.hasZoteroBinding ? "library_paper" : "external_reference";
-}
-
 function metricRequest(
   state: SynthesisCitationGraphApplicationStateRecord,
   nodes: SynthesisCitationNodeRecord[],
@@ -152,7 +139,7 @@ function metricRequest(
     graphHash: state.graphHash,
     nodes: nodes.map((node) => ({
       nodeId: node.literatureItemId,
-      kind: graphKind(node),
+      kind: synthesisCitationGraphRecordKind(node),
       ...(node.title ? { title: node.title } : {}),
       ...(node.year ? { year: node.year } : {}),
     })),
@@ -583,7 +570,7 @@ export function createSynthesisCitationGraphApplication(options: Options) {
         algorithm: request.preset,
         nodes: slice.nodes.map((node) => ({
           nodeId: node.literatureItemId,
-          kind: graphKind(node),
+          kind: synthesisCitationGraphRecordKind(node),
           ...(node.title ? { title: node.title } : {}),
           ...(node.year ? { year: node.year } : {}),
           initialX: initialCoordinate(node.literatureItemId, "x"),
@@ -733,27 +720,58 @@ function layoutSlice(
   request: SynthesisCitationGraphApplicationLayoutRequest,
 ) {
   if (request.scope.kind === "slice") {
-    return projectSlice(repository, {
+    const slice = projectSlice(repository, {
       rootNodeId: request.scope.rootNodeId,
       depth: request.scope.depth,
       direction: request.scope.direction,
       roleFilter: [],
       includeLowSignal: true,
-      maxNodes: request.maxNodes,
-      maxEdges: request.maxEdges,
+      maxNodes: Number.MAX_SAFE_INTEGER,
+      maxEdges: Number.MAX_SAFE_INTEGER,
     });
+    return boundDefaultLayoutProjection(slice, request);
   }
   const allNodes = repository.listCitationNodes();
   const selectedIds =
     request.scope.kind === "explicit"
       ? new Set(request.scope.nodeIds)
       : new Set(allNodes.map((node) => node.literatureItemId));
-  const nodes = allNodes
-    .filter((node) => selectedIds.has(node.literatureItemId))
-    .slice(0, request.maxNodes);
-  const allowed = new Set(nodes.map((node) => node.literatureItemId));
+  const candidateNodes = allNodes.filter((node) =>
+    selectedIds.has(node.literatureItemId),
+  );
+  const candidateIds = new Set(
+    candidateNodes.map((node) => node.literatureItemId),
+  );
   const edges = repository
     .listCitationEdges()
+    .filter(
+      (edge) =>
+        candidateIds.has(edge.sourceLiteratureItemId) &&
+        Boolean(
+          edge.targetLiteratureItemId &&
+          candidateIds.has(edge.targetLiteratureItemId),
+        ),
+    );
+  return boundDefaultLayoutProjection(
+    { nodes: candidateNodes, edges },
+    request,
+  );
+}
+
+function boundDefaultLayoutProjection(
+  records: {
+    nodes: SynthesisCitationNodeRecord[];
+    edges: SynthesisCitationEdgeRecord[];
+  },
+  request: Pick<
+    SynthesisCitationGraphApplicationLayoutRequest,
+    "maxNodes" | "maxEdges"
+  >,
+) {
+  const projected = projectSynthesisCitationGraphDefaultRecords(records);
+  const nodes = projected.nodes.slice(0, request.maxNodes);
+  const allowed = new Set(nodes.map((node) => node.literatureItemId));
+  const edges = projected.edges
     .filter(
       (edge) =>
         allowed.has(edge.sourceLiteratureItemId) &&

@@ -70,6 +70,28 @@ function buildInput(title = "Alpha") {
   };
 }
 
+function buildInputWithSingleSourceExternal() {
+  const input = buildInput();
+  return {
+    ...input,
+    references: [
+      ...input.references,
+      {
+        referenceId: "reference:external",
+        edgeId: "edge:0-external",
+        sourceId: "paper:a",
+        targetId: "external:reference",
+        targetKind: "external_reference" as const,
+        targetTitle: "Single-source external",
+        targetAuthors: [],
+        targetAliases: [],
+        roles: ["background"],
+        weight: 1,
+      },
+    ],
+  };
+}
+
 const compute: SynthesisCitationGraphApplicationCompute = {
   async build(request) {
     return computeSynthesisCitationGraphBuild(request);
@@ -269,6 +291,98 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
       [["A"], ["B"]],
     );
     second.close();
+  });
+
+  it("retains single-source external rows while excluding them from layout input", async function () {
+    const root = tempRoot();
+    roots.push(root);
+    const repository = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot: root,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    const layoutInputs: Array<{ nodeIds: string[]; edgeIds: string[] }> = [];
+    const application = createSynthesisCitationGraphApplication({
+      repository: repository.store,
+      compute: {
+        ...compute,
+        async layout(request, options) {
+          layoutInputs.push({
+            nodeIds: request.nodes.map((node) => node.nodeId),
+            edgeIds: request.edges.map((edge) => edge.edgeId),
+          });
+          return compute.layout(request, options);
+        },
+      },
+    });
+
+    const created = await application.rebuildFull({
+      expectedGraphHash: null,
+      force: false,
+      input: buildInputWithSingleSourceExternal(),
+    });
+    assert.equal(created.status, "promoted");
+    const slice = application.readSlice({
+      rootNodeId: "paper:a",
+      includeLowSignal: true,
+    });
+    assert.include(
+      slice.nodes.map((node) => node.literatureItemId),
+      "external:reference",
+    );
+    assert.include(
+      slice.edges.map((edge) => edge.edgeId),
+      "edge:0-external",
+    );
+
+    const layout = await application.recomputeLayout({
+      preset: "force",
+      scope: { kind: "full" },
+      maxNodes: 200,
+      maxEdges: 500,
+    });
+    assert.equal(layout.status, "promoted");
+    const explicitLayout = await application.recomputeLayout({
+      preset: "radial",
+      scope: {
+        kind: "explicit",
+        nodeIds: ["paper:a", "reference:external"],
+      },
+      maxNodes: 200,
+      maxEdges: 500,
+    });
+    assert.equal(explicitLayout.status, "promoted");
+    const sliceLayout = await application.recomputeLayout({
+      preset: "components",
+      scope: {
+        kind: "slice",
+        rootNodeId: "paper:a",
+        depth: 1,
+        direction: "both",
+      },
+      maxNodes: 200,
+      maxEdges: 500,
+    });
+    assert.equal(sliceLayout.status, "promoted");
+    const boundedSliceLayout = await application.recomputeLayout({
+      preset: "force",
+      scope: {
+        kind: "slice",
+        rootNodeId: "paper:a",
+        depth: 1,
+        direction: "both",
+      },
+      maxNodes: 2,
+      maxEdges: 1,
+    });
+    assert.equal(boundedSliceLayout.status, "promoted");
+    assert.deepEqual(layoutInputs, [
+      { nodeIds: ["paper:a", "paper:b"], edgeIds: ["edge:1"] },
+      { nodeIds: ["paper:a"], edgeIds: [] },
+      { nodeIds: ["paper:a", "paper:b"], edgeIds: ["edge:1"] },
+      { nodeIds: ["paper:a", "paper:b"], edgeIds: ["edge:1"] },
+    ]);
+    repository.close();
   });
 
   it("fails competing mutation immediately while reads remain responsive", async function () {

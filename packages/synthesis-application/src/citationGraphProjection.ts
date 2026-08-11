@@ -76,6 +76,71 @@ export type SynthesisCitationGraphProjectedRecords =
     lightweightMetrics: SynthesisCitationLightMetricsRecord[];
   };
 
+export function synthesisCitationGraphRecordKind(
+  record: SynthesisCitationNodeRecord,
+) {
+  try {
+    const summary = JSON.parse(record.summaryJson || "{}") as {
+      kind?: unknown;
+    };
+    if (
+      summary.kind === "external_reference" ||
+      summary.kind === "unresolved_reference"
+    ) {
+      return summary.kind;
+    }
+  } catch {
+    // Repository validation owns corrupt summaries; binding is the safe fallback.
+  }
+  return record.hasZoteroBinding ? "library_paper" : "external_reference";
+}
+
+export function projectSynthesisCitationGraphDefaultRecords(args: {
+  nodes: readonly SynthesisCitationNodeRecord[];
+  edges: readonly SynthesisCitationEdgeRecord[];
+}) {
+  const nodeById = new Map(
+    args.nodes.map((node) => [node.literatureItemId, node]),
+  );
+  const librarySourcesByExternal = new Map<string, Set<string>>();
+  for (const edge of args.edges) {
+    const targetId = edge.targetLiteratureItemId;
+    if (!targetId) continue;
+    const source = nodeById.get(edge.sourceLiteratureItemId);
+    const target = nodeById.get(targetId);
+    if (
+      !source ||
+      !target ||
+      synthesisCitationGraphRecordKind(source) !== "library_paper" ||
+      synthesisCitationGraphRecordKind(target) === "library_paper"
+    ) {
+      continue;
+    }
+    const sourceIds =
+      librarySourcesByExternal.get(targetId) || new Set<string>();
+    sourceIds.add(source.literatureItemId);
+    librarySourcesByExternal.set(targetId, sourceIds);
+  }
+  const nodes = args.nodes.filter((node) => {
+    if (synthesisCitationGraphRecordKind(node) === "library_paper") {
+      return true;
+    }
+    return (
+      (librarySourcesByExternal.get(node.literatureItemId)?.size || 0) >= 2
+    );
+  });
+  const visibleIds = new Set(nodes.map((node) => node.literatureItemId));
+  const edges = args.edges.filter(
+    (edge) =>
+      visibleIds.has(edge.sourceLiteratureItemId) &&
+      Boolean(
+        edge.targetLiteratureItemId &&
+        visibleIds.has(edge.targetLiteratureItemId),
+      ),
+  );
+  return { nodes, edges };
+}
+
 export function projectSynthesisCitationGraphBuildRecords(args: {
   request: SynthesisCitationGraphBuildRequest;
   result: SynthesisCitationGraphBuildResult;

@@ -5070,16 +5070,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(source, "graph-selection-drawer");
     assert.include(source, "graph.selection");
-    assert.include(source, "snapshot.graph.hoverOnlyEdges");
-    assert.include(
-      source,
-      "snapshot.graph.hoverOnlyNodes.map((node) => [node.id, node])",
-    );
-    assert.include(source, "state.dynamicHoverNodeIds.add");
-    assert.include(source, "state.dynamicHoverEdgeIds.add");
     assert.include(source, "aggregateCitationGraphVisualEdges");
-    assert.include(source, "selectCitationGraphInteractionEdges");
-    assert.include(source, "citationGraphInteractionOffsets");
     assert.include(source, "graph.dropEdge");
     assert.include(source, "graph.dropNode");
     assert.include(source, "sidecar-runtime-indicator");

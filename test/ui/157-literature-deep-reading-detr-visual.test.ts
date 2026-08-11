@@ -1362,13 +1362,12 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       await fallbackPage.locator('[data-node-id="library:A"]').hover();
       await fallbackPage.waitForTimeout(180);
       const hovered = await readSvg();
-      assert.sameMembers(hovered.nodeIds, [
+      assert.deepEqual(hovered.nodeIds, [
         "library:A",
         "library:B",
         "external:shared",
-        "external:single",
       ]);
-      assert.equal(hovered.edgeCount, 2);
+      assert.equal(hovered.edgeCount, 1);
 
       await fallbackPage.mouse.move(850, 650);
       await fallbackPage.waitForTimeout(180);
@@ -1398,12 +1397,20 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         );
       });
       await fallbackPage.waitForTimeout(100);
-      assert.equal((await readSvg()).edgeCount, 2);
+      assert.deepEqual(await readSvg(), {
+        nodeIds: ["library:A", "library:B", "external:shared"],
+        edgeCount: 1,
+      });
 
       await fallbackPage.locator('[data-node-id="library:B"]').hover();
       await fallbackPage.waitForTimeout(180);
       const selectedAndHovered = await readSvg();
-      assert.equal(selectedAndHovered.edgeCount, 3);
+      assert.deepEqual(selectedAndHovered.nodeIds, [
+        "library:A",
+        "library:B",
+        "external:shared",
+      ]);
+      assert.equal(selectedAndHovered.edgeCount, 2);
       assert.include(
         await fallbackPage.locator(".graph-node-label").allTextContents(),
         "B",
@@ -1411,15 +1418,16 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
 
       await fallbackPage.mouse.move(850, 650);
       await fallbackPage.waitForTimeout(180);
-      assert.equal((await readSvg()).edgeCount, 2);
+      assert.equal((await readSvg()).edgeCount, 1);
     } finally {
       await fallbackPage.close();
     }
   });
 
-  it("preserves hover titles and incident edges when the current graph page expands", async function () {
+  it("preserves hover titles and incident edges when a same-query page arrives", async function () {
     await page.reload({ waitUntil: "load" });
-    await sendSnapshot(lifecycleSnapshot());
+    const snapshot = interactionSnapshot();
+    await sendSnapshot(snapshot);
     await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
 
     const beforePage = await page.evaluate(() => {
@@ -1445,7 +1453,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     });
     assert.deepEqual(beforePage, { label: "Alpha", edgeHidden: false });
 
-    await sendGraphPage(lifecycleSnapshot({ expanded: true }));
+    await sendGraphPage(snapshot);
     const afterPage = await page.evaluate(() => {
       const renderer = (
         window as Window & {
@@ -1469,7 +1477,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     assert.deepEqual(pageErrors, []);
   });
 
-  it("renders selected and pointer-hovered neighborhoods as a stable union", async function () {
+  it("keeps supplemental single-source rows out of stable interaction topology", async function () {
     await page.reload({ waitUntil: "load" });
     const crowdedSnapshot = interactionSnapshot("zotero:item:A");
     for (let index = 0; index < 100; index += 1) {
@@ -1521,11 +1529,11 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
       };
     });
     assert.deepEqual(selectedOnly, {
-      alphaOnlyPresent: true,
+      alphaOnlyPresent: false,
       betaOnlyPresent: false,
       alphaSharedHidden: false,
       gammaSharedHidden: true,
-      alphaOnlyHidden: false,
+      alphaOnlyHidden: undefined,
     });
 
     const selectedAndHovered = await page.evaluate(() => {
@@ -1558,16 +1566,16 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     });
     assert.deepEqual(selectedAndHovered, {
       betaLabel: "Beta",
-      alphaOnlyPresent: true,
-      betaOnlyPresent: true,
+      alphaOnlyPresent: false,
+      betaOnlyPresent: false,
       alphaSharedHidden: false,
-      alphaOnlyHidden: false,
-      betaOnlyHidden: false,
+      alphaOnlyHidden: undefined,
+      betaOnlyHidden: undefined,
       parallelEdgePresent: false,
     });
     assert.include(
       (await page.locator(".graph-selection-drawer").textContent()) || "",
-      "Alpha",
+      "Alpha-only external",
     );
 
     await sendGraphPage(crowdedSnapshot);
@@ -1597,10 +1605,10 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
     });
     assert.deepEqual(afterPage, {
       betaLabel: "Beta",
-      alphaOnlyPresent: true,
-      betaOnlyPresent: true,
-      alphaOnlyHidden: false,
-      betaOnlyHidden: false,
+      alphaOnlyPresent: false,
+      betaOnlyPresent: false,
+      alphaOnlyHidden: undefined,
+      betaOnlyHidden: undefined,
     });
     assert.isTrue(identityBefore.sameSurface);
     assert.isTrue(identityAfterPage.sameStage);
@@ -1659,7 +1667,7 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
           }
         : null;
     });
-    assert.deepEqual(pickedOwner, { label: "Alpha", order: 104 });
+    assert.deepEqual(pickedOwner, { label: "Alpha", order: 4 });
 
     await page.evaluate(() => {
       (
@@ -1691,10 +1699,33 @@ describe("Synthesis Citation Graph WebGL lifecycle", function () {
         : null;
     });
     assert.deepEqual(afterLeave, {
-      alphaOnlyPresent: true,
+      alphaOnlyPresent: false,
       betaOnlyPresent: false,
-      alphaOnlyHidden: false,
+      alphaOnlyHidden: undefined,
     });
+
+    const selectionUpdate = structuredClone(crowdedSnapshot);
+    selectionUpdate.graph.selectedElement = {
+      kind: "node",
+      id: "zotero:item:B",
+    };
+    selectionUpdate.graph.layoutStatus = "refreshing";
+    if (selectionUpdate.graph.page) {
+      selectionUpdate.graph.page.layoutStatus = "refreshing";
+    }
+    await sendSurface(selectionUpdate, 200);
+    const identityAfterSelection = await graphIdentity();
+    assert.isTrue(identityAfterSelection.sameSurface);
+    assert.isTrue(identityAfterSelection.sameStage);
+    assert.isTrue(identityAfterSelection.sameCanvases);
+    assert.isTrue(identityAfterSelection.sameContexts);
+    assert.isTrue(identityAfterSelection.sameControls);
+    assert.isTrue(identityAfterSelection.sameSelection);
+    assert.equal(await page.locator(".graph-layout-banner").count(), 0);
+    assert.include(
+      (await page.locator(".graph-selection-drawer").textContent()) || "",
+      "Beta-only external",
+    );
 
     const sharedHovered = await page.evaluate(() => {
       const renderer = (

@@ -234,7 +234,7 @@ Graph display rules:
 - External incoming degree is the number of distinct library source nodes, not the number of raw reference instances.
 - Graph edges are read-model projections aggregated by source-target pair. Repeated references from one source accumulate mention, role, and source-reference evidence without increasing incoming degree; raw reference-instance rows remain unchanged for provenance.
 - External nodes with incoming degree greater than 1 should be shown by default as shared external references and participate in layout.
-- External nodes with incoming degree 1 are hover-only by default and do not participate in the default layout graph.
+- External nodes with incoming degree 1 remain supplemental data for citation details, but never enter the visual or layout graph on hover or selection.
 - If graph structure exists but layout is missing or stale, the UI should draw using available coordinates when possible and offer explicit layout refresh.
 - If graph cache is stale and stale delta metadata exists, the UI should offer explicit incremental graph cache refresh. If graph cache is missing or stale without delta metadata, the UI should offer explicit graph cache rebuild, not layout rebuild.
 

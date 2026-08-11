@@ -626,7 +626,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
     "Loaded %nodes% of %totalNodes% nodes and %edges% of %totalEdges% edges",
   "synthesis-graph-loading-failed": "Graph loading stopped before completion.",
   "synthesis-graph-node-counts":
-    "%library% library, %shared% shared external, %hoverOnly% hover-only external hidden",
+    "%library% library, %shared% shared external, %singleSourceHidden% single-source external hidden",
   "synthesis-graph-no-data": "No citation graph data",
   "synthesis-graph-empty-topic-title": "No citation graph nodes for %topic%",
   "synthesis-graph-empty-topic-message":
@@ -658,8 +658,6 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
     "Incoming source papers (current view)",
   "synthesis-graph-incoming-citation-records-current-view":
     "Incoming citation records (current view)",
-  "synthesis-graph-interaction-neighbors-previewed-current-view":
-    "Interaction neighbors previewed (current view)",
   "synthesis-topic-graph-legend-hierarchy": "Hierarchy",
   "synthesis-topic-graph-legend-related": "Related",
   "synthesis-topic-graph-legend-overlap": "Overlap",

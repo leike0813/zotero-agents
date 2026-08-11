@@ -9,7 +9,6 @@ import {
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
   projectCitationGraphVisibility,
-  selectCitationGraphInteractionEdges,
 } from "./citationGraphVisualRules";
 
 export type CitationGraphNodeKind = "library_paper" | "external_reference";
@@ -286,53 +285,29 @@ function renderSvgCitationGraph(
         ? model.selectedElement.id
         : undefined;
     const pointerNode = state.pointerHoveredNode;
+    const visibleNodeIds = new Set(model.nodes.map((node) => node.id));
     const ownerIds = Array.from(
       new Set(
-        [selectedNode, pointerNode].filter((nodeId): nodeId is string => {
-          if (!nodeId) return false;
-          return (
-            model.nodes.some((node) => node.id === nodeId) ||
-            model.hoverOnlyNodes.some((node) => node.id === nodeId)
-          );
-        }),
+        [selectedNode, pointerNode].filter((nodeId): nodeId is string =>
+          Boolean(nodeId && visibleNodeIds.has(nodeId)),
+        ),
       ),
     );
-    const allProjectedNodes = [...model.nodes, ...model.hoverOnlyNodes];
-    const activeHoverOnlyEdges = selectCitationGraphInteractionEdges({
-      ownerIds,
-      nodes: allProjectedNodes.map((node) => ({
-        ...node,
-        label: node.title,
-      })),
-      edges: model.hoverOnlyEdges,
-    });
-    const activeHoverOnlyNodeIds = new Set(
-      activeHoverOnlyEdges.flatMap((edge) => [edge.source, edge.target]),
-    );
-    const visibleNodes = [
-      ...model.nodes,
-      ...model.hoverOnlyNodes.filter((node) =>
-        activeHoverOnlyNodeIds.has(node.id),
-      ),
-    ];
-    const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
+    const visibleNodes = model.nodes;
     const visibleEdges = ownerIds.length
-      ? aggregateCitationGraphVisualEdges([
-          ...model.edges,
-          ...activeHoverOnlyEdges,
-        ]).filter(
+      ? aggregateCitationGraphVisualEdges(model.edges).filter(
           (edge) =>
             ownerIds.some((ownerId) => connectedToActive(edge, ownerId)) &&
             visibleNodeIds.has(edge.source) &&
             visibleNodeIds.has(edge.target),
         )
       : [];
-    const projector = svgPointProjector(allProjectedNodes, graphStage);
+    const projector = svgPointProjector(visibleNodes, graphStage);
     const importanceByNodeId = buildCitationGraphNodeImportance(
       model.nodes,
       aggregateCitationGraphVisualEdges(model.edges),
     );
-    const nodeById = new Map(allProjectedNodes.map((node) => [node.id, node]));
+    const nodeById = new Map(visibleNodes.map((node) => [node.id, node]));
     const adjacency = new Map<string, Set<string>>();
     for (const edge of visibleEdges) {
       if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());

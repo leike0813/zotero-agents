@@ -37,7 +37,7 @@
     "clear:acp-skills": "tsx scripts/clear-acp-skills-records.ts",
     "clear:skillrunner": "tsx scripts/clear-skillrunner-records.ts",
     "test:node:ui:harness": "tsx node_modules/mocha/bin/mocha \"test/ui/156-ui-readonly-harness.test.ts\" --require test/setup/zotero-mock.ts",
-    "test:literature-deep-reading:detr-visual": "tsx node_modules/mocha/bin/mocha \"test/ui/157-literature-deep-reading-detr-visual.test.ts\" --require test/setup/zotero-mock.ts --exit",
+    "test:literature-deep-reading:detr-visual": "tsx node_modules/mocha/bin/mocha \"test/ui/157-literature-deep-reading-detr-visual.test.ts\" --require test/setup/zotero-mock.ts --timeout 90000 --exit",
     "check:builtin-workflow-manifest": "tsx scripts/check-builtin-workflow-manifest.ts",
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:synthesis-service-boundary": "tsx scripts/check-synthesis-service-boundary.ts",

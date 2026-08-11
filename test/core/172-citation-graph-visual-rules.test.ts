@@ -3,12 +3,10 @@ import {
   aggregateCitationGraphVisualEdges,
   buildCitationGraphNodeImportance,
   citationGraphIncomingCounts,
-  citationGraphInteractionOffsets,
   citationGraphNodeSize,
   GRAPH_LIBRARY_BASE_NODE_SIZE,
   GRAPH_LIBRARY_NODE_SIZE_CAP,
   projectCitationGraphVisibility,
-  selectCitationGraphInteractionEdges,
 } from "../../src/shared/citationGraphVisualRules";
 
 describe("Citation graph visual rules", function () {
@@ -77,7 +75,7 @@ describe("Citation graph visual rules", function () {
     assert.equal(first?.halo, true);
   });
 
-  it("partitions external nodes by distinct visible library sources", function () {
+  it("keeps single-source external rows supplemental until a second distinct source arrives", function () {
     const libraryIsolate = {
       id: "library:isolate",
       kind: "library_paper" as const,
@@ -162,6 +160,14 @@ describe("Citation graph visual rules", function () {
       projection.hoverOnlyEdges.map((edge) => edge.id),
       ["edge:a:single:first", "edge:a:single:repeat"],
     );
+    assert.notInclude(
+      projection.defaultNodes.map((node) => node.id),
+      singleExternal.id,
+    );
+    assert.notInclude(
+      projection.defaultEdges.map((edge) => edge.target),
+      singleExternal.id,
+    );
   });
 
   it("collapses parallel raw records into one deterministic visual edge", function () {
@@ -237,42 +243,5 @@ describe("Citation graph visual rules", function () {
     ]);
 
     assert.deepEqual(counts, { sourcePaperCount: 2, citationRecordCount: 6 });
-  });
-
-  it("bounds and deterministically ranks interaction neighborhoods per owner", function () {
-    const nodes = [
-      { id: "library:a", kind: "library_paper" as const, label: "Owner" },
-      ...Array.from({ length: 105 }, (_, index) => ({
-        id: `external:${String(index).padStart(3, "0")}`,
-        kind: "external_reference" as const,
-        label: `Reference ${String(index).padStart(3, "0")}`,
-      })),
-    ];
-    const edges = nodes.slice(1).map((node, index) => ({
-      id: `edge:${String(index).padStart(3, "0")}`,
-      source: "library:a",
-      target: node.id,
-      mention_count: index === 104 ? 99 : 1,
-    }));
-
-    const selected = selectCitationGraphInteractionEdges({
-      ownerIds: ["library:a"],
-      nodes,
-      edges,
-    });
-    assert.lengthOf(selected, 100);
-    assert.equal(selected[0].id, "edge:104");
-    assert.notInclude(
-      selected.map((edge) => edge.id),
-      "edge:099",
-    );
-
-    const offsets = citationGraphInteractionOffsets(100, 2);
-    assert.lengthOf(offsets, 100);
-    assert.isAtLeast(Math.hypot(offsets[0].x, offsets[0].y), 56);
-    assert.isAbove(
-      Math.hypot(offsets[99].x, offsets[99].y),
-      Math.hypot(offsets[0].x, offsets[0].y),
-    );
   });
 });

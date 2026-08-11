@@ -8,9 +8,11 @@ Defines the Synthesis Workbench client consumer contract for graph command opera
 ### Requirement: Workbench graph reads SHALL receive a renderable native projection
 
 `getSynthesisWorkbenchSurfaceInput` for `graph` SHALL return an explicit graph
-object containing the active graph hash, public UI nodes and edges, hover-only
-rows, layout status, diagnostics, and topic scopes. Missing fields SHALL NOT be
-used to represent a rebuilt graph.
+object containing the active graph hash, public UI nodes and edges, supplemental
+single-source rows, layout status, diagnostics, and topic scopes. Missing fields
+SHALL NOT be used to represent a rebuilt graph. Supplemental single-source rows
+SHALL remain data-only inputs for details and SHALL NOT be promoted by hover or
+selection.
 
 #### Scenario: Rebuild succeeds before layout exists
 - **WHEN** Workbench refreshes the graph surface after a successful rebuild
@@ -21,6 +23,11 @@ used to represent a rebuilt graph.
 - **WHEN** Workbench refreshes the same graph and the normalized layout is ready
 - **THEN** every displayed node receives finite coordinates
 - **AND** the ready layout does not trigger another automatic recomputation
+
+#### Scenario: Supplemental single-source rows are returned
+- **WHEN** the native graph surface includes an external node cited by exactly one distinct visible library source
+- **THEN** the row remains available to details and counts
+- **AND** the client SHALL NOT add the node or its edge to the visual or layout projection
 
 ### Requirement: Citation Graph commands use a bounded client capability
 
@@ -194,7 +201,7 @@ This migration SHALL retain 125 public Synthesis service methods, exactly four d
 - **AND** Graph algorithms, repositories, operation persistence, and public service methods SHALL remain unchanged
 
 ### Requirement: Workbench SHALL load Citation Graph pages incrementally
-The Workbench SHALL render the first bounded Graph page and then request continuation pages serially while the Graph tab and current generation remain active. It SHALL merge nodes and edges by stable ID without rebuilding the graph canvas or managed control and selection regions, SHALL preserve valid graph interaction state across same-query page merges, and SHALL derive external-node visibility from the distinct currently visible library sources accumulated for the active projection.
+The Workbench SHALL render the first bounded Graph page and then request continuation pages serially while the Graph tab and current generation remain active. It SHALL merge nodes and edges by stable ID without rebuilding the graph canvas or managed control and selection regions, SHALL preserve valid graph interaction state across same-query page merges, and SHALL derive external-node visibility from the distinct currently visible library sources accumulated for the active projection. External nodes with fewer than two distinct visible library sources SHALL remain supplemental data in every interaction state.
 
 #### Scenario: Background loading completes within the soft limit
 - **WHEN** the active graph contains 7,432 nodes and 11,377 edges under the current query
@@ -204,14 +211,14 @@ The Workbench SHALL render the first bounded Graph page and then request continu
 - **WHEN** a valid continuation page is merged
 - **THEN** existing Sigma canvas, camera, selection, focus, control drawer, and selection drawer identities are preserved
 - **AND** a hovered node that remains visible keeps its title and incident-edge presentation
-- **AND** a selected node and a distinct hovered node retain the union of their neighborhoods.
+- **AND** a selected node and a distinct hovered node retain the union of their default-projection edge emphasis.
 
 #### Scenario: External source edges arrive on separate pages
 - **WHEN** an external or unresolved node and its first incoming edge from a visible library source have arrived
-- **THEN** the Workbench SHALL keep that external neighborhood hover-only
+- **THEN** the Workbench SHALL keep that external node and edge out of the visual and layout projections in every interaction state
 - **WHEN** an incoming edge from a second distinct visible library source arrives for the same node
 - **THEN** the Workbench SHALL promote the node and its qualifying incoming edges into the default projection without replacing the graph canvas
-- **AND** the promoted edges SHALL remain hidden until their node neighborhood is hovered or selected
+- **AND** the promoted edges SHALL remain hidden until their default-projection neighborhood is hovered or selected
 
 #### Scenario: Repeated evidence from one source arrives
 - **WHEN** multiple edges or reference mentions from the same visible library source target one external or unresolved node
@@ -219,7 +226,7 @@ The Workbench SHALL render the first bounded Graph page and then request continu
 
 #### Scenario: Initial standalone projection matches subsequent projection
 - **WHEN** a standalone Citation Graph envelope is opened before any control interaction
-- **THEN** the Workbench SHALL derive its default and hover-only partitions from the complete graph using the active filters
+- **THEN** the Workbench SHALL derive its default and supplemental single-source partitions from the complete graph using the active filters
 - **AND** applying the same filters again SHALL NOT change those partitions
 
 ### Requirement: Workbench Graph windows SHALL reject stale work
@@ -252,8 +259,19 @@ Incoming, outgoing, and bidirectional one-hop patches SHALL use the same ID-base
 - **THEN** the slice request SHALL omit `topicId` instead of serializing an undefined value
 - **AND** merging the slice SHALL preserve known node coordinates and the active continuation-page owner.
 
+#### Scenario: A neighborhood slice is merged during continuation loading
+- **WHEN** a user expands a node while continuation pages for the current graph generation are loading
+- **THEN** optional filters with no value SHALL be absent from the slice request
+- **AND** the slice SHALL preserve existing node coordinates and the active page request owner
+- **AND** continuation loading SHALL continue for the same graph generation.
+
 ### Requirement: Workbench SHALL coordinate Citation Graph layout operations in the host
 Automatic and manual layout requests SHALL share a host-owned singleflight keyed by graph hash and algorithm. Existing refreshing work SHALL be observed instead of duplicated, and stale asynchronous chrome reads SHALL NOT replace a newer terminal state.
+
+#### Scenario: Concurrent layout requests target one basis
+- **WHEN** the automatic and explicit layout paths request the same graph hash and layout algorithm
+- **THEN** the host SHALL run at most one layout mutation and observe it to a terminal state
+- **AND** an older Running response SHALL NOT overwrite a newer terminal response.
 
 #### Scenario: The graph application is already busy
 - **WHEN** layout mutation returns `graph_application_busy`

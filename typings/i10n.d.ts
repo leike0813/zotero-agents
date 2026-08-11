@@ -1169,7 +1169,6 @@ export type FluentMessageId =
   | 'synthesis-graph-empty-topic-title'
   | 'synthesis-graph-incoming-citation-records-current-view'
   | 'synthesis-graph-incoming-source-papers-current-view'
-  | 'synthesis-graph-interaction-neighbors-previewed-current-view'
   | 'synthesis-graph-layout-computing'
   | 'synthesis-graph-layout-failed-body'
   | 'synthesis-graph-layout-refreshing-body'

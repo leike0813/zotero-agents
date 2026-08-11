@@ -3,7 +3,6 @@ export const GRAPH_MAX_ZOOM_RATIO = 2.4;
 export const GRAPH_ZOOM_SLIDER_MAX = 100;
 export const GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6;
 export const GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3;
-export const GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE = 2;
 export const GRAPH_LIBRARY_NODE_SIZE_CAP = 8;
 export const GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8;
 export const GRAPH_IMPORTANCE_HALO_TOP_RATIO = 0.1;
@@ -23,10 +22,9 @@ export const GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT =
 export const CITATION_GRAPH_EDGE_SIZE = 1.05;
 export const CITATION_GRAPH_INCOMING_EDGE_COLOR = "#d97706";
 export const CITATION_GRAPH_OUTGOING_EDGE_COLOR = "#7c3aed";
-export const CITATION_GRAPH_INTERACTION_NEIGHBOR_LIMIT = 100;
-export const CITATION_GRAPH_INTERACTION_RING_RADIUS_PX = 28;
-export const CITATION_GRAPH_INTERACTION_RING_GAP_PX = 22;
-export const CITATION_GRAPH_INTERACTION_MIN_ARC_PX = 18;
+const CITATION_GRAPH_FALLBACK_RADIUS_PX = 28;
+const CITATION_GRAPH_FALLBACK_RING_GAP_PX = 22;
+const CITATION_GRAPH_FALLBACK_MIN_ARC_PX = 18;
 
 export type CitationGraphVisualNode = {
   id: string;
@@ -124,50 +122,7 @@ export function citationGraphIncomingCounts(
   };
 }
 
-export function selectCitationGraphInteractionEdges(args: {
-  ownerIds: readonly string[];
-  nodes: readonly CitationGraphVisualNode[];
-  edges: readonly CitationGraphVisualEdge[];
-  limitPerOwner?: number;
-}) {
-  const nodeById = new Map(args.nodes.map((node) => [node.id, node]));
-  const edges = aggregateCitationGraphVisualEdges(args.edges);
-  const limit = Math.max(
-    0,
-    Math.floor(args.limitPerOwner ?? CITATION_GRAPH_INTERACTION_NEIGHBOR_LIMIT),
-  );
-  const selected: typeof edges = [];
-  const selectedIds = new Set<string>();
-  for (const ownerId of args.ownerIds) {
-    const ranked = edges
-      .filter((edge) => edge.source === ownerId || edge.target === ownerId)
-      .sort((left, right) => {
-        const mentionDelta =
-          normalizedCitationMentionCount(right) -
-          normalizedCitationMentionCount(left);
-        if (mentionDelta) return mentionDelta;
-        const leftNeighbor =
-          left.source === ownerId ? left.target : left.source;
-        const rightNeighbor =
-          right.source === ownerId ? right.target : right.source;
-        const titleDelta = String(
-          nodeById.get(leftNeighbor)?.label || leftNeighbor,
-        ).localeCompare(
-          String(nodeById.get(rightNeighbor)?.label || rightNeighbor),
-        );
-        return titleDelta || left.id.localeCompare(right.id);
-      })
-      .slice(0, limit);
-    for (const edge of ranked) {
-      if (selectedIds.has(edge.id)) continue;
-      selectedIds.add(edge.id);
-      selected.push(edge);
-    }
-  }
-  return selected;
-}
-
-export function citationGraphInteractionOffsets(
+export function citationGraphFallbackOffsets(
   count: number,
   graphUnitsPerPixel: number,
 ) {
@@ -177,13 +132,11 @@ export function citationGraphInteractionOffsets(
   let ring = 0;
   while (remaining > 0) {
     const radiusPx =
-      CITATION_GRAPH_INTERACTION_RING_RADIUS_PX +
-      ring * CITATION_GRAPH_INTERACTION_RING_GAP_PX;
+      CITATION_GRAPH_FALLBACK_RADIUS_PX +
+      ring * CITATION_GRAPH_FALLBACK_RING_GAP_PX;
     const capacity = Math.max(
       1,
-      Math.floor(
-        (Math.PI * 2 * radiusPx) / CITATION_GRAPH_INTERACTION_MIN_ARC_PX,
-      ),
+      Math.floor((Math.PI * 2 * radiusPx) / CITATION_GRAPH_FALLBACK_MIN_ARC_PX),
     );
     const ringCount = Math.min(remaining, capacity);
     for (let index = 0; index < ringCount; index += 1) {
@@ -413,9 +366,6 @@ function citationGraphNodeBaseSize(node: CitationGraphVisualNode) {
   if (node.kind === "library_paper") return GRAPH_LIBRARY_BASE_NODE_SIZE;
   if (node.display_tier === "shared_external") {
     return GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE;
-  }
-  if (node.display_tier === "single_external") {
-    return GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE;
   }
   return 2.5;
 }
