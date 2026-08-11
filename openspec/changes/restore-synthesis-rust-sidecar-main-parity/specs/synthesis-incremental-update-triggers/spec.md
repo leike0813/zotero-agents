@@ -22,3 +22,17 @@ Graph and related-items caches SHALL become stale only when reference, binding, 
 - **WHEN** a source's digest descriptor changes and all graph input facts are unchanged
 - **THEN** its artifact metadata may update
 - **AND** graph-related cache bases remain unchanged
+
+### Requirement: Canonical maintenance SHALL expose one autosync epoch
+
+Reference sidecar refresh SHALL enter the production canonical-maintenance epoch before detached work starts. A promoted terminal SHALL mark the epoch dirty, while unchanged, failed, canceled, timed-out, or panicked terminals SHALL drain the worker without marking a canonical commit.
+
+#### Scenario: Reference refresh overlaps short canonical writes
+- **WHEN** one or more short canonical writes commit while Reference refresh is active
+- **THEN** the shared epoch is marked dirty
+- **AND** the WebDAV debounce begins only after the Reference worker drains
+
+#### Scenario: Reference refresh does not promote
+- **WHEN** a Reference refresh returns unchanged or a non-success terminal
+- **THEN** that result does not independently schedule WebDAV autosync
+- **AND** the maintenance worker count is released on every return and panic path

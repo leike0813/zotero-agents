@@ -25,6 +25,7 @@ import {
   startSynthesisProductionRouteSidecar as start,
   stopSynthesisProductionRouteSidecar as stop,
   synthesisProductionRouteConfig as config,
+  waitForSynthesisProductionRouteEvidence,
   waitForSynthesisProductionRouteReceipt,
 } from "../helpers/synthesisProductionRouteHarness";
 import { executeSynthesisProductionRouteScenarios } from "../helpers/synthesisProductionRouteScenarios";
@@ -362,6 +363,46 @@ function topicApplyRequest(topicId: string) {
         }),
       },
     ],
+  };
+}
+
+function canonicalAutosyncHostFixture(options?: {
+  autoSyncEnabled?: boolean;
+  failRead?: boolean;
+}) {
+  return {
+    handle({ capability }: { capability: string }) {
+      if (capability === "webdav.describe") {
+        const enabled = options?.autoSyncEnabled !== false;
+        return {
+          status: enabled ? "available" : "disabled",
+          configStatus: enabled ? "configured" : "disabled",
+          autoSyncEnabled: enabled,
+          autoRetryEnabled: false,
+          baseUrl: enabled ? "https://webdav.invalid" : "",
+          remotePath: "zotero-agents",
+          username: "",
+          credentialUpdatedAt: "",
+          connectionTest: null,
+          diagnostics: enabled ? [] : ["webdav_sync_disabled"],
+        };
+      }
+      if (capability === "webdav.read_text") {
+        return options?.failRead
+          ? { status: "unavailable", diagnostics: ["fixture_read_failed"] }
+          : { status: "missing", diagnostics: [] };
+      }
+      if (capability === "webdav.ensure_collection") {
+        return { status: "ready", diagnostics: [] };
+      }
+      if (capability === "webdav.write_text") {
+        return { status: "written", etag: "fixture-etag", diagnostics: [] };
+      }
+      if (capability.startsWith("effects.")) {
+        return { status: "applied" };
+      }
+      return { status: "unavailable", diagnostics: [] };
+    },
   };
 }
 
@@ -1166,6 +1207,224 @@ describe("Synthesis Rust production client route", function () {
       );
     } finally {
       await harness.stop();
+    }
+  });
+
+  it("coalesces committed canonical mutations into one WebDAV publication", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "canonical-autosync-coalescing",
+      hostFixture: canonicalAutosyncHostFixture(),
+    });
+    try {
+      await harness.client.tags.initializeBuiltinTagPolicy();
+      const initial = await harness.client.tags.loadTagVocabulary();
+      const offset = harness.recorder.hostCalls.length;
+      await harness.client.tags.saveTagVocabulary({
+        entries: [
+          ...((initial.entries as unknown[]) || []),
+          { tag: "topic:autosync", facet: "topic", source: "manual" },
+        ],
+        aliases: initial.aliases,
+        abbrev: initial.abbrev,
+        protocol: initial.protocol,
+      });
+      const updated = await harness.client.tags.updateTagVocabularyEntry({
+        originalTag: "topic:autosync",
+        tag: "topic:autosync-renamed",
+        facet: "topic",
+        note: "Second commit inside the debounce window",
+      });
+      assert.isTrue(updated.mutated);
+
+      const headWrites = await waitForSynthesisProductionRouteEvidence({
+        read: () => harness.recorder.hostCalls,
+        offset,
+        matches: (entry) =>
+          entry.capability === "webdav.write_text" &&
+          entry.payload.path === "HEAD.json",
+        attempts: 1_500,
+        intervalMs: 5,
+      });
+      assert.lengthOf(headWrites, 1);
+      assert.lengthOf(
+        harness.recorder.hostCalls
+          .slice(offset)
+          .filter(
+            (entry) =>
+              entry.capability === "webdav.write_text" &&
+              entry.payload.path === "HEAD.json",
+          ),
+        1,
+      );
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("does not publish canonical commits while WebDAV autosync is disabled", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "canonical-autosync-disabled",
+      hostFixture: canonicalAutosyncHostFixture({ autoSyncEnabled: false }),
+    });
+    try {
+      await harness.client.tags.initializeBuiltinTagPolicy();
+      const initial = await harness.client.tags.loadTagVocabulary();
+      const offset = harness.recorder.hostCalls.length;
+      await harness.client.tags.saveTagVocabulary({
+        entries: [
+          ...((initial.entries as unknown[]) || []),
+          { tag: "topic:disabled-autosync", facet: "topic" },
+        ],
+        aliases: initial.aliases,
+        abbrev: initial.abbrev,
+        protocol: initial.protocol,
+      });
+      const descriptions = await waitForSynthesisProductionRouteEvidence({
+        read: () => harness.recorder.hostCalls,
+        offset,
+        matches: (entry) => entry.capability === "webdav.describe",
+        attempts: 1_500,
+        intervalMs: 5,
+      });
+      assert.isNotEmpty(descriptions);
+      assert.isFalse(
+        harness.recorder.hostCalls
+          .slice(offset)
+          .some((entry) =>
+            ["webdav.read_text", "webdav.write_text"].includes(
+              entry.capability,
+            ),
+          ),
+      );
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("preserves a committed canonical mutation when autosync fails remotely", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-canonical-autosync-failure-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "canonical-autosync-failure",
+      root,
+      hostFixture: canonicalAutosyncHostFixture({ failRead: true }),
+    });
+    try {
+      await harness.client.tags.initializeBuiltinTagPolicy();
+      const initial = await harness.client.tags.loadTagVocabulary();
+      const offset = harness.recorder.hostCalls.length;
+      await harness.client.tags.saveTagVocabulary({
+        entries: [
+          ...((initial.entries as unknown[]) || []),
+          { tag: "topic:remote-failure", facet: "topic" },
+        ],
+        aliases: initial.aliases,
+        abbrev: initial.abbrev,
+        protocol: initial.protocol,
+      });
+      const reads = await waitForSynthesisProductionRouteEvidence({
+        read: () => harness.recorder.hostCalls,
+        offset,
+        matches: (entry) => entry.capability === "webdav.read_text",
+        attempts: 1_500,
+        intervalMs: 5,
+      });
+      assert.isNotEmpty(reads);
+      assert.include(
+        (
+          (await harness.client.tags.loadTagVocabulary()).entries as Array<{
+            tag: string;
+          }>
+        ).map((entry) => entry.tag),
+        "topic:remote-failure",
+      );
+      await harness.stop();
+
+      harness = await startSynthesisProductionRouteHarness({
+        id: "canonical-autosync-failure-reopen",
+        root,
+        hostFixture: canonicalAutosyncHostFixture({ autoSyncEnabled: false }),
+      });
+      assert.include(
+        (
+          (await harness.client.tags.loadTagVocabulary()).entries as Array<{
+            tag: string;
+          }>
+        ).map((entry) => entry.tag),
+        "topic:remote-failure",
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes no-op and failed mutations and cancels pending autosync on shutdown", async function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-canonical-autosync-shutdown-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "canonical-autosync-shutdown",
+      root,
+      hostFixture: canonicalAutosyncHostFixture(),
+    });
+    try {
+      await harness.client.tags.initializeBuiltinTagPolicy();
+      const initial = await harness.client.tags.loadTagVocabulary();
+      const offset = harness.recorder.hostCalls.length;
+      assert.deepEqual(
+        await harness.client.tags.deleteTagVocabularyEntry({
+          originalTag: "topic:not-present",
+        }),
+        { mutated: false, deleted: [] },
+      );
+      let failed = false;
+      try {
+        await harness.call("client.saveTagVocabulary", { args: [{}] });
+      } catch {
+        failed = true;
+      }
+      assert.isTrue(failed);
+      await new Promise((resolve) => setTimeout(resolve, 5_200));
+      assert.isFalse(
+        harness.recorder.hostCalls
+          .slice(offset)
+          .some((entry) => entry.capability.startsWith("webdav.")),
+      );
+
+      await harness.client.tags.saveTagVocabulary({
+        entries: [
+          ...((initial.entries as unknown[]) || []),
+          { tag: "topic:shutdown-cancellation", facet: "topic" },
+        ],
+        aliases: initial.aliases,
+        abbrev: initial.abbrev,
+        protocol: initial.protocol,
+      });
+      await harness.stop();
+      assert.isFalse(
+        harness.recorder.hostCalls
+          .slice(offset)
+          .some((entry) => entry.capability.startsWith("webdav.")),
+      );
+
+      harness = await startSynthesisProductionRouteHarness({
+        id: "canonical-autosync-shutdown-reopen",
+        root,
+        hostFixture: canonicalAutosyncHostFixture({ autoSyncEnabled: false }),
+      });
+      assert.include(
+        (
+          (await harness.client.tags.loadTagVocabulary()).entries as Array<{
+            tag: string;
+          }>
+        ).map((entry) => entry.tag),
+        "topic:shutdown-cancellation",
+      );
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 

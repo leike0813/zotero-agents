@@ -192,11 +192,15 @@ idle → queued → syncing → blocked_conflict → failed_retryable → idle
 7. **Recover** — classify conflict and permanent validation failures without
    retry; retry transport failures at most four times when enabled.
 
-Canonical-write autosync is disabled by default. When enabled, service writes
-schedule one WebDAV run after the library write lock is released, with a
-five-second debounce and maintenance-epoch coalescing. The production
-composition owns the abort signal that cancels pending debounce and retry work
-when the service is invalidated.
+Canonical-write autosync follows the Host setting and is disabled by default.
+The Rust production composition observes application results at its shared
+post-commit boundary and schedules only fixed-baseline canonical mutations that
+also produced a repository SQL write. Inline writes use a five-second trailing
+debounce; concurrent Reference refresh receipt workers publish after their
+shared maintenance epoch drains. No-op, failed, projection-only, staged-only,
+job/log, and WebDAV-import writes are excluded. Explicit WebDAV controls and
+runtime shutdown cancel pending debounce work, while remote sync failure leaves
+the already committed local mutation intact.
 
 ---
 

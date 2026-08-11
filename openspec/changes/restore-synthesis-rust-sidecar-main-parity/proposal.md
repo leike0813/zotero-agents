@@ -19,6 +19,7 @@ The sidecar therefore cannot enter acceptance or authorize removal of the retain
 - Make Workbench UI state JSON-safe at its boundary, harden accepted layout work against timeout/panic/finalization gaps, and expose a bounded sidecar runtime status in the Workbench top bar.
 - Establish 10k full-experience and 25k bounded-degradation production-route gates before acceptance can resume.
 - Restore three baseline production chains that the premerge audit found unreachable despite their declared wire and reverse-Host capabilities: Topic digest representative-image reads, incremental Citation Graph Related Items synchronization, and staged Tag numeric parent-binding migration.
+- Restore the fixed baseline's canonical-mutation WebDAV autosync through one Rust post-commit hook with five-second coalescing, maintenance-epoch draining, and best-effort failure isolation.
 - Require route-level evidence from the real grouped-client entry point through Rust, SQLite, and reverse Host; capability declaration or isolated adapter tests alone do not establish behavioral reachability.
 
 ## Capabilities
@@ -42,6 +43,7 @@ None.
 - `synthesis-related-items-sync`: Restore Related Items planning, durable effect state, receipt coordination, ownership, undo, and echo semantics after successful manual incremental Graph refresh.
 - `synthesis-host-related-items-effect-port`: Restore strict batched Related Items reverse-Host application and receipt validation.
 - `synthesis-tag-vocabulary`: Migrate staged numeric parent bindings through the existing Host resolver before every staged entry point and once at startup.
+- `synthesis-webdav-durable-sync`: Schedule one best-effort WebDAV autosync after eligible canonical commits without coupling remote failure to the committed mutation.
 
 ## Impact
 

@@ -254,6 +254,13 @@ pub(crate) fn dispatch_production_client(
         )
     });
     emit_query_observation(capability, &outcome, sql_observation);
+    if let Ok(result) = outcome.as_ref() {
+        state.applications.canonical_autosync.observe_commit(
+            capability,
+            result,
+            sql_observation.write_count,
+        );
+    }
     let result = outcome?;
     record_semantic_mutation_result(
         capability,
@@ -333,6 +340,9 @@ fn resume_public_maintenance_operation(
         .get(&basis.capability)
         .and_then(|metadata| metadata.semantic_success.clone());
     let applications = Arc::clone(&state.applications);
+    let mut canonical_maintenance = applications
+        .canonical_autosync
+        .begin_maintenance(&basis.capability);
     let operation_id = operation_id.to_owned();
     let request_id = request_id.to_owned();
     observe_public_maintenance_accepted(state.applications.as_ref(), &operation_id)?;
@@ -357,19 +367,27 @@ fn resume_public_maintenance_operation(
                         );
                         return;
                     }
-                    let outcome = with_request_context(
-                        Duration::from_millis(basis.deadline_ms),
-                        debug_events_enabled().then_some(&request_id),
-                        || {
-                            with_operation_context(&operation_id, || {
-                                dispatch_typed_client(
-                                    applications.as_ref(),
-                                    &basis.capability,
-                                    &basis.args,
-                                )
-                            })
-                        },
-                    );
+                    let (outcome, sql_observation) = observe_repository_sql(|| {
+                        with_request_context(
+                            Duration::from_millis(basis.deadline_ms),
+                            debug_events_enabled().then_some(&request_id),
+                            || {
+                                with_operation_context(&operation_id, || {
+                                    dispatch_typed_client(
+                                        applications.as_ref(),
+                                        &basis.capability,
+                                        &basis.args,
+                                    )
+                                })
+                            },
+                        )
+                    });
+                    emit_query_observation(&basis.capability, &outcome, sql_observation);
+                    if let (Some(maintenance), Ok(result)) =
+                        (canonical_maintenance.as_mut(), outcome.as_ref())
+                    {
+                        maintenance.observe(result, sql_observation.write_count);
+                    }
                     finish_public_maintenance_observed(
                         applications.as_ref(),
                         &operation_id,
@@ -427,6 +445,9 @@ fn start_public_maintenance_operation(
     )?;
     let accepted_dto = public_maintenance_operation_dto(&accepted)?;
     let applications = Arc::clone(&state.applications);
+    let mut canonical_maintenance = applications
+        .canonical_autosync
+        .begin_maintenance(capability);
     let operation_id_for_worker = operation_id.clone();
     let capability_for_worker = capability.to_owned();
     let request_id_for_worker = request_id.to_owned();
@@ -472,6 +493,11 @@ fn start_public_maintenance_operation(
                         )
                     });
                     emit_query_observation(&capability_for_worker, &outcome, sql_observation);
+                    if let (Some(maintenance), Ok(result)) =
+                        (canonical_maintenance.as_mut(), outcome.as_ref())
+                    {
+                        maintenance.observe(result, sql_observation.write_count);
+                    }
                     if let Ok(result) = outcome.as_ref() {
                         record_semantic_mutation_result(
                             &capability_for_worker,
@@ -729,6 +755,7 @@ mod dispatch_integration_tests {
             "service".into(),
             root.join("webdav-state.json"),
         )
+        .expect("applications")
     }
 
     fn literature_digest_request() -> Value {

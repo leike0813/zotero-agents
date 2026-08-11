@@ -967,7 +967,8 @@ mod tests {
             None,
             "service".into(),
             root.join("webdav-state.json"),
-        );
+        )
+        .expect("applications");
         apps.host_items = host;
         apps
     }

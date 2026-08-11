@@ -1,4 +1,5 @@
 mod runtime_artifact_library_debug;
+mod runtime_canonical_autosync;
 mod runtime_capabilities;
 mod runtime_citation_graph_commands;
 mod runtime_citation_graph_read_surface;

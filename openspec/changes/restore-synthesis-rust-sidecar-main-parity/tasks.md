@@ -242,3 +242,12 @@
 - A successful manual incremental Citation Graph refresh now publishes `affected_source_refs`, plans deterministic Related Items effects from accepted library-to-library edges, persists each batch before Host I/O, and records an independent operation terminal. Focused tests covered mixed and malformed receipts, transport stop, early echo, pending retry ownership, protected pre-existing relations, revocation, and reopen.
 - Startup and all six staged Tag entry points share one migration gate. The route test injected only a legacy numeric staged row while the sidecar was stopped, then proved exact Host resolution, atomic revision rewrite, normal promotion, failure preservation, and retry; Rust tests additionally covered 101-ID batching and concurrent gate coalescing.
 - Rust format, warnings-denied Clippy, all 236 Rust workspace tests, the debug sidecar build, synthesis contracts, cross-language contracts, the closed 96-operation roster, the three affected surface parity gates, 19 focused TypeScript real-route/governance cases, strict change/spec validation, scoped Prettier, and diff whitespace checks passed. The pre-existing four application parity failures, performance-fixture failure, and full-core loading failure remain outside this phase and are not claimed as resolved.
+
+## 20. Restore Canonical Mutation WebDAV Autosync
+
+- [x] 20.1 Reopen the change with the fixed-baseline canonical-write trigger set, one Rust post-commit hook, five-second coalescing, maintenance-epoch draining, and best-effort failure isolation
+- [x] 20.2 Add failing table-driven coordinator and real production-route evidence for successful commit, no-op/failure exclusion, coalescing, disabled autosync, remote failure preservation, and shutdown cancellation
+- [x] 20.3 Implement the composition-owned autosync coordinator and route inline plus Reference-refresh receipt workers through the single post-commit classifier
+- [x] 20.4 Cancel pending autosync on explicit WebDAV control and shut down the owned worker before releasing production application owners
+- [x] 20.5 Correct active WebDAV/knowledge-graph documentation and append second-stage evidence to the premerge audit without changing the original conclusion
+- [x] 20.6 Run focused OpenSpec, contract, Rust, build, surface, real-route, formatting, and diff gates without claiming the remaining premerge blockers are resolved

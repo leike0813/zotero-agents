@@ -412,6 +412,7 @@ mod tests {
             "service".into(),
             root.join("webdav-state.json"),
         )
+        .expect("applications")
     }
 
     fn dispatch_owned(

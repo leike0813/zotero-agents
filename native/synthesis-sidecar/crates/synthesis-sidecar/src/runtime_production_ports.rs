@@ -59,6 +59,9 @@ use synthesis_repository::{
 };
 use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
+use crate::runtime_canonical_autosync::{
+    CANONICAL_AUTOSYNC_DEBOUNCE, CanonicalAutosyncCoordinator,
+};
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 use crate::runtime_reference_canonical::{
     ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
@@ -80,7 +83,8 @@ pub(crate) struct ProductionApplications {
     pub(crate) concepts: Arc<ConceptKbApplication>,
     pub(crate) topic_graph: Arc<TopicGraphApplication>,
     pub(crate) debug: DebugMaintenanceApplication,
-    pub(crate) webdav: WebDavSyncApplication,
+    pub(crate) webdav: Arc<WebDavSyncApplication>,
+    pub(crate) canonical_autosync: CanonicalAutosyncCoordinator,
     pub(crate) host_items: Arc<dyn HostItemCollectionPort>,
     pub(crate) topic_library: Arc<dyn TopicLibraryQueryPort>,
     config: Option<Arc<NativeLaunchConfig>>,
@@ -131,7 +135,7 @@ pub(crate) fn build_production_applications(
     config: Option<Arc<NativeLaunchConfig>>,
     service_instance_id: String,
     webdav_state_path: PathBuf,
-) -> ProductionApplications {
+) -> Result<ProductionApplications, String> {
     let canonical = Arc::new(CanonicalStorePort::new(canonical));
     let workbench = WorkbenchApplication::new(repository.clone());
     let host = Arc::new(ReverseHostApplicationPort {
@@ -243,7 +247,7 @@ pub(crate) fn build_production_applications(
         Arc::new(|| format!("durable-import:{}", utc_now_iso8601())),
         "synthesis-sidecar".into(),
     );
-    let webdav = WebDavSyncApplication::new(
+    let webdav = Arc::new(WebDavSyncApplication::new(
         host.clone(),
         Arc::new(FileWebDavStateStore {
             path: webdav_state_path,
@@ -251,8 +255,10 @@ pub(crate) fn build_production_applications(
         Arc::new(BoundedWebDavRetryScheduler::default()),
         Arc::new(durable),
         Arc::new(utc_now_iso8601),
-    );
-    ProductionApplications {
+    ));
+    let canonical_autosync =
+        CanonicalAutosyncCoordinator::new(Arc::clone(&webdav), CANONICAL_AUTOSYNC_DEBOUNCE)?;
+    Ok(ProductionApplications {
         repository,
         canonical,
         workbench,
@@ -266,11 +272,12 @@ pub(crate) fn build_production_applications(
         topic_graph,
         debug,
         webdav,
+        canonical_autosync,
         host_items,
         topic_library,
         config,
         service_instance_id,
-    }
+    })
 }
 
 struct NativeCitationGraphComputePort {

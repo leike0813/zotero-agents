@@ -32,6 +32,7 @@ macro_rules! register_production_client_handlers {
 register_production_client_handlers!(
     ("client.syncWebDavNow", |apps, args| {
         no_args(args)?;
+        apps.canonical_autosync.cancel_pending();
         let checkpoint = || promotion_checkpoint(apps);
         wire(
             apps.webdav
@@ -40,6 +41,7 @@ register_production_client_handlers!(
     }),
     ("client.pauseWebDavSync", |apps, args| {
         no_args(args)?;
+        apps.canonical_autosync.cancel_pending();
         wire(apps.webdav.pause_webdav_sync()?)
     }),
     ("client.resumeWebDavSync", |apps, args| {
@@ -48,6 +50,7 @@ register_production_client_handlers!(
     }),
     ("client.retryWebDavSync", |apps, args| {
         no_args(args)?;
+        apps.canonical_autosync.cancel_pending();
         let checkpoint = || promotion_checkpoint(apps);
         wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
     }),
@@ -148,6 +151,7 @@ fn resolve_conflict(apps: &ProductionApplications, args: &[Value]) -> Result<Val
         .map(str::trim)
         .filter(|value| matches!(*value, "keep_local" | "clear_after_manual_edit"))
         .ok_or_else(|| "invalid_request".to_owned())?;
+    apps.canonical_autosync.cancel_pending();
     wire(apps.webdav.resolve_webdav_sync_conflict(action)?)
 }
 

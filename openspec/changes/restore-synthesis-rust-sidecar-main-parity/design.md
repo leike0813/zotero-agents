@@ -166,6 +166,18 @@ The Tag application owns a process-local mutually exclusive migration gate share
 
 The application merges and sorts stable refs, drops missing or invalid bindings without deleting the staged suggestion, and rewrites all affected rows with one staged-revision CAS. Any Host, validation, repository, or basis failure leaves original JSON and revision unchanged. Concurrent entries share one migration attempt; failure is not cached, so a later entry can retry. Startup performs one best-effort attempt and remains ready on failure, while staged entry points return a stable unavailable result until a later attempt succeeds. A fixed `staged-tag-binding-migration` operation records running/completed/failed state and processed/discarded counts. New numeric bindings continue to fail at the public DTO boundary.
 
+### 19. Publish canonical commits through one owned autosync coordinator
+
+The Rust production composition owns one canonical-autosync coordinator. The production dispatcher reports eligible Topic, Tag, Concept, Topic Graph, and Reference-refresh results only after their application call has returned and the repository observer confirms an actual write. One typed classifier owns the closed eligible operation/result mapping; RPC policy and `semanticSuccess` remain transport and receipt metadata and are not reused for this internal side effect.
+
+The coordinator keeps one worker, a five-second debounce window, a dirty maintenance epoch, and an active canonical-maintenance count. Short commits during active Reference refresh work mark the epoch dirty; the debounce begins only after the final tracked worker drains. Repeated commits reset one pending deadline rather than creating timer threads. Unchanged, no-op, failed, projection-only, job, progress, log, and WebDAV-import writes do not enter the coordinator.
+
+Autosync is post-commit and best-effort. The worker evaluates the current Host description at fire time and invokes the existing WebDAV application only when autosync is enabled. Remote, state, retry, or serialization failure emits a bounded diagnostic and cannot alter the already-returned mutation result or roll back canonical state. Pause, explicit sync/retry/conflict handling, composition shutdown, and process shutdown cancel a pending debounce. The coordinator stops admission and joins its sole worker before production owners are released.
+
+Alternative: call `trigger_webdav_auto_sync` synchronously from each domain adapter. Rejected because it duplicates the trigger map and couples reverse-Host latency and failure to successful canonical writes.
+
+Alternative: spawn one sleeping thread per mutation. Rejected because bursty writes would create unbounded timers and make cancellation and shutdown ownership ambiguous.
+
 ## Risks / Trade-offs
 
 - [The fixed baseline contains behavior later judged undesirable] → Preserve it unless an explicit spec and user-approved disposition changes that behavior; do not silently reinterpret it during migration.
@@ -178,6 +190,7 @@ The application merges and sorts stable refs, drops missing or invalid bindings 
 - [Best-effort representative-image reads obscure digest success] → Keep digest success authoritative and expose only a stable bounded unavailable projection for image failures.
 - [External Related Items effects diverge from committed graph facts] → Persist deterministic pending effects before Host I/O, validate exact receipts, and isolate the sync operation terminal from the Graph refresh terminal.
 - [Concurrent staged entry points race legacy migration] → Serialize one CAS-based migration gate and keep failures retryable without partially rewriting staged rows.
+- [Autosync creates hidden unowned work] → Use one composition-owned worker, cancelable debounce state, and explicit shutdown before repository ownership is released.
 
 ## Migration Plan
 

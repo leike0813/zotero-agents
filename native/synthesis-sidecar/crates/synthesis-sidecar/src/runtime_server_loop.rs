@@ -86,6 +86,12 @@ pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String>
     drop(listener);
 
     let mut cleanup_errors = Vec::new();
+    if let Err(error) = state.applications.canonical_autosync.shutdown() {
+        cleanup_errors.push(error);
+    }
+    if let Err(error) = state.applications.webdav.shutdown(Duration::from_secs(10)) {
+        cleanup_errors.push(error);
+    }
     state.compute_pool.stop();
     for handler in handlers {
         if handler.join().is_err() {

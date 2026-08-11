@@ -125,7 +125,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         Some(Arc::clone(&config)),
         ownership.service_instance_id.clone(),
         webdav_state_path,
-    );
+    )?;
     crate::runtime_public_maintenance_operation::reconcile_restart(
         &applications,
         &synthesis_protocol::utc_now_iso8601(),

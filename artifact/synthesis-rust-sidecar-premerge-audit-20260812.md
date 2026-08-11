@@ -296,3 +296,57 @@ Stage 1 分片结果：
 ### 仍未解决的阻断项
 
 本阶段没有处理 canonical mutation → WebDAV autosync、HTTP server admission/shutdown、maintenance replay identity/reconcile pagination、transfer/WebDAV 竞态或 Zotero 7/9 desktop smoke。上文记录的四个 application parity gate 失败、production-route performance fixture 无样本、full Node core suite 加载失败也仍然存在。因此这里只能确认三条业务链已修复并通过针对性门禁，不能据此宣称整个 premerge 已通过，也没有执行 prebuild、release、发布或 Gitee 同步。
+
+## 第二阶段修复复验（2026-08-12）
+
+本节只记录“修复与复验顺序”第 2 项。原始审计结论保持不变，其余阻断项没有因此解除。
+
+### 工作树身份与边界
+
+- 固定基线 HEAD：`57ce0deb2cfdb7712d809de80afdaa40a18a1b4e`。
+- 用户行为基线仍为 `v0.8.3`，可执行 Node oracle 仍为 `e210997a11e0054a3cb4ae0656e5cfb96102a09c`。
+- 实现、测试、文档和 OpenSpec 工作树补丁身份（不含本审计文件，tracked diff 加 untracked 文件内容哈希）：`sha256:88ef4d4f069bc327ea33bfcbed18d49c67dc32044cc2cd0e4cf992fe3aaa96a4`。
+- 本阶段没有新增 public client method、wire operation、reverse-Host capability、SQLite 表、schema 或依赖。service boundary 仍为 113 个 public methods；生产 roster 仍为 96 operations / 14 reverse-Host capabilities，fingerprint 仍为 `f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523`。
+
+### Canonical mutation → WebDAV autosync
+
+Rust production composition 现在持有一个 autosync coordinator 和一个 worker。inline dispatch 与 Reference refresh receipt worker 都在 application 返回之后，把结果和 repository SQL observation 交给同一个分类器。只有固定基线中的 16 个 Topic、Tag、Concept、Topic Graph、Reference refresh operation 同时满足语义提交成功与 `write_count > 0` 时，才会标记 durable state 为 dirty；projection、cache、job、log、staged-only、WebDAV import、no-op、失败和零写入均不触发。
+
+inline 提交使用 5 秒 trailing debounce。并发 Reference refresh worker 共享 maintenance epoch，最后一个参与者退出后才开始 debounce，因此同一 epoch 只产生一次发布机会。worker 在触发时读取当前 Host 配置，并复用既有 `WebDavSyncApplication::trigger_webdav_auto_sync`；禁用配置不进入远端读写，远端失败只产生 diagnostic，不改变已经返回并持久化的本地提交。
+
+手动 sync、pause、retry 和 conflict resolution 会先取消待执行 debounce。sidecar shutdown 先停止 coordinator admission、清空待发布状态、abort WebDAV target 并 join worker，再停止 WebDAV admission、drain 当前 run，随后才释放 production owners。worker 创建失败通过现有 service startup `Result` 返回，不会在生产组合根 panic。
+
+TDD 的第一轮 Rust 测试先引用尚不存在的 coordinator/classifier API，编译按预期失败；实现后，表格测试锁定完整 eligible/ineligible 集合、SQL 零写入排除、短提交合并、maintenance epoch draining、远端失败隔离和 shutdown cancellation。真实 source-fresh sidecar route 另验证：
+
+1. 两次 Tag canonical commit 在一个窗口内只写一次 `HEAD.json`；
+2. autosync disabled 时没有 `webdav.read_text` / `webdav.write_text`；
+3. reverse-Host read 失败后，Tag mutation 在当前进程和 reopen 后都可读；
+4. no-op 与 invalid request 不产生 WebDAV 调用，成功提交后立即 shutdown 也不会越过关停边界发布，且本地提交在 reopen 后仍存在。
+
+### 文档与规格
+
+OpenSpec change 增加了 canonical post-commit、maintenance epoch 和 lifecycle ownership 约束，进度由 88/88 更新为 94/94。`webdav-durable-sync.md` 与 `knowledge-graph.md` 已改为描述实际 Rust composition、触发集合、排除边界、5 秒合并、显式控制取消和 shutdown 顺序。
+
+复验时还确认了一个不属于本阶段修复范围的既有漂移：当前 Rust `WEBDAV_RETRY_DELAYS_MS` 为 `1s / 5s / 30s / 120s`，主 OpenSpec 的 automatic retry requirement 仍写 `60s / 5m / 15m / 30m`。本阶段没有擅自选择其中一套语义，也没有改动 retry policy；正式放行前仍需单独决策并统一代码、规格和文档。
+
+### 验证结果
+
+以下第二阶段门禁均通过：
+
+- `npm run format:check:synthesis-rust-sidecar`
+- `npm run check:synthesis-rust-sidecar`（Clippy `-D warnings`）
+- `npm run test:synthesis-rust-sidecar`：240 tests，0 failed。
+- `npm run build:synthesis-rust-sidecar`
+- `npm run check:synthesis-service-boundary`：113 public methods，无未授权 retirement。
+- `npm run check:synthesis-contracts`
+- `npm run check:synthesis-cross-language-contracts`：6 schemas / 115 definitions / 14 positive / 15 negative。
+- `npm run check:synthesis-production-capabilities`：96 capabilities / 96 operations，fingerprint 未变。
+- Topic Workbench、Reference、Tag、Concept/Topic Graph、WebDAV/Maintenance surface parity：18 / 16 / 19 / 9 / 10 operations，全部通过。
+- `test/core/229-synthesis-production-client-rust-route.test.ts` 的 autosync 定向用例：4 passing。
+- `openspec validate restore-synthesis-rust-sidecar-main-parity --type change --strict`。
+- `openspec validate --specs --strict`：353 passed，0 failed。
+- 变更文件 scoped Prettier、`git diff --check`：通过。
+
+### 仍未解决的阻断项
+
+本阶段没有处理 HTTP connection admission/read timeout/shutdown handler drain、maintenance replay identity/reconcile pagination、transfer/WebDAV state 竞态、四个 application parity gate、production-route performance fixture、full Node core suite 加载错误或 Zotero 7/9 desktop smoke。automatic retry schedule 的代码/规格漂移也仍待决策。因此这里只能确认 canonical mutation autosync 已恢复并通过针对性门禁；整个 premerge 仍未通过，也没有执行 prebuild、release、发布或 Gitee 同步。

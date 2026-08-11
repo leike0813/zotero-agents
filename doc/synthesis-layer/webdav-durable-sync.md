@@ -31,9 +31,13 @@ Import is always preview-first. A clean preview may write through repository and
 
 Manual commands are `syncWebDavNow`, `pauseWebDavSync`, `resumeWebDavSync`, `retryWebDavSync`, and `resolveWebDavSyncConflict`.
 
-Canonical-write autosync is disabled by default. When enabled, a write schedules sync only after the library write lock has been released. The default debounce is five seconds, and writes completed within one maintenance epoch coalesce into one run.
+Canonical-write autosync follows the Host configuration and is disabled by default. The production composition owns one coordinator and one worker. After an application dispatch returns, the coordinator requires both a successful mutation DTO and a non-zero repository SQL write count before it marks the durable state dirty; WebDAV failure is therefore post-commit and cannot roll back the local mutation.
 
-Automatic retry is also disabled by default. When enabled, each manual or autosync trigger may retry transport failures after `60s`, `5m`, `15m`, and `30m`. Pause, disabled configuration, conflict, permanent validation failure, or composition invalidation cancels pending work. Startup does not restore hidden retry timers.
+The fixed autosync trigger set contains Topic apply/delete, Tag vocabulary save/update/delete/promotion/import, Concept display/review/delete, Topic Graph relation accept/reject/review, and the three Reference sidecar refresh operations. Projection rebuilds, staged-only edits, job/log writes, reads, WebDAV imports, unchanged DTOs, rejected/failed operations, and dispatches with no observed SQL write do not schedule publication. This list is maintained by the central post-commit classifier rather than by individual application handlers.
+
+Inline mutations share a five-second trailing debounce. Concurrent Reference refresh receipt workers hold a maintenance epoch open; the debounce begins only after every participating worker has finished, and successful mutations from the epoch publish once. A manual sync, pause, retry, or conflict-resolution command cancels any pending debounce before applying its own control action.
+
+Automatic retry is also disabled by default. When enabled, each manual or autosync trigger may retry transport failures after `1s`, `5s`, `30s`, and `120s`. Pause, disabled configuration, conflict, permanent validation failure, explicit control, or runtime shutdown prevents pending automatic work from publishing. Startup does not restore hidden retry timers.
 
 ## Concurrency and Recovery
 
@@ -41,6 +45,6 @@ Automatic retry is also disabled by default. When enabled, each manual or autosy
 
 The first native production clock wrote decimal Unix milliseconds into its local WebDAV state and remote HEAD. On read, Rust recognizes only that exact historical encoding for native-owned state, last-run, retry-base, and HEAD timestamps, converts it to ISO-8601, and then applies the normal strict validator. Valid local state is saved atomically in canonical form. A remote HEAD is not rewritten merely for migration; the next successful ETag-guarded publication writes the canonical timestamp. Signed, fractional, overflowing, structurally invalid, or unknown timestamp forms still fail closed, as do invalid manifests, paths, hashes, schemas, persisted state, and malformed pointers.
 
-Shutdown stops admission, cancels pending trigger chains, and drains the one active run.
+Shutdown first stops the canonical autosync worker, clears pending debounce state, and aborts its WebDAV target. It then stops WebDAV admission and drains the one active WebDAV run before production application owners are released.
 
 The runtime state machine is documented in [State Machines](./state-machines.md), and the complete exchange flow is documented in [Sequences](./sequences.md).
