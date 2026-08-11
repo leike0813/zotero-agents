@@ -58,6 +58,26 @@ pub struct CitationEdgeRecord {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RelatedItemsAcceptedEdgeRecord {
+    pub edge_id: String,
+    pub source_literature_item_id: String,
+    pub target_literature_item_id: String,
+    pub source_library_id: i64,
+    pub source_item_key: String,
+    pub target_library_id: i64,
+    pub target_item_key: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RelatedItemsSyncEffectRecord {
+    pub effect_id: String,
+    pub payload_json: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CitationSourceOwnershipRecord {
     pub source_literature_item_id: String,
     pub edge_id: String,
@@ -586,6 +606,110 @@ impl Repository {
         .into_iter()
         .map(citation_edge_record)
         .collect()
+    }
+
+    pub fn list_related_items_accepted_edges(
+        &self,
+        source_refs: &[String],
+    ) -> Result<Vec<RelatedItemsAcceptedEdgeRecord>, String> {
+        let source_refs = source_refs.iter().cloned().collect::<BTreeSet<_>>();
+        let parse_ref = |value: &str| -> Option<(i64, String)> {
+            let (library_id, item_key) = value.split_once(':')?;
+            let library_id = library_id.parse::<i64>().ok().filter(|value| *value > 0)?;
+            if item_key.is_empty() || !item_key.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+                return None;
+            }
+            Some((library_id, item_key.into()))
+        };
+        let active_nodes = self
+            .list_citation_nodes()?
+            .into_iter()
+            .filter(|node| node.node_status == "active")
+            .filter_map(|node| {
+                parse_ref(&node.literature_item_id)
+                    .map(|binding| (node.literature_item_id, binding))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut records = self
+            .list_citation_edges()?
+            .into_iter()
+            .filter(|edge| edge.edge_status == "accepted")
+            .filter(|edge| {
+                source_refs.is_empty() || source_refs.contains(&edge.source_literature_item_id)
+            })
+            .filter_map(|edge| {
+                let (source_library_id, source_item_key) =
+                    active_nodes.get(&edge.source_literature_item_id)?.clone();
+                let (target_library_id, target_item_key) =
+                    active_nodes.get(&edge.target_literature_item_id)?.clone();
+                Some(RelatedItemsAcceptedEdgeRecord {
+                    edge_id: edge.edge_id,
+                    source_literature_item_id: edge.source_literature_item_id,
+                    target_literature_item_id: edge.target_literature_item_id,
+                    source_library_id,
+                    source_item_key,
+                    target_library_id,
+                    target_item_key,
+                })
+            })
+            .collect::<Vec<_>>();
+        records.sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
+        records.dedup_by(|left, right| left.edge_id == right.edge_id);
+        Ok(records)
+    }
+
+    pub fn list_related_items_sync_effects(
+        &self,
+    ) -> Result<Vec<RelatedItemsSyncEffectRecord>, String> {
+        self.query(
+            "SELECT effect_id,payload_json,updated_at FROM synt_related_items_sync_effect ORDER BY effect_id ASC",
+            &[],
+        )?
+        .into_iter()
+        .map(|row| {
+            Ok(RelatedItemsSyncEffectRecord {
+                effect_id: row_text(&row, "effect_id")?,
+                payload_json: row_text(&row, "payload_json")?,
+                updated_at: row_text(&row, "updated_at")?,
+            })
+        })
+        .collect()
+    }
+
+    pub fn get_related_items_sync_effect(
+        &self,
+        effect_id: &str,
+    ) -> Result<Option<RelatedItemsSyncEffectRecord>, String> {
+        validate_identity_part(effect_id)?;
+        self.query(
+            "SELECT effect_id,payload_json,updated_at FROM synt_related_items_sync_effect WHERE effect_id=?1 LIMIT 1",
+            &[json!(effect_id)],
+        )?
+        .into_iter()
+        .next()
+        .map(|row| {
+            Ok(RelatedItemsSyncEffectRecord {
+                effect_id: row_text(&row, "effect_id")?,
+                payload_json: row_text(&row, "payload_json")?,
+                updated_at: row_text(&row, "updated_at")?,
+            })
+        })
+        .transpose()
+    }
+
+    pub fn upsert_related_items_sync_effect(
+        &self,
+        record: &RelatedItemsSyncEffectRecord,
+    ) -> Result<(), String> {
+        validate_identity_part(&record.effect_id)?;
+        serde_json::from_str::<Value>(&record.payload_json)
+            .map_err(|_| "repository_payload_invalid".to_owned())?;
+        self.execute(
+            "INSERT INTO synt_related_items_sync_effect(effect_id,payload_json,updated_at) VALUES(?1,?2,?3)
+             ON CONFLICT(effect_id) DO UPDATE SET payload_json=excluded.payload_json,updated_at=excluded.updated_at",
+            &[json!(record.effect_id), json!(record.payload_json), json!(record.updated_at)],
+        )?;
+        Ok(())
     }
 
     pub fn read_citation_graph_window(
@@ -1835,12 +1959,7 @@ impl Repository {
                 ],
             )?;
             if replacement.graph_facts_changed {
-                repository.execute(
-                    "UPDATE synt_cache_basis SET status='stale',
-                     stale_reason='reference_refresh_graph_facts_changed',updated_at=?1
-                     WHERE cache_key IN ('citation-graph:library','related-items-sync:global')",
-                    &[json!(replacement.now)],
-                )?;
+                mark_reference_projection_caches_stale(repository, replacement)?;
             }
             repository.upsert_cache_basis(&crate::CacheBasisRecord {
                 cache_key: "reference-sidecar:library".into(),
@@ -2395,6 +2514,34 @@ impl Repository {
         })?;
         Ok(true)
     }
+}
+
+fn mark_reference_projection_caches_stale(
+    repository: &Repository,
+    replacement: &ReferenceProjectionReplacement,
+) -> Result<(), String> {
+    for cache_key in ["citation-graph:library", "related-items-sync:global"] {
+        let Some(mut cache) = repository.get_cache_basis(cache_key)? else {
+            continue;
+        };
+        cache.status = "stale".into();
+        cache.stale_reason = "reference_refresh_graph_facts_changed".into();
+        cache.updated_at = replacement.now.clone();
+        if cache_key == "citation-graph:library" {
+            cache.diagnostics_json = serde_json::to_string(&vec![json!({
+                "code": "citation_graph_cache_stale_delta",
+                "severity": "info",
+                "reason": "reference_refresh_graph_facts_changed",
+                "source_refs": replacement.source_refs,
+                "changed_canonical_ids": [],
+                "changed_binding_canonical_ids": [],
+                "changed_redirect_canonical_ids": [],
+            })])
+            .map_err(|_| "repository_cache_basis_invalid".to_owned())?;
+        }
+        repository.upsert_cache_basis(&cache)?;
+    }
+    Ok(())
 }
 
 fn reference_state_record(row: Value) -> Result<ReferenceApplicationStateRecord, String> {

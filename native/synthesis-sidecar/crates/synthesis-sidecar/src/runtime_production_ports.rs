@@ -19,9 +19,17 @@ use synthesis_application::reference_matching::{
     ReferenceMatchConfidence, ReferenceMatchDisposition, ReferenceMatchKind, ReferenceMatchPass,
     ReferenceMatcherInput, ReferenceMatcherOutcome, ReferenceMatcherPort,
 };
+use synthesis_application::related_items::{
+    RelatedItemsApplication, RelatedItemsHostEffect, RelatedItemsHostEffectPort,
+    RelatedItemsHostReceipt,
+};
 use synthesis_application::tag_vocabulary::{
-    TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolverPort,
-    TagVocabularyComputePort,
+    TagHostEffectPort, TagHostEffectReceipt, TagIndexOutput, TagLegacyBindingResolution,
+    TagLegacyBindingResolverPort, TagParentBinding, TagVocabularyComputePort,
+};
+use synthesis_application::topic_digest::{
+    RepresentativeImageHostResult, RepresentativeImageReadFailure, RepresentativeImageReadPort,
+    TopicDigestArtifactReadPort, TopicDigestArtifactReadResult, TopicPaperDigestApplication,
 };
 use synthesis_application::topic_graph::{
     TopicGraphComputePort, TopicGraphIndexOutput, TopicGraphMaterializedTopic,
@@ -47,8 +55,7 @@ use synthesis_repository::{
     CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationIncomingGroupRecord,
     CitationLayoutRecord, CitationLightMetricsRecord, CitationNodeRecord,
     CitationSourceOwnershipRecord, RawReferenceRecord, TagEffectRecord, TagProtocolRecord,
-    TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyReplacement,
-    TopicGraphReplacement,
+    TagVocabularyEntryRecord, TagVocabularyReplacement, TopicGraphReplacement,
 };
 use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
@@ -65,7 +72,9 @@ pub(crate) struct ProductionApplications {
     pub(crate) canonical: Arc<CanonicalStorePort>,
     pub(crate) workbench: WorkbenchApplication,
     pub(crate) topics: TopicApplication,
+    pub(crate) topic_digests: TopicPaperDigestApplication,
     pub(crate) citations: CitationGraphApplication,
+    pub(crate) related_items: RelatedItemsApplication,
     pub(crate) reference_canonical: ReferenceCanonicalApplication,
     pub(crate) tags: TagVocabularyApplication,
     pub(crate) concepts: Arc<ConceptKbApplication>,
@@ -190,11 +199,17 @@ pub(crate) fn build_production_applications(
     )
     .with_topic_graph(Arc::clone(&topic_graph))
     .with_concept_kb(Arc::clone(&concepts));
+    let topic_digests = TopicPaperDigestApplication::new(host.clone(), host.clone());
     let citations = CitationGraphApplication::new(
         repository.clone(),
         Arc::new(NativeCitationGraphComputePort {
             compute: Arc::clone(&compute),
         }),
+    );
+    let related_items = RelatedItemsApplication::new(
+        repository.clone(),
+        host.clone(),
+        config.as_deref().map_or(0, |config| config.library_id),
     );
     let reference_refresh = ReferenceRefreshApplication::new(repository.clone());
     let reference_matching = ReferenceMatchingApplication::new(
@@ -216,7 +231,9 @@ pub(crate) fn build_production_applications(
         }),
         host.clone(),
         host.clone(),
-    );
+    )
+    .with_library_id(config.as_deref().map_or(0, |config| config.library_id));
+    let _ = tags.ensure_staged_bindings_migrated();
     let debug = DebugMaintenanceApplication::new(repository.clone(), canonical.clone());
     let durable = DurableBundleApplication::with_runtime(
         repository.clone(),
@@ -240,7 +257,9 @@ pub(crate) fn build_production_applications(
         canonical,
         workbench,
         topics,
+        topic_digests,
         citations,
+        related_items,
         reference_canonical,
         tags,
         concepts,
@@ -1765,6 +1784,36 @@ impl ReferenceHostPort for ReverseHostApplicationPort {
     }
 }
 
+impl TopicDigestArtifactReadPort for ReverseHostApplicationPort {
+    fn read(
+        &self,
+        locator: &str,
+        expected_hash: &str,
+    ) -> Result<TopicDigestArtifactReadResult, String> {
+        serde_json::from_value(self.call(
+            "library.artifacts.read",
+            serde_json::json!({"locator":locator,"expectedHash":expected_hash}),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".into())
+    }
+}
+
+impl RepresentativeImageReadPort for ReverseHostApplicationPort {
+    fn read(
+        &self,
+        library_id: i64,
+        note_key: &str,
+    ) -> Result<RepresentativeImageHostResult, RepresentativeImageReadFailure> {
+        let result = self
+            .call(
+                "library.representative_image.read",
+                serde_json::json!({"libraryId":library_id,"noteKey":note_key}),
+            )
+            .map_err(|_| RepresentativeImageReadFailure::Transport)?;
+        serde_json::from_value(result).map_err(|_| RepresentativeImageReadFailure::Invalid)
+    }
+}
+
 impl TagHostEffectPort for ReverseHostApplicationPort {
     fn apply_batch(
         &self,
@@ -1850,32 +1899,178 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
     }
 }
 
+impl RelatedItemsHostEffectPort for ReverseHostApplicationPort {
+    fn apply_batch(
+        &self,
+        effects: &[RelatedItemsHostEffect],
+    ) -> Result<Vec<RelatedItemsHostReceipt>, String> {
+        if effects.is_empty() || effects.len() > 25 {
+            return Err("invalid_request".into());
+        }
+        let result = self.call(
+            "effects.related_items.apply_batch",
+            serde_json::json!({"effects":effects}),
+        )?;
+        let receipts = result
+            .get("receipts")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        if receipts.len() != effects.len() {
+            return Err("reverse_host_result_invalid".into());
+        }
+        let expected = effects
+            .iter()
+            .map(|effect| (effect.effect_id.as_str(), effect.action.as_str()))
+            .collect::<BTreeMap<_, _>>();
+        let mut seen = HashSet::new();
+        receipts
+            .iter()
+            .map(|receipt| {
+                let receipt = receipt
+                    .as_object()
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let effect_id = receipt
+                    .get("effectId")
+                    .and_then(Value::as_str)
+                    .filter(|effect_id| {
+                        expected.contains_key(*effect_id) && seen.insert(*effect_id)
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let action = receipt
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .filter(|action| expected.get(effect_id) == Some(action))
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let status = receipt
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .filter(|status| {
+                        matches!(
+                            *status,
+                            "applied" | "already_satisfied" | "not_found" | "failed"
+                        )
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let occurred_at = receipt
+                    .get("occurredAt")
+                    .and_then(Value::as_str)
+                    .filter(|value| {
+                        synthesis_protocol::unix_millis_from_utc_iso8601(value).is_some()
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let diagnostics = receipt
+                    .get("diagnostics")
+                    .and_then(Value::as_array)
+                    .filter(|diagnostics| {
+                        diagnostics.len() <= 20 && diagnostics.iter().all(Value::is_object)
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                Ok(RelatedItemsHostReceipt {
+                    effect_id: effect_id.into(),
+                    action: action.into(),
+                    status: status.into(),
+                    occurred_at: occurred_at.into(),
+                    diagnostics: diagnostics.clone(),
+                })
+            })
+            .collect()
+    }
+}
+
 impl TagLegacyBindingResolverPort for ReverseHostApplicationPort {
     fn resolve(
         &self,
-        staged: &[TagStagedSuggestionRecord],
-        _canceled: &Arc<AtomicBool>,
-    ) -> Result<Vec<TagStagedSuggestionRecord>, String> {
-        for suggestion in staged {
-            let bindings: Value = serde_json::from_str(&suggestion.parent_bindings_json)
-                .map_err(|_| "invalid_request".to_owned())?;
-            let bindings = bindings
-                .as_array()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            if bindings.iter().any(Value::is_number) {
-                return Err("legacy_binding_library_scope_missing".into());
-            }
-            if !bindings.iter().all(|binding| {
-                binding.get("libraryId").and_then(Value::as_i64).is_some()
-                    && binding
-                        .get("itemKey")
-                        .and_then(Value::as_str)
-                        .is_some_and(|item_key| !item_key.is_empty())
-            }) {
-                return Err("invalid_request".into());
-            }
+        library_id: i64,
+        item_ids: &[i64],
+    ) -> Result<TagLegacyBindingResolution, String> {
+        if library_id <= 0
+            || item_ids.is_empty()
+            || item_ids.len() > 100
+            || item_ids.iter().any(|item_id| *item_id <= 0)
+            || item_ids.iter().copied().collect::<HashSet<_>>().len() != item_ids.len()
+        {
+            return Err("invalid_request".into());
         }
-        Ok(staged.to_vec())
+        let result = self.call(
+            "effects.staged_tag_binding.resolve",
+            serde_json::json!({"libraryId":library_id,"itemIds":item_ids}),
+        )?;
+        let object = result
+            .as_object()
+            .filter(|object| object.len() == 3)
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        let resolved = object
+            .get("resolved")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        let missing = object
+            .get("missingItemIds")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        let diagnostics = object
+            .get("diagnostics")
+            .and_then(Value::as_array)
+            .filter(|values| values.len() <= 20 && values.iter().all(Value::is_object))
+            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        let requested = item_ids.iter().copied().collect::<HashSet<_>>();
+        let mut partition = HashSet::new();
+        let resolved = resolved
+            .iter()
+            .map(|entry| {
+                let entry = entry
+                    .as_object()
+                    .filter(|entry| entry.len() == 2)
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let item_id = entry
+                    .get("itemId")
+                    .and_then(Value::as_i64)
+                    .filter(|item_id| requested.contains(item_id) && partition.insert(*item_id))
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let reference = entry
+                    .get("ref")
+                    .and_then(Value::as_object)
+                    .filter(|reference| reference.len() == 2)
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let ref_library_id = reference
+                    .get("libraryId")
+                    .and_then(Value::as_i64)
+                    .filter(|candidate| *candidate == library_id)
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                let item_key = reference
+                    .get("itemKey")
+                    .and_then(Value::as_str)
+                    .filter(|item_key| {
+                        !item_key.is_empty()
+                            && item_key.len() <= 128
+                            && item_key.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                    })
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                Ok((
+                    item_id,
+                    TagParentBinding {
+                        library_id: ref_library_id,
+                        item_key: item_key.into(),
+                    },
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let missing_item_ids = missing
+            .iter()
+            .map(|item_id| {
+                item_id
+                    .as_i64()
+                    .filter(|item_id| requested.contains(item_id) && partition.insert(*item_id))
+                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if partition != requested {
+            return Err("reverse_host_result_invalid".into());
+        }
+        Ok(TagLegacyBindingResolution {
+            resolved,
+            missing_item_ids,
+            diagnostics: diagnostics.clone(),
+        })
     }
 }
 

@@ -18,6 +18,8 @@ The sidecar therefore cannot enter acceptance or authorize removal of the retain
 - Restore the Citation Graph default projection to library nodes plus external nodes cited by more than one distinct library source, keep single-source external nodes hover-only, and make public pages and layout consume the same bounded projection.
 - Make Workbench UI state JSON-safe at its boundary, harden accepted layout work against timeout/panic/finalization gaps, and expose a bounded sidecar runtime status in the Workbench top bar.
 - Establish 10k full-experience and 25k bounded-degradation production-route gates before acceptance can resume.
+- Restore three baseline production chains that the premerge audit found unreachable despite their declared wire and reverse-Host capabilities: Topic digest representative-image reads, incremental Citation Graph Related Items synchronization, and staged Tag numeric parent-binding migration.
+- Require route-level evidence from the real grouped-client entry point through Rust, SQLite, and reverse Host; capability declaration or isolated adapter tests alone do not establish behavioral reachability.
 
 ## Capabilities
 
@@ -35,6 +37,11 @@ None.
 - `synthesis-host-artifact-read-port`: Keep large artifact content off the general client envelope and permit bounded, ordered Host reads.
 - `synthesis-incremental-update-triggers`: Restore one-scan changed-source Reference refresh and scoped cache invalidation.
 - `synthesis-rust-sidecar-migration-governance`: Block acceptance and destructive retirement until the fixed baseline inventory, real-route parity, scale, and real-machine gates pass.
+- `topic-synthesis-detail-ui`: Restore the optional representative-image projection on Topic digest reads.
+- `synthesis-host-representative-image-read-port`: Restore the typed, bounded reverse-Host representative-image read contract.
+- `synthesis-related-items-sync`: Restore Related Items planning, durable effect state, receipt coordination, ownership, undo, and echo semantics after successful manual incremental Graph refresh.
+- `synthesis-host-related-items-effect-port`: Restore strict batched Related Items reverse-Host application and receipt validation.
+- `synthesis-tag-vocabulary`: Migrate staged numeric parent bindings through the existing Host resolver before every staged entry point and once at startup.
 
 ## Impact
 

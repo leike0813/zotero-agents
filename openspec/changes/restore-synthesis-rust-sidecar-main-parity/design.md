@@ -148,6 +148,24 @@ Rust recognizes only that exact historical encoding at the local-state and remot
 
 Public DTO rebuilders remain canonical-only. Host-owned credential timestamps, unrelated progress payloads, malformed text, signed or fractional numbers, overflow, reversed run intervals, unknown fields, and invalid schemas continue to fail closed. The state schema version remains `1.0.0` because the durable meaning is unchanged and all new bytes were already canonical.
 
+### 16. Resolve Topic representative images through one typed best-effort port
+
+`resolveTopicPaperDigest` rebuilds the public digest locator from `digest_ref` or `digestRef`. After the digest resolves, the Topic application invokes `library.representative_image.read` only when the include flag is true and the digest supplies a note key. The reverse-Host response is validated as a closed DTO: status, library/item identity, MIME, base64, decoded size, dimensions, and at most twenty diagnostics. Available bytes become a data URL; absent, unrequested, and no-note-key results omit `representative_image`.
+
+Representative-image failure is intentionally weaker than digest failure. Transport failure, Host `unavailable`, or malformed Host data returns the digest with a stable `unavailable` representative-image projection and bounded diagnostics, without exposing raw Host text. The capability uses the artifact-read 8 MiB response and ten-second budget; the ordinary reverse-Host default remains unchanged.
+
+### 17. Keep Related Items external effects subordinate to committed incremental Graph facts
+
+A successful manual incremental Citation Graph refresh first commits its graph/cache basis and final `affected_source_refs`. The Related Items application then reads accepted library-to-library edges for only those sources, creates deterministic effects in batches of at most twenty-five, and persists every effect as `pending_external_write` before reverse-Host I/O. The existing `synt_related_items_sync_effect.payload_json` remains the durable fact source; no schema change is required.
+
+Receipts must form an exact one-to-one partition of requested effects. Applied, already-satisfied, not-found, failed, Synthesis ownership, undo, and echo states are coordinated independently. A transport failure or malformed receipt leaves the current batch pending and stops later batches. Related Items failure terminates only its `related_items_sync` operation and never rolls back or rewrites the completed Graph refresh. Full rebuild does not trigger library-wide synchronization, and the retired public `syncRelatedItemsNow` operation remains retired.
+
+### 18. Gate staged Tag access on one atomic legacy-binding migration
+
+The Tag application owns a process-local mutually exclusive migration gate shared by list, stage, update, promote, discard, and clear. It scans all staged rows, keeps stable refs, collects positive legacy numeric IDs in sorted unique batches of at most one hundred, and calls `effects.staged_tag_binding.resolve` with the current library. The Host result must be a complete, duplicate-free partition of requested IDs into resolved and missing values, and every resolved ref must belong to that library.
+
+The application merges and sorts stable refs, drops missing or invalid bindings without deleting the staged suggestion, and rewrites all affected rows with one staged-revision CAS. Any Host, validation, repository, or basis failure leaves original JSON and revision unchanged. Concurrent entries share one migration attempt; failure is not cached, so a later entry can retry. Startup performs one best-effort attempt and remains ready on failure, while staged entry points return a stable unavailable result until a later attempt succeeds. A fixed `staged-tag-binding-migration` operation records running/completed/failed state and processed/discarded counts. New numeric bindings continue to fail at the public DTO boundary.
+
 ## Risks / Trade-offs
 
 - [The fixed baseline contains behavior later judged undesirable] → Preserve it unless an explicit spec and user-approved disposition changes that behavior; do not silently reinterpret it during migration.
@@ -157,6 +175,9 @@ Public DTO rebuilders remain canonical-only. Host-owned credential timestamps, u
 - [Timing tests are noisy] → Keep query/Host-call/byte bounds as deterministic CI gates and run p50/p95 latency/RSS on the governed benchmark runner against the same fixed baseline.
 - [Existing uncommitted repairs overlap] → Rebase behavior logically, never reset files, and preserve a repair only when the new differential test accepts it.
 - [Persistence compatibility weakens strict validation] → Recognize only the historical producer's exact decimal-millisecond encoding before the unchanged canonical validators; do not add a second public DTO shape.
+- [Best-effort representative-image reads obscure digest success] → Keep digest success authoritative and expose only a stable bounded unavailable projection for image failures.
+- [External Related Items effects diverge from committed graph facts] → Persist deterministic pending effects before Host I/O, validate exact receipts, and isolate the sync operation terminal from the Graph refresh terminal.
+- [Concurrent staged entry points race legacy migration] → Serialize one CAS-based migration gate and keep failures retryable without partially rewriting staged rows.
 
 ## Migration Plan
 

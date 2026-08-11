@@ -150,3 +150,17 @@ A successful Topic apply SHALL persist the Topic aggregate and SHALL pass option
 - **WHEN** Concept or Topic Graph proposal ingestion fails after the Topic aggregate is committed
 - **THEN** Topic apply remains persisted and returns a stable projection warning
 - **AND** no partial or fabricated projection success is exposed
+
+### Requirement: Declared Host capabilities SHALL be proven reachable from production entry points
+
+A reverse-Host capability declaration, handler registration, or serializable DTO SHALL NOT count as production readiness by itself. Each restored Host-backed behavior SHALL have real-route evidence beginning at its grouped-client or startup entry point and observing the exact Host request, durable facts or effects, public projection, failure isolation, and cold reopen behavior.
+
+#### Scenario: Host capability is declared but unreachable
+- **WHEN** a capability appears in the closed Host roster but no real user or startup route invokes it
+- **THEN** the corresponding production behavior remains incomplete
+- **AND** migration acceptance and destructive retirement remain blocked
+
+#### Scenario: Host-backed behavior is accepted
+- **WHEN** a restored route is claimed complete
+- **THEN** production-route evidence exercises native composition, HTTP, Rust application and repository ownership, and reverse Host
+- **AND** it verifies the stable failure semantics rather than accepting handler presence

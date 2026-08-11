@@ -136,8 +136,9 @@ peer EOF. Early EOF remains `reverse_host_response_body_truncated`, while
 header, status, length, JSON, envelope, and result failures retain their own
 stable codes.
 Reference refresh discards any preparation left by a subsequent Host-read
-failure, allowing a retry in the same process. The artifact-read capability has
-an explicit 8 MiB response and ten-second call budget. Artifact descriptor scan
+failure, allowing a retry in the same process. The artifact-read and
+representative-image-read capabilities have an explicit 8 MiB response and
+ten-second call budget. Artifact descriptor scan
 uses the same ten-second deadline with the ordinary 1 MiB response limit;
 unlisted reverse-Host calls retain the 1 MiB and two-second defaults. An
 oversized response exposes the applicable debug budget and stable code without

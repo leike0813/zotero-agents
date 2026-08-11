@@ -1,5 +1,6 @@
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
+use synthesis_application::topic_digest::TopicPaperDigestRequest;
 use synthesis_application::{TopicListRequest, TopicListResult};
 
 use synthesis_canonical_store::{canonical_json_hash, content_sha256};
@@ -77,56 +78,13 @@ fn required_object(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-fn optional_string_field<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
-    names
-        .iter()
-        .find_map(|name| value.get(*name).and_then(Value::as_str))
-        .filter(|value| !value.is_empty())
-}
-
 fn resolve_topic_paper_digest(
     apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
-    let request = required_object(args)?;
-    let paper_ref = optional_string_field(&request, &["paper_ref", "paperRef"]).unwrap_or_default();
-    let Some(locator) = request.get("locator") else {
-        return Ok(json!({
-            "ok":false,
-            "status":"unavailable",
-            "paper_ref":paper_ref,
-            "digest_markdown":"",
-            "recorded_hash":"",
-            "current_hash":"",
-            "source_changed":false,
-            "diagnostics":["digest_unavailable"],
-        }));
-    };
-    let expected_hash = request
-        .get("expectedHash")
-        .or_else(|| request.get("expected_hash"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let result = apps.call_host(
-        "library.artifacts.read",
-        json!({"locator":locator,"expectedHash":expected_hash}),
-    )?;
-    let markdown = result
-        .get("text")
-        .or_else(|| result.get("markdown"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    Ok(json!({
-        "ok":!markdown.is_empty(),
-        "status":if markdown.is_empty() { "unavailable" } else { "available" },
-        "paper_ref":paper_ref,
-        "digest_markdown":markdown,
-        "recorded_hash":"",
-        "current_hash":expected_hash,
-        "source_changed":false,
-        "diagnostics":result.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
-    }))
+    let request = TopicPaperDigestRequest::from_value(&required_object(args)?)?;
+    serde_json::to_value(apps.topic_digests.resolve(request)?)
+        .map_err(|_| "result_serialize_failed".to_owned())
 }
 
 fn string_list(request: &Value, names: &[&str]) -> Result<Vec<String>, String> {

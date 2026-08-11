@@ -74,6 +74,10 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
     responseBodyBytes: 8 * 1024 * 1024,
     callTimeoutMs: 10_000,
   }),
+  "library.representative_image.read": Object.freeze({
+    responseBodyBytes: 8 * 1024 * 1024,
+    callTimeoutMs: 10_000,
+  }),
   "delivery.export.publish_archive": Object.freeze({
     responseBodyBytes: SYNTHESIS_REVERSE_HOST_LIMITS.responseBodyBytes,
     callTimeoutMs: 30_000,

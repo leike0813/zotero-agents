@@ -146,9 +146,14 @@ pub(crate) fn call_reverse_host(
     let operation_id = format!("native:{capability}:{now}:{sequence}");
     let reference_artifact = matches!(
         capability,
-        "library.artifacts.scan_page" | "library.artifacts.read"
+        "library.artifacts.scan_page"
+            | "library.artifacts.read"
+            | "library.representative_image.read"
     );
-    let artifact_read = capability == "library.artifacts.read";
+    let artifact_read = matches!(
+        capability,
+        "library.artifacts.read" | "library.representative_image.read"
+    );
     let export_delivery = capability.starts_with("delivery.export.");
     let timeout = bounded_timeout(if reference_artifact {
         REFERENCE_ARTIFACT_TIMEOUT

@@ -659,6 +659,107 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
+  it("resolves Topic digest representative images through the real grouped client route", async function () {
+    const imageCalls: Array<Record<string, unknown>> = [];
+    let imageMode: "available" | "absent" | "unavailable" = "available";
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "topic-representative-image",
+      hostFixture: {
+        handle({ capability, payload }) {
+          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "library.artifacts.read") {
+            return {
+              status: "available",
+              payloadHash: payload.expectedHash,
+              currentHash: payload.expectedHash,
+              content: {
+                kind: "text",
+                text: "# Production digest",
+                mediaType: "text/markdown",
+              },
+              diagnostics: [],
+            };
+          }
+          if (capability === "library.representative_image.read") {
+            imageCalls.push(payload);
+            if (imageMode === "absent") {
+              return { status: "absent", diagnostics: [] };
+            }
+            if (imageMode === "unavailable") {
+              return {
+                status: "unavailable",
+                diagnostics: ["representative_image_attachment_not_found"],
+              };
+            }
+            return {
+              status: "available",
+              attachmentKey: "IMAGE001",
+              mimeType: "image/png",
+              contentBase64: "aGVsbG8=",
+              alt: "Figure",
+              caption: "Production figure",
+              width: 640,
+              height: 480,
+              compressedBytes: 5,
+              sourceKind: "attachment",
+              strategy: "explicit",
+              diagnostics: [],
+            };
+          }
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    const request = {
+      paperRef: "1:DIGEST01",
+      digestRef: {
+        paperRef: "1:DIGEST01",
+        libraryId: 1,
+        noteKey: "NOTE0001",
+        locator: "fixture:digest:DIGEST01",
+        payloadHash: "sha256:digest-production",
+      },
+      includeRepresentativeImage: true,
+    };
+    try {
+      const available =
+        await harness.client.artifacts.resolveTopicPaperDigest(request);
+      assert.deepEqual(imageCalls, [{ libraryId: 1, noteKey: "NOTE0001" }]);
+      assert.deepInclude(available.representative_image as object, {
+        status: "available",
+        attachment_key: "IMAGE001",
+        mime_type: "image/png",
+        data_url: "data:image/png;base64,aGVsbG8=",
+        width: 640,
+        height: 480,
+        compressed_bytes: 5,
+      });
+
+      imageMode = "absent";
+      const absent =
+        await harness.client.artifacts.resolveTopicPaperDigest(request);
+      assert.notProperty(absent, "representative_image");
+
+      imageMode = "unavailable";
+      const unavailable =
+        await harness.client.artifacts.resolveTopicPaperDigest(request);
+      assert.deepEqual(unavailable.representative_image, {
+        status: "unavailable",
+        diagnostics: ["representative_image_attachment_not_found"],
+      });
+
+      const beforeOptOut = imageCalls.length;
+      const optedOut = await harness.client.artifacts.resolveTopicPaperDigest({
+        ...request,
+        includeRepresentativeImage: false,
+      });
+      assert.notProperty(optedOut, "representative_image");
+      assert.equal(imageCalls.length, beforeOptOut);
+    } finally {
+      await harness.stop();
+    }
+  });
+
   it("moves large Topic and artifact content outside the production control envelope", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(
@@ -1249,9 +1350,62 @@ describe("Synthesis Rust production client route", function () {
       );
 
       await harness.stop();
+      const databasePath = path.join(root, "state", "synthesis.db");
+      const legacyDatabase = new DatabaseSync(databasePath);
+      legacyDatabase.exec("BEGIN IMMEDIATE");
+      legacyDatabase
+        .prepare(
+          "INSERT OR REPLACE INTO synt_tag_staged_suggestion(tag,facet,note,source_flow,parent_bindings_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+        )
+        .run(
+          "method:legacy-binding",
+          "method",
+          "Legacy numeric binding",
+          "legacy-fixture",
+          "[42]",
+          "2026-08-12T00:00:00.000Z",
+          "2026-08-12T00:00:00.000Z",
+        );
+      legacyDatabase.exec(
+        "UPDATE synt_tag_application_state SET staged_revision=staged_revision+1 WHERE singleton_id=1",
+      );
+      legacyDatabase.exec("COMMIT");
+      legacyDatabase.close();
       harness = await startSynthesisProductionRouteHarness({
         id: "tag-dto-reopen",
         root,
+        hostFixture: {
+          handle({ capability, payload }) {
+            if (capability === "webdav.describe") return { configured: false };
+            if (capability === "effects.staged_tag_binding.resolve") {
+              assert.deepEqual(payload, { libraryId: 1, itemIds: [42] });
+              return {
+                resolved: [
+                  {
+                    itemId: 42,
+                    ref: { libraryId: 1, itemKey: "TAGDTO42" },
+                  },
+                ],
+                missingItemIds: [],
+                diagnostics: [],
+              };
+            }
+            if (capability === "effects.tags.apply_batch") {
+              return {
+                receipts: (
+                  payload.effects as Array<Record<string, unknown>>
+                ).map((effect) => ({
+                  effectId: effect.effectId,
+                  action: "ensure_present",
+                  status: "applied",
+                  occurredAt: "2026-08-12T00:00:01.000Z",
+                  diagnostics: [],
+                })),
+              };
+            }
+            return { status: "unavailable", diagnostics: [] };
+          },
+        },
       });
       const reopened = await harness.client.tags.loadTagVocabulary();
       assert.include(
@@ -1283,6 +1437,52 @@ describe("Synthesis Rust production client route", function () {
           (entry) => entry.tag,
         ),
         "method:updated-staged-dto",
+      );
+      assert.deepInclude(
+        (await harness.client.tags.listStagedTagSuggestions()).find(
+          (entry) => entry.tag === "method:legacy-binding",
+        ),
+        {
+          tag: "method:legacy-binding",
+          parent_bindings: [{ libraryId: 1, itemKey: "TAGDTO42" }],
+        },
+      );
+      assert.deepInclude(
+        harness.recorder.hostCalls.find(
+          (entry) => entry.capability === "effects.staged_tag_binding.resolve",
+        ),
+        {
+          capability: "effects.staged_tag_binding.resolve",
+          payload: { libraryId: 1, itemIds: [42] },
+        },
+      );
+      const migratedDatabase = new DatabaseSync(databasePath);
+      assert.deepEqual(
+        JSON.parse(
+          String(
+            migratedDatabase
+              .prepare(
+                "SELECT parent_bindings_json FROM synt_tag_staged_suggestion WHERE tag='method:legacy-binding'",
+              )
+              .get().parent_bindings_json,
+          ),
+        ),
+        [{ libraryId: 1, itemKey: "TAGDTO42" }],
+      );
+      assert.equal(
+        migratedDatabase
+          .prepare(
+            "SELECT status FROM synt_operation WHERE operation_id='staged-tag-binding-migration'",
+          )
+          .get().status,
+        "completed",
+      );
+      migratedDatabase.close();
+      assert.deepEqual(
+        await harness.client.tags.promoteStagedTagSuggestions({
+          tags: ["method:legacy-binding"],
+        }),
+        { promoted: ["method:legacy-binding"], skipped: [] },
       );
     } finally {
       await harness.stop();
@@ -2750,6 +2950,193 @@ describe("Synthesis Rust production client route", function () {
     } finally {
       if (sidecar.child.exitCode === null) await stop(sidecar.child);
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("plans and applies Related Items effects after a successful incremental Graph refresh", async function () {
+    const effectPayloads: Array<Record<string, unknown>> = [];
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-related-items-route-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "related-items-initial",
+      root,
+      hostFixture: {
+        handle({ capability, payload }) {
+          if (capability === "webdav.describe") return { configured: false };
+          if (capability === "library.items.list_page") {
+            const items = ["SOURCE01", "TARGET01", "TARGET02"].map(
+              (itemKey) => ({
+                paperRef: `1:${itemKey}`,
+                libraryId: 1,
+                itemKey,
+                itemType: "journalArticle",
+                title: itemKey,
+                year: "2026",
+                metadataHash: `sha256:${itemKey.toLowerCase()}`,
+              }),
+            );
+            return {
+              items,
+              cursor: "",
+              nextCursor: "",
+              hasMore: false,
+              returned: items.length,
+              limit: payload.limit ?? 100,
+              snapshotRevision: "related-items-route",
+            };
+          }
+          if (capability === "library.items.get_by_ref") {
+            const requested = (payload.paperRefs as string[]) || [];
+            const items = requested.map((paperRef) => {
+              const itemKey = paperRef.split(":")[1];
+              return {
+                paperRef,
+                libraryId: 1,
+                itemKey,
+                itemType: "journalArticle",
+                title: itemKey,
+                year: "2026",
+                metadataHash: `sha256:${itemKey.toLowerCase()}`,
+              };
+            });
+            return { items, missingPaperRefs: [] };
+          }
+          if (capability === "effects.related_items.apply_batch") {
+            effectPayloads.push(payload);
+            return {
+              receipts: (payload.effects as Array<Record<string, unknown>>).map(
+                (effect) => ({
+                  effectId: effect.effectId,
+                  action: effect.action,
+                  status: "applied",
+                  occurredAt: "2026-08-12T00:00:01.000Z",
+                  diagnostics: [],
+                }),
+              ),
+            };
+          }
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    const apply = (targets: string[], hash: string) =>
+      harness.client.workflowApply.applyLiteratureDigestSidecar({
+        libraryId: 1,
+        itemKey: "SOURCE01",
+        paperRef: "1:SOURCE01",
+        itemType: "journalArticle",
+        title: "Source",
+        year: "2026",
+        date: "2026-08-12",
+        creators: ["Researcher"],
+        tags: [],
+        collections: [],
+        doi: "",
+        arxiv: "",
+        isbn: "",
+        url: "",
+        citekey: "source2026",
+        dateAdded: "2026-08-12",
+        references: {
+          payloadHash: hash,
+          references: targets.map((target) => ({
+            title: target,
+            citekey: target.toLowerCase(),
+          })),
+        },
+        citationAnalysis: {
+          payloadHash: `${hash}:citation`,
+          citations: targets.map((_, index) => ({
+            reference_index: index,
+            role: "background",
+          })),
+        },
+        matchedReferences: targets.map((target) => ({
+          libraryId: 1,
+          itemKey: target,
+          paperRef: `1:${target}`,
+          title: target,
+          year: "2026",
+          citekey: target.toLowerCase(),
+        })),
+      });
+    try {
+      await apply(["TARGET01"], "sha256:related-items-v1");
+      const rebuild = await harness.client.graph.rebuildCitationGraphCacheNow();
+      const rebuilt = await waitForMaintenanceOperation(
+        harness.port,
+        rebuild.operation_id,
+      );
+      assert.equal(rebuilt.status, "completed", JSON.stringify(rebuilt));
+      assert.deepEqual(effectPayloads, []);
+
+      await apply(["TARGET01", "TARGET02"], "sha256:related-items-v2");
+      const refresh =
+        await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
+      const refreshed = await waitForMaintenanceOperation(
+        harness.port,
+        refresh.operation_id,
+      );
+      assert.equal(refreshed.status, "completed", JSON.stringify(refreshed));
+      assert.deepEqual(refreshed.receipt.affected_source_refs, ["1:SOURCE01"]);
+      assert.equal(refreshed.receipt.related_items_sync.processed, 2);
+      assert.equal(refreshed.receipt.related_items_sync.failed, 0);
+      assert.lengthOf(effectPayloads, 1);
+      assert.lengthOf(effectPayloads[0].effects as unknown[], 2);
+
+      const database = new DatabaseSync(
+        path.join(root, "state", "synthesis.db"),
+      );
+      const effects = database
+        .prepare(
+          "SELECT effect_id,payload_json FROM synt_related_items_sync_effect ORDER BY effect_id",
+        )
+        .all() as Array<{ effect_id: string; payload_json: string }>;
+      assert.lengthOf(effects, 2);
+      assert.isTrue(
+        effects.every(
+          (row) => JSON.parse(row.payload_json).status === "applied",
+        ),
+      );
+      const operation = database
+        .prepare(
+          "SELECT status FROM synt_operation WHERE operation_type='related_items_sync' ORDER BY updated_at DESC LIMIT 1",
+        )
+        .get() as { status: string };
+      assert.equal(operation.status, "completed");
+      database.close();
+
+      const echo = await harness.call("client.consumeRelatedItemsSyncEcho", {
+        args: [
+          {
+            libraryId: 1,
+            itemKey: "SOURCE01",
+            relatedItemKey: "TARGET01",
+          },
+        ],
+      });
+      assert.equal((echo as { consumed: boolean }).consumed, true);
+      await harness.stop();
+      harness = await startSynthesisProductionRouteHarness({
+        id: "related-items-reopen",
+        root,
+      });
+      const reopened = new DatabaseSync(
+        path.join(root, "state", "synthesis.db"),
+      );
+      assert.equal(
+        reopened
+          .prepare(
+            "SELECT COUNT(*) AS count FROM synt_related_items_sync_effect",
+          )
+          .get().count,
+        2,
+      );
+      reopened.close();
+    } finally {
+      await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

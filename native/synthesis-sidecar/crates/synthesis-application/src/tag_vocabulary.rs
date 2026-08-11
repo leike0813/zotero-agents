@@ -4,14 +4,14 @@ use crate::ports::TagVocabularyRepositoryPort;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::{
-    TagAbbrevRecord, TagAliasRecord, TagApplicationStateRecord, TagAuditRecord,
+    OperationRecord, TagAbbrevRecord, TagAliasRecord, TagApplicationStateRecord, TagAuditRecord,
     TagEffectReceiptRecord, TagEffectRecord, TagProtocolRecord, TagStagedSuggestionRecord,
     TagValidationWarningRecord, TagVocabularyEntryRecord, TagVocabularyPromotion,
     TagVocabularyReplacement,
@@ -338,9 +338,24 @@ pub struct TagHostEffectReceipt {
 pub trait TagLegacyBindingResolverPort: Send + Sync {
     fn resolve(
         &self,
-        staged: &[TagStagedSuggestionRecord],
-        canceled: &Arc<AtomicBool>,
-    ) -> Result<Vec<TagStagedSuggestionRecord>, String>;
+        library_id: i64,
+        item_ids: &[i64],
+    ) -> Result<TagLegacyBindingResolution, String>;
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TagLegacyBindingResolution {
+    pub resolved: Vec<(i64, TagParentBinding)>,
+    pub missing_item_ids: Vec<i64>,
+    pub diagnostics: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TagLegacyBindingMigrationSummary {
+    pub affected_rows: usize,
+    pub migrated_rows: usize,
+    pub resolved_bindings: usize,
+    pub dropped_bindings: usize,
 }
 
 type Clock = Arc<dyn Fn() -> String + Send + Sync>;
@@ -352,6 +367,8 @@ pub struct TagVocabularyApplication {
     legacy_resolver: Arc<dyn TagLegacyBindingResolverPort>,
     now: Clock,
     admission: SingleFlightAdmission,
+    library_id: i64,
+    migration_gate: Mutex<()>,
 }
 
 impl TagVocabularyApplication {
@@ -384,7 +401,184 @@ impl TagVocabularyApplication {
             legacy_resolver,
             now,
             admission: SingleFlightAdmission::new(),
+            library_id: 0,
+            migration_gate: Mutex::new(()),
         }
+    }
+
+    pub fn with_library_id(mut self, library_id: i64) -> Self {
+        self.library_id = library_id;
+        self
+    }
+
+    pub fn ensure_staged_bindings_migrated(
+        &self,
+    ) -> Result<TagLegacyBindingMigrationSummary, String> {
+        let _guard = self
+            .migration_gate
+            .lock()
+            .map_err(|_| "unavailable".to_owned())?;
+        self.run_staged_binding_migration()
+            .map_err(|_| "unavailable".into())
+    }
+
+    fn run_staged_binding_migration(&self) -> Result<TagLegacyBindingMigrationSummary, String> {
+        let rows = self.repository.list_staged()?;
+        let revision = self
+            .repository
+            .get_state()?
+            .map_or(0, |state| state.staged_revision);
+        let mut inspected = Vec::with_capacity(rows.len());
+        let mut item_ids = BTreeMap::<i64, ()>::new();
+        let mut affected_rows = 0;
+        for row in &rows {
+            let (stable, legacy, invalid) = inspect_stored_bindings(&row.parent_bindings_json);
+            if !legacy.is_empty() || invalid > 0 {
+                affected_rows += 1;
+            }
+            for item_id in &legacy {
+                item_ids.insert(*item_id, ());
+            }
+            inspected.push((stable, legacy, invalid));
+        }
+        if affected_rows == 0 {
+            return Ok(TagLegacyBindingMigrationSummary::default());
+        }
+        let now = (self.now)();
+        self.record_binding_migration("running", affected_rows, 0, 0, &[], &now)?;
+        let migrate = (|| -> Result<TagLegacyBindingMigrationSummary, String> {
+            if self.library_id <= 0 && !item_ids.is_empty() {
+                return Err("legacy_binding_library_scope_missing".into());
+            }
+            let requested = item_ids.keys().copied().collect::<Vec<_>>();
+            let mut resolved = BTreeMap::<i64, TagParentBinding>::new();
+            for batch in requested.chunks(100) {
+                let result = self.legacy_resolver.resolve(self.library_id, batch)?;
+                validate_legacy_resolution(self.library_id, batch, &result)?;
+                for (item_id, reference) in result.resolved {
+                    resolved.insert(item_id, reference);
+                }
+            }
+            let mut replacement = rows.clone();
+            let mut migrated_rows = 0;
+            let mut resolved_bindings = 0;
+            let mut dropped_bindings = 0;
+            for (row, (stable, legacy, invalid)) in replacement.iter_mut().zip(inspected) {
+                if legacy.is_empty() && invalid == 0 {
+                    continue;
+                }
+                let mut bindings = stable
+                    .into_iter()
+                    .map(|binding| ((binding.library_id, binding.item_key.clone()), binding))
+                    .collect::<BTreeMap<_, _>>();
+                for item_id in legacy {
+                    if let Some(reference) = resolved.get(&item_id) {
+                        bindings.insert(
+                            (reference.library_id, reference.item_key.clone()),
+                            reference.clone(),
+                        );
+                        resolved_bindings += 1;
+                    } else {
+                        dropped_bindings += 1;
+                    }
+                }
+                dropped_bindings += invalid;
+                row.parent_bindings_json =
+                    serde_json::to_string(&bindings.into_values().collect::<Vec<_>>())
+                        .map_err(|_| "staged_tag_binding_migration_invalid".to_owned())?;
+                row.updated_at = now.clone();
+                migrated_rows += 1;
+            }
+            if !self.repository.replace_staged(
+                revision,
+                revision.saturating_add(1),
+                &replacement,
+                &now,
+            )? {
+                return Err("staged_tag_binding_basis_mismatch".into());
+            }
+            Ok(TagLegacyBindingMigrationSummary {
+                affected_rows,
+                migrated_rows,
+                resolved_bindings,
+                dropped_bindings,
+            })
+        })();
+        match migrate {
+            Ok(summary) => {
+                let diagnostics = if summary.dropped_bindings == 0 {
+                    Vec::new()
+                } else {
+                    vec![format!(
+                        "staged_tag_binding_migration_dropped:{}",
+                        summary.dropped_bindings
+                    )]
+                };
+                self.record_binding_migration(
+                    "completed",
+                    summary.affected_rows,
+                    summary.migrated_rows,
+                    summary.dropped_bindings,
+                    &diagnostics,
+                    &now,
+                )?;
+                Ok(summary)
+            }
+            Err(error) => {
+                let _ = self.record_binding_migration(
+                    "failed",
+                    affected_rows,
+                    0,
+                    0,
+                    &["staged_tag_binding_migration_unavailable".into()],
+                    &now,
+                );
+                Err(error)
+            }
+        }
+    }
+
+    fn record_binding_migration(
+        &self,
+        status: &str,
+        affected_rows: usize,
+        processed: usize,
+        dropped: usize,
+        diagnostics: &[String],
+        now: &str,
+    ) -> Result<(), String> {
+        self.repository.upsert_operation(&OperationRecord {
+            operation_id: "staged-tag-binding-migration".into(),
+            operation_type: "staged_tag_binding_migration".into(),
+            library_id: self.library_id,
+            scope_kind: "library".into(),
+            scope_ref: self.library_id.to_string(),
+            status: status.into(),
+            label: "Migrate staged Tag parent bindings".into(),
+            phase: status.into(),
+            phase_label: match status {
+                "completed" => "Completed",
+                "failed" => "Failed",
+                _ => "Resolve legacy item IDs",
+            }
+            .into(),
+            progress_mode: "determinate".into(),
+            processed_count: processed as i64,
+            skipped_count: dropped as i64,
+            failed_count: i64::from(status == "failed"),
+            total_count: affected_rows as i64,
+            diagnostics_json: serde_json::to_string(diagnostics)
+                .map_err(|_| "staged_tag_binding_migration_invalid".to_owned())?,
+            created_at: now.into(),
+            started_at: now.into(),
+            completed_at: if matches!(status, "completed" | "failed") {
+                now.into()
+            } else {
+                String::new()
+            },
+            updated_at: now.into(),
+            ..OperationRecord::default()
+        })
     }
 
     pub fn inspect(&self) -> Result<TagInspectResult, String> {
@@ -467,6 +661,7 @@ impl TagVocabularyApplication {
     }
 
     pub fn list_public_staged(&self) -> Result<Vec<TagStagedSuggestion>, String> {
+        self.ensure_staged_bindings_migrated()?;
         self.repository
             .list_staged()?
             .iter()
@@ -511,6 +706,7 @@ impl TagVocabularyApplication {
         request: &TagSuggestionStageRequest,
     ) -> Result<TagStageResult, String> {
         self.ensure_initialized()?;
+        self.ensure_staged_bindings_migrated()?;
         if request.entries.is_empty() {
             return Ok(TagStageResult { staged: Vec::new() });
         }
@@ -551,6 +747,7 @@ impl TagVocabularyApplication {
         request: &TagStagedUpdateRequest,
     ) -> Result<TagStageResult, String> {
         self.ensure_initialized()?;
+        self.ensure_staged_bindings_migrated()?;
         let original = request.original_tag.trim().to_lowercase();
         let requested = request.tag.trim().to_lowercase();
         if original.is_empty() || requested.is_empty() {
@@ -591,6 +788,7 @@ impl TagVocabularyApplication {
         request: &TagSelectionRequest,
     ) -> Result<TagDiscardResult, String> {
         self.ensure_initialized()?;
+        self.ensure_staged_bindings_migrated()?;
         let selected = normalized_tag_set(&request.tags);
         let current = self.repository.list_staged()?;
         let mut discarded = current
@@ -616,6 +814,7 @@ impl TagVocabularyApplication {
 
     pub fn clear_public_staged(&self) -> Result<TagDiscardResult, String> {
         self.ensure_initialized()?;
+        self.ensure_staged_bindings_migrated()?;
         let current = self.repository.list_staged()?;
         let mut discarded = current
             .iter()
@@ -751,6 +950,7 @@ impl TagVocabularyApplication {
         request: &TagSelectionRequest,
     ) -> Result<TagPromoteResult, String> {
         self.ensure_initialized()?;
+        self.ensure_staged_bindings_migrated()?;
         let requested = normalized_tag_set(&request.tags);
         if requested.is_empty() {
             return Ok(TagPromoteResult {
@@ -979,6 +1179,9 @@ impl TagVocabularyApplication {
         {
             return self.result(TagMutationStatus::InvalidRequest, Vec::new(), Vec::new());
         }
+        if self.ensure_staged_bindings_migrated().is_err() {
+            return self.result(TagMutationStatus::EngineFailed, Vec::new(), Vec::new());
+        }
         let lease = match self.admission.admit() {
             Ok(lease) => lease,
             Err(error) => return self.result(map_admission(error), Vec::new(), Vec::new()),
@@ -1002,10 +1205,6 @@ impl TagVocabularyApplication {
             Err(_) => {
                 return self.result(TagMutationStatus::RepairRequired, Vec::new(), Vec::new());
             }
-        };
-        let staged = match self.legacy_resolver.resolve(&staged, lease.canceled()) {
-            Ok(staged) => staged,
-            Err(error) => return self.result(worker_status(&error), Vec::new(), Vec::new()),
         };
         if lease.canceled().load(Ordering::Relaxed) {
             return self.result(TagMutationStatus::Stopping, Vec::new(), Vec::new());
@@ -1956,12 +2155,81 @@ fn default_now() -> String {
     synthesis_protocol::utc_now_iso8601()
 }
 
+fn inspect_stored_bindings(value: &str) -> (Vec<TagParentBinding>, Vec<i64>, usize) {
+    let Ok(Value::Array(values)) = serde_json::from_str::<Value>(value) else {
+        return (Vec::new(), Vec::new(), 1);
+    };
+    let mut stable = BTreeMap::new();
+    let mut legacy = BTreeMap::new();
+    let mut invalid = 0;
+    for value in values {
+        if let Some(item_id) = value.as_i64().filter(|value| *value > 0) {
+            legacy.insert(item_id, ());
+            continue;
+        }
+        match serde_json::from_value::<TagParentBinding>(value) {
+            Ok(binding)
+                if binding.library_id > 0
+                    && !binding.item_key.is_empty()
+                    && binding.item_key.len() <= 128
+                    && binding
+                        .item_key
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric()) =>
+            {
+                stable.insert((binding.library_id, binding.item_key.clone()), binding);
+            }
+            _ => invalid += 1,
+        }
+    }
+    (
+        stable.into_values().collect(),
+        legacy.into_keys().collect(),
+        invalid,
+    )
+}
+
+fn validate_legacy_resolution(
+    library_id: i64,
+    requested: &[i64],
+    result: &TagLegacyBindingResolution,
+) -> Result<(), String> {
+    if result.diagnostics.len() > 20 || result.diagnostics.iter().any(|entry| !entry.is_object()) {
+        return Err("staged_tag_binding_resolution_invalid".into());
+    }
+    let requested = requested.iter().copied().collect::<HashSet<_>>();
+    let mut partition = HashSet::new();
+    for (item_id, reference) in &result.resolved {
+        if !requested.contains(item_id)
+            || !partition.insert(*item_id)
+            || reference.library_id != library_id
+            || reference.item_key.is_empty()
+            || reference.item_key.len() > 128
+            || !reference
+                .item_key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric())
+        {
+            return Err("staged_tag_binding_resolution_invalid".into());
+        }
+    }
+    for item_id in &result.missing_item_ids {
+        if !requested.contains(item_id) || !partition.insert(*item_id) {
+            return Err("staged_tag_binding_resolution_invalid".into());
+        }
+    }
+    if partition != requested {
+        return Err("staged_tag_binding_resolution_invalid".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ports::RepositoryPort;
     use std::path::PathBuf;
-    use std::sync::Mutex;
+    use std::sync::{Barrier, Mutex};
     use synthesis_repository::{Repository, RepositoryIdentity};
 
     struct Compute;
@@ -2044,10 +2312,53 @@ mod tests {
     impl TagLegacyBindingResolverPort for Resolver {
         fn resolve(
             &self,
-            staged: &[TagStagedSuggestionRecord],
-            _canceled: &Arc<AtomicBool>,
-        ) -> Result<Vec<TagStagedSuggestionRecord>, String> {
-            Ok(staged.to_vec())
+            _library_id: i64,
+            item_ids: &[i64],
+        ) -> Result<TagLegacyBindingResolution, String> {
+            Ok(TagLegacyBindingResolution {
+                missing_item_ids: item_ids.to_vec(),
+                ..TagLegacyBindingResolution::default()
+            })
+        }
+    }
+
+    struct RecordingResolver {
+        calls: Arc<Mutex<Vec<Vec<i64>>>>,
+        fail: AtomicBool,
+        missing: HashSet<i64>,
+    }
+
+    impl TagLegacyBindingResolverPort for RecordingResolver {
+        fn resolve(
+            &self,
+            library_id: i64,
+            item_ids: &[i64],
+        ) -> Result<TagLegacyBindingResolution, String> {
+            self.calls.lock().unwrap().push(item_ids.to_vec());
+            if self.fail.load(Ordering::Relaxed) {
+                return Err("host_unavailable".into());
+            }
+            Ok(TagLegacyBindingResolution {
+                resolved: item_ids
+                    .iter()
+                    .filter(|item_id| !self.missing.contains(item_id))
+                    .map(|item_id| {
+                        (
+                            *item_id,
+                            TagParentBinding {
+                                library_id,
+                                item_key: format!("I{item_id:07}"),
+                            },
+                        )
+                    })
+                    .collect(),
+                missing_item_ids: item_ids
+                    .iter()
+                    .filter(|item_id| self.missing.contains(item_id))
+                    .copied()
+                    .collect(),
+                diagnostics: Vec::new(),
+            })
         }
     }
 
@@ -2319,6 +2630,230 @@ mod tests {
         .expect("reopen repository");
         assert_eq!(reopened.list_tag_effects().expect("effects").len(), 4);
         drop(reopened);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrates_mixed_legacy_bindings_in_sorted_hundred_item_batches() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-migration".into(),
+                    data_root_id: "data-migration".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let app = Arc::new(
+            TagVocabularyApplication::with_clock(
+                Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+                Arc::new(Compute),
+                Arc::new(Host::new(true)),
+                Arc::new(RecordingResolver {
+                    calls: calls.clone(),
+                    fail: AtomicBool::new(false),
+                    missing: HashSet::from([2]),
+                }),
+                Arc::new(|| "2026-08-12T00:00:00.000Z".into()),
+            )
+            .with_library_id(1),
+        );
+        assert_eq!(
+            app.save(None, &candidate("tag:migration")).status,
+            TagMutationStatus::Committed
+        );
+        let mut bindings = vec![
+            json!({"libraryId":1,"itemKey":"STABLE01"}),
+            json!({"bad":true}),
+        ];
+        bindings.extend((1..=101).rev().map(Value::from));
+        assert_eq!(
+            app.stage(
+                0,
+                &[TagStagedSuggestionRecord {
+                    tag: "method:migration".into(),
+                    facet: "method".into(),
+                    parent_bindings_json: serde_json::to_string(&bindings).unwrap(),
+                    created_at: "fixed".into(),
+                    updated_at: "fixed".into(),
+                    ..TagStagedSuggestionRecord::default()
+                }],
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+        let barrier = Arc::new(Barrier::new(3));
+        let migrations = (0..2)
+            .map(|_| {
+                let app = Arc::clone(&app);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    app.ensure_staged_bindings_migrated().expect("migration")
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+        let mut summaries = migrations
+            .into_iter()
+            .map(|thread| thread.join().expect("migration thread"))
+            .collect::<Vec<_>>();
+        summaries.sort_by_key(|summary| summary.affected_rows);
+        assert_eq!(summaries[0], TagLegacyBindingMigrationSummary::default());
+        let summary = &summaries[1];
+        assert_eq!(summary.affected_rows, 1);
+        assert_eq!(summary.migrated_rows, 1);
+        assert_eq!(summary.resolved_bindings, 100);
+        assert_eq!(summary.dropped_bindings, 2);
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .map(Vec::len)
+                .collect::<Vec<_>>(),
+            vec![100, 1]
+        );
+        let repository = owner.lock().unwrap();
+        assert_eq!(
+            repository
+                .get_tag_application_state()
+                .unwrap()
+                .unwrap()
+                .staged_revision,
+            2
+        );
+        let migrated: Vec<TagParentBinding> = serde_json::from_str(
+            &repository.list_tag_staged_suggestions().unwrap()[0].parent_bindings_json,
+        )
+        .unwrap();
+        assert_eq!(migrated.len(), 101);
+        assert_eq!(migrated[0].item_key, "I0000001");
+        assert!(
+            migrated
+                .iter()
+                .all(|binding| binding.item_key != "I0000002")
+        );
+        assert_eq!(
+            repository
+                .get_operation("staged-tag-binding-migration")
+                .unwrap()
+                .unwrap()
+                .status,
+            "completed"
+        );
+        drop(repository);
+        drop(app);
+        drop(owner);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_binding_migration_preserves_rows_and_revision_and_can_retry() {
+        let root = root();
+        let owner = Arc::new(Mutex::new(
+            Repository::open(
+                &root,
+                RepositoryIdentity {
+                    profile_id: "profile-migration-retry".into(),
+                    data_root_id: "data-migration-retry".into(),
+                },
+            )
+            .expect("repository"),
+        ));
+        let resolver = Arc::new(RecordingResolver {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            fail: AtomicBool::new(true),
+            missing: HashSet::new(),
+        });
+        let app = TagVocabularyApplication::with_clock(
+            Arc::new(RepositoryPort::new(Arc::clone(&owner))),
+            Arc::new(Compute),
+            Arc::new(Host::new(true)),
+            resolver.clone(),
+            Arc::new(|| "2026-08-12T00:00:00.000Z".into()),
+        )
+        .with_library_id(1);
+        assert_eq!(
+            app.save(None, &candidate("tag:migration-retry")).status,
+            TagMutationStatus::Committed
+        );
+        assert_eq!(
+            app.stage(
+                0,
+                &[TagStagedSuggestionRecord {
+                    tag: "method:retry".into(),
+                    facet: "method".into(),
+                    parent_bindings_json: "[7]".into(),
+                    created_at: "fixed".into(),
+                    updated_at: "fixed".into(),
+                    ..TagStagedSuggestionRecord::default()
+                }],
+            )
+            .status,
+            TagMutationStatus::Committed
+        );
+        let before = owner.lock().unwrap().list_tag_staged_suggestions().unwrap();
+        let revision = owner
+            .lock()
+            .unwrap()
+            .get_tag_application_state()
+            .unwrap()
+            .unwrap()
+            .staged_revision;
+        assert_eq!(app.list_public_staged().unwrap_err(), "unavailable");
+        assert_eq!(
+            app.stage_public(&TagSuggestionStageRequest {
+                entries: Vec::new()
+            })
+            .unwrap_err(),
+            "unavailable"
+        );
+        assert_eq!(
+            app.update_public_staged(&TagStagedUpdateRequest {
+                original_tag: "method:retry".into(),
+                tag: "method:retry".into(),
+                facet: "method".into(),
+                note: String::new(),
+                source_flow: "fixture".into(),
+                parent_bindings: Vec::new(),
+            })
+            .unwrap_err(),
+            "unavailable"
+        );
+        assert_eq!(
+            app.discard_public(&TagSelectionRequest { tags: Vec::new() })
+                .unwrap_err(),
+            "unavailable"
+        );
+        assert_eq!(app.clear_public_staged().unwrap_err(), "unavailable");
+        assert_eq!(
+            app.promote_public(&TagSelectionRequest { tags: Vec::new() })
+                .unwrap_err(),
+            "unavailable"
+        );
+        assert_eq!(
+            owner.lock().unwrap().list_tag_staged_suggestions().unwrap(),
+            before
+        );
+        assert_eq!(
+            owner
+                .lock()
+                .unwrap()
+                .get_tag_application_state()
+                .unwrap()
+                .unwrap()
+                .staged_revision,
+            revision
+        );
+        resolver.fail.store(false, Ordering::Relaxed);
+        let staged = app.list_public_staged().expect("retry");
+        assert_eq!(staged[0].parent_bindings[0].item_key, "I0000007");
+        drop(app);
+        drop(owner);
         let _ = std::fs::remove_dir_all(root);
     }
 }

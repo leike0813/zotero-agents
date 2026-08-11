@@ -14,6 +14,11 @@ Rust Synthesis acceptance SHALL use `main@e210997a11e0054a3cb4ae0656e5cfb96102a0
 - **THEN** a real Rust production-route case proves its DTO, facts/effects, failure, and reopen behavior
 - **AND** roster or source-string presence alone is insufficient
 
+#### Scenario: Reverse-Host roster entry lacks a caller
+- **WHEN** the Topic representative-image read, Related Items effect, or staged Tag binding resolver is present in the capability roster but unreachable from its production entry point
+- **THEN** the capability is not behaviorally migrated
+- **AND** the change remains open until real-route evidence proves its request, facts/effects, failure behavior, and reopen result
+
 ### Requirement: Destructive retirement SHALL remain blocked until parity and scale pass
 
 Plugin legacy and Node oracle deletion SHALL NOT begin while any baseline disposition is unresolved, any production route relies on placeholder or wrong behavior, or the real-route 10k/25k and representative Zotero 7/9 gates are incomplete.

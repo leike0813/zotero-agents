@@ -9,6 +9,7 @@ import {
   SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
   synthesisReverseHostCallTimeoutMs,
+  synthesisReverseHostResponseBodyLimit,
 } from "../../packages/synthesis-contracts/src";
 import { createSynthesisReverseHostEndpoint } from "../../src/modules/synthesisReverseHostEndpoint";
 import type { SynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostBroker";
@@ -300,7 +301,7 @@ describe("host HTTP response governance", function () {
     assert.equal(output.closeCount, 1);
   });
 
-  it("uses the reference artifact deadline for scan and payload reads", function () {
+  it("uses the reference artifact deadline for scan, payload, and representative-image reads", function () {
     assert.equal(
       synthesisReverseHostCallTimeoutMs("library.artifacts.scan_page"),
       10_000,
@@ -308,6 +309,16 @@ describe("host HTTP response governance", function () {
     assert.equal(
       synthesisReverseHostCallTimeoutMs("library.artifacts.read"),
       10_000,
+    );
+    assert.equal(
+      synthesisReverseHostCallTimeoutMs("library.representative_image.read"),
+      10_000,
+    );
+    assert.equal(
+      synthesisReverseHostResponseBodyLimit(
+        "library.representative_image.read",
+      ),
+      8 * 1024 * 1024,
     );
     assert.equal(synthesisReverseHostCallTimeoutMs("webdav.describe"), 2_000);
   });

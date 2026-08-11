@@ -133,10 +133,15 @@ struct BindingResolver;
 impl TagLegacyBindingResolverPort for BindingResolver {
     fn resolve(
         &self,
-        staged: &[TagStagedSuggestionRecord],
-        _canceled: &Arc<AtomicBool>,
-    ) -> Result<Vec<TagStagedSuggestionRecord>, String> {
-        Ok(staged.to_vec())
+        _library_id: i64,
+        item_ids: &[i64],
+    ) -> Result<synthesis_application::tag_vocabulary::TagLegacyBindingResolution, String> {
+        Ok(
+            synthesis_application::tag_vocabulary::TagLegacyBindingResolution {
+                missing_item_ids: item_ids.to_vec(),
+                ..Default::default()
+            },
+        )
     }
 }
 

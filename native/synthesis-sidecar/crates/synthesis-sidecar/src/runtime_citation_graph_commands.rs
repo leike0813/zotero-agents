@@ -557,97 +557,118 @@ fn run_rebuild(
     requested_source_refs: Option<Vec<String>>,
 ) -> Result<Value, String> {
     let receipt = begin_intent(apps, intent, "pending", &[])?;
-    let outcome: Result<CitationMutationResult, String> = (|| -> Result<_, String> {
-        let facts = durable_facts(apps)?;
-        let (source_refs, kind, items) = match requested_source_refs {
-            Some(source_refs) => {
-                let mut source_refs = source_refs
-                    .into_iter()
-                    .map(|value| value.trim().to_owned())
-                    .filter(|value| !value.is_empty())
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                source_refs.sort();
-                let items = collect_items_by_ref(apps.host_items.as_ref(), &source_refs)?;
-                (source_refs, "source_slice", items)
-            }
-            None if intent == RebuildIntent::Incremental => {
-                let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
-                let delta = stale_delta(facts.cache_basis.as_ref());
-                let source_refs = affected_source_refs(&facts, &delta)?;
-                if source_refs.is_empty() || current_graph_hash(apps)?.is_none() {
+    let outcome: Result<(CitationMutationResult, &'static str, Vec<String>), String> =
+        (|| -> Result<_, String> {
+            let facts = durable_facts(apps)?;
+            let (source_refs, kind, items) = match requested_source_refs {
+                Some(source_refs) => {
+                    let mut source_refs = source_refs
+                        .into_iter()
+                        .map(|value| value.trim().to_owned())
+                        .filter(|value| !value.is_empty())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                    source_refs.sort();
+                    let items = collect_items_by_ref(apps.host_items.as_ref(), &source_refs)?;
+                    (source_refs, "source_slice", items)
+                }
+                None if intent == RebuildIntent::Incremental => {
+                    let redirect_graph = ReferenceRedirectGraph::from_records(&facts.redirects)?;
+                    let delta = stale_delta(facts.cache_basis.as_ref());
+                    let source_refs = affected_source_refs(&facts, &delta)?;
+                    if source_refs.is_empty() || current_graph_hash(apps)?.is_none() {
+                        let items = collect_host_items(apps.host_items.as_ref())?;
+                        let source_refs = items
+                            .iter()
+                            .map(|item| item.paper_ref.clone())
+                            .collect::<Vec<_>>();
+                        (source_refs, "full", items)
+                    } else {
+                        let mut metadata_refs = source_refs.clone();
+                        for raw in facts
+                            .raw
+                            .iter()
+                            .filter(|raw| source_refs.binary_search(&raw.source_ref).is_ok())
+                        {
+                            let effective = redirect_graph.resolve(&raw.canonical_reference_id)?;
+                            if let Some(binding) = facts.bindings.iter().find(|binding| {
+                                redirect_graph
+                                    .resolve(&binding.canonical_reference_id)
+                                    .is_ok_and(|candidate| candidate == effective)
+                            }) {
+                                metadata_refs
+                                    .push(format!("{}:{}", binding.library_id, binding.item_key));
+                            }
+                        }
+                        metadata_refs.sort();
+                        metadata_refs.dedup();
+                        let items = collect_items_by_ref(apps.host_items.as_ref(), &metadata_refs)?;
+                        (source_refs, "source_slice", items)
+                    }
+                }
+                None => {
                     let items = collect_host_items(apps.host_items.as_ref())?;
                     let source_refs = items
                         .iter()
                         .map(|item| item.paper_ref.clone())
                         .collect::<Vec<_>>();
                     (source_refs, "full", items)
-                } else {
-                    let mut metadata_refs = source_refs.clone();
-                    for raw in facts
-                        .raw
-                        .iter()
-                        .filter(|raw| source_refs.binary_search(&raw.source_ref).is_ok())
-                    {
-                        let effective = redirect_graph.resolve(&raw.canonical_reference_id)?;
-                        if let Some(binding) = facts.bindings.iter().find(|binding| {
-                            redirect_graph
-                                .resolve(&binding.canonical_reference_id)
-                                .is_ok_and(|candidate| candidate == effective)
-                        }) {
-                            metadata_refs
-                                .push(format!("{}:{}", binding.library_id, binding.item_key));
-                        }
-                    }
-                    metadata_refs.sort();
-                    metadata_refs.dedup();
-                    let items = collect_items_by_ref(apps.host_items.as_ref(), &metadata_refs)?;
-                    (source_refs, "source_slice", items)
                 }
-            }
-            None => {
-                let items = collect_host_items(apps.host_items.as_ref())?;
-                let source_refs = items
-                    .iter()
-                    .map(|item| item.paper_ref.clone())
-                    .collect::<Vec<_>>();
-                (source_refs, "full", items)
-            }
-        };
-        update_intent_scope(apps, &receipt, kind, &source_refs)?;
-        let input = build_input(&facts, items, &source_refs, kind)?;
-        let expected_graph_hash = current_graph_hash(apps)?;
-        let request = CitationRebuildRequest {
-            expected_graph_hash: expected_graph_hash.clone(),
-            force: true,
-            input: input.clone(),
-        };
-        let result = if kind == "source_slice" {
-            let Some(expected_graph_hash) = expected_graph_hash else {
-                return Err("citation_graph_basis_missing".into());
             };
-            let checkpoint = || promotion_checkpoint(apps);
-            apps.citations.rebuild_source_slice_with_checkpoint(
-                CitationRebuildRequest {
-                    expected_graph_hash: Some(expected_graph_hash),
-                    ..request
-                },
-                &source_refs,
-                &checkpoint,
-            )
-        } else {
-            let checkpoint = || promotion_checkpoint(apps);
-            apps.citations
-                .rebuild_full_with_checkpoint(request, &checkpoint)
-        };
-        update_cache_basis(apps, &result, &input, &receipt.operation_id)?;
-        Ok(result)
-    })();
+            update_intent_scope(apps, &receipt, kind, &source_refs)?;
+            let input = build_input(&facts, items, &source_refs, kind)?;
+            let expected_graph_hash = current_graph_hash(apps)?;
+            let request = CitationRebuildRequest {
+                expected_graph_hash: expected_graph_hash.clone(),
+                force: true,
+                input: input.clone(),
+            };
+            let result = if kind == "source_slice" {
+                let Some(expected_graph_hash) = expected_graph_hash else {
+                    return Err("citation_graph_basis_missing".into());
+                };
+                let checkpoint = || promotion_checkpoint(apps);
+                apps.citations.rebuild_source_slice_with_checkpoint(
+                    CitationRebuildRequest {
+                        expected_graph_hash: Some(expected_graph_hash),
+                        ..request
+                    },
+                    &source_refs,
+                    &checkpoint,
+                )
+            } else {
+                let checkpoint = || promotion_checkpoint(apps);
+                apps.citations
+                    .rebuild_full_with_checkpoint(request, &checkpoint)
+            };
+            update_cache_basis(apps, &result, &input, &receipt.operation_id)?;
+            Ok((result, kind, source_refs))
+        })();
     match outcome {
-        Ok(result) => {
+        Ok((result, kind, source_refs)) => {
             finish_intent(apps, &receipt, Ok(&result))?;
-            wire(result)
+            let should_sync = intent == RebuildIntent::Incremental
+                && kind == "source_slice"
+                && matches!(
+                    result.status,
+                    CitationMutationStatus::Promoted | CitationMutationStatus::Unchanged
+                );
+            let graph_hash = result.graph_hash.clone().unwrap_or_default();
+            let mut value = wire(result)?;
+            if should_sync {
+                let summary = apps.related_items.sync(&source_refs, &graph_hash);
+                let object = value
+                    .as_object_mut()
+                    .ok_or_else(|| "production_projection_invalid".to_owned())?;
+                object.insert("affected_source_refs".into(), json!(source_refs));
+                object.insert(
+                    "related_items_sync".into(),
+                    serde_json::to_value(summary)
+                        .map_err(|_| "production_projection_invalid".to_owned())?,
+                );
+            }
+            Ok(value)
         }
         Err(error) => {
             let _ = finish_intent(apps, &receipt, Err(&error));

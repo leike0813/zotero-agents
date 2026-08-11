@@ -28,6 +28,7 @@ use synthesis_repository::{
     ReferenceMatchProposalRecord, ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion,
     ReferenceMatchingStateRecord, ReferenceProjectionReplacement, ReferenceProjectionSnapshot,
     ReferenceRedirectFactRecord, ReferenceReviewTransition, ReferenceSourceRecord,
+    RelatedItemsAcceptedEdgeRecord, RelatedItemsSyncEffectRecord,
 };
 use synthesis_repository::{
     ConceptApplicationStateRecord, ConceptKbReplacement, TagApplicationStateRecord, TagAuditRecord,
@@ -86,6 +87,17 @@ pub trait CitationGraphRepositoryPort: Send + Sync {
         diagnostics: &[String],
         now: &str,
     ) -> Result<(), String>;
+}
+
+pub trait RelatedItemsRepositoryPort: Send + Sync {
+    fn list_accepted_edges(
+        &self,
+        source_refs: &[String],
+    ) -> Result<Vec<RelatedItemsAcceptedEdgeRecord>, String>;
+    fn list_effects(&self) -> Result<Vec<RelatedItemsSyncEffectRecord>, String>;
+    fn get_effect(&self, effect_id: &str) -> Result<Option<RelatedItemsSyncEffectRecord>, String>;
+    fn upsert_effect(&self, record: &RelatedItemsSyncEffectRecord) -> Result<(), String>;
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
 }
 
 pub trait ReferenceRefreshRepositoryPort: Send + Sync {
@@ -186,6 +198,7 @@ pub trait TagVocabularyRepositoryPort: Send + Sync {
     fn replace_audits(&self, library_id: i64, records: &[TagAuditRecord]) -> Result<(), String>;
     fn upsert_audit(&self, record: &TagAuditRecord) -> Result<(), String>;
     fn update_effect_receipts(&self, receipts: &[TagEffectReceiptRecord]) -> Result<(), String>;
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
 }
 
 pub trait ConceptKbRepositoryPort: Send + Sync {
@@ -610,6 +623,13 @@ impl TagVocabularyRepositoryPort for RepositoryPort {
             .map_err(|_| "repository_unavailable".to_owned())?
             .update_tag_effect_receipts(receipts)
     }
+
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .upsert_operation(record)
+    }
 }
 
 impl ConceptKbRepositoryPort for RepositoryPort {
@@ -900,6 +920,37 @@ impl CitationGraphRepositoryPort for RepositoryPort {
             .map_err(|_| "repository_unavailable".to_owned())?
             .update_operation_status(operation_id, status, phase, diagnostics, now)?;
         Ok(())
+    }
+}
+
+impl RelatedItemsRepositoryPort for RepositoryPort {
+    fn list_accepted_edges(
+        &self,
+        source_refs: &[String],
+    ) -> Result<Vec<RelatedItemsAcceptedEdgeRecord>, String> {
+        self.with_reader(|repository| repository.list_related_items_accepted_edges(source_refs))
+    }
+
+    fn list_effects(&self) -> Result<Vec<RelatedItemsSyncEffectRecord>, String> {
+        self.with_reader(Repository::list_related_items_sync_effects)
+    }
+
+    fn get_effect(&self, effect_id: &str) -> Result<Option<RelatedItemsSyncEffectRecord>, String> {
+        self.with_reader(|repository| repository.get_related_items_sync_effect(effect_id))
+    }
+
+    fn upsert_effect(&self, record: &RelatedItemsSyncEffectRecord) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .upsert_related_items_sync_effect(record)
+    }
+
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .upsert_operation(record)
     }
 }
 
