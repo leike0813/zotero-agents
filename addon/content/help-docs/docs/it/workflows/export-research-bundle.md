@@ -11,16 +11,16 @@ Assemblare automaticamente un bundle di ricerca di sola lettura in Dashboard Pro
 | `paperTitle` | Sì | Titolo di lavoro del manoscritto utilizzato per trovare materiali di ricerca. |
 | `researchContent` | Sì | Problema di ricerca, metodi, ambito e contributo previsto. |
 | `articleType` | No | Tipo di manoscritto (predefinito: `original research`). |
-| `maxTopics` | No | Numero massimo di argomenti pertinenti da includere, intervallo 0–5 (predefinito: 5). |
-| `maxCorePapers` | No | Numero massimo di articoli principali, intervallo 1–20 (predefinito: 20). |
-| `maxRelatedPapers` | No | Totale massimo di articoli correlati inclusi i principali, intervallo 1–80 (predefinito: 80). |
+| `maxTopics` | No | Numero massimo di argomenti pertinenti da includere, intervallo 0–10 (predefinito: 5). |
+| `maxCorePapers` | No | Numero massimo di articoli principali, intervallo 1–50 (predefinito: 20). |
+| `maxRelatedPapers` | No | Numero massimo di articoli aggiuntivi non provenienti dai Topics, intervallo 1–200 (predefinito: 80). Gli articoli risolti dai Topics selezionati vengono mantenuti oltre il limite. |
 
 Non è richiesta la selezione di elementi Zotero.
 
 ## Comportamento
 
 1. Ricevere i parametri di intento dell'articolo dall'utente.
-2. Scoprire materiali candidati da Synthesis Topics esistenti, elementi della libreria Zotero e contesto del grafo di citazione disponibile.
+2. Scoprire materiali candidati da Synthesis Topics esistenti e ancore limitate dei metadati Zotero. La ricerca confronta metadati indicizzati come titoli, autori, anni, pubblicazioni e tag; non è una ricerca semantica full-text.
 3. Eseguire una valutazione delimitata per distinguere gli articoli principali da quelli correlati.
 4. Assemblare il Research Bundle con rapporti sugli argomenti, metadati bibliografici e artefatti di analisi v2 disponibili (sintesi, riferimenti, analisi delle citazioni, contenuto delle conversazioni).
 5. Per gli articoli principali, preferire la fonte Markdown con immagini locali; ripiegare su PDF; registrare un avviso se nessuno è disponibile.

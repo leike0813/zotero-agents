@@ -89,11 +89,6 @@ import {
 } from "./acpSkillRunAuditTrail";
 import { continueSkillRunnerSequence } from "./workflowExecution/sequenceRuntime";
 import {
-  assertHostBridgePluginSkillBundleIdentityCurrent,
-  HostBridgePluginSkillBundleIdentityChangedError,
-} from "../shared/hostBridgePluginSkillBundleContract";
-import { getCurrentHostBridgePluginSkillBundleIdentity } from "./hostBridgePluginSkillBundle";
-import {
   BoundedWaitError,
   createCancellationController,
   waitForBoundedPromise,
@@ -1010,21 +1005,6 @@ export async function recoverAcpSkillRunConversation(args: {
     throw new Error(
       "Eligible terminal ACP skill conversations must be explicitly connected before reply.",
     );
-  }
-  try {
-    assertHostBridgePluginSkillBundleIdentityCurrent(
-      record.hostBridgePluginSkillBundleIdentity,
-      getCurrentHostBridgePluginSkillBundleIdentity(),
-    );
-  } catch (error) {
-    if (error instanceof HostBridgePluginSkillBundleIdentityChangedError) {
-      upsertAcpSkillRun({
-        requestId,
-        conversationRecoveryState: "unavailable",
-        lastRecoveryError: error.code,
-      });
-    }
-    throw error;
   }
   if (
     __acp_runtime_performance_profiler_enabled__ &&
