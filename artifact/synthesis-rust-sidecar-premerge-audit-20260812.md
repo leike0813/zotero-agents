@@ -350,3 +350,60 @@ OpenSpec change 增加了 canonical post-commit、maintenance epoch 和 lifecycl
 ### 仍未解决的阻断项
 
 本阶段没有处理 HTTP connection admission/read timeout/shutdown handler drain、maintenance replay identity/reconcile pagination、transfer/WebDAV state 竞态、四个 application parity gate、production-route performance fixture、full Node core suite 加载错误或 Zotero 7/9 desktop smoke。automatic retry schedule 的代码/规格漂移也仍待决策。因此这里只能确认 canonical mutation autosync 已恢复并通过针对性门禁；整个 premerge 仍未通过，也没有执行 prebuild、release、发布或 Gitee 同步。
+
+## 第三阶段修复复验：有界 HTTP server
+
+本节记录独立 OpenSpec change `harden-synthesis-rust-sidecar-http-server` 的实现与复验。固定实现基线为 `e2b40bee8e9bacbedc86a0071da9e77ca1ef2da1`；工作区补丁身份（不含本审计文件，tracked binary diff 加按路径排序的 untracked 文件内容哈希）为 `sha256:ef1b4cb48ba88303afc478577c0c33fad1574b960984c1135478cffc192166ed`。该 change 只处理上文“HTTP partial request 可线性增殖线程并阻塞停机”这一项，不改变报告中其余 P0/P1 的状态。
+
+### 修复后的运行时约束
+
+- listener 最多持有 16 条 active HTTP connection，不设置等待队列。超额连接不创建 handler thread，直接返回 `503 service_unavailable`。
+- request line 与单条 header line 上限均为 8 KiB，request line 与 headers 的累计 framing 上限为 64 KiB；传输层 body 上限为 8 MiB。普通 production call 既有的 1 MiB 业务上限仍由 dispatch 层执行。
+- 只接受严格的 HTTP/1.1 `Content-Length` framing；冲突的重复长度、`Transfer-Encoding`、错误版本及不完整 framing 在业务 dispatch 前被拒绝。
+- read idle timeout 为 500 ms、request 总读取时限为 30 s、write timeout 为 2 s。header、body、timeout 与 framing 错误分别稳定映射到 `431 invalid_request`、`413 request_body_too_large`、`408 request_timeout`、`400 invalid_request`。
+- stdin EOF 或 lifecycle shutdown 进入 stopping 后，listener 先停止接收并中断已登记 socket，再以 500 ms 上限 drain handler。已完成 JoinHandle 在服务循环内持续回收，connection lease 通过 RAII 释放 admission slot。
+- `system.shutdown` 先 flush success receipt，再发布 stopping 并停止 compute/transfer owners；即使 response write 失败，shutdown 仍继续执行。
+
+### TDD 与真实进程证据
+
+实现前，新增的三组真实进程回归在固定基线上为 **0 passing / 3 failing**：100 条 partial connection 全部保持打开；超长 request line 未返回 431；stdin shutdown 在 partial request 存在时未能于 1.5 秒内结束。随后补充 lifecycle receipt 顺序用例，形成四组 HTTP governance 行为。
+
+source-fresh 二进制复验结果为：
+
+```text
+Synthesis sidecar HTTP server governance
+  4 passing
+
+Synthesis Rust production client route
+  2 passing
+
+6 passing (5s)
+```
+
+100 条 partial connection 探针证明 active socket 与 handler thread 均不超过 16；至少一条溢出连接收到 503。释放连接后 health route 恢复。framing/timeout 用例逐项核对 HTTP status 与结构化 error code，并在每次拒绝后验证 listener 仍能服务。两条 shutdown 用例分别证明 stdin EOF 能中断 partial read，以及 lifecycle success receipt 在其它 socket 被中断前已完整到达客户端。
+
+### 第三阶段验证结果
+
+| 验证 | 结果 | 本阶段证据 |
+|---|---:|---|
+| Rust format | PASS | `cargo +nightly-2026-07-25 fmt --all --check` |
+| Rust Clippy | PASS | workspace/all-targets，`-D warnings` |
+| Rust workspace tests | PASS | 246 passed；其中 sidecar binary 78 passed |
+| Rust workspace build | PASS | locked workspace build |
+| HTTP governance + production route | PASS | 6 passing，真实 source-fresh sidecar 进程 |
+| service boundary | PASS | 113 public methods，无 production boundary violation |
+| TypeScript contracts | PASS | package typecheck |
+| cross-language contracts | PASS | 6 schema / 115 definitions / 14 positive / 15 negative |
+| production capabilities | PASS | 96 capability / 96 operation，fingerprint 未变化 |
+| OpenSpec strict | PASS | 新 change 与全量 specs 严格校验 |
+| Prettier / diff check | PASS | change artifacts、测试、文档与检查脚本；无 whitespace error |
+
+边界检查脚本同时收紧了检查口径：reverse-Host `TcpStream::connect` 限制只扫描移除 `#[cfg(test)]` 后的 production source，避免新加入的 loopback socket-pair 单元测试被误判；生产源码的唯一允许项仍是 `runtime_reverse_host.rs`。
+
+一次非正式复跑误用了旧工具链 `nightly-2025-10-20`，在 `libsqlite3-sys` 的 `cfg_select` 编译处失败。该命令不是仓库门禁；随后按 `package.json` 与 `rust-toolchain.toml` 固定的 `nightly-2026-07-25` 完整重跑，结果如上。
+
+### 剩余阻断与范围
+
+本阶段只关闭 HTTP admission、framing、timeout 与 shutdown drain 缺口。代表图、Related Items、WebDAV autosync、旧 Tag binding 迁移、maintenance replay、application parity、性能 fixture、full core suite、restart reconciliation 以及已列出的 transfer/WebDAV 竞态仍按原审计等级保留。因而本报告的整体结论不变：候选尚不能据此直接合入主线。
+
+本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed 或触发任何发布流程。发布与 prebuild 仍是后续独立且需明确授权的工作。

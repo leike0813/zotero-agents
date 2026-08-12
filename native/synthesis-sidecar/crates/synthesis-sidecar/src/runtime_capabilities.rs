@@ -17,7 +17,7 @@ use crate::runtime_diagnostics::{
     NativeDiagnosticEvent, TraceContext, child_observation_context, emit_debug,
     with_observation_context,
 };
-use crate::runtime_http::{read_http, response};
+use crate::runtime_http::{HttpRequest, read_http, response};
 use crate::runtime_lifecycle::RuntimeOwnership;
 use crate::runtime_production_client::{
     dispatch_production_client, production_client_error_status,
@@ -138,7 +138,7 @@ fn call_response(request_id: &str, service_instance_id: &str, data: Value) -> Va
     })
 }
 
-fn error_response(code: &str) -> Value {
+pub(crate) fn error_response(code: &str) -> Value {
     let public_code = match code {
         "reverse_host_response_too_large" => "response_body_too_large",
         "reference_refresh_payload_too_large" => "request_body_too_large",
@@ -226,10 +226,19 @@ pub(crate) fn handle_connection(
     mut stream: TcpStream,
     state: Arc<ServeState>,
 ) -> Result<(), String> {
-    let (method, path, bearer, body) = match read_http(&mut stream) {
+    let HttpRequest {
+        method,
+        path,
+        bearer,
+        body,
+    } = match read_http(&stream) {
         Ok(request) => request,
-        Err(_) => {
-            return response(&mut stream, 400, error_response("invalid_request"));
+        Err(error) => {
+            return response(
+                &mut stream,
+                error.http_status(),
+                error_response(error.public_code()),
+            );
         }
     };
     if path == "/synthesis/v1/health" {
@@ -616,14 +625,7 @@ pub(crate) fn handle_connection(
                 if !exact_payload(&call.payload, &[]) {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
-                state.stopping.store(true, Ordering::Release);
-                state.compute_pool.stop();
-                state
-                    .transfer
-                    .lock()
-                    .map_err(|_| "transfer_unavailable".to_owned())?
-                    .stop();
-                response(
+                let response_result = response(
                     &mut stream,
                     200,
                     call_response(
@@ -631,7 +633,17 @@ pub(crate) fn handle_connection(
                         &state.service_instance_id,
                         json!({"accepted":true,"lifecycleState":"stopping"}),
                     ),
-                )
+                );
+                state.stopping.store(true, Ordering::Release);
+                state.compute_pool.stop();
+                let transfer_result = match state.transfer.lock() {
+                    Ok(mut transfer) => {
+                        transfer.stop();
+                        Ok(())
+                    }
+                    Err(_) => Err("transfer_unavailable".to_owned()),
+                };
+                response_result.and(transfer_result)
             }
             _ => response(&mut stream, 404, error_response("capability_not_found")),
         };

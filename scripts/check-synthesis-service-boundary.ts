@@ -500,7 +500,7 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
       );
     }
     if (
-      /\bTcpStream::connect(?:_timeout)?\s*\(/.test(source) &&
+      /\bTcpStream::connect(?:_timeout)?\s*\(/.test(productionSource) &&
       relativePath !==
         "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reverse_host.rs"
     ) {

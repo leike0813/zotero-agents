@@ -41,6 +41,34 @@ there is no PID file, owner marker, lease timeout, or stale-owner recovery.
 Rust observes parent stdin. Parent-pipe EOF and authenticated `system.shutdown`
 both stop the service. Forced process termination is only a bounded fallback.
 
+## Inbound HTTP ownership
+
+The loopback listener admits at most sixteen active connections and does not
+queue overflow. A connection beyond that bound receives `503
+service_unavailable` without creating a handler thread. One connection owner
+holds the active socket clones and each handler's lease, so normal completion,
+transport failure, timeout, and panic all release the same capacity. Completed
+handler threads are joined during ordinary listener polling instead of being
+retained until process shutdown.
+
+Each connection carries one HTTP/1.1 request and closes after its response. The
+request line and each header line are limited to 8 KiB, the complete header
+block to 64 KiB, and the body to the existing 8 MiB transport maximum.
+`Content-Length` is closed and duplicate values must agree; transfer encoding
+is unsupported. These transport limits precede and do not replace the 1 MiB
+ordinary production-request policy. Header, body, framing, and read-timeout
+failures map to `431 invalid_request`, `413 request_body_too_large`, `400
+invalid_request`, and `408 request_timeout`, respectively, without entering an
+application handler.
+
+Incomplete reads have a 500 ms idle deadline and a non-resetting 30 second
+total deadline; response writes have a two-second deadline. Shutdown closes the
+listener, interrupts every active socket, stops work admission, and drains HTTP
+handlers within the native 500 ms budget. A lifecycle shutdown response is
+flushed before the stopping signal is published, while parent-pipe EOF uses the
+same socket interruption and drain path. A handler that misses the drain bound
+cannot delay process termination or authorize closing state it still owns.
+
 ## Storage startup
 
 Rust owns production initialization. If the database, SQLite sidecars, and

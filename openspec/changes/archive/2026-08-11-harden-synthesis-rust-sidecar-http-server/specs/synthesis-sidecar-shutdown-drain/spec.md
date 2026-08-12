@@ -1,10 +1,4 @@
-# synthesis-sidecar-shutdown-drain Specification
-
-## Purpose
-
-Define one bounded shutdown deadline across native workers, transfers, lease loss, and service input closure.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Native worker and transfer shutdown SHALL share the existing deadline
 
@@ -29,3 +23,4 @@ Shutdown SHALL stop HTTP and work admission, interrupt every active HTTP socket,
 - **WHEN** a client keeps a request line or header incomplete while stdin EOF or lifecycle shutdown occurs
 - **THEN** the server interrupts that socket without waiting for its read deadline
 - **AND** the HTTP handler drains within the 500 ms bound without requiring the client to close first
+
