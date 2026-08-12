@@ -26,7 +26,40 @@
     "concept_details": {
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "aliases",
+          "concept_type",
+          "definition",
+          "topic_relevance"
+        ],
+        "properties": {
+          "local_id": { "type": "string" },
+          "label": { "type": "string", "minLength": 1 },
+          "aliases": {
+            "type": "array",
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "concept_type": { "type": "string", "minLength": 1 },
+          "domain": { "type": "string" },
+          "short_definition": { "type": "string" },
+          "definition": { "type": "string", "minLength": 1 },
+          "disambiguation": { "type": "string" },
+          "topic_relevance": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "array" },
+          "relations": { "type": "array" },
+          "merge_hints": { "type": "array" },
+          "confidence": {
+            "oneOf": [
+              { "type": "number", "minimum": 0, "maximum": 1 },
+              { "type": "string", "enum": ["high", "medium", "low"] }
+            ]
+          }
+        }
       }
     },
     "existing_topic_relation_proposals": {

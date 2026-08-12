@@ -4496,7 +4496,7 @@ function deriveTopicUpdateIntent(args: {
       : changedSections[0];
   } else if (candidateCount > 0) {
     reasonCode = "discovery_candidates";
-    mode = "update_patch";
+    mode = "update_full";
     scope = "discovery";
     changedSections = [];
   }
@@ -6314,6 +6314,7 @@ async function loadResolverManifest(args: {
       topicResolver: args.bundle.topic_resolver,
       resolvedPaperSet: args.bundle.resolved_paper_set,
       resolverDiagnostics: args.bundle.resolver_diagnostics || {},
+      sourceMembership: undefined,
     };
   }
   if (!resolverManifestPath) {
@@ -6369,6 +6370,9 @@ async function loadResolverManifest(args: {
             isObject((manifest.resolution_result as any).diagnostics)
           ? (manifest.resolution_result as any).diagnostics
           : args.bundle.resolver_diagnostics || {},
+      sourceMembership: isObject(manifest.source_membership)
+        ? manifest.source_membership
+        : undefined,
     };
   }
   throw new Error("synthesis result bundle requires resolver_manifest_path");
@@ -15494,13 +15498,65 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               updatedAt: timestamp,
             }),
           );
-          const acceptedDiscovery =
-            synthesisRepository.acceptTopicDiscoveryHints({
+          const sourceMembership = resolverManifest?.sourceMembership;
+          const membershipCandidates = Array.isArray(
+            sourceMembership?.discovery_candidates,
+          )
+            ? sourceMembership.discovery_candidates.filter(isObject)
+            : [];
+          let acceptedCount = 0;
+          let screenedCount = 0;
+          let supersededCount = 0;
+          for (const candidate of membershipCandidates) {
+            const hintId = cleanString(candidate.hint_id || candidate.hintId);
+            const outcome = cleanString(candidate.outcome);
+            if (!hintId || !synthesisRepository.getTopicDiscoveryHint(hintId)) {
+              continue;
+            }
+            const basisHash = cleanString(
+              candidate.basis_hash || candidate.basisHash,
+            );
+            if (outcome === "accepted") {
+              synthesisRepository.updateTopicDiscoveryHintOutcome({
+                hintId,
+                status: "accepted",
+                basisHash,
+                outcome: {
+                  relevance_level: cleanString(candidate.relevance_level),
+                  reason: cleanString(candidate.outcome_reason),
+                },
+              });
+              acceptedCount += 1;
+            } else if (outcome === "screened_out") {
+              synthesisRepository.updateTopicDiscoveryHintOutcome({
+                hintId,
+                status: "screened_out",
+                basisHash,
+                outcome: {
+                  relevance_level:
+                    cleanString(candidate.relevance_level) || "unknown",
+                  reason: cleanString(candidate.outcome_reason),
+                },
+              });
+              screenedCount += 1;
+            } else if (outcome === "unresolved") {
+              synthesisRepository.updateTopicDiscoveryHintOutcome({
+                hintId,
+                status: "superseded",
+                basisHash,
+                outcome: { reason: cleanString(candidate.outcome_reason) },
+              });
+              supersededCount += 1;
+            }
+          }
+          if (!membershipCandidates.length) {
+            acceptedCount = synthesisRepository.acceptTopicDiscoveryHints({
               topicId,
               literatureItemIds: sourcePaperRefsFromArtifact(artifact),
               timestamp,
-            });
-          if (acceptedDiscovery.accepted > 0) {
+            }).accepted;
+          }
+          if (acceptedCount > 0 || screenedCount > 0 || supersededCount > 0) {
             await appendSynthesisEventLog({
               path: paths.log,
               runtimeLogAppender,
@@ -15508,7 +15564,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
                 event: "topic_discovery_hints_accepted",
                 topic_id: topicId,
                 at: timestamp,
-                accepted_count: acceptedDiscovery.accepted,
+                accepted_count: acceptedCount,
+                screened_count: screenedCount,
+                superseded_count: supersededCount,
               },
             });
           }
@@ -18904,6 +18962,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
+  async function auditConceptAliases() {
+    return runCanonicalWriteWithAutosync(() => conceptKb.auditConceptAliases());
+  }
+
   async function applyConceptReviewAction(
     args: Parameters<typeof conceptKb.applyConceptReviewAction>[0],
   ) {
@@ -22257,6 +22319,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     replaceTagAuditRecords,
     clearTagAuditRecord,
     loadConceptKb,
+    auditConceptAliases,
     updateConceptDisplayText,
     applyConceptReviewAction,
     deleteConceptEntries,

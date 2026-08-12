@@ -34,10 +34,12 @@ Ingestion behavior:
 
 1. Validate payload shape and bounded size.
 2. Normalize labels, aliases, and relation endpoints.
-3. Compare against existing concepts by exact normalized label, alias, abbreviation, and bounded fuzzy candidates.
-4. Materialize high-confidence non-conflicting proposals.
-5. Open bounded review items for ambiguous merge/link cases.
+3. Preflight the complete proposal batch against one immutable snapshot of canonical labels and alias owners.
+4. Automatically merge only when the proposal label exactly matches one canonical concept label.
+5. Materialize high-confidence, non-conflicting proposals; alias-only matches, multiple owners, low confidence, duplicate batch labels, and label/alias conflicts write no partial concept facts and enter review.
 6. Record diagnostics for invalid or skipped proposals.
+
+Aliases are interchangeable names for one concept in one sense: abbreviations and expanded forms, spelling variants, or reliable translations. Related concepts, broader/narrower concepts, components, tasks, methods, datasets, benchmarks, and applications belong in separate concepts or relations. A canonical label is not duplicated into its own alias list.
 
 Concept ingestion failure should not roll back a successfully applied topic artifact unless the host apply command explicitly chose all-or-nothing behavior. Partial Concept facts may be committed only after validation; invalid proposals remain diagnostics/review inputs.
 
@@ -71,10 +73,14 @@ Concept review actions map to Concept-owned durable effects:
 | accept concept card | materialized concept record or alias/sense row |
 | reject concept card | proposal outcome row, suppressing near-identical proposal repetition |
 | merge concept | redirect/merge fact inside Concept KB |
+| keep audited alias | close the alias audit item without changing concept, sense, or alias records |
+| remove audited alias | remove the exact alias and synchronize the owning concept and senses; never delete the concept or sense |
 | accept topic-concept link | Concept-owned link fact or review outcome |
 | reject topic-concept link | rejected proposal outcome |
 
 These actions may mark Concept overlay/cache projections stale or recommend explicit Concept maintenance. They must not rewrite topic artifacts or topic graph relations. If a concept merge/delete changes overlay results, Topics observe it on the next overlay read.
+
+The Concepts page exposes an explicit deterministic alias audit. It opens `alias_conflict` reviews for aliases owned by one concept that collide with another canonical label, and `alias_equivalence_audit` reviews for inconsistent concept/sense/alias ownership or separately named senses. Audit is diagnostic-only until the user chooses Keep Alias or Remove Alias, and repeated audit does not duplicate an existing decision.
 
 ## Failure Semantics
 

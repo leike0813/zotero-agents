@@ -1313,6 +1313,35 @@ def unique_paper_refs(papers: list[dict]) -> list[str]:
     return result
 
 
+def discovery_candidates_from_audit(audit: dict, limit: int = 25) -> list[dict]:
+    discovery = as_dict(audit.get("discovery"))
+    hints = as_list(discovery.get("hints"))
+    candidates: list[dict] = []
+    seen_refs: set[str] = set()
+    for raw in hints:
+        hint = as_dict(raw)
+        paper_ref = first_text(
+            hint.get("literature_item_id"),
+            hint.get("literatureItemId"),
+            hint.get("paper_ref"),
+        )
+        if not paper_ref or paper_ref in seen_refs:
+            continue
+        seen_refs.add(paper_ref)
+        candidates.append(
+            {
+                "hint_id": first_text(hint.get("hint_id"), hint.get("hintId")),
+                "paper_ref": paper_ref,
+                "basis_hash": first_text(hint.get("basis_hash"), hint.get("basisHash")),
+                "score": hint.get("score", 0),
+                "method": clean_text(hint.get("method")),
+            }
+        )
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
 def paper_refs(conn: sqlite3.Connection) -> list[str]:
     rows = conn.execute("select paper_ref from paper_workset order by paper_ref").fetchall()
     return [str(row["paper_ref"]) for row in rows]
@@ -1467,6 +1496,7 @@ def run_update_preflight(
     set_meta(conn, "linked_paper_refs", linked_refs)
     set_meta(conn, "linked_papers", linked_papers)
     set_meta(conn, "saved_source_paper_triage", saved_triage)
+    set_meta(conn, "discovery_candidates", discovery_candidates_from_audit(audit))
     set_meta(conn, "update_audit_report", report)
     write_json(run_root / "runtime/payloads/update-audit-report.json", report)
     register_artifact(
@@ -1647,17 +1677,48 @@ def collect_resolver_cascade(
         "resolver-input.json",
     )
     resolved = unwrap_bridge_data(resolver_output)
-    papers = extract_resolver_candidates(resolved)
+    base_papers = extract_resolver_candidates(resolved)
+    base_refs = unique_paper_refs(base_papers)
+    discovery_candidates = (
+        get_meta(conn, "discovery_candidates", [])
+        if operation == "update_full"
+        else []
+    )
+    if not isinstance(discovery_candidates, list):
+        discovery_candidates = []
+    linked_refs = get_meta(conn, "linked_paper_refs", [])
+    if not isinstance(linked_refs, list):
+        linked_refs = []
+    linked_refs = [clean_text(ref) for ref in linked_refs if clean_text(ref)]
+    linked_ref_set = set(linked_refs)
+    candidate_refs = [
+        clean_text(as_dict(candidate).get("paper_ref"))
+        for candidate in discovery_candidates
+        if clean_text(as_dict(candidate).get("paper_ref")) not in linked_ref_set
+    ]
+    candidate_resolved: dict = {"candidates": []}
+    if candidate_refs:
+        candidate_output = run_bridge_json(
+            run_root,
+            ["synthesis", "resolver", "resolve"],
+            {"paper_refs": candidate_refs, "combine": "union"},
+            "discovery-candidates-resolver-input.json",
+        )
+        candidate_resolved = unwrap_bridge_data(candidate_output)
+    candidate_papers = extract_resolver_candidates(candidate_resolved)
+    candidate_resolved_refs = unique_paper_refs(candidate_papers)
+    papers_by_ref: dict[str, dict] = {}
+    for paper in [*base_papers, *candidate_papers]:
+        paper_ref = clean_text(paper.get("paper_ref"))
+        if paper_ref and paper_ref not in papers_by_ref:
+            papers_by_ref[paper_ref] = paper
+    papers = list(papers_by_ref.values())
     conn.execute("delete from paper_workset")
     conn.commit()
     store_workset(conn, papers)
     refs = paper_refs(conn)
 
     if operation == "update_full":
-        linked_refs = get_meta(conn, "linked_paper_refs", [])
-        if not isinstance(linked_refs, list):
-            linked_refs = []
-        linked_refs = [clean_text(ref) for ref in linked_refs if clean_text(ref)]
         updated_refs = resolve_paper_refs(resolved)
         resolve_diff = diff_linked_and_resolved_refs(linked_refs, updated_refs)
         set_meta(conn, "resolve_diff", resolve_diff)
@@ -1693,6 +1754,48 @@ def collect_resolver_cascade(
         else:
             required_refs = list(updated_refs)
             triage_mode = "full"
+        required_refs = list(
+            dict.fromkeys([*required_refs, *candidate_resolved_refs])
+        )
+        if required_refs and triage_mode == "reused":
+            triage_mode = "missing_triage"
+        membership_candidates: list[dict] = []
+        candidate_resolved_set = set(candidate_resolved_refs)
+        for raw_candidate in discovery_candidates:
+            candidate = as_dict(raw_candidate)
+            paper_ref = clean_text(candidate.get("paper_ref"))
+            if not paper_ref:
+                continue
+            if paper_ref in linked_ref_set:
+                outcome = "accepted"
+                outcome_reason = "already_source_paper"
+            elif paper_ref in candidate_resolved_set:
+                outcome = "pending"
+                outcome_reason = "requires_stage_30_triage"
+            else:
+                outcome = "unresolved"
+                outcome_reason = "candidate_paper_ref_did_not_resolve"
+            membership_candidates.append(
+                {
+                    **candidate,
+                    "outcome": outcome,
+                    "outcome_reason": outcome_reason,
+                }
+            )
+        source_membership = {
+            "base_resolver_refs": base_refs,
+            "discovery_candidate_refs": candidate_resolved_refs,
+            "discovery_candidates": membership_candidates,
+            "accepted_added_refs": [],
+            "screened_refs": [],
+            "unresolved_refs": [
+                clean_text(candidate.get("paper_ref"))
+                for candidate in membership_candidates
+                if candidate.get("outcome") == "unresolved"
+            ],
+            "effective_refs": base_refs,
+        }
+        set_meta(conn, "source_membership", source_membership)
         set_meta(conn, "triage_required_refs", required_refs)
         set_meta(conn, "triage_mode", triage_mode)
     else:
@@ -1706,6 +1809,7 @@ def collect_resolver_cascade(
         "resolver_reasoning": payload.get("resolver_reasoning", ""),
         "operation_intent": payload.get("operation_intent", operation),
         "resolution_result": resolved,
+        "resolved_paper_set": {"papers": papers},
         "paper_refs": refs,
         "diagnostics": payload.get("diagnostics", []),
     }
@@ -1713,6 +1817,7 @@ def collect_resolver_cascade(
         resolver_manifest["base_hashes"] = get_meta(conn, "base_hashes", {})
         resolver_manifest["resolve_diff"] = get_meta(conn, "resolve_diff", {})
         resolver_manifest["triage_required_refs"] = get_meta(conn, "triage_required_refs", [])
+        resolver_manifest["source_membership"] = get_meta(conn, "source_membership", {})
     write_json(run_root / "runtime/payloads/resolver.json", resolver_manifest)
     register_artifact(
         conn,
@@ -1917,6 +2022,8 @@ def register_prepare_triage(
         )
         analyzed.append(paper_ref)
     conn.commit()
+    if get_meta(conn, "operation", "create") == "update_full":
+        finalize_update_source_membership(conn, run_root)
     write_prepare_views(conn, run_root=run_root, skill_id=skill_id, stage_id=stage_id)
     handoff = write_handoff(
         conn,
@@ -1942,6 +2049,80 @@ def register_prepare_triage(
         "triage_required_refs": get_meta(conn, "triage_required_refs", []),
         "handoff": handoff,
     }
+
+
+def finalize_update_source_membership(
+    conn: sqlite3.Connection, run_root: Path
+) -> None:
+    membership = as_dict(get_meta(conn, "source_membership", {}))
+    candidates = as_list(membership.get("discovery_candidates"))
+    triage = triage_entries(conn)
+    accepted_levels = {"core", "related"}
+    accepted_added_refs: list[str] = []
+    screened_refs: list[dict] = []
+    finalized_candidates: list[dict] = []
+    for raw_candidate in candidates:
+        candidate = as_dict(raw_candidate)
+        paper_ref = clean_text(candidate.get("paper_ref"))
+        if candidate.get("outcome") != "pending":
+            finalized_candidates.append(candidate)
+            continue
+        paper_triage = triage.get(paper_ref, {})
+        relevance_level = clean_text(
+            paper_triage.get("relevance_level"), "unknown"
+        ).lower()
+        relevance_reason = clean_text(paper_triage.get("relevance_reason"))
+        if relevance_level in accepted_levels:
+            outcome = "accepted"
+            accepted_added_refs.append(paper_ref)
+        else:
+            outcome = "screened_out"
+            screened_refs.append(
+                {
+                    "paper_ref": paper_ref,
+                    "relevance_level": relevance_level,
+                    "reason": relevance_reason,
+                }
+            )
+        finalized_candidates.append(
+            {
+                **candidate,
+                "outcome": outcome,
+                "outcome_reason": relevance_reason,
+                "relevance_level": relevance_level,
+            }
+        )
+    effective_refs = list(
+        dict.fromkeys(
+            [
+                *[clean_text(ref) for ref in as_list(membership.get("base_resolver_refs")) if clean_text(ref)],
+                *accepted_added_refs,
+            ]
+        )
+    )
+    effective_ref_set = set(effective_refs)
+    for paper_ref in paper_refs(conn):
+        if paper_ref not in effective_ref_set:
+            conn.execute("delete from paper_workset where paper_ref = ?", (paper_ref,))
+    conn.commit()
+    finalized_membership = {
+        **membership,
+        "discovery_candidates": finalized_candidates,
+        "accepted_added_refs": accepted_added_refs,
+        "screened_refs": screened_refs,
+        "effective_refs": effective_refs,
+    }
+    set_meta(conn, "source_membership", finalized_membership)
+    resolver_path = run_root / "runtime/payloads/resolver.json"
+    resolver_manifest = as_dict(read_json(resolver_path))
+    effective_papers = [
+        as_dict(entry.get("metadata"))
+        for entry in workset_entries(conn)
+    ]
+    resolver_manifest["source_membership"] = finalized_membership
+    resolver_manifest["paper_refs"] = effective_refs
+    resolver_manifest["resolved_paper_set"] = {"papers": effective_papers}
+    write_json(resolver_path, resolver_manifest)
 
 
 CONTEXT_SELECTION_CONSTANTS = {
@@ -3227,6 +3408,7 @@ def normalize_source_papers(conn: sqlite3.Connection, run_root: Path) -> list[di
                 "literature_quality": literature_quality_snapshot(artifact_paper),
                 "context_selection_score": selection_row.get("context_selection_score", 0.0),
                 "caveats": as_list(paper_triage.get("caveats")),
+                "triage": paper_triage,
                 "digest_ref": digest_ref_for_paper(run_root, paper_ref, artifact_manifest),
             }
         )

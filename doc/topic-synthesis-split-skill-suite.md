@@ -213,7 +213,7 @@ Stages：
 
 - `stage_00_runtime_setup`：从 `runtime/input.json` 读取 topic id，调用 `topics.get_context` digest/audit，解析当前 resolver，生成 `runtime/payloads/update-audit-report.json` 并固化 `base_hashes`。
 - `stage_10_update_topic_context`：读取 update audit report，决定 `cancel` 或 `continue`；继续时读取 Host library index，提交只增不改的 resolver proposal，runtime 执行 updated resolver cascade。
-- `stage_30_prepare_analysis_context`：基于 updated resolve 与 saved triage 计算 triage workset；有可复用 triage 时只 triage 新增文献，没有可复用 triage 时 triage updated resolve 全部文献；runtime 合并 triage 并生成 prepare handoff 与 context views。
+- `stage_30_prepare_analysis_context`：基于 base resolver、独立解析的 discovery candidates 与 saved triage 计算 triage workset；有可复用 triage 时只 triage 缺失项和 discovery candidates，没有可复用 triage 时 triage 全部文献。runtime 仅把 `core`/`related` candidates 加入 effective workset，保留全部 base refs，并生成 prepare handoff 与 context views。
 
 ### `topic-synthesis-core-enrichment`
 
@@ -225,7 +225,7 @@ Stages：
 
 - `stage_00_runtime_state_check`：校验上游 state 与必需 runtime 文件。
 - `stage_40_core_synthesis`：读取 `cross-paper-context.md` 与 `source-paper-evidence-index.json`，写入 taxonomy、timeline、positioning、claims、dimensions、debates、gaps、review outline 和 candidate concept labels。
-- `stage_50_kg_enrichment`：读取 concept candidate context，写入 concept details、topic relation proposals 和 matching terms；runtime 生成 sidecars 与 core handoff。
+- `stage_50_kg_enrichment`：读取 concept candidate context，调用只读 `synthesis concept query` 核对 canonical label 与 alias owner，写入 concept details、topic relation proposals 和 matching terms；runtime 生成 sidecars 与 core handoff。`aliases` 只允许同一 concept、同一 sense 下可互换的缩写/全称、拼写变体或可靠翻译，相关或上下位概念必须拆成 concept/relation。
 
 Core skill 只读取核心论文上下文，不读取 external literature context。
 
@@ -321,6 +321,14 @@ Payload 只表达语义判断和结构化业务内容。SQLite、handoff、conte
 - `resolver`：continue 时提交的 Host Bridge resolver input proposal；必须保留 current resolver 的既有内容，只能新增。
 - `resolver_reasoning`：continue 时说明新增条件、边界和可能遗漏。
 
+Discovery candidates 不写入 agent-authored resolver。Runtime 从 update audit 中最多读取 25 个 open hints，用独立的 `paper_refs + union` resolver 解析，再把它们加入 Stage 30 triage。`runtime/payloads/resolver.json.source_membership` 记录 base refs、candidate refs/hint IDs/basis、accepted additions、screened/unresolved outcomes 与 effective refs，供成功 apply 精确提交 hint 状态。
+
+`stage_50_kg_enrichment`：
+
+- `concept_details[].label`、`aliases`、`concept_type`、`definition`、`topic_relevance` 必填，未知字段不通过 schema；aliases 去重且最多 8 个。
+- alias 命中只是冲突线索，不能单独触发自动 merge；只有唯一 canonical label 精确一致才允许自动 merge。
+- 别名不存在时写 `aliases: []`，不要用相关概念填充。
+
 `stage_20_resolver_and_workset`：
 
 - `resolver.mode`：resolver 模式。
@@ -413,6 +421,8 @@ Agent-facing 论文引用字段为：
 - `literature_quality`
 - `context_selection_score`
 - `digest_ref`
+- `caveats`
+- `triage`
 
 业务 sections 中需要关联论文的对象通过 `source_paper_refs` 指向 `source_papers[].paper_ref`。
 
@@ -560,6 +570,7 @@ Manifest sidecar entry 形态：
 - `context_selection_score`
 - `digest_ref`
 - `caveats`
+- `triage`
 
 `digest_ref` 至少能定位来源论文：
 

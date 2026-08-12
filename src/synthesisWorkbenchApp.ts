@@ -11453,6 +11453,19 @@ function conceptReviewActionCell(
     return "-";
   }
   const reviewId = textValue(row.review_id);
+  const reason = textValue(row.reason);
+  if (reason === "alias_conflict" || reason === "alias_equivalence_audit") {
+    return actionGroup([
+      makeButton(t("synthesis-action-keep-alias"), "hostCommand", {
+        command: "applyConceptReviewAction",
+        args: { reviewId, action: "keep_alias" },
+      }),
+      makeButton(t("synthesis-action-remove-alias"), "hostCommand", {
+        command: "applyConceptReviewAction",
+        args: { reviewId, action: "remove_alias" },
+      }),
+    ]);
+  }
   const candidateIds = conceptReviewCandidateIds(row);
   const actions = el("div", "review-table-actions concept-review-actions");
   actions.appendChild(
@@ -12891,6 +12904,12 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
       snapshot.concepts.filters.overlayEnabled,
     ),
   );
+  filters.appendChild(
+    makeButton(t("synthesis-concepts-audit-aliases"), "hostCommand", {
+      command: "auditConceptAliases",
+      args: {},
+    }),
+  );
   panel.appendChild(renderPanelToolbar(filters));
   const status = el("div", "details");
   status.appendChild(
@@ -13127,19 +13146,33 @@ function renderConceptReviewPanel(
   const reviewId = textValue(item.review_id);
   const selectedTarget =
     snapshot.concepts.filters.reviewMergeTargets?.[reviewId] || "";
-  const actions = [
-    makeButton(t("synthesis-action-approve-as-new"), "hostCommand", {
-      command: "applyConceptReviewAction",
-      args: {
-        reviewId,
-        action: "approve_create",
-      },
-    }),
-    makeButton(t("synthesis-action-reject"), "hostCommand", {
-      command: "applyConceptReviewAction",
-      args: { reviewId, action: "reject" },
-    }),
-  ];
+  const reason = textValue(item.reason);
+  const aliasAudit =
+    reason === "alias_conflict" || reason === "alias_equivalence_audit";
+  const actions = aliasAudit
+    ? [
+        makeButton(t("synthesis-action-keep-alias"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: { reviewId, action: "keep_alias" },
+        }),
+        makeButton(t("synthesis-action-remove-alias"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: { reviewId, action: "remove_alias" },
+        }),
+      ]
+    : [
+        makeButton(t("synthesis-action-approve-as-new"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: {
+            reviewId,
+            action: "approve_create",
+          },
+        }),
+        makeButton(t("synthesis-action-reject"), "hostCommand", {
+          command: "applyConceptReviewAction",
+          args: { reviewId, action: "reject" },
+        }),
+      ];
   const primaryChildren = [
     renderConceptReviewDecisionSummary(
       snapshot,
@@ -13149,7 +13182,7 @@ function renderConceptReviewPanel(
       selectedTarget,
     ),
   ];
-  if (candidateIds.length) {
+  if (!aliasAudit && candidateIds.length) {
     actions.splice(
       1,
       0,

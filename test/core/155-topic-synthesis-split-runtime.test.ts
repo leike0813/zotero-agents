@@ -455,6 +455,12 @@ if (command === "synthesis topic get-context") {
         caveats: []
       }
     };
+    const discoveryHints = input.topicId === "detr-topic"
+      ? [
+          { hint_id: "hint:dino", literature_item_id: "1:DINO", basis_hash: "basis:dino" },
+          { hint_id: "hint:sam", literature_item_id: "1:SAM", basis_hash: "basis:sam" }
+        ]
+      : [{ hint_id: "hint:dino", literature_item_id: "1:DINO", basis_hash: "basis:dino" }];
     reply({ schema_id: "synthesis.topic_context", view: "audit", topic_id: input.topicId, audit: {
       topic_id: input.topicId,
       language: "zh-CN",
@@ -475,7 +481,7 @@ if (command === "synthesis topic get-context") {
       })),
       source_paper_triage: savedTriage,
       source_materials: { status: "complete", percent: 100 },
-      discovery: { status: "candidates", candidate_count: 1, hints: [{ literature_item_id: "1:DINO" }] }
+      discovery: { status: "candidates", candidate_count: discoveryHints.length, hints: discoveryHints }
     } });
   } else {
     reply({ ok: false, status: "invalid_view" });
@@ -626,8 +632,9 @@ describe("topic synthesis split skill runtime", function () {
           reason: "Fixture audit found one new candidate.",
           message: "Proceeding with update.",
         },
-        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
-        resolver_reasoning: "Fixture update resolver keeps DETR and adds DINO.",
+        resolver: { paper_refs: ["1:DETR"], combine: "union" },
+        resolver_reasoning:
+          "Fixture update resolver preserves the base set; discovery carries DINO separately.",
       },
     );
     const gate1 = runGate(
@@ -681,6 +688,7 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(updateContextOutput.stage, "stage_10_update_topic_context");
     assert.deepEqual(updateContextOutput.result.triage_required_refs, [
       "1:DINO",
+      "1:SAM",
     ]);
     assert.equal(updateContextOutput.result.triage_mode, "missing_triage");
 
@@ -691,7 +699,7 @@ describe("topic synthesis split skill runtime", function () {
       env,
     );
     assertStage30HardRules(gate2);
-    assert.deepEqual(gate2.triage_required_refs, ["1:DINO"]);
+    assert.deepEqual(gate2.triage_required_refs, ["1:DINO", "1:SAM"]);
     const resolverManifest = await readJson<any>(
       path.join(runRoot, "runtime/payloads/resolver.json"),
     );
@@ -700,7 +708,11 @@ describe("topic synthesis split skill runtime", function () {
       manifest: "sha256:manifest",
       metadata: "sha256:metadata",
     });
-    assert.deepEqual(resolverManifest.resolve_diff.added_refs, ["1:DINO"]);
+    assert.deepEqual(resolverManifest.resolve_diff.added_refs, []);
+    assert.deepEqual(
+      resolverManifest.source_membership.discovery_candidate_refs,
+      ["1:DINO", "1:SAM"],
+    );
 
     const gate3 = runGate(
       packages.updatePrepare,
@@ -715,9 +727,16 @@ describe("topic synthesis split skill runtime", function () {
         assessments: [
           {
             paper_ref: "1:DINO",
-            relevance_level: "core",
+            relevance_level: "related",
             relevance_reason: "Representative update candidate.",
             core_digest: "DINO adds update evidence.",
+            caveats: [],
+          },
+          {
+            paper_ref: "1:SAM",
+            relevance_level: "external",
+            relevance_reason: "Useful background but outside the topic scope.",
+            core_digest: "SAM is external background evidence.",
             caveats: [],
           },
         ],
@@ -738,6 +757,43 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.equal(prepareOutput.result.handoff.kind, "topic_synthesis_handoff");
     assert.equal(prepareOutput.result.handoff.operation, "update_full");
+    const finalizedResolverManifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+    );
+    assert.deepEqual(
+      finalizedResolverManifest.source_membership.accepted_added_refs,
+      ["1:DINO"],
+    );
+    assert.deepEqual(
+      finalizedResolverManifest.source_membership.effective_refs,
+      ["1:DETR", "1:DINO"],
+    );
+    assert.deepInclude(
+      finalizedResolverManifest.source_membership.discovery_candidates[0],
+      {
+        hint_id: "hint:dino",
+        paper_ref: "1:DINO",
+        basis_hash: "basis:dino",
+        outcome: "accepted",
+        relevance_level: "related",
+      },
+    );
+    assert.deepInclude(
+      finalizedResolverManifest.source_membership.discovery_candidates[1],
+      {
+        hint_id: "hint:sam",
+        paper_ref: "1:SAM",
+        basis_hash: "basis:sam",
+        outcome: "screened_out",
+        relevance_level: "external",
+      },
+    );
+    assert.deepEqual(
+      finalizedResolverManifest.source_membership.screened_refs.map(
+        (entry: any) => entry.paper_ref,
+      ),
+      ["1:SAM"],
+    );
 
     for (const filePath of [
       "runtime/payloads/resolver.json",
@@ -2262,7 +2318,11 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(detrSourcePaper?.literature_quality?.quality_prior, 0.5);
     assert.notProperty(detrSourcePaper, "quality");
     assert.deepEqual(detrSourcePaper?.caveats, []);
-    assert.notProperty(detrSourcePaper, "triage");
+    assert.deepInclude(detrSourcePaper?.triage, {
+      paper_ref: "1:DETR",
+      relevance_level: "core",
+      relevance_reason: "Baseline.",
+    });
     assert.deepEqual((sections.statistics as any).time_span, {
       earliest: "2020",
       latest: "2022",
