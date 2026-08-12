@@ -212,7 +212,7 @@ Each knowledge domain follows a similar service pattern:
 | Domain | Entry Function | Core Operations |
 |--------|---------------|-----------------|
 | Citation Graph | `buildUnifiedCitationGraph()` | `computeCitationGraphMetrics()`, `computeCitationGraphLayout()` (force/radial/components) |
-| Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
+| Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, reconcileTopicPlan, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `createSynthesisTagVocabularyService()` | validate, previewImport, applyImport, stage/Promote Suggestions, rebuildIndex |
 | Reference Matcher | `buildReferenceMatcherIndex()` | `resolveReferenceWithPolicy()`, `dedupeCanonicalReferencesClustered()` (5 policies, clustering with 10 edge types) |
@@ -228,6 +228,12 @@ type SynthesisTopicGraphRelation =
 
 Proposals enter via `ingestRelationProposals()`: low-confidence proposals route
 to review items, high-confidence proposals become edges directly.
+
+Topic Planner uses the same service through `reconcileTopicPlan()`. A plan can
+create, revise, mark stale, or reactivate placeholder nodes with Planned Topic
+metadata and reconcile relation proposals in one graph-hash compare-and-swap.
+Planned nodes store definitions and resolvers, not provisional paper members;
+Create Topic Synthesis resolves those members when it materializes the node.
 
 ### Concept KB Structure
 

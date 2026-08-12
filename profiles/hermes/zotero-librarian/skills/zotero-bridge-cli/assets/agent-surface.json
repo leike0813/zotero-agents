@@ -1,6 +1,6 @@
 {
   "cliSchema": "zotero-bridge.cli.v5",
-  "commandCatalogChecksum": "df61f53dfcc03bf6ae67b82188083ab81fecfc7726d7ff0f8f982e25de027984",
+  "commandCatalogChecksum": "67ff4930bd5a5039dc91d36771da9a3d3a8863377128f9fe8fc1931bf0213f4a",
   "commands": [
     {
       "approvalContract": {
@@ -27908,6 +27908,214 @@
         {
           "kind": "capability",
           "target": "topics.get_context"
+        }
+      ]
+    },
+    {
+      "approvalContract": {
+        "kind": "none",
+        "scope": "No Zotero UI approval; provider runtimes may still request their own permission.",
+        "timing": "none"
+      },
+      "arguments": [
+        {
+          "aliases": [
+            "input"
+          ],
+          "conflictsWith": [],
+          "defaultValues": [],
+          "global": false,
+          "help": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+          "id": "query",
+          "kind": "option",
+          "longHelp": "Read query. Use inline JSON by default, such as '{\"cursor\":1}'. Use a file path containing JSON, @file syntax, or '-' for stdin only when that input source is intentional. Omit for {}.",
+          "possibleValues": [],
+          "repeatable": false,
+          "required": false,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "argv": [
+        "synthesis",
+        "topic",
+        "get-planning-context"
+      ],
+      "argvBindings": [
+        {
+          "kind": "option",
+          "property": "query",
+          "required": false,
+          "takesValue": true,
+          "token": "--query",
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "binding": "passthrough",
+      "category": "read",
+      "command": "synthesis topic get-planning-context",
+      "composition": null,
+      "danger": "none",
+      "effects": [
+        {
+          "description": "Reads state without changing Zotero-managed data.",
+          "kind": "none",
+          "stateChanged": false
+        }
+      ],
+      "handleTransitions": [],
+      "hiddenFromIntentSearch": false,
+      "inputSchemas": {
+        "query": {
+          "examples": [
+            {
+              "description": "Minimal JSON shape for --query.",
+              "kind": "shape-only",
+              "prerequisites": [
+                "Replace output paths and limits with values valid for the active connection profile before execution."
+              ],
+              "value": {}
+            }
+          ],
+          "required": false,
+          "requiredWhen": [],
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "maximum": 5000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "outputPath": {
+                "type": "string"
+              },
+              "output_path": {
+                "type": "string"
+              },
+              "overwrite": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "schemaSource": "target-capability",
+          "token": "--query"
+        }
+      },
+      "invocationSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Read query as inline JSON, a file path, @file, or '-' for stdin",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operationalAliases": [
+        "synthesis topic get-planning-context",
+        "synthesis",
+        "topic",
+        "get-planning-context",
+        "planning",
+        "coverage",
+        "query",
+        "JSON_OR_FILE"
+      ],
+      "outputBoundary": {
+        "fileField": "data.delivery.bundle",
+        "strategy": "file"
+      },
+      "pagination": "none",
+      "payloadSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 5000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "outputPath": {
+            "type": "string"
+          },
+          "output_path": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "recovery": [
+        {
+          "action": "Request outputPath for a complete snapshot; for bridge-download, run the returned downloadCommand and unpack the bundle.",
+          "nextCommand": "file download",
+          "requiresHandles": [],
+          "stateCheck": "command-result",
+          "when": "The planning snapshot is truncated or remote delivery is returned."
+        }
+      ],
+      "resultSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approval": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "capability": {
+            "const": "topics.get_planning_context"
+          },
+          "data": {
+            "additionalProperties": true,
+            "description": "Planning context or local/remote file delivery data owned by topics.get_planning_context.",
+            "properties": {
+              "delivery": {
+                "additionalProperties": false,
+                "description": "Registered remote-file delivery instructions when direct local output is unavailable.",
+                "properties": {
+                  "bundle": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "enum": [
+                      "bridge-download"
+                    ]
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object",
+            "x-openPropertiesReason": "The planning snapshot owns library, topic, graph, coverage, and output fields; the command envelope remains closed."
+          }
+        },
+        "required": [
+          "capability",
+          "approval",
+          "data"
+        ],
+        "type": "object"
+      },
+      "summary": "Read the library-wide topic planning context",
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.get_planning_context"
         }
       ]
     },

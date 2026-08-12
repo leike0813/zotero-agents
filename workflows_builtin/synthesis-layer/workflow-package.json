@@ -17,6 +17,7 @@
     }
   },
   "workflows": [
+    "topic-planner/workflow.json",
     "create-topic-synthesis/workflow.json",
     "update-topic-synthesis/workflow.json",
     "manuscript-literature-framing/workflow.json"

@@ -3644,6 +3644,69 @@
         "responseSizing": "file-output"
       }
     },
+    "topics.get_planning_context": {
+      "category": "topics",
+      "summary": "Return one bounded library-wide topic planning snapshot; complete snapshots may be written to outputPath.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5000
+          },
+          "outputPath": {
+            "type": "string"
+          },
+          "output_path": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Planning context or local/remote file delivery data owned by topics.get_planning_context.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "description": "Registered remote-file delivery instructions when direct local output is unavailable.",
+            "properties": {
+              "mode": {
+                "enum": ["bridge-download"]
+              },
+              "bundle": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The planning snapshot owns library, topic, graph, coverage, and output fields; the command envelope remains closed."
+      },
+      "effect": "read",
+      "approval": "none",
+      "exposure": {
+        "public": true,
+        "debugOnly": false,
+        "dangerous": false,
+        "cacheView": false,
+        "rawOnly": false,
+        "mcpMirror": true,
+        "responseSizing": "file-output"
+      }
+    },
     "topics.get_report": {
       "category": "topics",
       "summary": "Return one topic synthesis report markdown body from runtime synthesis_report.body.",

@@ -117,9 +117,9 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
   - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`.
   - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
   - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`.
-  - `maxTopics`: `{"type":"number","title":"Maximum Topics","default":5}`.
-  - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20}`.
-  - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80}`.
+  - `maxTopics`: `{"type":"number","title":"Maximum Topics","default":5,"min":0,"max":10,"integer":true}`.
+  - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20,"min":1,"max":50,"integer":true}`.
+  - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80,"min":1,"max":200,"integer":true}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/export-research-bundle-artifacts.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `export-research-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 - External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
@@ -376,11 +376,30 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 - Invocation inputs: use workflow id `mineru`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 - External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
 
+### `topic-planner`
+
+**Topic Planner**
+
+Incrementally organize the current literature library into Planned Topics and Topic Graph relations before synthesis.
+
+- Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/topic-planner/workflow.json`; core: `true`.
+- Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
+- Execution modes: `["auto"]`.
+- Supported invocation modes: `["interactive","non-interactive"]`.
+- External resource requirements: `[]`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
+- Required workflow options: `[]`.
+- Workflow options:
+  - `language`: `{"type":"string","title":"Language","description":"Language for Planned Topic titles, definitions, and planning explanations.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+- Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
+- Invocation inputs: use workflow id `topic-planner`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- External invocation inputs: when resource requirements are declared, use uploaded opaque input handles and bridge-download output delivery according to the live slot contract; never pass client or Host paths.
+
 ### `create-topic-synthesis`
 
 **Create Topic Synthesis**
 
-Create a new topic synthesis from a natural-language seed using the current library, reference, and citation-graph evidence.
+Materialize an active Planned Topic or resolve a natural-language seed to an existing Planned Topic before creating a new synthesis topic.
 
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
@@ -388,9 +407,11 @@ Create a new topic synthesis from a natural-language seed using the current libr
 - Supported invocation modes: `["interactive","non-interactive"]`.
 - External resource requirements: `[]`.
 - Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
-- Required workflow options: `[]`.
+- Required workflow options: `["usePlannedTopic","plannedTopicId","topicSeed"]`.
 - Workflow options:
-  - `topicSeed`: `{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`.
+  - `usePlannedTopic`: `{"type":"boolean","title":"Use Planned Topic","description":"Materialize an active Planned Topic instead of starting from an ad-hoc seed.","required":true,"default":false}`.
+  - `plannedTopicId`: `{"type":"string","title":"Planned Topic","description":"Active Planned Topic whose stored definition and resolver will be materialized.","required":true,"visible_if":{"parameter":"usePlannedTopic","equals":true},"allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"planned"}}`.
+  - `topicSeed`: `{"type":"string","title":"Topic Seed","description":"Natural-language topic seed; a same-identity active Planned Topic is reused before a new topic is created.","required":true,"visible_if":{"parameter":"usePlannedTopic","equals":false}}`.
   - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `create-topic-synthesis`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.

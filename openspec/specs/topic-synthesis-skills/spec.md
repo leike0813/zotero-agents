@@ -151,13 +151,14 @@ owned by runtime, host bridge, persistence, or deterministic materializers.
 #### Scenario: Create topic context payload is authored
 
 - **WHEN** the create skill gate requests `persist_topic_context`
-- **THEN** the agent-facing payload SHALL use flat fields such as
-  `topic_title`, `aliases`, `definition`, `scope_include`, `scope_exclude`,
-  `duplicate_status`, `duplicate_candidate_ids`, and `duplicate_reason`
-- **AND** the payload SHALL NOT include `topic_definition`, topic ids, hashes,
+- **THEN** the agent-facing payload SHALL use flat topic-definition fields and
+  a `target_decision` selecting `create_new`, `use_planned_topic`, or
+  `cancel_materialized_duplicate`
+- **AND** a selected existing topic SHALL appear in the decision's candidate ids
+- **AND** the payload SHALL NOT include nested `topic_definition`, hashes,
   locators, or nested `duplicate_check`
-- **AND** runtime SHALL derive the internal `topic_definition.id` from
-  `topic_title`.
+- **AND** runtime SHALL derive a new internal `topic_definition.id` from
+  `topic_title`, or preserve the selected Planned Topic id when one is reused.
 
 #### Scenario: Update topic context payload is authored
 

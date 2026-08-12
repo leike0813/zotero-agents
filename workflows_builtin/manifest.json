@@ -161,6 +161,8 @@
     "synthesis-layer/locales/ko-KR.json",
     "synthesis-layer/locales/it-IT.json",
     "synthesis-layer/locales/ru-RU.json",
+    "synthesis-layer/topic-planner/workflow.json",
+    "synthesis-layer/topic-planner/README.md",
     "synthesis-layer/create-topic-synthesis/workflow.json",
     "synthesis-layer/create-topic-synthesis/README.md",
     "synthesis-layer/update-topic-synthesis/workflow.json",
@@ -168,6 +170,7 @@
     "synthesis-layer/manuscript-literature-framing/workflow.json",
     "synthesis-layer/manuscript-literature-framing/README.md",
     "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    "synthesis-layer/hooks/applyTopicPlanResult.mjs",
     "synthesis-layer/hooks/applyManuscriptLiteratureFramingResult.mjs"
   ]
 }

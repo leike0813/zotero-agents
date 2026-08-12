@@ -1566,6 +1566,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   synthesisCapability("topics.list", "listTopics"),
   synthesisCapability("topics.find_by_paper_ref", "findTopicsByPaperRef"),
   synthesisCapability("topics.get_context", "getTopicContext"),
+  synthesisCapability("topics.get_planning_context", "getTopicPlanningContext"),
   synthesisCapability("topics.get_report", "getTopicReport"),
   synthesisCapability(
     "topics.export_research_bundle",

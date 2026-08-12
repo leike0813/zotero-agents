@@ -1228,6 +1228,7 @@ describe("Synthesis Layer v1 integration service", function () {
       title: "Alpha Topic",
       definition: "Semantic scope for Alpha.",
       aliases: ["Alpha", "A topic"],
+      lifecycle: "materialized",
       updated_at: "2026-05-12T00:00:00.000Z",
       prospective_topic_relation_proposals: [],
     });
@@ -1692,6 +1693,7 @@ describe("Synthesis Layer v1 integration service", function () {
       title: "topic-beta",
       definition: "Beta semantic scope.",
       aliases: ["Beta"],
+      lifecycle: "materialized",
       updated_at: "2026-05-12T01:00:00.000Z",
       prospective_topic_relation_proposals: [],
     });
@@ -5341,6 +5343,82 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       result.nextManifest.section_hashes.coverage,
       "sha256:newer-coverage",
+    );
+  });
+
+  it("returns one bounded planning context and exposes only active Planned Topics as workflow options", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({ itemKey: "A", tag: "topic:vision" }),
+        registryInput({ itemKey: "B", tag: "topic:detection" }),
+      ],
+    });
+    const graph = createSynthesisTopicGraphService({ root });
+    const initial = await graph.loadTopicGraph();
+    const applied = await service.applyTopicPlan({
+      kind: "topic_plan",
+      operation: "reconcile",
+      base_graph_hash: initial.manifest.manifest_hash,
+      library_index_hash: "stale-on-purpose",
+      topic_actions: [
+        {
+          action: "create",
+          topic_id: "topic-vision",
+          title: "Vision Models",
+          definition: "Models for visual understanding.",
+          resolver: { tag: { and: ["topic:vision"] }, combine: "union" },
+          revision: 1,
+          basis: [],
+        },
+      ],
+      relation_proposals: [],
+      recommended_updates: [],
+    });
+    assert.equal(applied.status, "persisted");
+    assert.isTrue(applied.coverage_stale);
+
+    const context = (await service.getTopicPlanningContext({
+      limit: 1,
+    })) as any;
+    assert.equal(context.schema_id, "synthesis.topic_planning_context");
+    assert.equal(context.library.total_papers, 2);
+    assert.lengthOf(context.library.papers, 1);
+    assert.isTrue(context.diagnostics.truncated);
+    assert.equal(
+      context.topic_graph.manifest.manifest_hash,
+      applied.graph_hash,
+    );
+    assert.deepInclude(context.topics[0], {
+      topic_id: "topic-vision",
+      lifecycle: "planned",
+      node_type: "placeholder",
+    });
+
+    const options = await service.listWorkflowTopicOptions({
+      filter: "planned",
+    });
+    assert.deepEqual(
+      options.options.map((option) => option.value),
+      ["topic-vision"],
+    );
+    await graph.reconcileTopicPlan({
+      currentLibraryIndexHash: context.library.index_hash,
+      plan: {
+        kind: "topic_plan",
+        operation: "reconcile",
+        base_graph_hash: applied.graph_hash,
+        library_index_hash: context.library.index_hash,
+        topic_actions: [{ action: "mark_stale", topic_id: "topic-vision" }],
+        relation_proposals: [],
+        recommended_updates: [],
+      },
+    });
+    assert.deepEqual(
+      (await service.listWorkflowTopicOptions({ filter: "planned" })).options,
+      [],
     );
   });
 });

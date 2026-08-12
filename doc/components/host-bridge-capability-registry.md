@@ -102,7 +102,7 @@ all public metadata.
 | `reference_index` | 2 | `reference_index.get`, `reference_sidecar.refresh` |
 | `resolvers` | 1 | `resolvers.resolve` |
 | `schemas` | 1 | `schemas.get` |
-| `topics` | 6 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
+| `topics` | 7 | `topics.export_research_bundle`, `topics.find_by_paper_ref`, `topics.get_context`, `topics.get_planning_context`, `topics.get_report`, `topics.get_review_input`, `topics.list` |
 | `workflow_products` | 4 | `workflow_products.export`, `workflow_products.get`, `workflow_products.list`, `workflow_products.read_asset` |
 <!-- host-bridge-surface:capability-categories:end -->
 

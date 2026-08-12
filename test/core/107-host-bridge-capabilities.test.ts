@@ -510,6 +510,42 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(unknown.json.result.data.connectionMode, "remote");
   });
 
+  it("routes the bulk topic planning context through a read capability", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "topic-planning-token",
+      resolveSynthesisService: () => ({
+        getTopicPlanningContext(input, context) {
+          return {
+            schema_id: "synthesis.topic_planning_context",
+            limit: input.limit,
+            connectionMode: context?.hostBridge?.connectionMode,
+          };
+        },
+      }),
+    });
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "topics.get_planning_context",
+      input: { limit: 400 },
+      peerHost: "127.0.0.1",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(
+      listHostBridgeCapabilities().find(
+        (entry) => entry.name === "topics.get_planning_context",
+      )?.requestEffect,
+      "read",
+    );
+    assert.strictEqual(
+      parsed.json.result.data.schema_id,
+      "synthesis.topic_planning_context",
+    );
+    assert.strictEqual(parsed.json.result.data.limit, 400);
+    assert.strictEqual(parsed.json.result.data.connectionMode, "local");
+  });
+
   it("routes direct paper and Topic research bundles through their Synthesis capabilities", async function () {
     const calls: Array<{ kind: string; input: any; mode?: string }> = [];
     const result = (kind: "papers" | "topics") => ({

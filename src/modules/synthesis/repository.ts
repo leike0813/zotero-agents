@@ -436,6 +436,7 @@ export type SynthesisTopicGraphNodeRecord = {
   title: string;
   definition?: string;
   aliasesJson?: string;
+  planningJson?: string;
   nodeType: string;
   definitionStatus?: string;
   currentArtifactPath?: string;
@@ -2928,6 +2929,7 @@ function ensureSchema(db: SqlAdapter) {
       title TEXT NOT NULL DEFAULT '',
       definition TEXT NOT NULL DEFAULT '',
       aliases_json TEXT NOT NULL DEFAULT '[]',
+      planning_json TEXT NOT NULL DEFAULT '{}',
       node_type TEXT NOT NULL DEFAULT 'placeholder',
       definition_status TEXT NOT NULL DEFAULT '',
       current_artifact_path TEXT NOT NULL DEFAULT '',
@@ -2942,6 +2944,10 @@ function ensureSchema(db: SqlAdapter) {
   applyOptionalMigration(
     db,
     "ALTER TABLE synt_topic_graph_node ADD COLUMN definition TEXT NOT NULL DEFAULT ''",
+  );
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_topic_graph_node ADD COLUMN planning_json TEXT NOT NULL DEFAULT '{}'",
   );
   if (tableColumnExists(db, "synt_topic_graph_node", "description")) {
     db.run(`
@@ -3932,6 +3938,7 @@ function rowToTopicGraphNode(row: SqlRow): SynthesisTopicGraphNodeRecord {
     title: cleanString(row.title),
     definition: cleanString(row.definition) || undefined,
     aliasesJson: cleanString(row.aliases_json) || "[]",
+    planningJson: cleanString(row.planning_json) || "{}",
     nodeType: cleanString(row.node_type) || "placeholder",
     definitionStatus: cleanString(row.definition_status) || undefined,
     currentArtifactPath: cleanString(row.current_artifact_path) || undefined,
@@ -7881,6 +7888,7 @@ export class SynthesisRepository {
           title,
           definition,
           aliases_json,
+          planning_json,
           node_type,
           definition_status,
           current_artifact_path,
@@ -7896,6 +7904,7 @@ export class SynthesisRepository {
           @title,
           @definition,
           @aliases_json,
+          @planning_json,
           @node_type,
           @definition_status,
           @current_artifact_path,
@@ -7912,6 +7921,7 @@ export class SynthesisRepository {
         title: cleanString(record.title) || topicId,
         definition: cleanString(record.definition),
         aliases_json: cleanString(record.aliasesJson) || "[]",
+        planning_json: cleanString(record.planningJson) || "{}",
         node_type: cleanString(record.nodeType) || "placeholder",
         definition_status: cleanString(record.definitionStatus),
         current_artifact_path: cleanString(record.currentArtifactPath),

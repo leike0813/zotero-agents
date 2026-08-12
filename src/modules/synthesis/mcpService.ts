@@ -17,6 +17,7 @@ export type SynthesisMcpService = {
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   getTopicContext?: SynthesisMcpServiceMethodHandler;
+  getTopicPlanningContext?: SynthesisMcpServiceMethodHandler;
   getTopicReport?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

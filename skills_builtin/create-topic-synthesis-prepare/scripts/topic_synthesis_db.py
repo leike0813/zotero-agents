@@ -480,6 +480,24 @@ def topic_id_from_input(input_data: dict) -> str:
     return ""
 
 
+def workflow_parameter_from_input(input_data: dict, *names: str) -> Any:
+    sources: list[Any] = [input_data]
+    for key in ("parameter", "parameters", "input", "payload"):
+        sources.append(input_data.get(key))
+    request = input_data.get("request")
+    if isinstance(request, dict):
+        sources.append(request)
+        for key in ("parameter", "parameters", "input", "payload"):
+            sources.append(request.get(key))
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for name in names:
+            if name in source:
+                return source[name]
+    return None
+
+
 def write_canceled_output(
     conn: sqlite3.Connection,
     run_root: Path,
@@ -487,6 +505,9 @@ def write_canceled_output(
     reason: str,
     message: str,
     topic_id: str = "",
+    topic_seed: str = "",
+    duplicate_topic_id: str = "",
+    retryable: bool | None = None,
 ) -> dict:
     canceled: dict[str, Any] = {
         "__SKILL_DONE__": True,
@@ -497,6 +518,12 @@ def write_canceled_output(
     }
     if topic_id:
         canceled["topic_id"] = topic_id
+    if topic_seed:
+        canceled["topic_seed"] = topic_seed
+    if duplicate_topic_id:
+        canceled["duplicate_topic_id"] = duplicate_topic_id
+    if retryable is not None:
+        canceled["retryable"] = retryable
     write_json(run_root / "result/topic-synthesis-canceled.json", canceled)
     set_meta(conn, "canceled_output", canceled)
     return canceled
@@ -804,7 +831,9 @@ def validate_payload_against_schema(payload: dict, schema: dict) -> None:
 
 
 def validate_stage_payload(conn: sqlite3.Connection, stage_id: str, payload: dict) -> None:
-    if stage_id == "stage_10_update_topic_context":
+    if stage_id == "stage_10_create_topic_context":
+        validate_create_topic_context_payload(payload)
+    elif stage_id == "stage_10_update_topic_context":
         validate_update_topic_context_payload(payload)
     elif stage_id == "stage_20_resolver_and_workset":
         validate_resolver_payload(conn, payload)
@@ -819,6 +848,27 @@ def validate_stage_payload(conn: sqlite3.Connection, stage_id: str, payload: dic
         validate_coverage_payload(payload)
     elif stage_id == "stage_70_summary":
         validate_summary_payload(payload)
+
+
+def validate_create_topic_context_payload(payload: dict) -> None:
+    decision = payload.get("target_decision") if isinstance(payload.get("target_decision"), dict) else {}
+    action = clean_text(decision.get("action"))
+    candidates = [clean_text(value) for value in as_list(decision.get("candidate_topic_ids"))]
+    if any(not value for value in candidates):
+        raise ValueError("target_decision.candidate_topic_ids must contain non-empty topic ids")
+    if len(candidates) != len(set(candidates)):
+        raise ValueError("target_decision.candidate_topic_ids must be unique")
+    selected = clean_text(decision.get("selected_topic_id"))
+    if action == "create_new":
+        if selected or candidates:
+            raise ValueError("create_new must not select or retain same-identity topic candidates")
+        return
+    if action not in {"use_planned_topic", "cancel_materialized_duplicate"}:
+        raise ValueError("target_decision.action is invalid")
+    if not selected:
+        raise ValueError(f"{action} requires selected_topic_id")
+    if selected not in candidates:
+        raise ValueError("selected_topic_id must be present in candidate_topic_ids")
 
 
 def update_full_base_hashes(current_hashes: dict) -> dict:
@@ -1438,6 +1488,144 @@ def run_update_preflight(
     }
 
 
+def run_create_preflight(
+    conn: sqlite3.Connection,
+    *,
+    run_root: Path,
+    skill_id: str,
+    input_path: str | None,
+) -> dict:
+    input_data = load_initial_input(run_root, input_path, skill_id=skill_id)
+    if input_data:
+        set_meta(conn, "input", input_data)
+    language = clean_text(
+        workflow_parameter_from_input(input_data, "language"), "zh-CN"
+    )
+    set_meta(conn, "language", language)
+    use_planned = workflow_parameter_from_input(
+        input_data, "usePlannedTopic", "use_planned_topic"
+    )
+    if use_planned is not True:
+        return {
+            "status": "ready",
+            "mode": "ad_hoc",
+            "run_root": portable_path(run_root),
+            "operation": "create",
+        }
+
+    topic_id = clean_text(
+        workflow_parameter_from_input(
+            input_data, "plannedTopicId", "planned_topic_id"
+        )
+    )
+    if not topic_id:
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="planned_topic_required",
+            message="Create topic synthesis requires an active Planned Topic.",
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+    return materialize_planned_topic(
+        conn,
+        run_root=run_root,
+        skill_id=skill_id,
+        topic_id=topic_id,
+        selection_source="explicit",
+        record_target_stage=True,
+    )
+
+
+def materialize_planned_topic(
+    conn: sqlite3.Connection,
+    *,
+    run_root: Path,
+    skill_id: str,
+    topic_id: str,
+    selection_source: str,
+    record_target_stage: bool,
+) -> dict:
+    output = run_bridge_json(
+        run_root,
+        ["synthesis", "topic", "get-context"],
+        {"topicId": topic_id, "view": "semantic"},
+        "planned-topic-context-input.json",
+    )
+    semantic = context_view_payload(output, "semantic")
+    planning = semantic.get("planning") if isinstance(semantic.get("planning"), dict) else {}
+    definition = (
+        semantic.get("topic_definition")
+        if isinstance(semantic.get("topic_definition"), dict)
+        else {}
+    )
+    resolver = (
+        semantic.get("topic_resolver")
+        if isinstance(semantic.get("topic_resolver"), dict)
+        else {}
+    )
+    if clean_text(semantic.get("lifecycle")) != "planned" or not definition or not resolver:
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="planned_topic_unavailable",
+            message=f"Planned Topic is missing, stale, or incomplete: {topic_id}",
+            topic_id=topic_id,
+            retryable=True,
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+    topic_definition = {
+        "id": topic_id,
+        "title": clean_text(definition.get("title"), topic_id),
+        "definition": clean_text(definition.get("definition")),
+        "aliases": definition.get("aliases") if isinstance(definition.get("aliases"), list) else [],
+        "scope_include": definition.get("scope_include") if isinstance(definition.get("scope_include"), list) else [],
+        "scope_exclude": definition.get("scope_exclude") if isinstance(definition.get("scope_exclude"), list) else [],
+    }
+    set_meta(conn, "topic_id", topic_id)
+    set_meta(conn, "topic_definition", topic_definition)
+    set_meta(conn, "planned_topic", planning)
+    set_meta(conn, "planned_topic_mode", True)
+    set_meta(conn, "planned_topic_selection_source", selection_source)
+    stage_10_result = {
+        "topic_definition": topic_definition,
+        "target_action": "use_planned_topic",
+        "selection_source": selection_source,
+    }
+    if record_target_stage:
+        record_stage(
+            conn,
+            skill_id=skill_id,
+            stage_id="stage_10_create_topic_context",
+            result=stage_10_result,
+        )
+    resolver_payload = {
+        "resolver": resolver,
+        "resolver_reasoning": "Re-run the resolver stored with the selected Planned Topic.",
+        "operation_intent": "create",
+    }
+    resolver_result = collect_resolver_cascade(
+        conn,
+        run_root=run_root,
+        skill_id=skill_id,
+        stage_id="stage_20_resolver_and_workset",
+        payload=resolver_payload,
+    )
+    record_stage(
+        conn,
+        skill_id=skill_id,
+        stage_id="stage_20_resolver_and_workset",
+        result=resolver_result,
+    )
+    return {
+        "status": "ready",
+        "mode": "planned_topic",
+        "topic_id": topic_id,
+        "planning_revision": planning.get("revision"),
+        "selection_source": selection_source,
+        **resolver_result,
+    }
+
+
 def collect_resolver_cascade(
     conn: sqlite3.Connection,
     *,
@@ -1483,16 +1671,6 @@ def collect_resolver_cascade(
             path="runtime/payloads/updated-resolve-result.json",
             hash_value="",
         )
-        if not resolve_diff["added_refs"]:
-            topic_id = clean_text(get_meta(conn, "topic_id", ""))
-            canceled = write_canceled_output(
-                conn,
-                run_root,
-                reason="no_new_resolved_papers",
-                message="Update resolver did not add any new papers to the topic.",
-                topic_id=topic_id,
-            )
-            return {"status": "canceled", "canceled_output": canceled, "resolve_diff": resolve_diff}
         saved_triage = normalize_triage_map(get_meta(conn, "saved_source_paper_triage", {}))
         if saved_triage:
             for paper_ref in updated_refs:
@@ -1593,13 +1771,16 @@ def collect_resolver_cascade(
         result={"paper_refs": refs},
     )
 
-    return {
+    result = {
         "paper_refs": refs,
         "paper_count": len(refs),
         "resolver_manifest_path": "runtime/payloads/resolver.json",
         "triage_required_refs": get_meta(conn, "triage_required_refs", refs),
         "triage_mode": get_meta(conn, "triage_mode", "full"),
     }
+    if operation == "update_full":
+        result["resolve_diff"] = get_meta(conn, "resolve_diff", {})
+    return result
 
 
 def export_filtered_paper_artifacts_manifest(run_root: Path, refs: list[str]) -> dict:
@@ -2572,6 +2753,13 @@ def run_current_command_stage(
                 skill_id=skill_id,
                 input_path=input_path,
             )
+        elif skill_id == "create-topic-synthesis-prepare":
+            result = run_create_preflight(
+                conn,
+                run_root=run_root,
+                skill_id=skill_id,
+                input_path=input_path,
+            )
         else:
             result = {"run_root": portable_path(run_root), "operation": contract["operation"]}
     elif stage["id"] == "stage_00_runtime_state_check":
@@ -2646,6 +2834,33 @@ def dispatch_payload_stage(
 ) -> dict:
     stage_id = stage["id"]
     if stage_id == "stage_10_create_topic_context":
+        decision = payload["target_decision"]
+        action = clean_text(decision.get("action"))
+        set_meta(conn, "create_target_decision", decision)
+        if action == "use_planned_topic":
+            return materialize_planned_topic(
+                conn,
+                run_root=run_root,
+                skill_id=skill_id,
+                topic_id=clean_text(decision.get("selected_topic_id")),
+                selection_source="topic_seed_match",
+                record_target_stage=False,
+            )
+        if action == "cancel_materialized_duplicate":
+            input_data = get_meta(conn, "input", {})
+            topic_seed = clean_text(
+                workflow_parameter_from_input(input_data, "topicSeed", "topic_seed")
+            )
+            duplicate_topic_id = clean_text(decision.get("selected_topic_id"))
+            canceled = write_canceled_output(
+                conn,
+                run_root,
+                reason="duplicate_topic",
+                message=f"A materialized topic already represents this topic identity: {duplicate_topic_id}",
+                topic_seed=topic_seed,
+                duplicate_topic_id=duplicate_topic_id,
+            )
+            return {"status": "canceled", "canceled_output": canceled}
         topic_id = slugify(str(payload["topic_title"]))
         set_meta(
             conn,
@@ -2660,7 +2875,10 @@ def dispatch_payload_stage(
             },
         )
         set_meta(conn, "language", payload.get("language") or get_meta(conn, "language", "zh-CN"))
-        return {"topic_definition": get_meta(conn, "topic_definition"), "duplicate_status": payload["duplicate_status"]}
+        return {
+            "topic_definition": get_meta(conn, "topic_definition"),
+            "target_action": "create_new",
+        }
     if stage_id == "stage_10_update_topic_context":
         decision = payload.get("update_decision") if isinstance(payload.get("update_decision"), dict) else {}
         if clean_text(decision.get("action")) == "cancel":

@@ -840,6 +840,12 @@ pub enum TopicsCommand {
     GetContext(BridgeQueryArgs),
 
     #[command(
+        about = "Read the library-wide topic planning context",
+        long_about = "Call Zotero capability topics.get_planning_context. Use --query with optional limit, outputPath/output_path, and overwrite. Inline results are bounded. Local profiles can write the complete JSON snapshot directly; remote profiles return delivery.mode=\"bridge-download\" for the existing file download flow."
+    )]
+    GetPlanningContext(BridgeQueryArgs),
+
+    #[command(
         about = "Read one topic synthesis report markdown body",
         long_about = "Call Zotero capability topics.get_report. The report markdown is read from runtime synthesis_report.body."
     )]
@@ -2481,6 +2487,7 @@ mod tests {
                 "list",
                 "find-by-paper-ref",
                 "get-context",
+                "get-planning-context",
                 "get-report",
                 "get-review-input",
             ] {
@@ -2577,6 +2584,30 @@ mod tests {
                 _ => panic!("expected bridge backend"),
             },
             _ => panic!("expected bridge command"),
+        }
+    }
+
+    #[test]
+    fn parses_topic_planning_context_query() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "topic",
+            "get-planning-context",
+            "--query",
+            r#"{"limit":400}"#,
+        ]);
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Topic(args) => match args.command {
+                    TopicsCommand::GetPlanningContext(input) => {
+                        assert_eq!(input.query.as_deref(), Some(r#"{"limit":400}"#));
+                    }
+                    _ => panic!("expected topic planning context"),
+                },
+                _ => panic!("expected synthesis topic"),
+            },
+            _ => panic!("expected synthesis command"),
         }
     }
 

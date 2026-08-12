@@ -124,6 +124,7 @@ import { evaluateTagCompliance } from "./tagCompliance";
 import { createSynthesisConceptKbService } from "./conceptKb";
 import {
   createSynthesisTopicGraphService,
+  type SynthesisTopicPlan,
   type SynthesisTopicGraphNode,
 } from "./topicGraph";
 import {
@@ -690,6 +691,8 @@ type TopicInventoryRow = {
   updated_at: string;
   prospective_topic_relation_proposals: Record<string, unknown>[];
   status?: "active" | "archived" | "deleted";
+  lifecycle: "planned" | "stale" | "materialized";
+  planning?: SynthesisTopicGraphNode["planning"];
 };
 
 type DeletedTopicArtifactRow = {
@@ -1598,6 +1601,59 @@ async function createRemoteTopicContextOutput(args: {
   };
 }
 
+async function deliverTopicPlanningContext(args: {
+  outputPath: string;
+  overwrite: boolean;
+  payload: Record<string, unknown>;
+  context?: SynthesisMcpServiceContext;
+}) {
+  const text = canonicalText(args.payload);
+  if (isRemoteHostBridgeContext(args.context)) {
+    const entryPath = normalizeZipEntryPath(
+      args.outputPath,
+      "runtime/payloads/topic-planning-context.json",
+    );
+    const delivery = await registerRemoteExportBundle({
+      capability: "topics.get_planning_context",
+      root: remoteExportRoot("topic-planning-context"),
+      zipName: remoteExportZipName("topic-planning-context", "snapshot"),
+      entries: [{ name: entryPath, text }],
+    });
+    return {
+      schema_id: "synthesis.topic_planning_context.output",
+      schema_version: "1.0.0",
+      output: {
+        mode: "bridge-download",
+        path: entryPath,
+        bytes: topicContextByteLength(text),
+        sha256: sha256(text),
+      },
+      delivery,
+      omitted_inline_result: true,
+    };
+  }
+  if ((await runtimePathExists(args.outputPath)) && !args.overwrite) {
+    return {
+      ok: false,
+      status: "output_exists",
+      output: { mode: "file", path: args.outputPath },
+      diagnostics: ["output_path_exists"],
+    };
+  }
+  await writeRuntimeTextFile(args.outputPath, text);
+  return {
+    schema_id: "synthesis.topic_planning_context.output",
+    schema_version: "1.0.0",
+    output: {
+      mode: "file",
+      path: args.outputPath,
+      bytes: topicContextByteLength(text),
+      sha256: sha256(text),
+    },
+    omitted_inline_result: true,
+  };
+}
+
 function statusFromDefinition(
   definition: Record<string, unknown>,
 ): TopicInventoryRow["status"] {
@@ -1881,6 +1937,11 @@ function topicInventoryRowsFromGraphNodes(args: {
           normalizeProspectiveTopicRelationProposals(
             metadata?.prospective_topic_relation_proposals,
           ),
+        lifecycle:
+          node.node_type === "materialized"
+            ? "materialized"
+            : node.planning?.lifecycle || "planned",
+        ...(node.planning ? { planning: node.planning } : {}),
         ...(status ? { status } : {}),
       };
     })
@@ -15386,6 +15447,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             await topicGraph.ingestRelationProposals({
               sourceTopicId: topicId,
               payload: proposalPayload,
+              producer: "topic-synthesis",
               transactionId: `topic-graph-proposals-${pathId}`,
             });
           } catch (error) {
@@ -19860,6 +19922,41 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     filter?: unknown;
   }): Promise<SynthesisWorkflowTopicOptionsResult> {
     const filter = cleanString(args?.filter) || "all";
+    if (filter === "planned") {
+      const topicGraphContext = await topicGraphSnapshotForUi().catch(
+        () => undefined,
+      );
+      return {
+        options: (topicGraphContext?.snapshot.nodes || [])
+          .filter(
+            (node) =>
+              node.node_type === "placeholder" &&
+              node.planning?.lifecycle === "planned" &&
+              node.definition_status !== "deleted" &&
+              node.definition_status !== "stale",
+          )
+          .map((node) => ({
+            value: node.topic_id,
+            label: cleanString(node.title) || node.topic_id,
+            description: [
+              cleanString(node.definition),
+              `revision ${node.planning?.revision || 1}`,
+              node.topic_id,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+            meta: {
+              kind: "synthesis.planned-topic",
+              topicId: node.topic_id,
+              title: cleanString(node.title) || node.topic_id,
+              lifecycle: "planned",
+              revision: node.planning?.revision || 1,
+            },
+          }))
+          .sort((left, right) => left.label.localeCompare(right.label)),
+        diagnostics: [],
+      };
+    }
     if (filter === "updatable") {
       const topicGraphContext = await topicGraphSnapshotForUi().catch(
         () => undefined,
@@ -19995,6 +20092,75 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         diagnostics: ["output_path_required"],
       };
     }
+    const topicGraphSnapshot = await topicGraph
+      .loadTopicGraph()
+      .catch(() => undefined);
+    const plannedNode = (topicGraphSnapshot?.nodes || []).find(
+      (node) =>
+        cleanString(node.topic_id) === topicId &&
+        node.node_type === "placeholder" &&
+        Boolean(node.planning),
+    );
+    if (plannedNode) {
+      const lifecycle = plannedNode.planning?.lifecycle || "planned";
+      const digest = {
+        topic_id: plannedNode.topic_id,
+        title: plannedNode.title,
+        definition: plannedNode.definition || "",
+        aliases: plannedNode.aliases,
+        lifecycle,
+        revision: plannedNode.planning?.revision || 1,
+      };
+      const semantic = {
+        topic_id: plannedNode.topic_id,
+        lifecycle,
+        topic_definition: {
+          id: plannedNode.topic_id,
+          title: plannedNode.title,
+          definition: plannedNode.definition || "",
+          aliases: plannedNode.aliases,
+          scope_include: plannedNode.planning?.scope.include || [],
+          scope_exclude: plannedNode.planning?.scope.exclude || [],
+        },
+        topic_resolver: plannedNode.planning?.resolver || {},
+        planning: plannedNode.planning,
+      };
+      const audit = {
+        topic_id: plannedNode.topic_id,
+        lifecycle,
+        graph_hash: topicGraphSnapshot?.manifest.manifest_hash || "",
+        planning: plannedNode.planning,
+      };
+      const response = view
+        ? {
+            schema_id: "synthesis.topic_context",
+            schema_version: "2.0.0",
+            topic_id: plannedNode.topic_id,
+            view,
+            ...(view === "digest" ? { digest } : {}),
+            ...(view === "semantic" ? { semantic } : {}),
+            ...(view === "audit" ? { audit } : {}),
+            ...(view === "full" ? { digest, semantic, audit } : {}),
+          }
+        : { ...semantic, digest, audit };
+      if (outputPath && view) {
+        return isRemoteHostBridgeContext(context)
+          ? createRemoteTopicContextOutput({
+              topicId: plannedNode.topic_id,
+              view,
+              outputPath,
+              payload: response,
+            })
+          : maybeWriteTopicContextOutput({
+              topicId: plannedNode.topic_id,
+              view,
+              outputPath,
+              overwrite: args.overwrite === true,
+              payload: response,
+            });
+      }
+      return response;
+    }
     const artifact = await readTopicArtifact({ topicId }).catch(() => null);
     if (!artifact) {
       return {
@@ -20007,9 +20173,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       };
     }
     const resolvedTopicId = cleanString(artifact.topicId) || topicId;
-    const topicGraphSnapshot = await topicGraph
-      .loadTopicGraph()
-      .catch(() => undefined);
     const topicNode = (topicGraphSnapshot?.nodes || []).find(
       (node) => cleanString(node.topic_id) === resolvedTopicId,
     );
@@ -21017,6 +21180,129 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  async function buildTopicPlanningLibrarySnapshot() {
+    const inputs = await registryInputsForService(options);
+    const base = options.libraryAdapter
+      ? await options.libraryAdapter.getLibraryIndex()
+      : buildLibraryIndexFromRegistryInputs(libraryId, inputs);
+    const indexHash = hashCanonicalJson({
+      libraryId: base.libraryId,
+      papers: base.papers,
+      tags: base.tags,
+      collections: base.collections,
+    });
+    return { base, indexHash };
+  }
+
+  async function getTopicPlanningContext(
+    args: Record<string, unknown> = {},
+    context?: SynthesisMcpServiceContext,
+  ) {
+    const outputPath = topicContextOutputPath(args);
+    if (
+      (args.outputPath !== undefined || args.output_path !== undefined) &&
+      !outputPath
+    ) {
+      return {
+        ok: false,
+        status: "invalid_request",
+        diagnostics: ["output_path_required"],
+      };
+    }
+    const { base, indexHash } = await buildTopicPlanningLibrarySnapshot();
+    const graph = await topicGraph.loadTopicGraph();
+    const paths = buildSynthesisStoragePaths(root);
+    const resolvedPaperSets = await readStateMap<Record<string, unknown>>(
+      paths.resolvedPaperSets,
+      "paper_sets",
+    ).catch(() => ({}) as Record<string, Record<string, unknown>>);
+    const artifactState = await readArtifactStateRows(root);
+    const inlineLimit = parsePositiveInteger(args.limit, 1000, 5000);
+    const papers = outputPath ? base.papers : base.papers.slice(0, inlineLimit);
+    const payload: Record<string, unknown> = {
+      schema_id: "synthesis.topic_planning_context",
+      schema_version: "1.0.0",
+      library: {
+        library_id: base.libraryId,
+        index_hash: indexHash,
+        total_papers: base.papers.length,
+        papers,
+        tags: base.tags,
+        collections: base.collections,
+      },
+      topics: graph.nodes
+        .filter((node) => node.definition_status !== "deleted")
+        .map((node) => ({
+          topic_id: node.topic_id,
+          title: node.title,
+          definition: node.definition || "",
+          aliases: node.aliases,
+          lifecycle:
+            node.node_type === "materialized"
+              ? "materialized"
+              : node.planning?.lifecycle || "planned",
+          node_type: node.node_type,
+          planning: node.planning,
+          resolved_paper_set:
+            node.node_type === "materialized"
+              ? resolvedPaperSets[node.topic_id] || null
+              : undefined,
+          recommended_update: artifactState[node.topic_id]
+            ? topicUpdateIntentForUi({
+                topicId: node.topic_id,
+                intent: deriveTopicUpdateIntent({
+                  topicId: node.topic_id,
+                  state: artifactState[node.topic_id],
+                  row: topicIndexRowFromGraphNode(node),
+                }),
+              })
+            : null,
+        })),
+      topic_graph: {
+        manifest: graph.manifest,
+        nodes: graph.nodes,
+        edges: graph.edges,
+        review_items: graph.review_items,
+      },
+      coverage: {
+        denominator: "top_level_regular_items",
+        total: base.papers.length,
+        primary_states: [
+          "materialized_covered",
+          "planned_covered",
+          "uncovered",
+          "indeterminate",
+        ],
+        overlap_is_separate: true,
+      },
+      diagnostics: {
+        bounded_inline: !outputPath,
+        truncated: papers.length < base.papers.length,
+        returned_papers: papers.length,
+        total_papers: base.papers.length,
+      },
+    };
+    if (outputPath) {
+      return deliverTopicPlanningContext({
+        outputPath,
+        overwrite: args.overwrite === true,
+        payload,
+        context,
+      });
+    }
+    return payload;
+  }
+
+  async function applyTopicPlan(args: Record<string, unknown> = {}) {
+    const plan = (isObject(args.plan) ? args.plan : args) as SynthesisTopicPlan;
+    const { indexHash } = await buildTopicPlanningLibrarySnapshot();
+    return topicGraph.reconcileTopicPlan({
+      plan,
+      currentLibraryIndexHash: indexHash,
+      transactionId: cleanString(args.transactionId || args.transaction_id),
+    });
+  }
+
   async function getLibraryIndex(args: Record<string, unknown> = {}) {
     const inputs = await registryInputsForService(options);
     const base = options.libraryAdapter
@@ -21936,6 +22222,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     getSchemas,
     queryConceptKb,
     queryCitationGraphCluster,
+    getTopicPlanningContext,
+    applyTopicPlan,
     getLibraryIndex,
     resolveResolver,
     getReferenceSidecarIndex,

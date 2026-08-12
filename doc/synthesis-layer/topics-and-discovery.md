@@ -2,6 +2,12 @@
 
 Topics are user-facing synthesis artifacts. They should remain stable unless the user updates them or their recorded sources fail source check.
 
+Before an artifact exists, Topic Planner may create a Planned Topic in the Topic Graph. This placeholder has a stable identity, definition, aliases, scope, resolver, revision, basis, provenance, and `planned` or `stale` lifecycle. It has no provisional paper-membership snapshot and is not a topic artifact. Active Planned Topics can be materialized by Create Topic Synthesis; the workflow reruns the stored resolver and keeps the same Topic ID. Stale Planned Topics remain visible to planning reads but are excluded from the Create workflow selector.
+
+An ad-hoc Create seed also resolves against the complete topic inventory before a new identity is created. A materialized same-identity Topic cancels the run; otherwise, the best active Planned Topic whose definition and scope directly match the seed is materialized automatically. Related, broader, narrower, stale, or scope-incompatible Topics are not substitutes. Runtime re-reads the selected Planned Topic before resolver execution and cancels on concurrent lifecycle or definition loss instead of falling back to a duplicate ad-hoc Topic.
+
+Planner reconciliation covers the whole current library and applies all placeholder and relation changes atomically against the Topic Graph hash. A concurrent graph change rejects the whole plan. A library-index change can leave the graph reconciliation valid while marking its coverage result stale. Materialized Topics are read-only to Planner; update recommendations go through Update Topic Synthesis. Separate materialization runs may execute in parallel after the shared plan has established their identities and relation proposals.
+
 ## Topic Artifacts
 
 A topic artifact owns:

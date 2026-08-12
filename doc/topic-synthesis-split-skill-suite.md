@@ -288,7 +288,7 @@ Agent-authored payload 均位于 `runtime/payloads/`，并由当前 stage 对应
 
 | Stage | Payload path | Schema asset | Required top-level fields |
 | --- | --- | --- | --- |
-| `stage_10_create_topic_context` | `runtime/payloads/create-topic-context.json` | `assets/schemas/stage-10-create-topic-context.schema.json` | `topic_title`、`aliases`、`definition`、`scope_include`、`scope_exclude`、`duplicate_status`、`duplicate_candidate_ids`、`duplicate_reason` |
+| `stage_10_create_topic_context` | `runtime/payloads/create-topic-context.json` | `assets/schemas/stage-10-create-topic-context.schema.json` | `topic_title`、`aliases`、`definition`、`scope_include`、`scope_exclude`、`target_decision` |
 | `stage_10_update_topic_context` | `runtime/payloads/update-topic-context.json` | `assets/schemas/stage-10-update-topic-context.schema.json` | `update_decision`；continue 时还需要 `resolver`、`resolver_reasoning` |
 | `stage_20_resolver_and_workset` | `runtime/payloads/resolver-and-workset.json` | `assets/schemas/stage-20-resolver-and-workset.schema.json` | create route 的 `resolver`、`resolver_reasoning`、`operation_intent` |
 | `stage_30_prepare_analysis_context` | `runtime/payloads/prepare-analysis-context.json` | `assets/schemas/stage-30-prepare-analysis-context.schema.json` | `assessments` |
@@ -308,9 +308,10 @@ Payload 只表达语义判断和结构化业务内容。SQLite、handoff、conte
 - `definition`：主题定义，说明研究对象与方法边界。
 - `scope_include`：明确纳入的方向、方法或问题。
 - `scope_exclude`：明确排除的相邻方向。
-- `duplicate_status`：与已有 topic 的重复判断，取值为 `none`、`possible_duplicate`、`duplicate` 或 `unknown`。
-- `duplicate_candidate_ids`：来自 `list-topics` 的候选 topic id。
-- `duplicate_reason`：重复判断理由。
+- `target_decision.action`：依次选择 `cancel_materialized_duplicate`、`use_planned_topic` 或 `create_new`。
+- `target_decision.selected_topic_id`：use/cancel 时选择的同一身份 Topic；必须属于候选列表。
+- `target_decision.candidate_topic_ids`：完整 topic inventory 中满足同一身份判断的候选，不包含相关、上下位或 stale Topic。
+- `target_decision.reason`：说明 definition/scope 身份判断；多 Planned Topic 候选时说明最佳项的选择依据。
 
 `stage_10_update_topic_context`：
 
