@@ -463,50 +463,20 @@ def paper_ref_from_row(row: dict[str, Any]) -> str:
     return canonical_paper_ref(f"{library_id}:{key}") if library_id > 0 and key else ""
 
 
-def collect_topic_paper_refs(value: Any) -> tuple[set[str], bool]:
+def collect_topic_source_paper_refs(value: list[Any]) -> tuple[set[str], int]:
     refs: set[str] = set()
-    valid = True
-    recognized = False
-    if isinstance(value, dict):
-        papers = value.get("papers")
-        if "papers" in value:
-            recognized = True
-        if isinstance(papers, list):
-            for paper in papers:
-                ref = (
-                    canonical_paper_ref(paper.get("paper_ref"))
-                    if isinstance(paper, dict)
-                    else canonical_paper_ref(paper)
-                )
-                if ref:
-                    refs.add(ref)
-                else:
-                    valid = False
-        elif "papers" in value:
-            valid = False
-        paper_refs = value.get("paper_refs")
-        if "paper_refs" in value:
-            recognized = True
-        if isinstance(paper_refs, list):
-            for entry in paper_refs:
-                ref = canonical_paper_ref(entry)
-                if ref:
-                    refs.add(ref)
-                else:
-                    valid = False
-        elif "paper_refs" in value:
-            valid = False
-    elif isinstance(value, list):
-        recognized = True
-        for entry in value:
-            ref = canonical_paper_ref(entry)
-            if ref:
-                refs.add(ref)
-            else:
-                valid = False
-    else:
-        valid = False
-    return refs, valid and recognized
+    invalid_count = 0
+    for entry in value:
+        ref = (
+            canonical_paper_ref(entry.get("paper_ref"))
+            if isinstance(entry, dict)
+            else ""
+        )
+        if ref:
+            refs.add(ref)
+        else:
+            invalid_count += 1
+    return refs, invalid_count
 
 
 def normalize_anchor(value: Any) -> str:
@@ -914,63 +884,116 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         not topics_enabled or get_meta(conn, "topic_inventory_status", "") == "ready"
     )
     topic_source_count = 0
+    topic_sources_complete = 0
+    topic_sources_incomplete = 0
+    topic_source_papers_accepted = 0
+    topic_source_papers_dropped = 0
+    topic_diagnostics: list[dict[str, Any]] = []
+
+    def record_topic_diagnostic(
+        code: str,
+        message: str,
+        topic_id: str,
+        **details: Any,
+    ) -> None:
+        topic_diagnostics.append(
+            {
+                "severity": "warning",
+                "code": code,
+                "message": message,
+                "topic_id": topic_id,
+                **details,
+            }
+        )
+
     selected_rows = list(conn.execute("SELECT topic_id FROM selected_topics ORDER BY relevance DESC, topic_id"))
     for index, topic_row in enumerate(selected_rows):
         topic_source_count += 1
         topic_id = topic_row[0]
+        refs: list[str] = []
         try:
             context = run_bridge_query(
                 run_root,
                 ["synthesis", "topic", "get-context"],
-                {"topicId": topic_id},
+                {"topicId": topic_id, "view": "semantic"},
                 f"stage40-topic-context-{index + 1}",
             )
-            if not isinstance(context, dict) or not any(
-                key in context for key in ("resolved_paper_set", "resolvedPaperSet")
-            ):
-                add_diagnostic(
-                    conn,
-                    "topic_resolved_papers_unavailable",
-                    "Topic context did not expose a resolved paper set.",
-                    details={"topic_id": topic_id},
-                )
+            semantic = context.get("semantic") if isinstance(context, dict) else None
+            if semantic is None:
                 source_complete = False
-                continue
-            resolved_set = context.get("resolved_paper_set")
-            if resolved_set is None:
-                resolved_set = context.get("resolvedPaperSet")
-            if not isinstance(resolved_set, (dict, list)):
-                add_diagnostic(
-                    conn,
-                    "topic_resolved_papers_unavailable",
-                    "Topic context returned an invalid resolved paper set.",
-                    details={"topic_id": topic_id},
+                topic_sources_incomplete += 1
+                record_topic_diagnostic(
+                    "topic_source_papers_missing",
+                    "Topic semantic context did not expose source_papers.",
+                    topic_id,
                 )
-                source_complete = False
                 continue
-            topic_refs, resolved_set_valid = collect_topic_paper_refs(resolved_set)
+            if not isinstance(semantic, dict):
+                source_complete = False
+                topic_sources_incomplete += 1
+                record_topic_diagnostic(
+                    "topic_source_papers_malformed",
+                    "Topic semantic context was not an object.",
+                    topic_id,
+                )
+                continue
+            if "source_papers" not in semantic:
+                source_complete = False
+                topic_sources_incomplete += 1
+                record_topic_diagnostic(
+                    "topic_source_papers_missing",
+                    "Topic semantic context did not expose source_papers.",
+                    topic_id,
+                )
+                continue
+            source_papers = semantic.get("source_papers")
+            if not isinstance(source_papers, list):
+                source_complete = False
+                topic_sources_incomplete += 1
+                record_topic_diagnostic(
+                    "topic_source_papers_malformed",
+                    "Topic source_papers was not an array.",
+                    topic_id,
+                )
+                continue
+            if not source_papers:
+                source_complete = False
+                topic_sources_incomplete += 1
+                record_topic_diagnostic(
+                    "topic_source_papers_empty",
+                    "Topic source_papers was empty.",
+                    topic_id,
+                )
+                continue
+            topic_refs, invalid_count = collect_topic_source_paper_refs(source_papers)
             refs = sorted(topic_refs)
-            if not resolved_set_valid:
+            topic_source_papers_accepted += len(refs)
+            topic_source_papers_dropped += invalid_count
+            if invalid_count:
                 source_complete = False
-                add_diagnostic(
-                    conn,
-                    "topic_resolved_papers_malformed",
-                    "Topic context contained malformed or unrecognized paper identities.",
-                    details={"topic_id": topic_id},
+                topic_sources_incomplete += 1
+                record_topic_diagnostic(
+                    "topic_source_paper_ref_invalid",
+                    "Topic source_papers contained invalid paper_ref entries.",
+                    topic_id,
+                    dropped_count=invalid_count,
                 )
-            conn.execute(
-                "UPDATE selected_topics SET source_paper_refs_json=? WHERE topic_id=?",
-                (json.dumps(refs, ensure_ascii=False), topic_id),
-            )
+            else:
+                topic_sources_complete += 1
             for ref in refs:
                 upsert_candidate(candidates, ref, source=f"topic:{topic_id}", topic_id=topic_id)
         except Exception as exc:  # noqa: BLE001
             source_complete = False
-            add_diagnostic(
-                conn,
+            topic_sources_incomplete += 1
+            record_topic_diagnostic(
                 "topic_context_unavailable",
                 str(exc),
-                details={"topic_id": topic_id},
+                topic_id,
+            )
+        finally:
+            conn.execute(
+                "UPDATE selected_topics SET source_paper_refs_json=? WHERE topic_id=?",
+                (json.dumps(refs, ensure_ascii=False), topic_id),
             )
     conn.commit()
 
@@ -1095,6 +1118,11 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             conn, "topic_inventory_status", "unavailable"
         ),
         "topic_sources": topic_source_count,
+        "topic_sources_complete": topic_sources_complete,
+        "topic_sources_incomplete": topic_sources_incomplete,
+        "topic_source_papers_accepted": topic_source_papers_accepted,
+        "topic_source_papers_dropped": topic_source_papers_dropped,
+        "topic_diagnostics": topic_diagnostics,
         "successful_searches": successful_searches,
         "anchors_attempted": len(distinct_anchors),
         "anchor_receipts": anchor_receipts,

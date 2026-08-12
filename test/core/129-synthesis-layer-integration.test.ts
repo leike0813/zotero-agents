@@ -4982,6 +4982,16 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       assert.notProperty(digestContext.digest, "current_hashes");
 
       assert.equal(semanticContext.view, "semantic");
+      assert.deepEqual(
+        semanticContext.semantic.source_papers.map(
+          (paper: any) => paper.paper_ref,
+        ),
+        ["1:DETR"],
+      );
+      assert.notDeepEqual(
+        semanticContext.semantic.source_papers,
+        semanticContext.semantic.resolved_paper_set.papers,
+      );
       assert.include(
         semanticContext.semantic.markdown,
         "DETR introduced a set-prediction framing",

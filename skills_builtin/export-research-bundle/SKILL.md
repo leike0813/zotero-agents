@@ -29,7 +29,7 @@ Optional parameters:
 - `articleType`: free string; default `original research`.
 - `maxTopics`: integer 0-10; default 5.
 - `maxCorePapers`: integer 1-50; default 20.
-- `maxRelatedPapers`: integer 1-200; default 80. This count limits only non-Topic additional papers; every paper resolved by a selected Topic is retained even when the total exceeds this value.
+- `maxRelatedPapers`: integer 1-200; default 80. This count limits only non-Topic additional papers; every canonical paper in a selected Topic's current `source_papers` is retained even when the total exceeds this value.
 
 There is no `language` parameter and no Zotero selection input.
 
@@ -102,7 +102,7 @@ CLI stdout from `run_stage` and `submit_stage_payload` is a receipt, not final a
 | `stage_10_intent_query_plan` | payload | Write the research dimensions and precise library-query plan defined below. |
 | `stage_20_discovery_collect` | command | Run the gate command. The runtime pages the current Topic inventory. |
 | `stage_30_topic_assessment` | payload or automatic skip | Read Topic candidates and select only existing relevant Topics. The runtime skips this stage when `maxTopics=0` or no Topic exists. |
-| `stage_40_evidence_prepare` | command or external blocker | Run the gate command. The runtime resolves selected Topic papers, executes pageable metadata-anchor discovery, merges candidates, records discovery status, gathers evidence, and creates assessment packets. |
+| `stage_40_evidence_prepare` | command or external blocker | Run the gate command. The runtime reads selected Topics' current source papers, executes pageable metadata-anchor discovery, merges candidates, records discovery status and Topic-scoped diagnostics, gathers evidence, and creates assessment packets. |
 | `stage_50_paper_assessment` | repeated payload | Assess every paper in the current packet exactly once. Repeat only while the gate returns this stage. |
 | `stage_60_enrich_and_select` | command | Run the gate command. The runtime derives graph/readiness values, scores papers, and assigns related/core roles. |
 | `stage_70_render_result` | command | Run the gate command. The runtime validates and renders the selection, audit, artifact manifest, and business result. |
@@ -272,8 +272,9 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 ### Must Be Done By The Runtime
 
 - Lock runner input, locate Host Bridge, normalize metadata anchors, execute and page Host reads, and record receipts.
-- Collect each selected Topic's resolved paper set before library discovery, accept only source-specific canonical paper identities, merge both sources by `paper_ref`, preserve every selected-Topic paper while capping only non-Topic candidates, generate assessment packets, validate exact coverage, and persist SQLite state.
-- Classify discovery as `ready` when at least one canonical candidate exists, `empty_confirmed` only when every relevant source completed with a valid empty result, or `incomplete` when zero candidates coincide with unavailable, malformed, failed, or unpageable source data. Never advance an incomplete discovery into paper selection or business cancellation.
+- Request each selected Topic's semantic context before library discovery, accept only canonical `paper_ref` values from its current `source_papers`, merge Topic and metadata sources by `paper_ref`, preserve every valid selected-Topic paper while capping only non-Topic candidates, generate assessment packets, validate exact coverage, and persist SQLite state.
+- Record unavailable, missing, malformed, empty, or partially invalid Topic source tables in the Stage 40 discovery summary and receipts, retain any valid rows, and continue bounded metadata discovery.
+- Classify discovery as `ready` when at least one canonical candidate exists, `empty_confirmed` only when every relevant source completed with a valid empty result and no selected Topic source table was incomplete, or `incomplete` when zero candidates coincide with unavailable, malformed, failed, empty-Topic, partially invalid, or unpageable source data. Never advance an incomplete discovery into paper selection or business cancellation.
 - Use graph, reference, digest, and readiness data only to enrich candidates already obtained from selected Topics or metadata-anchor discovery.
 - Determine graph availability, graph importance, Topic coverage, material readiness, score, stable order, and role.
 - Handle diagnostics, remote-delivery state, business cancellation, selection validation, and final rendering.
@@ -288,7 +289,7 @@ Do not guess a download URL, manifest path, archive member, or unpack destinatio
 
 ## Selection Policy
 
-- Papers with `semantic_relevance < 0.45` are excluded unless they are associated with a selected Topic's resolved paper set; Topic-associated papers are mandatory.
+- Papers with `semantic_relevance < 0.45` are excluded unless they occur in a selected Topic's current `source_papers`; Topic-associated papers are mandatory.
 - Topic coverage is the fraction of selected Topics matched through persisted Topic source membership or validated `matched_topic_ids`; it is 0 when no Topic is selected.
 - Material readiness is 1.0 for source Markdown, 0.8 for PDF-only, and 0 otherwise.
 - Graph importance is the maximum available normalized foundation, frontier, PageRank, and in-degree signal.
@@ -311,14 +312,14 @@ Recovery rules:
 - Continue only the returned `next_action`; do not replay payloads from conversation memory.
 - If submit validation fails, rerun gate, repair only the current payload, and resubmit it.
 - If SQLite or a runtime-owned artifact is corrupt and the gate exposes no legal repair action, stop and report the error. Do not delete or rebuild the DB.
-- Missing Topic inventory, reference index, digest, graph state, or source files degrades through diagnostics when another source still establishes usable candidates; never claim that missing evidence was used.
+- Missing Topic inventory, Topic semantic context or source table, reference index, digest, graph state, or source files degrades through diagnostics when another source still establishes usable candidates; never claim that missing evidence was used. Stage 40 exposes Topic source-table diagnostics in its discovery summary and gate/command receipts.
 - If Stage 40 reports incomplete discovery, rerun the gate after resolving the Host data or protocol error. Do not skip Stage 50, synthesize an empty selection, or return `no_related_literature`.
 
 Terminal cancellation reasons are exactly:
 
 - `invalid_input`: required runner input is absent or invalid.
 - `host_unavailable`: required Host Bridge access is unavailable.
-- `no_related_literature`: discovery is confirmed empty, or completed paper assessments contain no paper meeting the semantic threshold and no selected Topic resolved a paper.
+- `no_related_literature`: discovery is confirmed empty, or completed paper assessments contain no paper meeting the semantic threshold and no selected Topic contributed a valid current source paper.
 
 Completion is defined only by gate `stage: "completed"`, not by the success of the last command. A completed gate may contain either selection success or business cancellation.
 
