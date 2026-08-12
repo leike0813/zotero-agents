@@ -1,21 +1,21 @@
 import type {
   SynthesisSidecarErrorCode,
+  SynthesisSidecarErrorDetails,
   SynthesisSidecarFailure,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
-import type { SynthesisJsonObject } from "../../../packages/synthesis-contracts/src/common.js";
 
 export class SidecarRuntimeError extends Error {
   readonly status: number;
   readonly code: SynthesisSidecarErrorCode;
   readonly retryable: boolean;
-  readonly details: SynthesisJsonObject;
+  readonly details: SynthesisSidecarErrorDetails;
 
   constructor(args: {
     status: number;
     code: SynthesisSidecarErrorCode;
     message: string;
     retryable?: boolean;
-    details?: SynthesisJsonObject;
+    details?: SynthesisSidecarErrorDetails;
   }) {
     super(args.message);
     this.name = "SidecarRuntimeError";

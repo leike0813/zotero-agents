@@ -3,6 +3,13 @@ export type SynthesisTopicDefinition = {
   title: string;
   name?: string;
   definition?: string;
+  scope?: string;
+  discipline?: string;
+  research_field?: string;
+  scope_boundary?: {
+    include: string[];
+    exclude: string[];
+  };
   aliases?: string[];
   scope_include?: string[];
   scope_exclude?: string[];
@@ -32,10 +39,16 @@ export type SynthesisTopicDigestReference = {
 };
 
 export type SynthesisLiteratureQuality = {
-  level?: string;
-  score?: number;
-  reason?: string;
-  dimensions?: Record<string, string>;
+  status: "available" | "missing" | "invalid";
+  schema?: "literature_score.v1";
+  rubric_id?: string;
+  paper_type?: string;
+  overall_score?: number;
+  confidence?: number;
+  confidence_adjusted_score?: number;
+  quality_prior: number;
+  payload_hash?: string;
+  diagnostics: Array<"literature_score_missing" | "literature_score_invalid">;
 };
 
 export type SynthesisResolvedPaper = {
@@ -223,6 +236,8 @@ export type SynthesisTaxonomyAxis = {
 };
 
 export type SynthesisTaxonomy = {
+  primary_axis?: string;
+  axis_rationale?: string;
   summary?: SynthesisTextSummary;
   axes?: SynthesisTaxonomyAxis[];
   nodes?: SynthesisTaxonomyRoute[];
@@ -268,8 +283,9 @@ export type SynthesisTimeline = {
 
 export type SynthesisDebate = {
   id?: string;
-  title: string;
-  current_judgment: string;
+  title?: string;
+  evidence_type?: string;
+  current_judgment?: string;
   source_paper_refs: string[];
 };
 
@@ -310,22 +326,31 @@ export type SynthesisCoverage = {
   verdict?: string;
   reason?: string;
   caveats?: string[];
+  paper_count?: number;
+  external_literature_count?: number;
+  coverage_verdict?: string;
+  coverage_reason?: string;
+  coverage_caveats?: string[];
   external_context_summary?: string;
   suggested_collection_directions?: string[];
 };
 
 export type SynthesisStatistics = {
   paper_count?: number;
-  time_span?: { earliest: string; latest: string };
-  route_coverage?: { routes: number };
+  time_span?:
+    | { earliest: string; latest: string }
+    | { start_year: number; end_year: number };
+  route_coverage?: { routes: number } | string;
   coverage_verdict?: string;
 };
 
 export type SynthesisReport = {
   title?: string;
+  body?: string;
   markdown?: string;
   summary?: string;
   sections?: string[];
+  source_section_chapters?: Record<string, string>;
 };
 
 export type SynthesisArtifactEntry = {
@@ -334,19 +359,36 @@ export type SynthesisArtifactEntry = {
   hash?: string;
   skill_id?: string;
   stage_id?: string;
+  content_type?: "json";
+  schema_id?: string;
 };
 
 export type SynthesisSourceArtifacts = {
-  resolver_manifest?: SynthesisArtifactEntry;
-  prepare_handoff?: SynthesisArtifactEntry;
-  core_handoff?: SynthesisArtifactEntry;
+  resolver_manifest?: SynthesisArtifactEntry | null;
+  prepare_handoff?: SynthesisArtifactEntry | null;
+  core_handoff?: SynthesisArtifactEntry | null;
+};
+
+export type SynthesisSourceArtifactRecord = {
+  paper_ref: string;
+  artifact_type: string;
+  payload_type: string;
+  status: "available" | "missing" | "invalid";
+  path?: string;
+  hash?: string;
 };
 
 export type SynthesisTopicArtifact = {
+  schema_id?: "synthesis.topic_synthesis_artifact";
+  schema_version?: string;
+  language?: string;
   topic?: SynthesisTopicDefinition;
   summary?: SynthesisTextSummary;
   taxonomy?: SynthesisTaxonomy;
-  improvement_dimensions?: SynthesisImprovementDimensions;
+  comparison_matrix?: SynthesisComparisonMatrix;
+  improvement_dimensions?:
+    | SynthesisImprovementDimensions
+    | SynthesisImprovementDimension[];
   claims?: SynthesisClaim[];
   timeline_events?: SynthesisTimeline;
   source_papers?: SynthesisResolvedPaper[];
@@ -356,8 +398,10 @@ export type SynthesisTopicArtifact = {
   synthesis_report?: SynthesisReport;
   future_directions?: SynthesisFutureDirection[];
   review_outline?: SynthesisReviewOutline;
-  source_artifacts?: SynthesisSourceArtifacts;
-  diagnostics?: string[];
+  source_artifacts?: SynthesisSourceArtifacts | SynthesisSourceArtifactRecord[];
+  diagnostics?:
+    | string[]
+    | { warnings: string[]; quality_flags?: string[]; limitations?: string[] };
 };
 
 export type SynthesisTopicManifest = {
@@ -368,6 +412,9 @@ export type SynthesisTopicManifest = {
   language?: string;
   sections?: Record<string, SynthesisArtifactEntry>;
   sidecars?: Record<string, SynthesisArtifactEntry>;
+  artifact_hash?: string;
+  metadata_hash?: string;
+  section_hashes?: Record<string, string>;
 };
 
 export type SynthesisTopicRelationProposal = {
@@ -401,9 +448,17 @@ export type SynthesisTopicDigestContext = {
   external_literature_count: number;
 };
 
+export type SynthesisComparisonMatrixRow = {
+  id?: string;
+  title?: string;
+  source_paper_refs?: string[];
+  values?: Record<string, string>;
+};
+
 export type SynthesisComparisonMatrix = {
   columns?: string[];
-  rows?: Array<Record<string, string>>;
+  dimensions?: string[];
+  rows?: SynthesisComparisonMatrixRow[];
 };
 
 export type SynthesisTopicSemanticContext = {
@@ -549,6 +604,20 @@ export type SynthesisTopicResolverDiagnostics = {
   warnings: string[];
 };
 
+export type SynthesisTopicArtifactDependencies = {
+  papers: string[];
+  artifacts: string[];
+};
+
+export type SynthesisTopicArtifactMetadata = {
+  topic_id?: string;
+  runtime?: string;
+  markdown_path?: string;
+  analysis_source_path?: string;
+  update_reason?: string;
+  depends_on?: SynthesisTopicArtifactDependencies;
+};
+
 export type SynthesisTopicResultBundle = {
   kind: "topic_synthesis";
   operation: "create" | "update_full" | "update_patch";
@@ -564,7 +633,7 @@ export type SynthesisTopicResultBundle = {
   resolver_manifest_path?: string;
   artifact_manifest_path?: string;
   resolver_diagnostics?: SynthesisTopicResolverDiagnostics;
-  artifact_metadata?: Record<string, string>;
+  artifact_metadata?: SynthesisTopicArtifactMetadata;
   analysis_manifest_path?: string;
   topic_interest_metadata_path?: string;
   concept_cards_proposal_path?: string;

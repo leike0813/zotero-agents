@@ -1,4 +1,4 @@
-import type { SynthesisDeliveryContext, SynthesisJsonObject } from "./common";
+import type { SynthesisDeliveryContext } from "./common";
 import type {
   SynthesisCitationAnalysisArtifact,
   SynthesisDigestArtifact,
@@ -10,8 +10,13 @@ import type {
   SynthesisTopicResultBundle,
   SynthesisWorkflowSource,
 } from "./topicDomain";
+import type {
+  LiteratureQualitySnapshot,
+  SynthesisPaperArtifactType,
+} from "./literatureArtifacts.js";
 import type { SynthesisTopicApplicationApplyResult } from "./topicApplication";
 import {
+  rebuildSynthesisProtocolCapabilityDto,
   rebuildSynthesisProtocolDto,
   SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
 } from "./protocolSchema";
@@ -171,14 +176,81 @@ export type SynthesisPaperArtifactsRequest = {
   artifact_types?: string[];
 };
 
-export type SynthesisPaperArtifactsResult = SynthesisJsonObject & {
-  artifacts: SynthesisJsonObject[];
+export type SynthesisPaperArtifactRow = {
+  paper_ref: string;
+  artifact_type: SynthesisPaperArtifactType;
+  payload_type: string;
+  status: "available" | "missing" | "invalid" | "unavailable";
+  payload_hash?: string;
+  payload?: import("./common.js").SynthesisOpaqueCanonicalJson;
+  markdown?: string;
+  decoded_text?: string;
+  literature_quality?: LiteratureQualitySnapshot;
+  payload_types_seen: string[];
   diagnostics: string[];
-  total: number;
 };
 
-export type SynthesisArtifactQueryRequest = SynthesisJsonObject;
-export type SynthesisArtifactQueryResult = SynthesisJsonObject;
+export type SynthesisPaperArtifactsResult = {
+  artifacts: SynthesisPaperArtifactRow[];
+  diagnostics: string[];
+  total?: number;
+};
+
+export type SynthesisArtifactQueryRequest = {
+  paper_refs?: string[];
+  artifact_types?: SynthesisPaperArtifactType[];
+  run_root?: string;
+};
+
+export type SynthesisArtifactDeliveryDescriptor = {
+  fileId: string;
+  sourceKind: "bridge-export";
+  displayName: string;
+  contentType: "application/zip";
+  size: number;
+  sha256: string;
+  createdAt: string;
+  expiresAt: string;
+  owner: {
+    capability: "topics.get_context" | "paper_artifacts.export_filtered";
+  };
+};
+
+export type SynthesisArtifactQueryResult = SynthesisPaperArtifactsResult;
+
+export type SynthesisArtifactExportResult = {
+  paper_refs: string[];
+  paper_ref?: string;
+  manifest_file: string;
+  artifact_statuses: Array<{
+    paper_ref: string;
+    artifact_type: string;
+    payload_type: string;
+    status: string;
+    missing_reason: string;
+  }>;
+  diagnostics: string[];
+  delivery?: SynthesisArtifactDeliveryDescriptor;
+};
+
+type SynthesisArtifactCapabilityResultMap = {
+  "client.getPaperArtifactManifest": SynthesisArtifactQueryResult;
+  "client.readPaperArtifacts": SynthesisPaperArtifactsResult;
+  "client.exportFilteredPaperArtifacts": SynthesisArtifactExportResult;
+};
+
+export function rebuildSynthesisArtifactCapabilityResult<
+  Capability extends keyof SynthesisArtifactCapabilityResultMap,
+>(
+  capability: Capability,
+  value: unknown,
+): SynthesisArtifactCapabilityResultMap[Capability] {
+  return rebuildSynthesisProtocolCapabilityDto({
+    capability,
+    direction: "result",
+    value,
+  });
+}
 
 export interface SynthesisArtifactsClient {
   getManifest(
@@ -190,7 +262,7 @@ export interface SynthesisArtifactsClient {
   exportFiltered(
     request: SynthesisArtifactQueryRequest,
     delivery?: SynthesisDeliveryContext,
-  ): Promise<SynthesisArtifactQueryResult>;
+  ): Promise<SynthesisArtifactExportResult>;
   resolveTopicPaperDigest(
     request: SynthesisWorkbenchPaperDigestReadRequest,
   ): Promise<SynthesisWorkbenchPaperDigestResult>;

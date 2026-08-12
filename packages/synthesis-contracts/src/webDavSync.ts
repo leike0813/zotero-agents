@@ -8,7 +8,11 @@ import type {
   SynthesisDurableImportPreview,
 } from "./durableBundleImport.js";
 import { toSynthesisJsonValue } from "./common.js";
-import type { SynthesisHostWebDavSyncPort } from "./webDavSyncPort.js";
+import {
+  rebuildSynthesisHostWebDavSyncConnectionTest,
+  type SynthesisHostWebDavSyncConnectionTest,
+  type SynthesisHostWebDavSyncPort,
+} from "./webDavSyncPort.js";
 
 export const SYNTHESIS_WEBDAV_SYNC_HEAD_SCHEMA_ID =
   "synthesis.webdav_sync_head" as const;
@@ -58,7 +62,19 @@ export type SynthesisWebDavSyncDiagnostic = {
   code: string;
   severity: "info" | "warning" | "error";
   message: string;
-  details?: unknown;
+  details?: {
+    operationId?: string;
+    phase?: string;
+    path?: string;
+    expected?: string;
+    actual?: string;
+    action?: string;
+    retryable?: boolean;
+    entity_kind?: string;
+    entity_id?: string;
+    previous_updated_at?: string;
+    last_phase?: string;
+  };
 };
 
 export type SynthesisWebDavSyncConflictReport = {
@@ -87,7 +103,7 @@ export type SynthesisWebDavSyncState = {
   remote_path: string;
   username?: string;
   credential_updated_at?: string;
-  connection_test?: unknown;
+  connection_test?: SynthesisHostWebDavSyncConnectionTest;
   retry_attempt?: number;
   next_retry_at?: string;
   last_run?: {
@@ -340,6 +356,10 @@ export function rebuildSynthesisWebDavSyncDiagnostic(
   ) {
     throw new Error("webdav_sync_diagnostic_severity_invalid");
   }
+  const details =
+    json.details === undefined
+      ? undefined
+      : rebuildSynthesisWebDavSyncDiagnosticDetails(json.details);
   return {
     code: boundedString(json.code, "webdav_sync_diagnostic_code_invalid"),
     severity: json.severity,
@@ -347,14 +367,54 @@ export function rebuildSynthesisWebDavSyncDiagnostic(
       json.message,
       "webdav_sync_diagnostic_message_invalid",
     ),
-    ...(json.details === undefined
+    ...(details === undefined ? {} : { details }),
+  };
+}
+
+function rebuildSynthesisWebDavSyncDiagnosticDetails(
+  value: unknown,
+): NonNullable<SynthesisWebDavSyncDiagnostic["details"]> {
+  const json = record(value, "webdav_sync_diagnostic_details_invalid");
+  const stringFields = [
+    "operationId",
+    "phase",
+    "path",
+    "expected",
+    "actual",
+    "action",
+    "entity_kind",
+    "entity_id",
+    "previous_updated_at",
+    "last_phase",
+  ] as const;
+  exact(
+    json,
+    [...stringFields, "retryable"],
+    [],
+    "webdav_sync_diagnostic_details_fields_invalid",
+  );
+  if (json.retryable !== undefined && typeof json.retryable !== "boolean") {
+    throw new Error("webdav_sync_diagnostic_details_retryable_invalid");
+  }
+  return {
+    ...Object.fromEntries(
+      stringFields.flatMap((field) =>
+        json[field] === undefined
+          ? []
+          : [
+              [
+                field,
+                boundedString(
+                  json[field],
+                  `webdav_sync_diagnostic_details_${field}_invalid`,
+                ),
+              ],
+            ],
+      ),
+    ),
+    ...(json.retryable === undefined
       ? {}
-      : {
-          details: boundedJson(
-            json.details,
-            "webdav_sync_diagnostic_details_invalid",
-          ),
-        }),
+      : { retryable: json.retryable as boolean }),
   };
 }
 
@@ -613,7 +673,7 @@ export function rebuildSynthesisWebDavSyncState(
   boundedOptionalString(json.last_phase, "webdav_sync_last_phase_invalid");
   utcIso8601(json.updated_at, "webdav_sync_updated_at_invalid");
   if (json.connection_test !== undefined) {
-    boundedJson(json.connection_test, "webdav_sync_connection_test_invalid");
+    rebuildSynthesisHostWebDavSyncConnectionTest(json.connection_test);
   }
   if (json.conflict_report !== undefined) {
     rebuildSynthesisWebDavSyncConflictReport(json.conflict_report);

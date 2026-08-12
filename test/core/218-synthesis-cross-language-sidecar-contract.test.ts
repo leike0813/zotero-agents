@@ -40,15 +40,15 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.isTrue(result.ok);
     assert.equal(
       result.contractSetVersion,
-      "synthesis-cross-language-sidecar-contract.v1",
+      "synthesis-sidecar-protocol-registry.v1",
     );
-    assert.equal(result.schemaCount, 6);
-    assert.equal(result.definitionCount, 115);
-    assert.equal(result.positiveCaseCount, 14);
-    assert.equal(result.negativeCaseCount, 15);
+    assert.equal(result.schemaCount, 18);
+    assert.equal(result.definitionCount, 799);
+    assert.equal(result.positiveCaseCount, 39);
+    assert.equal(result.negativeCaseCount, 39);
     assert.equal(
       result.fingerprint,
-      "sha256:459564d83cbbbd1276b30979a1bb1c57e6442fa1e50ad61c0842064aaa05d160",
+      "sha256:2aca59a9a8c196c69a8b0d8e8be19c5a907dbbb55f6e77dd58291673c378a1ec",
     );
   });
 

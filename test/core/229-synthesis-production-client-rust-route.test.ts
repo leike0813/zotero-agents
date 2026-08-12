@@ -252,7 +252,14 @@ function topicApplyRequest(topicId: string) {
         definition: "A durable production-route Topic",
       },
       artifact_manifest_path: "asset/artifact-manifest",
-      artifact_metadata: {},
+      artifact_metadata: {
+        runtime: "split-skill",
+        topic_id: topicId,
+        depends_on: {
+          papers: [sourcePaperRef],
+          artifacts: ["digest-markdown"],
+        },
+      },
       markdown: "",
     },
     assets: [
@@ -804,6 +811,75 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.notProperty(optedOut, "representative_image");
       assert.equal(imageCalls.length, beforeOptOut);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("returns the fixed-baseline recursive workflow review input through the real route", async function () {
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "workflow-review-input",
+      hostFixture: {
+        handle({ capability, payload }) {
+          if (capability === "webdav.describe") {
+            return { configured: false };
+          }
+          if (capability === "library.items.list_page") {
+            const cursor = String(payload.cursor || "");
+            const limit = Number(payload.limit || 100);
+            return {
+              items: [
+                {
+                  paperRef: "1:PRODUCTION",
+                  libraryId: 1,
+                  itemKey: "PRODUCTION",
+                  itemType: "journalArticle",
+                  title: "Production Topic Source",
+                  year: "2026",
+                  metadataHash: "sha256:production-topic-source",
+                },
+              ],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 1,
+              limit,
+              snapshotRevision: "workflow-review-input",
+            };
+          }
+          return {};
+        },
+      },
+    });
+    try {
+      const topicId = "topic-workflow-review-input";
+      const applied =
+        await harness.client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest(topicId),
+        );
+      assert.equal(applied.status, "persisted");
+
+      const review = await harness.client.workflowReview.getInput({ topicId });
+      assert.equal(review.kind, "synthesis.review_workflow_input");
+      assert.deepEqual(review.topic.metadata.depends_on, {
+        papers: ["1:PRODUCTION"],
+        artifacts: ["digest-markdown"],
+      });
+      assert.equal(
+        review.topic_timeline.content.events[0].id,
+        "event:lifecycle",
+      );
+      assert.deepEqual(review.resolved_paper_set.snapshot.papers, [
+        { paper_ref: "1:PRODUCTION", match_reasons: [] },
+      ]);
+      assert.equal(
+        review.structured_topic?.metadata?.structured_hash,
+        review.structured_topic?.metadata?.artifact_hash,
+      );
+      assert.equal(
+        review.structured_topic?.metadata?.external_literature_count,
+        0,
+      );
     } finally {
       await harness.stop();
     }

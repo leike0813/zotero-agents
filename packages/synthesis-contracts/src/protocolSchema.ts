@@ -7,6 +7,7 @@ import conceptTopicGraphSchema from "../contract-set/synthesis-sidecar-protocol-
 import referenceCanonicalSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/client-reference-canonical.schema.json" with { type: "json" };
 import tagSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/client-tag.schema.json" with { type: "json" };
 import topicWorkbenchSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/client-topic-workbench.schema.json" with { type: "json" };
+import workflowReviewSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/client-workflow-review.schema.json" with { type: "json" };
 import webDavMaintenanceSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/client-webdav-maintenance.schema.json" with { type: "json" };
 import commonSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/common.schema.json" with { type: "json" };
 import computeSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/compute.schema.json" with { type: "json" };
@@ -15,6 +16,9 @@ import systemSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/
 import topicDomainSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/topic-domain.schema.json" with { type: "json" };
 import transferSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/transfer.schema.json" with { type: "json" };
 import workerSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/worker.schema.json" with { type: "json" };
+import lifecycleSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/lifecycle.schema.json" with { type: "json" };
+import runtimeBundleSchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/runtime-bundle.schema.json" with { type: "json" };
+import observabilitySchema from "../contract-set/synthesis-sidecar-protocol-v1/schemas/observability.schema.json" with { type: "json" };
 import {
   SynthesisClientError,
   toSynthesisJsonValue,
@@ -32,10 +36,14 @@ const schemas = [
   referenceCanonicalSchema,
   tagSchema,
   topicWorkbenchSchema,
+  workflowReviewSchema,
   computeSchema,
   reverseHostSchema,
   systemSchema,
   transferSchema,
+  lifecycleSchema,
+  runtimeBundleSchema,
+  observabilitySchema,
 ] as const;
 
 const schemaIds = new Map(
@@ -50,6 +58,9 @@ const schemaIdsByRegistryPath = new Map(
 );
 const capabilityContracts = new Map(
   registry.capabilities.map((contract) => [contract.capability, contract]),
+);
+const workerContracts = new Map(
+  registry.workers.map((contract) => [contract.operation, contract]),
 );
 type ProtocolAjv = {
   addSchema(schema: unknown): void;
@@ -176,6 +187,65 @@ export function rebuildSynthesisProtocolCapabilityDto<T>(args: {
       `Synthesis protocol capability ${args.direction} is invalid`,
       {
         capability: args.capability,
+        location,
+        violations: (validate.errors ?? []).slice(0, 16).map((error) => ({
+          keyword: error.keyword,
+          instancePath: error.instancePath,
+        })),
+      },
+    );
+  }
+  return value as T;
+}
+
+export function rebuildSynthesisProtocolWorkerDto<T>(args: {
+  operation: string;
+  part: "runHeader" | "inputSection" | "outputHeader" | "outputSection";
+  value: unknown;
+}): T {
+  const contract = workerContracts.get(args.operation);
+  if (!contract) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Worker operation is unavailable",
+      {
+        operation: args.operation,
+      },
+    );
+  }
+  const reference = {
+    runHeader: contract.runHeaderSchemaRef,
+    inputSection: contract.inputSectionSchemaRef,
+    outputHeader: contract.outputHeaderSchemaRef,
+    outputSection: contract.outputSectionSchemaRef,
+  }[args.part];
+  const location = registryLocation(reference);
+  const value: SynthesisJsonValue = toSynthesisJsonValue(
+    args.value,
+    `$.worker.${args.operation}.${args.part}`,
+  );
+  let validate = validators.get(location);
+  if (!validate) {
+    validate = protocolAjv().getSchema(location);
+    if (!validate) {
+      throw new SynthesisClientError(
+        "internal",
+        "Worker protocol definition is unavailable",
+        {
+          operation: args.operation,
+          location,
+        },
+      );
+    }
+    validators.set(location, validate);
+  }
+  if (!validate(value)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Worker protocol DTO is invalid",
+      {
+        operation: args.operation,
+        part: args.part,
         location,
         violations: (validate.errors ?? []).slice(0, 16).map((error) => ({
           keyword: error.keyword,

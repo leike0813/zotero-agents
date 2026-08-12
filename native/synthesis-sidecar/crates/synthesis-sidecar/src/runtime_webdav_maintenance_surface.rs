@@ -1,4 +1,5 @@
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_repository::OperationRecord;
 use synthesis_sidecar::production_capabilities::ProductionClientSemanticSuccess;
@@ -64,8 +65,8 @@ register_production_client_handlers!(
         "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         reconcile_startup
     ),
-    ("client.resetSynthesisDatabase", reset),
-    ("client.debugSynthesisCleanInstallReset", reset),
+    ("client.resetSynthesisDatabase", reset_database),
+    ("client.debugSynthesisCleanInstallReset", debug_reset),
 );
 
 pub(crate) fn dispatch(
@@ -97,23 +98,21 @@ fn control_public_maintenance(
     apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
-    match control_operation(apps, args, &synthesis_protocol::utc_now_iso8601()) {
+    let request: MaintenanceControlWireRequest = one_request(args)?;
+    request.validate()?;
+    let operation_id = request.operation_id.clone();
+    let canonical_args = vec![wire(request)?];
+    match control_operation(
+        apps,
+        &canonical_args,
+        &synthesis_protocol::utc_now_iso8601(),
+    ) {
         Ok(row) => public_maintenance_operation_dto(&row),
-        Err(code) if code == "not_found" => {
-            let request = one_object(args)?;
-            let operation_id = request
-                .get("operation_id")
-                .or_else(|| request.get("operationId"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| "maintenance_operation_id_required".to_owned())?;
-            Ok(json!({
-                "schema":"synthesis.maintenance_operation.v1",
-                "operation_id":operation_id,
-                "status":"not_found",
-            }))
-        }
+        Err(code) if code == "not_found" => Ok(json!({
+            "schema":"synthesis.maintenance_operation.v1",
+            "operation_id":operation_id,
+            "status":"not_found",
+        })),
         Err(code) => Err(code),
     }
 }
@@ -130,49 +129,29 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     }
 }
 
-fn one_object(args: &[Value]) -> Result<Map<String, Value>, String> {
+fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
-    value
-        .as_object()
-        .cloned()
-        .ok_or_else(|| "invalid_request".to_owned())
+    serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
 }
 
 fn resolve_conflict(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    if request.keys().any(|key| key != "action") {
-        return Err("invalid_request".into());
-    }
-    let action = request
-        .get("action")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| matches!(*value, "keep_local" | "clear_after_manual_edit"))
-        .ok_or_else(|| "invalid_request".to_owned())?;
+    let request: ResolveConflictWireRequest = one_request(args)?;
+    let action = match request.action {
+        ResolveConflictWireAction::KeepLocal => "keep_local",
+        ResolveConflictWireAction::ClearAfterManualEdit => "clear_after_manual_edit",
+    };
     apps.canonical_autosync.cancel_pending();
     wire(apps.webdav.resolve_webdav_sync_conflict(action)?)
 }
 
 fn public_maintenance(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    if request
-        .keys()
-        .any(|key| key != "operation_id" && key != "operationId")
-    {
-        return Err("invalid_request".into());
-    }
-    let operation_id = request
-        .get("operation_id")
-        .or_else(|| request.get("operationId"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "maintenance_operation_id_required".to_owned())?;
+    let request: MaintenanceReadWireRequest = one_request(args)?;
+    let operation_id = request.validated_operation_id()?;
     let row = apps
         .repository
-        .with_reader(|repository| repository.get_operation(operation_id))?;
+        .with_reader(|repository| repository.get_operation(&operation_id))?;
     match row.filter(|row| row.basis_kind == "public_maintenance_operation") {
         Some(row) => public_maintenance_operation_dto(&row),
         None => Ok(json!({
@@ -194,7 +173,7 @@ pub(crate) fn begin_public_maintenance_operation(
 ) -> Result<(OperationRecord, bool), String> {
     let request = args.first().and_then(Value::as_object);
     let paper_refs = request
-        .and_then(|value| value.get("paper_refs").or_else(|| value.get("paperRefs")))
+        .and_then(|value| value.get("paper_refs"))
         .and_then(Value::as_array)
         .map(|values| {
             values
@@ -541,15 +520,106 @@ fn reconcile_startup(apps: &ProductionApplications, args: &[Value]) -> Result<Va
     Ok(json!({ "status": "ready", "webdav": webdav, "maintenance": maintenance }))
 }
 
-fn reset(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    // The production client admission gate runs before this adapter. Keeping
-    // the request opaque here preserves the existing public reset DTO while
-    // routing both reset entrypoints through the same typed maintenance port.
+fn reset_database(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let request: ResetDatabaseWireRequest = one_request(args)?;
+    if request.confirmation_text.trim().is_empty() {
+        return Err("invalid_request".into());
+    }
     wire(
         apps.debug
-            .run_maintenance(DebugMaintenanceKind::Reset, &Value::Object(request))?,
+            .run_maintenance(DebugMaintenanceKind::Reset, &wire(request)?)?,
     )
+}
+
+fn debug_reset(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let request: DebugResetWireRequest = one_request(args)?;
+    if request
+        .confirmation_text
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("invalid_request".into());
+    }
+    wire(
+        apps.debug
+            .run_maintenance(DebugMaintenanceKind::Reset, &wire(request)?)?,
+    )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ResolveConflictWireAction {
+    KeepLocal,
+    ClearAfterManualEdit,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveConflictWireRequest {
+    action: ResolveConflictWireAction,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaintenanceReadWireRequest {
+    operation_id: String,
+}
+
+impl MaintenanceReadWireRequest {
+    fn validated_operation_id(self) -> Result<String, String> {
+        let operation_id = self.operation_id.trim();
+        if operation_id.is_empty() || operation_id.chars().any(char::is_control) {
+            return Err("maintenance_operation_id_required".into());
+        }
+        Ok(operation_id.to_owned())
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum MaintenanceControlWireAction {
+    Cancel,
+    Continue,
+    Retry,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MaintenanceControlWireRequest {
+    action: MaintenanceControlWireAction,
+    operation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_key: Option<String>,
+}
+
+impl MaintenanceControlWireRequest {
+    fn validate(&self) -> Result<(), String> {
+        if self.operation_id.trim().is_empty()
+            || self.operation_id.chars().any(char::is_control)
+            || (self.action == MaintenanceControlWireAction::Retry) != self.retry_key.is_some()
+            || self.retry_key.as_deref().is_some_and(|value| {
+                !(1..=128).contains(&value.len()) || value.chars().any(char::is_control)
+            })
+        {
+            return Err("invalid_request".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ResetDatabaseWireRequest {
+    confirmation_text: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DebugResetWireRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmation_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dry_run: Option<bool>,
 }
 
 #[cfg(test)]
@@ -568,7 +638,10 @@ mod tests {
 
     #[test]
     fn validates_public_webdav_requests_before_effects() {
-        assert_eq!(one_object(&[]), Err("invalid_request".into()));
+        assert_eq!(
+            one_request::<MaintenanceReadWireRequest>(&[]).unwrap_err(),
+            "invalid_request"
+        );
     }
 
     #[test]

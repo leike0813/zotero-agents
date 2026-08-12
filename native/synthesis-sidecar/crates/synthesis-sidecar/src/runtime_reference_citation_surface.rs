@@ -1,5 +1,7 @@
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 
 use crate::runtime_production_ports::ProductionApplications;
@@ -8,7 +10,8 @@ use crate::runtime_public_maintenance_operation::{
 };
 use crate::runtime_reference_canonical::{
     CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
-    CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest,
+    CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest, ExternalReferenceRankRequest,
+    ReferenceAttentionRequest, ReferenceIndexRequest,
 };
 
 #[derive(serde::Deserialize)]
@@ -35,6 +38,42 @@ fn optional_one<T: DeserializeOwned + Default>(args: &[Value]) -> Result<T, Stri
     }
 }
 
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyRequest {}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ReferenceReviewActionWire {
+    Accept,
+    ReverseAccept,
+    Reject,
+    Reopen,
+    Delete,
+    ManualTarget,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ReferenceReviewTargetWire {
+    ZoteroItem { library_id: i64, item_key: String },
+    CanonicalReference { canonical_reference_id: String },
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReferenceReviewDecisionWire {
+    proposal_id: String,
+    action: ReferenceReviewActionWire,
+    target: Option<ReferenceReviewTargetWire>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReferenceReviewDecisionBatchWire {
+    decisions: Vec<ReferenceReviewDecisionWire>,
+}
+
 fn no_args(args: &[Value]) -> Result<(), String> {
     if args.is_empty() {
         Ok(())
@@ -50,106 +89,61 @@ fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
     checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
 }
 
-fn reference_review_decisions(args: &[Value]) -> Result<Vec<ReferenceReviewDecision>, String> {
-    let decisions = match args {
-        [Value::Array(decisions)] => decisions.clone(),
-        [Value::Object(request)] if request.contains_key("decisions") => request
-            .get("decisions")
-            .and_then(Value::as_array)
-            .cloned()
-            .ok_or_else(|| "invalid_request".to_owned())?,
-        [decision @ Value::Object(_)] => vec![decision.clone()],
-        _ => return Err("invalid_request".into()),
-    };
-    if decisions.is_empty() || decisions.len() > 100 {
+fn reference_review_decision(
+    decision: ReferenceReviewDecisionWire,
+) -> Result<ReferenceReviewDecision, String> {
+    if decision.proposal_id.trim().is_empty() {
         return Err("invalid_request".into());
     }
-    decisions
+    let mut result = ReferenceReviewDecision {
+        proposal_id: decision.proposal_id.trim().to_owned(),
+        action: match decision.action {
+            ReferenceReviewActionWire::Accept => ReferenceReviewAction::Accept,
+            ReferenceReviewActionWire::ReverseAccept => ReferenceReviewAction::Reverse,
+            ReferenceReviewActionWire::Reject => ReferenceReviewAction::Reject,
+            ReferenceReviewActionWire::Reopen => ReferenceReviewAction::Reopen,
+            ReferenceReviewActionWire::Delete => ReferenceReviewAction::Delete,
+            ReferenceReviewActionWire::ManualTarget => ReferenceReviewAction::Retarget,
+        },
+        target_canonical_reference_id: String::new(),
+        target_library_id: 0,
+        target_item_key: String::new(),
+    };
+    match (result.action, decision.target) {
+        (
+            ReferenceReviewAction::Retarget,
+            Some(ReferenceReviewTargetWire::ZoteroItem {
+                library_id,
+                item_key,
+            }),
+        ) if library_id > 0 && !item_key.trim().is_empty() => {
+            result.target_library_id = library_id;
+            result.target_item_key = item_key.trim().to_owned();
+        }
+        (
+            ReferenceReviewAction::Retarget,
+            Some(ReferenceReviewTargetWire::CanonicalReference {
+                canonical_reference_id,
+            }),
+        ) if !canonical_reference_id.trim().is_empty() => {
+            result.target_canonical_reference_id = canonical_reference_id.trim().to_owned();
+        }
+        (ReferenceReviewAction::Retarget, _) | (_, Some(_)) => return Err("invalid_request".into()),
+        (_, None) => {}
+    }
+    Ok(result)
+}
+
+fn reference_review_decisions(
+    request: ReferenceReviewDecisionBatchWire,
+) -> Result<Vec<ReferenceReviewDecision>, String> {
+    if request.decisions.is_empty() || request.decisions.len() > 100 {
+        return Err("invalid_request".into());
+    }
+    request
+        .decisions
         .into_iter()
-        .map(|decision| {
-            let object = decision
-                .as_object()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            if object
-                .keys()
-                .any(|key| !matches!(key.as_str(), "proposalId" | "action" | "target"))
-            {
-                return Err("invalid_request".into());
-            }
-            let proposal_id = object
-                .get("proposalId")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| "invalid_request".to_owned())?
-                .trim()
-                .to_owned();
-            let action = object
-                .get("action")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            let mut result = ReferenceReviewDecision {
-                proposal_id,
-                action: match action {
-                    "accept" => ReferenceReviewAction::Accept,
-                    "reverse_accept" => ReferenceReviewAction::Reverse,
-                    "reject" => ReferenceReviewAction::Reject,
-                    "reopen" => ReferenceReviewAction::Reopen,
-                    "delete" => ReferenceReviewAction::Delete,
-                    "manual_target" => ReferenceReviewAction::Retarget,
-                    _ => return Err("invalid_request".into()),
-                },
-                target_canonical_reference_id: String::new(),
-                target_library_id: 0,
-                target_item_key: String::new(),
-            };
-            if action == "manual_target" {
-                let target = object
-                    .get("target")
-                    .and_then(Value::as_object)
-                    .ok_or_else(|| "invalid_request".to_owned())?;
-                match target.get("kind").and_then(Value::as_str) {
-                    Some("zotero_item") => {
-                        if target
-                            .keys()
-                            .any(|key| !matches!(key.as_str(), "kind" | "libraryId" | "itemKey"))
-                        {
-                            return Err("invalid_request".into());
-                        }
-                        result.target_library_id = target
-                            .get("libraryId")
-                            .and_then(Value::as_i64)
-                            .filter(|value| *value > 0)
-                            .ok_or_else(|| "invalid_request".to_owned())?;
-                        result.target_item_key = target
-                            .get("itemKey")
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.trim().is_empty())
-                            .ok_or_else(|| "invalid_request".to_owned())?
-                            .trim()
-                            .to_owned();
-                    }
-                    Some("canonical_reference") => {
-                        if target
-                            .keys()
-                            .any(|key| !matches!(key.as_str(), "kind" | "canonicalReferenceId"))
-                        {
-                            return Err("invalid_request".into());
-                        }
-                        result.target_canonical_reference_id = target
-                            .get("canonicalReferenceId")
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.trim().is_empty())
-                            .ok_or_else(|| "invalid_request".to_owned())?
-                            .trim()
-                            .to_owned();
-                    }
-                    _ => return Err("invalid_request".into()),
-                }
-            } else if object.contains_key("target") {
-                return Err("invalid_request".into());
-            }
-            Ok(result)
-        })
+        .map(reference_review_decision)
         .collect()
 }
 
@@ -179,29 +173,24 @@ register_production_client_handlers!(
     }),
     ("client.getReferenceSidecarIndex", |apps, args| {
         apps.reference_canonical
-            .sidecar_index(&optional_one::<Value>(args)?)
+            .sidecar_index(&optional_one::<ReferenceIndexRequest>(args)?)
     }),
     ("client.rankExternalReferences", |apps, args| {
         apps.reference_canonical
-            .rank_external_references(&optional_one::<Value>(args)?)
+            .rank_external_references(&optional_one::<ExternalReferenceRankRequest>(args)?)
     }),
     ("client.getAttentionQueue", |apps, args| {
         apps.reference_canonical
-            .attention_queue(&optional_one::<Value>(args)?)
+            .attention_queue(&optional_one::<ReferenceAttentionRequest>(args)?)
     }),
     ("client.getReviewInput", |apps, args| {
-        let request = optional_one::<Value>(args)?;
-        Ok(json!({
-            "reference":apps.reference_canonical.review_input(&request)?,
-            "concept":apps.concepts.load()?.reviews,
-            "topicGraph":apps.topic_graph.load()?.reviews,
-        }))
+        crate::runtime_topic_workbench_surface::dispatch_workflow_review_input(apps, args)
     }),
     ("client.startReferenceSidecarRefresh", |apps, args| {
-        let request = optional_one::<Value>(args)?;
+        optional_one::<EmptyRequest>(args)?;
         let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
-            .start_refresh_with_checkpoint(&request, &checkpoint)
+            .start_refresh_with_checkpoint(&checkpoint)
     }),
     ("client.refreshReferenceSidecarNow", |apps, args| {
         no_args(args)?;
@@ -232,12 +221,13 @@ register_production_client_handlers!(
             .apply_revision_review(one::<CanonicalRevisionReviewRequest>(args)?)
     }),
     ("client.applyReferenceMatchProposalAction", |apps, args| {
+        let decision = reference_review_decision(one::<ReferenceReviewDecisionWire>(args)?)?;
         apps.reference_canonical
-            .apply_proposal_actions(&reference_review_decisions(args)?)
+            .apply_proposal_actions(std::slice::from_ref(&decision))
     }),
     ("client.applyReferenceMatchProposalActions", |apps, args| {
-        apps.reference_canonical
-            .apply_proposal_actions(&reference_review_decisions(args)?)
+        let decisions = reference_review_decisions(one::<ReferenceReviewDecisionBatchWire>(args)?)?;
+        apps.reference_canonical.apply_proposal_actions(&decisions)
     }),
     ("client.mergeEffectiveCanonicalReference", |apps, args| {
         apps.reference_canonical
@@ -457,12 +447,6 @@ mod tests {
         assert_eq!(attention["ok"], true);
         assert!(attention["items"].is_array());
 
-        let review =
-            dispatch_owned(&apps, "client.getReviewInput", &[json!({})]).expect("review input");
-        assert!(review["reference"]["records"].is_array());
-        assert!(review["concept"].is_array());
-        assert!(review["topicGraph"].is_array());
-
         for capability in [
             "client.refreshReferenceSidecarNow",
             "client.retryReferenceSidecarRefresh",
@@ -538,6 +522,7 @@ mod tests {
             &[json!({
                 "sourceEffectiveCanonicalId":"canonical:source",
                 "targetEffectiveCanonicalId":"canonical:target",
+                "confirmRetargetGroup":false,
             })],
         )
         .expect("merge");

@@ -10,7 +10,7 @@ mod runtime_diagnostics;
 mod runtime_worker_pool;
 
 use runtime_worker_pool::{NativeComputePool, WorkerOperation};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -27,7 +27,7 @@ fn reuses_a_successful_child_and_fuses_three_crashes() {
 
     let admission = pool.admit(&stopping).expect("first admission");
     assert_eq!(
-        pool.run_direct(WorkerOperation::CitationGraphMetrics, request('0'))
+        pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('0'))
             .expect("first result")["graphHash"],
         request('0')["graphHash"]
     );
@@ -35,14 +35,14 @@ fn reuses_a_successful_child_and_fuses_three_crashes() {
     drop(admission);
 
     let admission = pool.admit(&stopping).expect("second admission");
-    pool.run_direct(WorkerOperation::CitationGraphMetrics, request('0'))
+    pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('0'))
         .expect("second result");
     assert_eq!(pool.child_id(), Some(child_id));
     drop(admission);
 
     let admission = pool.admit(&stopping).expect("invalid-result admission");
     assert_eq!(
-        pool.run_direct(WorkerOperation::CitationGraphMetrics, request('c'))
+        pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('c'))
             .expect_err("invalid worker result"),
         "worker_result_invalid"
     );
@@ -50,7 +50,7 @@ fn reuses_a_successful_child_and_fuses_three_crashes() {
     assert_eq!(pool.snapshot(false).expect("snapshot")["restartCount"], 1);
 
     let admission = pool.admit(&stopping).expect("replacement admission");
-    pool.run_direct(WorkerOperation::CitationGraphMetrics, request('0'))
+    pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('0'))
         .expect("replacement result");
     assert_ne!(pool.child_id(), Some(child_id));
     drop(admission);
@@ -58,7 +58,7 @@ fn reuses_a_successful_child_and_fuses_three_crashes() {
     for expected_failures in 1..=3 {
         let admission = pool.admit(&stopping).expect("fault admission");
         assert_eq!(
-            pool.run_direct(WorkerOperation::CitationGraphMetrics, request('b'))
+            pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('b'))
                 .expect_err("worker crash"),
             "worker_crashed"
         );
@@ -84,7 +84,7 @@ fn reports_a_stable_code_when_the_worker_panics() {
     let admission = pool.admit(&stopping).expect("panic admission");
 
     assert_eq!(
-        pool.run_direct(WorkerOperation::CitationGraphMetrics, request('d'))
+        pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('d'))
             .expect_err("worker panic"),
         "worker_panicked"
     );
@@ -99,7 +99,7 @@ fn reference_matcher_uses_the_real_paged_worker_protocol() {
     let stopping = AtomicBool::new(false);
     let admission = pool.admit(&stopping).expect("worker admission");
 
-    let binding = pool
+    let binding: Value = pool
         .run_direct(
             WorkerOperation::ReferenceBinding,
             json!({
@@ -133,7 +133,7 @@ fn reference_matcher_uses_the_real_paged_worker_protocol() {
         "1:TARGET"
     );
 
-    let dedupe = pool
+    let dedupe: Value = pool
         .run_direct(
             WorkerOperation::ReferenceCanonicalDedupe,
             json!({

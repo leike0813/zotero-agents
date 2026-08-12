@@ -39,6 +39,10 @@ HTTP, worker, and reverse-Host codecs may initially parse bytes to JSON, but cap
 
 Each protocol family is implemented and tested in waves, but the final change removes all aliases and defaults together. Output-transfer `rootSha256` changes atomically across producer, consumer, mocks, and fixtures.
 
+### Mainline source is the behavior baseline
+
+Behavioral decisions are fixed to `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`. Source, callers, and tests at that identity take precedence when executable comparison fixtures disagree. The Node oracle may expose a mismatch, but it is supporting evidence only: no DTO field, default, alias, side effect, or durable-state rule may be added or removed solely to make the oracle green.
+
 ## Risks / Trade-offs
 
 - **Hidden callers rely on defaults or aliases** → Capture current valid callers in positive corpora first; reject only behavior absent from the formal corpus and current grouped client.

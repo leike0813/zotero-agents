@@ -2,61 +2,798 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/client-reference-canonical.schema.json",
   "$defs": {
-    "NoArgs": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "maxItems": 0 } } },
-    "OptionalEmptyRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "maxItems": 1, "items": { "type": "object", "additionalProperties": false } } } },
+    "NoArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": { "args": { "type": "array", "maxItems": 0 } }
+    },
+    "OptionalEmptyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "type": "object", "additionalProperties": false }
+        }
+      }
+    },
     "String": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "OptionalString": { "type": "string", "maxLength": 4096 },
-    "Strings": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/String" } },
-    "StringMap": { "type": "object", "maxProperties": 32, "patternProperties": { "^[A-Za-z0-9._:-]{1,128}$": { "$ref": "#/$defs/String" } }, "additionalProperties": false },
-    "PageRequest": { "type": "object", "additionalProperties": false, "required": ["cursor", "limit"], "properties": { "cursor": { "type": "string", "maxLength": 128 }, "limit": { "type": "integer", "minimum": 1, "maximum": 100 } } },
-    "IndexRequest": { "type": "object", "additionalProperties": false, "properties": { "cursor": { "type": "string", "maxLength": 128 }, "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "includeReferences": { "type": "boolean" }, "sourceRefs": { "type": "array", "maxItems": 250, "items": { "$ref": "#/$defs/String" } } } },
-    "IndexDiagnostic": { "type": "object", "additionalProperties": false, "required": ["cache_found", "storage", "stale", "warnings", "recommended_commands", "repository_basis_hash", "canonical_basis_hash"], "properties": { "cache_found": { "type": "boolean" }, "storage": { "const": "sqlite" }, "stale": { "type": "boolean" }, "warnings": { "$ref": "#/$defs/Strings" }, "recommended_commands": { "$ref": "#/$defs/Strings" }, "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" } } },
-    "ReferenceRow": { "type": "object", "additionalProperties": false, "required": ["reference_instance_id", "reference_index", "title", "target_binding"], "properties": { "reference_instance_id": { "$ref": "#/$defs/String" }, "reference_index": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "title": { "type": "string", "maxLength": 16384 }, "year": { "type": "string", "maxLength": 128 }, "raw_reference": { "type": "string", "maxLength": 65536 }, "confidence": { "type": "string", "maxLength": 128 }, "target_literature_item_id": { "type": "string", "maxLength": 4096 }, "target_title": { "type": "string", "maxLength": 16384 }, "target_paper_ref": { "type": "string", "maxLength": 4096 }, "target_binding": { "enum": ["library", "external", "none"] }, "binding_status": { "enum": ["candidate", "accepted", "rejected", "stale_target", "unbound"] } } },
-    "ReferenceRefreshReceipt": { "type": "object", "additionalProperties": false, "required": ["actual_bytes", "actual_json_nodes", "affected_source_refs", "failed_paper_refs", "input_hash", "limit_bytes", "limit_json_nodes", "ok", "operation_id", "processed_paper_refs", "reference_basis_hash", "retry", "retryable", "status", "warnings"], "properties": { "actual_bytes": { "type": ["integer", "null"], "minimum": 0 }, "actual_json_nodes": { "type": ["integer", "null"], "minimum": 0 }, "affected_source_refs": { "$ref": "#/$defs/Strings" }, "failed_paper_refs": { "$ref": "#/$defs/Strings" }, "input_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "limit_bytes": { "type": ["integer", "null"], "minimum": 0 }, "limit_json_nodes": { "type": ["integer", "null"], "minimum": 0 }, "ok": { "type": "boolean" }, "operation_id": { "$ref": "#/$defs/String" }, "processed_paper_refs": { "$ref": "#/$defs/Strings" }, "reference_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "retry": { "type": "boolean" }, "retryable": { "type": "boolean" }, "status": { "enum": ["promoted", "unchanged", "failed", "invalid_request", "repair_required", "stopping"] }, "warnings": { "$ref": "#/$defs/Strings" } } },
-    "ReferenceMatchingReceipt": { "type": "object", "additionalProperties": false, "required": ["fact_count", "matching_hash", "ok", "operation_id", "proposal_created_count", "retryable", "status", "warnings"], "properties": { "fact_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "matching_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "ok": { "type": "boolean" }, "operation_id": { "$ref": "#/$defs/String" }, "proposal_created_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "retryable": { "type": "boolean" }, "status": { "enum": ["promoted", "unchanged", "failed", "invalid_request", "repair_required", "stopping"] }, "warnings": { "$ref": "#/$defs/Strings" } } },
-    "IndexRow": { "type": "object", "additionalProperties": false, "required": ["paper_ref", "library_id", "item_key", "title", "year", "metadata_hash", "updated_at", "artifactCoverage", "missing_artifacts", "reference_count", "unbound_reference_count"], "properties": { "paper_ref": { "$ref": "#/$defs/String" }, "library_id": { "type": "integer", "minimum": 1 }, "item_key": { "$ref": "#/$defs/String" }, "title": { "type": "string", "maxLength": 16384 }, "year": { "type": "string", "maxLength": 128 }, "metadata_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "updated_at": { "$ref": "#/$defs/OptionalString" }, "artifactCoverage": { "$ref": "#/$defs/String" }, "missing_artifacts": { "$ref": "#/$defs/Strings" }, "reference_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "unbound_reference_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "references": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/ReferenceRow" } } } },
-    "IndexResult": { "type": "object", "additionalProperties": false, "required": ["rows", "cursor", "next_cursor", "has_more", "returned", "total", "limit", "diagnostics"], "properties": { "rows": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/IndexRow" } }, "cursor": { "type": "string" }, "next_cursor": { "type": "string" }, "has_more": { "type": "boolean" }, "returned": { "type": "integer" }, "total": { "type": "integer" }, "limit": { "type": "integer" }, "diagnostics": { "$ref": "#/$defs/IndexDiagnostic" } } },
-    "RankRequest": { "type": "object", "additionalProperties": false, "properties": { "cursor": { "type": "string", "maxLength": 128 }, "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "sortBy": { "enum": ["external_degree", "shared_source_count", "year"] } } },
-    "RankRow": { "type": "object", "additionalProperties": false, "required": ["node_id", "title", "year", "authors", "external_degree", "shared_source_count", "source_paper_refs", "reason"], "properties": { "node_id": { "$ref": "#/$defs/String" }, "title": { "type": "string", "maxLength": 16384 }, "year": { "type": "string", "maxLength": 128 }, "authors": { "$ref": "#/$defs/Strings" }, "external_degree": { "type": "integer", "minimum": 0 }, "shared_source_count": { "type": "integer", "minimum": 0 }, "source_paper_refs": { "$ref": "#/$defs/Strings" }, "reason": { "$ref": "#/$defs/String" } } },
-    "RankDiagnostics": { "type": "object", "additionalProperties": false, "required": ["snapshot_found", "returned_count", "total_external_nodes", "limits", "warnings", "repository_basis_hash", "canonical_basis_hash"], "properties": { "snapshot_found": { "type": "boolean" }, "returned_count": { "type": "integer" }, "total_external_nodes": { "type": "integer" }, "limits": { "type": "object", "additionalProperties": false, "required": ["limit", "maxLimit"], "properties": { "limit": { "type": "integer" }, "maxLimit": { "const": 100 } } }, "warnings": { "$ref": "#/$defs/Strings" }, "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" } } },
-    "RankResult": { "type": "object", "additionalProperties": false, "required": ["ok", "graph_hash", "items", "cursor", "nextCursor", "hasMore", "returned", "total", "limit", "diagnostics"], "properties": { "ok": { "const": true }, "graph_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "items": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/RankRow" } }, "cursor": { "type": "string" }, "nextCursor": { "type": "string" }, "hasMore": { "type": "boolean" }, "returned": { "type": "integer" }, "total": { "type": "integer" }, "limit": { "type": "integer" }, "diagnostics": { "$ref": "#/$defs/RankDiagnostics" } } },
-    "AttentionItemDetails": { "type": "object", "additionalProperties": false, "required": ["kind", "source_canonical_reference_id", "target_canonical_reference_id"], "properties": { "kind": { "$ref": "#/$defs/String" }, "source_canonical_reference_id": { "$ref": "#/$defs/String" }, "target_canonical_reference_id": { "type": "string", "maxLength": 4096 } } },
-    "AttentionItem": { "type": "object", "additionalProperties": false, "required": ["severity", "target", "reason", "source_capability", "suggested_commands"], "properties": { "severity": { "enum": ["warning", "error"] }, "target": { "$ref": "#/$defs/String" }, "reason": { "$ref": "#/$defs/String" }, "source_capability": { "$ref": "#/$defs/String" }, "suggested_commands": { "$ref": "#/$defs/Strings" }, "details": { "$ref": "#/$defs/AttentionItemDetails" } } },
-    "AttentionDiagnostics": { "type": "object", "additionalProperties": false, "required": ["canonical_basis_hash", "limits", "repository_basis_hash", "returned_count", "warnings"], "properties": { "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "limits": { "type": "object", "additionalProperties": false, "required": ["limit", "maxLimit"], "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "maxLimit": { "const": 100 } } }, "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "returned_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "warnings": { "$ref": "#/$defs/Strings" } } },
-    "AttentionResult": { "type": "object", "additionalProperties": false, "required": ["ok", "truncated", "items", "diagnostics"], "properties": { "ok": { "const": true }, "truncated": { "type": "boolean" }, "items": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/AttentionItem" } }, "diagnostics": { "$ref": "#/$defs/AttentionDiagnostics" } } },
-    "DiagnosticDetails": { "type": "object", "additionalProperties": false, "properties": { "proposalId": { "$ref": "#/$defs/String" }, "reviewItemId": { "$ref": "#/$defs/String" }, "canonicalReferenceId": { "$ref": "#/$defs/String" }, "source": { "$ref": "#/$defs/String" }, "target": { "$ref": "#/$defs/String" }, "failed_count": { "type": "integer", "minimum": 0 }, "blockers": { "$ref": "#/$defs/Strings" } } },
-    "CommandDiagnostic": { "type": "object", "additionalProperties": false, "required": ["code", "severity"], "properties": { "code": { "$ref": "#/$defs/String" }, "severity": { "const": "error" }, "message": { "$ref": "#/$defs/String" }, "details": { "$ref": "#/$defs/DiagnosticDetails" } } },
-    "CommandResult": { "type": "object", "additionalProperties": false, "required": ["ok", "status"], "properties": { "ok": { "type": "boolean" }, "status": { "$ref": "#/$defs/String" }, "idempotent": { "type": "boolean" }, "proposal_id": { "$ref": "#/$defs/String" }, "review_item_id": { "$ref": "#/$defs/String" }, "action": { "$ref": "#/$defs/String" }, "canonical_reference_id": { "$ref": "#/$defs/String" }, "source_effective_canonical_id": { "$ref": "#/$defs/String" }, "target_effective_canonical_id": { "$ref": "#/$defs/String" }, "diagnostic": { "$ref": "#/$defs/CommandDiagnostic" }, "diagnostics": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CommandDiagnostic" } } } },
-    "BatchCommandResult": { "type": "object", "additionalProperties": false, "required": ["ok", "applied_count", "failed_count", "results"], "properties": { "ok": { "type": "boolean" }, "applied_count": { "type": "integer", "minimum": 0 }, "skipped_count": { "type": "integer", "minimum": 0 }, "failed_count": { "type": "integer", "minimum": 0 }, "results": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/CommandResult" } }, "diagnostic": { "$ref": "#/$defs/CommandDiagnostic" }, "diagnostics": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CommandDiagnostic" } } } },
-    "ManualTarget": { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "enum": ["zotero_item", "canonical_reference"] }, "libraryId": { "type": "integer", "minimum": 1 }, "itemKey": { "$ref": "#/$defs/String" }, "canonicalReferenceId": { "$ref": "#/$defs/String" } } },
-    "Decision": { "type": "object", "additionalProperties": false, "required": ["proposalId", "action"], "properties": { "proposalId": { "$ref": "#/$defs/String" }, "action": { "enum": ["accept", "reverse_accept", "reject", "reopen", "delete", "manual_target"] }, "target": { "$ref": "#/$defs/ManualTarget" } } },
-    "ReviewRecord": { "type": "object", "additionalProperties": false, "required": ["proposal_id", "kind", "status", "updated_at"], "properties": { "proposal_id": { "$ref": "#/$defs/String" }, "kind": { "$ref": "#/$defs/String" }, "status": { "$ref": "#/$defs/String" }, "source_canonical_reference_id": { "$ref": "#/$defs/String" }, "source_effective_canonical_reference_id": { "$ref": "#/$defs/String" }, "source_raw_reference_ids": { "$ref": "#/$defs/Strings" }, "target_canonical_reference_id": { "type": "string" }, "target_effective_canonical_reference_id": { "type": "string" }, "target_library_id": { "type": "integer", "minimum": 0 }, "target_item_key": { "type": "string" }, "confidence": { "type": "string" }, "score": { "type": "number" }, "reasons": { "$ref": "#/$defs/Strings" }, "updated_at": { "$ref": "#/$defs/String" } } },
-    "ReviewPage": { "type": "object", "additionalProperties": false, "required": ["records", "cursor", "next_cursor", "has_more", "returned", "limit", "repository_basis_hash", "canonical_basis_hash"], "properties": { "records": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/ReviewRecord" } }, "cursor": { "type": "string" }, "next_cursor": { "type": "string" }, "has_more": { "type": "boolean" }, "returned": { "type": "integer" }, "limit": { "type": "integer" }, "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" } } },
-    "ConceptReview": { "type": "object", "additionalProperties": false, "required": ["reviewId", "status", "reason", "topicId", "topicPathId", "label", "confidence", "candidateConceptIdsJson", "proposalJson", "targetConceptId", "createdAt", "updatedAt", "resolvedAt"], "properties": { "reviewId": { "$ref": "#/$defs/String" }, "status": { "$ref": "#/$defs/String" }, "reason": { "$ref": "#/$defs/String" }, "topicId": { "$ref": "#/$defs/String" }, "topicPathId": { "$ref": "#/$defs/String" }, "label": { "$ref": "#/$defs/String" }, "confidence": { "$ref": "#/$defs/String" }, "candidateConceptIdsJson": { "type": "string", "maxLength": 1048576 }, "proposalJson": { "type": "string", "maxLength": 8388608 }, "targetConceptId": { "type": "string", "maxLength": 4096 }, "createdAt": { "type": "string" }, "updatedAt": { "type": "string" }, "resolvedAt": { "type": "string" } } },
-    "TopicGraphReview": { "type": "object", "additionalProperties": false, "required": ["reviewId", "status", "sourceTopicId", "targetTopicId", "targetTitle", "relation", "confidence", "provenanceJson", "evidenceRefsJson", "createdAt", "updatedAt", "resolvedAt"], "properties": { "reviewId": { "$ref": "#/$defs/String" }, "status": { "$ref": "#/$defs/String" }, "sourceTopicId": { "$ref": "#/$defs/String" }, "targetTopicId": { "$ref": "#/$defs/String" }, "targetTitle": { "type": "string", "maxLength": 16384 }, "relation": { "$ref": "#/$defs/String" }, "confidence": { "anyOf": [{ "type": "number" }, { "type": "null" }] }, "provenanceJson": { "type": "string", "maxLength": 8388608 }, "evidenceRefsJson": { "type": "string", "maxLength": 8388608 }, "createdAt": { "type": "string" }, "updatedAt": { "type": "string" }, "resolvedAt": { "type": "string" } } },
-    "GetReferenceSidecarIndexRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/IndexRequest" } } } }, "GetReferenceSidecarIndexResult": { "$ref": "#/$defs/IndexResult" },
-    "RankExternalReferencesRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/RankRequest" } } } }, "RankExternalReferencesResult": { "$ref": "#/$defs/RankResult" },
-    "AttentionPayload": { "type": "object", "additionalProperties": false, "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 100 } } },
-    "GetAttentionQueueRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/AttentionPayload" } } } }, "GetAttentionQueueResult": { "$ref": "#/$defs/AttentionResult" },
-    "StartReferenceSidecarRefreshRequest": { "$ref": "#/$defs/OptionalEmptyRequest" }, "StartReferenceSidecarRefreshResult": { "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation" },
-    "GetReviewInputRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/PageRequest" } } } }, "GetReviewInputResult": { "type": "object", "additionalProperties": false, "required": ["reference", "concept", "topicGraph"], "properties": { "reference": { "$ref": "#/$defs/ReviewPage" }, "concept": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/ConceptReview" } }, "topicGraph": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/TopicGraphReview" } } } },
-    "RefreshReferenceSidecarNowRequest": { "$ref": "#/$defs/NoArgs" }, "RefreshReferenceSidecarNowResult": { "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation" },
-    "RetryReferenceSidecarRefreshRequest": { "$ref": "#/$defs/NoArgs" }, "RetryReferenceSidecarRefreshResult": { "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation" },
-    "RunAdvancedReferenceMatchingNowRequest": { "$ref": "#/$defs/NoArgs" }, "RunAdvancedReferenceMatchingNowResult": { "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation" },
-    "RetryAdvancedReferenceMatchingRequest": { "$ref": "#/$defs/NoArgs" }, "RetryAdvancedReferenceMatchingResult": { "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation" },
-    "RevisionReviewPayload": { "type": "object", "additionalProperties": false, "required": ["reviewItemId", "action"], "properties": { "reviewItemId": { "$ref": "#/$defs/String" }, "action": { "enum": ["accept", "reject"] } } },
-    "ApplyCanonicalRevisionReviewActionRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/RevisionReviewPayload" } } } }, "ApplyCanonicalRevisionReviewActionResult": { "$ref": "#/$defs/CommandResult" },
-    "ApplyReferenceMatchProposalActionRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/Decision" } } } }, "ApplyReferenceMatchProposalActionResult": { "$ref": "#/$defs/CommandResult" },
-    "DecisionBatchPayload": { "type": "object", "additionalProperties": false, "required": ["decisions"], "properties": { "decisions": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/Decision" } } } },
-    "ApplyReferenceMatchProposalActionsRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/DecisionBatchPayload" } } } }, "ApplyReferenceMatchProposalActionsResult": { "oneOf": [{ "$ref": "#/$defs/BatchCommandResult" }, { "$ref": "#/$defs/CommandResult" }] },
-    "MergePair": { "type": "object", "additionalProperties": false, "required": ["sourceEffectiveCanonicalId", "targetEffectiveCanonicalId"], "properties": { "sourceEffectiveCanonicalId": { "$ref": "#/$defs/String" }, "targetEffectiveCanonicalId": { "$ref": "#/$defs/String" } } },
-    "MergeEffectivePayload": { "type": "object", "additionalProperties": false, "required": ["sourceEffectiveCanonicalId", "targetEffectiveCanonicalId", "confirmRetargetGroup"], "properties": { "sourceEffectiveCanonicalId": { "$ref": "#/$defs/String" }, "targetEffectiveCanonicalId": { "$ref": "#/$defs/String" }, "confirmRetargetGroup": { "type": "boolean" } } },
-    "MergeEffectiveCanonicalReferenceRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/MergeEffectivePayload" } } } }, "MergeEffectiveCanonicalReferenceResult": { "$ref": "#/$defs/CommandResult" },
-    "MergeBatchPayload": { "type": "object", "additionalProperties": false, "required": ["requests"], "properties": { "requests": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/MergePair" } } } },
-    "ApplyCanonicalRevisionMergeRequestsRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/MergeBatchPayload" } } } }, "ApplyCanonicalRevisionMergeRequestsResult": { "oneOf": [{ "$ref": "#/$defs/BatchCommandResult" }, { "$ref": "#/$defs/CommandResult" }] },
-    "MetadataUpdatePayload": { "type": "object", "additionalProperties": false, "required": ["canonicalReferenceId", "patch"], "properties": { "canonicalReferenceId": { "$ref": "#/$defs/String" }, "patch": { "type": "object", "additionalProperties": false, "minProperties": 1, "properties": { "title": { "$ref": "#/$defs/String" }, "normalizedTitle": { "$ref": "#/$defs/String" }, "year": { "$ref": "#/$defs/String" }, "authors": { "$ref": "#/$defs/Strings" }, "identifiers": { "$ref": "#/$defs/StringMap" } } } } },
-    "UpdateCanonicalReferenceMetadataRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/MetadataUpdatePayload" } } } }, "UpdateCanonicalReferenceMetadataResult": { "$ref": "#/$defs/CommandResult" },
-    "ArchivePayload": { "type": "object", "additionalProperties": false, "required": ["canonicalReferenceId"], "properties": { "canonicalReferenceId": { "$ref": "#/$defs/String" } } },
-    "ArchiveCanonicalReferenceRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ArchivePayload" } } } }, "ArchiveCanonicalReferenceResult": { "$ref": "#/$defs/CommandResult" }
+    "Strings": {
+      "type": "array",
+      "maxItems": 25000,
+      "items": { "$ref": "#/$defs/String" }
+    },
+    "StringMap": {
+      "type": "object",
+      "maxProperties": 32,
+      "patternProperties": {
+        "^[A-Za-z0-9._:-]{1,128}$": { "$ref": "#/$defs/String" }
+      },
+      "additionalProperties": false
+    },
+    "IndexRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 128 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "includeReferences": { "type": "boolean" },
+        "sourceRefs": {
+          "type": "array",
+          "maxItems": 250,
+          "items": { "$ref": "#/$defs/String" }
+        }
+      }
+    },
+    "IndexDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache_found",
+        "storage",
+        "stale",
+        "warnings",
+        "recommended_commands",
+        "repository_basis_hash",
+        "canonical_basis_hash"
+      ],
+      "properties": {
+        "cache_found": { "type": "boolean" },
+        "storage": { "const": "sqlite" },
+        "stale": { "type": "boolean" },
+        "warnings": { "$ref": "#/$defs/Strings" },
+        "recommended_commands": { "$ref": "#/$defs/Strings" },
+        "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "ReferenceRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_instance_id",
+        "reference_index",
+        "title",
+        "target_binding"
+      ],
+      "properties": {
+        "reference_instance_id": { "$ref": "#/$defs/String" },
+        "reference_index": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "title": { "type": "string", "maxLength": 16384 },
+        "year": { "type": "string", "maxLength": 128 },
+        "raw_reference": { "type": "string", "maxLength": 65536 },
+        "confidence": { "type": "string", "maxLength": 128 },
+        "target_literature_item_id": { "type": "string", "maxLength": 4096 },
+        "target_title": { "type": "string", "maxLength": 16384 },
+        "target_paper_ref": { "type": "string", "maxLength": 4096 },
+        "target_binding": { "enum": ["library", "external", "none"] },
+        "binding_status": {
+          "enum": [
+            "candidate",
+            "accepted",
+            "rejected",
+            "stale_target",
+            "unbound"
+          ]
+        }
+      }
+    },
+    "ReferenceRefreshReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actual_bytes",
+        "actual_json_nodes",
+        "affected_source_refs",
+        "failed_paper_refs",
+        "input_hash",
+        "limit_bytes",
+        "limit_json_nodes",
+        "ok",
+        "operation_id",
+        "processed_paper_refs",
+        "reference_basis_hash",
+        "retry",
+        "retryable",
+        "status",
+        "warnings"
+      ],
+      "properties": {
+        "actual_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "actual_json_nodes": { "type": ["integer", "null"], "minimum": 0 },
+        "affected_source_refs": { "$ref": "#/$defs/Strings" },
+        "failed_paper_refs": { "$ref": "#/$defs/Strings" },
+        "input_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "limit_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "limit_json_nodes": { "type": ["integer", "null"], "minimum": 0 },
+        "ok": { "type": "boolean" },
+        "operation_id": { "$ref": "#/$defs/String" },
+        "processed_paper_refs": { "$ref": "#/$defs/Strings" },
+        "reference_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "retry": { "type": "boolean" },
+        "retryable": { "type": "boolean" },
+        "status": {
+          "enum": [
+            "promoted",
+            "unchanged",
+            "failed",
+            "invalid_request",
+            "repair_required",
+            "stopping"
+          ]
+        },
+        "warnings": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ReferenceMatchingReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fact_count",
+        "matching_hash",
+        "ok",
+        "operation_id",
+        "proposal_created_count",
+        "retryable",
+        "status",
+        "warnings"
+      ],
+      "properties": {
+        "fact_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "matching_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "ok": { "type": "boolean" },
+        "operation_id": { "$ref": "#/$defs/String" },
+        "proposal_created_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "retryable": { "type": "boolean" },
+        "status": {
+          "enum": [
+            "promoted",
+            "unchanged",
+            "failed",
+            "invalid_request",
+            "repair_required",
+            "stopping"
+          ]
+        },
+        "warnings": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "IndexRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paper_ref",
+        "library_id",
+        "item_key",
+        "title",
+        "year",
+        "metadata_hash",
+        "updated_at",
+        "artifactCoverage",
+        "missing_artifacts",
+        "reference_count",
+        "unbound_reference_count"
+      ],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "library_id": { "type": "integer", "minimum": 1 },
+        "item_key": { "$ref": "#/$defs/String" },
+        "title": { "type": "string", "maxLength": 16384 },
+        "year": { "type": "string", "maxLength": 128 },
+        "metadata_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "updated_at": { "$ref": "#/$defs/OptionalString" },
+        "artifactCoverage": { "$ref": "#/$defs/String" },
+        "missing_artifacts": { "$ref": "#/$defs/Strings" },
+        "reference_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "unbound_reference_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "references": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/ReferenceRow" }
+        }
+      }
+    },
+    "IndexResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows",
+        "cursor",
+        "next_cursor",
+        "has_more",
+        "returned",
+        "total",
+        "limit",
+        "diagnostics"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/IndexRow" }
+        },
+        "cursor": { "type": "string" },
+        "next_cursor": { "type": "string" },
+        "has_more": { "type": "boolean" },
+        "returned": { "type": "integer" },
+        "total": { "type": "integer" },
+        "limit": { "type": "integer" },
+        "diagnostics": { "$ref": "#/$defs/IndexDiagnostic" }
+      }
+    },
+    "RankRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": { "type": "string", "maxLength": 128 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "sortBy": { "enum": ["external_degree", "shared_source_count", "year"] }
+      }
+    },
+    "RankRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "title",
+        "year",
+        "authors",
+        "external_degree",
+        "shared_source_count",
+        "source_paper_refs",
+        "reason"
+      ],
+      "properties": {
+        "node_id": { "$ref": "#/$defs/String" },
+        "title": { "type": "string", "maxLength": 16384 },
+        "year": { "type": "string", "maxLength": 128 },
+        "authors": { "$ref": "#/$defs/Strings" },
+        "external_degree": { "type": "integer", "minimum": 0 },
+        "shared_source_count": { "type": "integer", "minimum": 0 },
+        "source_paper_refs": { "$ref": "#/$defs/Strings" },
+        "reason": { "$ref": "#/$defs/String" }
+      }
+    },
+    "RankDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot_found",
+        "returned_count",
+        "total_external_nodes",
+        "limits",
+        "warnings",
+        "repository_basis_hash",
+        "canonical_basis_hash"
+      ],
+      "properties": {
+        "snapshot_found": { "type": "boolean" },
+        "returned_count": { "type": "integer" },
+        "total_external_nodes": { "type": "integer" },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["limit", "maxLimit"],
+          "properties": {
+            "limit": { "type": "integer" },
+            "maxLimit": { "const": 100 }
+          }
+        },
+        "warnings": { "$ref": "#/$defs/Strings" },
+        "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "RankResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "graph_hash",
+        "items",
+        "cursor",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "total",
+        "limit",
+        "diagnostics"
+      ],
+      "properties": {
+        "ok": { "const": true },
+        "graph_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/RankRow" }
+        },
+        "cursor": { "type": "string" },
+        "nextCursor": { "type": "string" },
+        "hasMore": { "type": "boolean" },
+        "returned": { "type": "integer" },
+        "total": { "type": "integer" },
+        "limit": { "type": "integer" },
+        "diagnostics": { "$ref": "#/$defs/RankDiagnostics" }
+      }
+    },
+    "AttentionItemDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_canonical_reference_id",
+        "target_canonical_reference_id"
+      ],
+      "properties": {
+        "kind": { "$ref": "#/$defs/String" },
+        "source_canonical_reference_id": { "$ref": "#/$defs/String" },
+        "target_canonical_reference_id": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "AttentionItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "target",
+        "reason",
+        "source_capability",
+        "suggested_commands"
+      ],
+      "properties": {
+        "severity": { "enum": ["warning", "error"] },
+        "target": { "$ref": "#/$defs/String" },
+        "reason": { "$ref": "#/$defs/String" },
+        "source_capability": { "$ref": "#/$defs/String" },
+        "suggested_commands": { "$ref": "#/$defs/Strings" },
+        "details": { "$ref": "#/$defs/AttentionItemDetails" }
+      }
+    },
+    "AttentionDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_basis_hash",
+        "limits",
+        "repository_basis_hash",
+        "returned_count",
+        "warnings"
+      ],
+      "properties": {
+        "canonical_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["limit", "maxLimit"],
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "maxLimit": { "const": 100 }
+          }
+        },
+        "repository_basis_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "returned_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "warnings": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "AttentionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "truncated", "items", "diagnostics"],
+      "properties": {
+        "ok": { "const": true },
+        "truncated": { "type": "boolean" },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/AttentionItem" }
+        },
+        "diagnostics": { "$ref": "#/$defs/AttentionDiagnostics" }
+      }
+    },
+    "DiagnosticDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "proposalId": { "$ref": "#/$defs/String" },
+        "reviewItemId": { "$ref": "#/$defs/String" },
+        "canonicalReferenceId": { "$ref": "#/$defs/String" },
+        "source": { "$ref": "#/$defs/String" },
+        "target": { "$ref": "#/$defs/String" },
+        "failed_count": { "type": "integer", "minimum": 0 },
+        "blockers": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "CommandDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity"],
+      "properties": {
+        "code": { "$ref": "#/$defs/String" },
+        "severity": { "const": "error" },
+        "message": { "$ref": "#/$defs/String" },
+        "details": { "$ref": "#/$defs/DiagnosticDetails" }
+      }
+    },
+    "CommandResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "status"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "status": { "$ref": "#/$defs/String" },
+        "idempotent": { "type": "boolean" },
+        "proposal_id": { "$ref": "#/$defs/String" },
+        "review_item_id": { "$ref": "#/$defs/String" },
+        "action": { "$ref": "#/$defs/String" },
+        "canonical_reference_id": { "$ref": "#/$defs/String" },
+        "source_effective_canonical_id": { "$ref": "#/$defs/String" },
+        "target_effective_canonical_id": { "$ref": "#/$defs/String" },
+        "diagnostic": { "$ref": "#/$defs/CommandDiagnostic" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/CommandDiagnostic" }
+        }
+      }
+    },
+    "BatchCommandResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "applied_count", "failed_count", "results"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "applied_count": { "type": "integer", "minimum": 0 },
+        "skipped_count": { "type": "integer", "minimum": 0 },
+        "failed_count": { "type": "integer", "minimum": 0 },
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/CommandResult" }
+        },
+        "diagnostic": { "$ref": "#/$defs/CommandDiagnostic" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/CommandDiagnostic" }
+        }
+      }
+    },
+    "ManualTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["zotero_item", "canonical_reference"] },
+        "libraryId": { "type": "integer", "minimum": 1 },
+        "itemKey": { "$ref": "#/$defs/String" },
+        "canonicalReferenceId": { "$ref": "#/$defs/String" }
+      }
+    },
+    "Decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposalId", "action"],
+      "properties": {
+        "proposalId": { "$ref": "#/$defs/String" },
+        "action": {
+          "enum": [
+            "accept",
+            "reverse_accept",
+            "reject",
+            "reopen",
+            "delete",
+            "manual_target"
+          ]
+        },
+        "target": { "$ref": "#/$defs/ManualTarget" }
+      }
+    },
+    "GetReferenceSidecarIndexRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/IndexRequest" }
+        }
+      }
+    },
+    "GetReferenceSidecarIndexResult": { "$ref": "#/$defs/IndexResult" },
+    "RankExternalReferencesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/RankRequest" }
+        }
+      }
+    },
+    "RankExternalReferencesResult": { "$ref": "#/$defs/RankResult" },
+    "AttentionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "GetAttentionQueueRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/AttentionPayload" }
+        }
+      }
+    },
+    "GetAttentionQueueResult": { "$ref": "#/$defs/AttentionResult" },
+    "StartReferenceSidecarRefreshRequest": {
+      "$ref": "#/$defs/OptionalEmptyRequest"
+    },
+    "StartReferenceSidecarRefreshResult": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+    },
+    "RefreshReferenceSidecarNowRequest": { "$ref": "#/$defs/NoArgs" },
+    "RefreshReferenceSidecarNowResult": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+    },
+    "RetryReferenceSidecarRefreshRequest": { "$ref": "#/$defs/NoArgs" },
+    "RetryReferenceSidecarRefreshResult": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+    },
+    "RunAdvancedReferenceMatchingNowRequest": { "$ref": "#/$defs/NoArgs" },
+    "RunAdvancedReferenceMatchingNowResult": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+    },
+    "RetryAdvancedReferenceMatchingRequest": { "$ref": "#/$defs/NoArgs" },
+    "RetryAdvancedReferenceMatchingResult": {
+      "$ref": "client-webdav-maintenance.schema.json#/$defs/MaintenanceOperation"
+    },
+    "RevisionReviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewItemId", "action"],
+      "properties": {
+        "reviewItemId": { "$ref": "#/$defs/String" },
+        "action": { "enum": ["accept", "reject"] }
+      }
+    },
+    "ApplyCanonicalRevisionReviewActionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/RevisionReviewPayload" }
+        }
+      }
+    },
+    "ApplyCanonicalRevisionReviewActionResult": {
+      "$ref": "#/$defs/CommandResult"
+    },
+    "ApplyReferenceMatchProposalActionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/Decision" }
+        }
+      }
+    },
+    "ApplyReferenceMatchProposalActionResult": {
+      "$ref": "#/$defs/CommandResult"
+    },
+    "DecisionBatchPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisions"],
+      "properties": {
+        "decisions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/Decision" }
+        }
+      }
+    },
+    "ApplyReferenceMatchProposalActionsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/DecisionBatchPayload" }
+        }
+      }
+    },
+    "ApplyReferenceMatchProposalActionsResult": {
+      "oneOf": [
+        { "$ref": "#/$defs/BatchCommandResult" },
+        { "$ref": "#/$defs/CommandResult" }
+      ]
+    },
+    "MergePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceEffectiveCanonicalId", "targetEffectiveCanonicalId"],
+      "properties": {
+        "sourceEffectiveCanonicalId": { "$ref": "#/$defs/String" },
+        "targetEffectiveCanonicalId": { "$ref": "#/$defs/String" }
+      }
+    },
+    "MergeEffectivePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceEffectiveCanonicalId",
+        "targetEffectiveCanonicalId",
+        "confirmRetargetGroup"
+      ],
+      "properties": {
+        "sourceEffectiveCanonicalId": { "$ref": "#/$defs/String" },
+        "targetEffectiveCanonicalId": { "$ref": "#/$defs/String" },
+        "confirmRetargetGroup": { "type": "boolean" }
+      }
+    },
+    "MergeEffectiveCanonicalReferenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MergeEffectivePayload" }
+        }
+      }
+    },
+    "MergeEffectiveCanonicalReferenceResult": {
+      "$ref": "#/$defs/CommandResult"
+    },
+    "MergeBatchPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests"],
+      "properties": {
+        "requests": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/MergePair" }
+        }
+      }
+    },
+    "ApplyCanonicalRevisionMergeRequestsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MergeBatchPayload" }
+        }
+      }
+    },
+    "ApplyCanonicalRevisionMergeRequestsResult": {
+      "oneOf": [
+        { "$ref": "#/$defs/BatchCommandResult" },
+        { "$ref": "#/$defs/CommandResult" }
+      ]
+    },
+    "MetadataUpdatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalReferenceId", "patch"],
+      "properties": {
+        "canonicalReferenceId": { "$ref": "#/$defs/String" },
+        "patch": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "title": { "$ref": "#/$defs/String" },
+            "normalizedTitle": { "$ref": "#/$defs/String" },
+            "year": { "$ref": "#/$defs/String" },
+            "authors": { "$ref": "#/$defs/Strings" },
+            "identifiers": { "$ref": "#/$defs/StringMap" }
+          }
+        }
+      }
+    },
+    "UpdateCanonicalReferenceMetadataRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MetadataUpdatePayload" }
+        }
+      }
+    },
+    "UpdateCanonicalReferenceMetadataResult": {
+      "$ref": "#/$defs/CommandResult"
+    },
+    "ArchivePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalReferenceId"],
+      "properties": { "canonicalReferenceId": { "$ref": "#/$defs/String" } }
+    },
+    "ArchiveCanonicalReferenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ArchivePayload" }
+        }
+      }
+    },
+    "ArchiveCanonicalReferenceResult": { "$ref": "#/$defs/CommandResult" }
   }
 }

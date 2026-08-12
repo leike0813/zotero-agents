@@ -207,7 +207,8 @@ const GROUPED_INVOCATIONS: Record<
       operation_id: "maintenance:missing",
     }),
   "client.getLibraryIndex": (client) => client.libraryIndex.getPage({}),
-  "client.getReviewInput": (client) => client.workflowReview.getInput({}),
+  "client.getReviewInput": (client) =>
+    client.workflowReview.getInput({ topicId: "topic:scenario" }),
   "client.debugSynthesisSnapshot": (client) => client.debug.snapshot({}),
   "client.debugSynthesisCacheList": (client) => client.debug.listCache({}),
   "client.debugSynthesisOperationsList": (client) =>

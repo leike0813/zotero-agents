@@ -1,5 +1,5 @@
-import type { SynthesisJsonObject } from "./common";
 import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
+import type { SynthesisWebDavSyncState } from "./webDavSync";
 
 export const SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS = [
   "keep_local",
@@ -18,7 +18,7 @@ export type SynthesisSyncConflictResolutionRequest = {
   action: SynthesisSyncConflictResolutionAction;
 };
 
-export type SynthesisSyncCommandResult = SynthesisJsonObject;
+export type SynthesisSyncCommandResult = SynthesisWebDavSyncState;
 
 export interface SynthesisSyncTransportClient {
   runNow(): Promise<SynthesisPublicMaintenanceOperation>;

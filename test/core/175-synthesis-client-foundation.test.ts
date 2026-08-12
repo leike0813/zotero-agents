@@ -14,6 +14,19 @@ import {
 } from "../../src/modules/synthesisClient/workbenchUiAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+const WORKFLOW_REVIEW_RESULT = (
+  JSON.parse(
+    fs.readFileSync(
+      path.join(
+        ROOT,
+        "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-workflow-review.json",
+      ),
+      "utf8",
+    ),
+  ) as { cases: Array<{ id: string; value: unknown }> }
+).cases.find(
+  (entry) => entry.id === "workflow-review-recursive-positive",
+)!.value;
 
 function parentRef(value: number) {
   return { libraryId: 1, itemKey: `ITEM${String(value).padStart(4, "0")}` };
@@ -3211,6 +3224,9 @@ describe("Synthesis client foundation", function () {
               },
             };
           }
+          if (port === "getReviewInput") {
+            return WORKFLOW_REVIEW_RESULT;
+          }
           return { ok: true, port, nested: { value: "rebuilt" } };
         },
       ]),
@@ -3286,7 +3302,10 @@ describe("Synthesis client foundation", function () {
       ["queryConceptKb", () => client.concepts.query(request)],
       ["getSchemas", () => client.maintenance.getSchemas(request)],
       ["getLibraryIndex", () => client.libraryIndex.getPage(request)],
-      ["getReviewInput", () => client.workflowReview.getInput(request)],
+      [
+        "getReviewInput",
+        () => client.workflowReview.getInput({ topicId: "topic-alpha" }),
+      ],
       ["debugSynthesisSnapshot", () => client.debug.snapshot(request)],
       ["debugSynthesisCacheList", () => client.debug.listCache(request)],
       [
@@ -3315,6 +3334,8 @@ describe("Synthesis client foundation", function () {
         assert.equal(result.topic_id, "topic-alpha");
       } else if (port === "resolveResolver") {
         assert.deepEqual(result.papers, []);
+      } else if (port === "getReviewInput") {
+        assert.equal(result.kind, "synthesis.review_workflow_input");
       } else {
         assert.equal(result.port, port);
       }

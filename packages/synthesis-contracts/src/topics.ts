@@ -1,8 +1,4 @@
-import {
-  SynthesisClientError,
-  toSynthesisJsonObject,
-  type SynthesisJsonObject,
-} from "./common";
+import { SynthesisClientError, toSynthesisJsonObject } from "./common";
 import type { SynthesisDeliveryContext } from "./common";
 import type {
   SynthesisTopicReportRequest,
@@ -58,7 +54,20 @@ export type SynthesisTopicDiscoveryHintRequest = {
   hintId: string;
 };
 
-export type SynthesisTopicCommandResult = SynthesisJsonObject;
+export type SynthesisTopicCommandResult = {
+  ok: boolean;
+  status: string;
+  hint: null | {
+    hint_id: string;
+    status: "open" | "rejected";
+    topic_id: string;
+    title: string;
+  };
+  diagnostics: Array<{
+    code: string;
+    severity?: "info" | "warning" | "error";
+  }>;
+};
 export type SynthesisTopicArtifactDeleteResult =
   | {
       ok: true;

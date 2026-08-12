@@ -2,91 +2,532 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/client-webdav-maintenance.schema.json",
   "$defs": {
-    "NoArgs": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "maxItems": 0 } } },
+    "NoArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": { "args": { "type": "array", "maxItems": 0 } }
+    },
     "String": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "OptionalString": { "type": "string", "maxLength": 4096 },
-    "Strings": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/String" } },
+    "Strings": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/String" }
+    },
     "DiagnosticDetails": {
-      "type": "object", "additionalProperties": false,
-      "properties": { "operationId": { "$ref": "#/$defs/String" }, "phase": { "$ref": "#/$defs/String" }, "path": { "$ref": "#/$defs/String" }, "expected": { "$ref": "#/$defs/String" }, "actual": { "$ref": "#/$defs/String" }, "action": { "$ref": "#/$defs/String" }, "retryable": { "type": "boolean" } }
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operationId": { "$ref": "#/$defs/String" },
+        "phase": { "$ref": "#/$defs/String" },
+        "path": { "$ref": "#/$defs/String" },
+        "expected": { "$ref": "#/$defs/String" },
+        "actual": { "$ref": "#/$defs/String" },
+        "action": { "$ref": "#/$defs/String" },
+        "retryable": { "type": "boolean" },
+        "entity_kind": { "$ref": "#/$defs/String" },
+        "entity_id": { "$ref": "#/$defs/String" },
+        "previous_updated_at": { "$ref": "#/$defs/String" },
+        "last_phase": { "$ref": "#/$defs/String" }
+      }
     },
     "Diagnostic": {
-      "type": "object", "additionalProperties": false, "required": ["code", "severity"],
-      "properties": { "code": { "$ref": "#/$defs/String" }, "severity": { "enum": ["info", "warning", "error"] }, "message": { "$ref": "#/$defs/OptionalString" }, "details": { "$ref": "#/$defs/DiagnosticDetails" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity"],
+      "properties": {
+        "code": { "$ref": "#/$defs/String" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "message": { "$ref": "#/$defs/OptionalString" },
+        "details": { "$ref": "#/$defs/DiagnosticDetails" }
+      }
     },
     "ConflictEntry": {
-      "type": "object", "additionalProperties": false, "required": ["asset_path", "reason"],
-      "properties": { "asset_path": { "$ref": "#/$defs/String" }, "reason": { "$ref": "#/$defs/String" }, "base_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "local_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "remote_hash": { "$ref": "common.schema.json#/$defs/sha256" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_path", "reason"],
+      "properties": {
+        "asset_path": { "$ref": "#/$defs/String" },
+        "reason": { "$ref": "#/$defs/String" },
+        "base_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "local_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "remote_hash": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
     },
     "ConflictReport": {
-      "type": "object", "additionalProperties": false, "required": ["schema_id", "schema_version", "conflict_id", "status", "conflicts", "diagnostics"],
-      "properties": { "schema_id": { "const": "synthesis.webdav_sync_conflict_report" }, "schema_version": { "const": "1.0.0" }, "conflict_id": { "$ref": "#/$defs/String" }, "status": { "enum": ["blocked", "resolved"] }, "conflicts": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/ConflictEntry" } }, "diagnostics": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/Diagnostic" } } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_id",
+        "schema_version",
+        "conflict_id",
+        "status",
+        "conflicts",
+        "diagnostics"
+      ],
+      "properties": {
+        "schema_id": { "const": "synthesis.webdav_sync_conflict_report" },
+        "schema_version": { "const": "1.0.0" },
+        "conflict_id": { "$ref": "#/$defs/String" },
+        "status": { "enum": ["blocked", "resolved"] },
+        "conflicts": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/ConflictEntry" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        }
+      }
     },
     "LastRun": {
-      "type": "object", "additionalProperties": false, "required": ["run_id", "status", "started_at", "completed_at", "diagnostics"],
-      "properties": { "run_id": { "$ref": "#/$defs/String" }, "status": { "enum": ["completed", "failed_retryable", "failed_permanent", "blocked_conflict"] }, "started_at": { "$ref": "#/$defs/String" }, "completed_at": { "$ref": "#/$defs/String" }, "diagnostics": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/Diagnostic" } }, "snapshot_id": { "$ref": "#/$defs/String" }, "manifest_hash": { "$ref": "common.schema.json#/$defs/sha256" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "status",
+        "started_at",
+        "completed_at",
+        "diagnostics"
+      ],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/String" },
+        "status": {
+          "enum": [
+            "completed",
+            "failed_retryable",
+            "failed_permanent",
+            "blocked_conflict"
+          ]
+        },
+        "started_at": { "$ref": "#/$defs/String" },
+        "completed_at": { "$ref": "#/$defs/String" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        },
+        "snapshot_id": { "$ref": "#/$defs/String" },
+        "manifest_hash": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
     },
     "Progress": {
-      "type": "object", "additionalProperties": false,
-      "properties": { "phase": { "$ref": "#/$defs/String" }, "phase_label": { "$ref": "#/$defs/String" }, "message": { "$ref": "#/$defs/String" }, "processed_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "total_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "bundle_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "entry_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "total_bytes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "updated_at": { "$ref": "#/$defs/String" } }
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phase": { "$ref": "#/$defs/String" },
+        "phase_label": { "$ref": "#/$defs/String" },
+        "message": { "$ref": "#/$defs/String" },
+        "processed_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "total_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "bundle_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "entry_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "total_bytes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "updated_at": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ConnectionTestDiagnosticDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "body": { "$ref": "#/$defs/OptionalString" }
+      }
+    },
+    "ConnectionTestDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/String" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "message": { "$ref": "#/$defs/OptionalString" },
+        "details": { "$ref": "#/$defs/ConnectionTestDiagnosticDetails" }
+      }
+    },
+    "ConnectionTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "tested_at", "config_status", "diagnostics"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "tested_at": { "$ref": "#/$defs/String" },
+        "config_status": {
+          "enum": ["disabled", "incomplete", "configured", "invalid"]
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/ConnectionTestDiagnostic" }
+        }
+      }
     },
     "SyncState": {
-      "type": "object", "additionalProperties": false,
-      "required": ["schema_id", "schema_version", "queue_state", "paused", "adapter_configured", "base_url", "remote_path", "diagnostics", "allowed_actions", "updated_at"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_id",
+        "schema_version",
+        "queue_state",
+        "paused",
+        "adapter_configured",
+        "base_url",
+        "remote_path",
+        "diagnostics",
+        "allowed_actions",
+        "updated_at"
+      ],
       "properties": {
-        "schema_id": { "const": "synthesis.webdav_sync_state" }, "schema_version": { "const": "1.0.0" },
-        "queue_state": { "enum": ["idle", "queued", "syncing", "blocked_conflict", "failed_retryable", "failed_permanent", "disabled"] },
-        "paused": { "type": "boolean" }, "adapter_configured": { "type": "boolean" }, "config_status": { "enum": ["disabled", "incomplete", "configured", "invalid"] },
-        "base_url": { "type": "string", "maxLength": 4096 }, "remote_path": { "type": "string", "maxLength": 4096 }, "username": { "$ref": "#/$defs/OptionalString" }, "credential_updated_at": { "$ref": "#/$defs/OptionalString" },
-        "retry_attempt": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "next_retry_at": { "$ref": "#/$defs/OptionalString" }, "last_run": { "anyOf": [{ "$ref": "#/$defs/LastRun" }, { "type": "null" }] },
-        "conflict_report": { "anyOf": [{ "$ref": "#/$defs/ConflictReport" }, { "type": "null" }] }, "conflict_actions": { "$ref": "#/$defs/Strings" }, "diagnostics": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/Diagnostic" } },
-        "allowed_actions": { "$ref": "#/$defs/Strings" }, "last_phase": { "$ref": "#/$defs/OptionalString" }, "progress": { "anyOf": [{ "$ref": "#/$defs/Progress" }, { "type": "null" }] }, "updated_at": { "$ref": "#/$defs/String" }, "connection_test": { "type": "null" }
+        "schema_id": { "const": "synthesis.webdav_sync_state" },
+        "schema_version": { "const": "1.0.0" },
+        "queue_state": {
+          "enum": [
+            "idle",
+            "queued",
+            "syncing",
+            "blocked_conflict",
+            "failed_retryable",
+            "failed_permanent",
+            "disabled"
+          ]
+        },
+        "paused": { "type": "boolean" },
+        "adapter_configured": { "type": "boolean" },
+        "config_status": {
+          "enum": ["disabled", "incomplete", "configured", "invalid"]
+        },
+        "base_url": { "type": "string", "maxLength": 4096 },
+        "remote_path": { "type": "string", "maxLength": 4096 },
+        "username": { "$ref": "#/$defs/OptionalString" },
+        "credential_updated_at": { "$ref": "#/$defs/OptionalString" },
+        "retry_attempt": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "next_retry_at": { "$ref": "#/$defs/OptionalString" },
+        "last_run": {
+          "anyOf": [{ "$ref": "#/$defs/LastRun" }, { "type": "null" }]
+        },
+        "conflict_report": {
+          "anyOf": [{ "$ref": "#/$defs/ConflictReport" }, { "type": "null" }]
+        },
+        "conflict_actions": { "$ref": "#/$defs/Strings" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        },
+        "allowed_actions": { "$ref": "#/$defs/Strings" },
+        "last_phase": { "$ref": "#/$defs/OptionalString" },
+        "progress": {
+          "anyOf": [{ "$ref": "#/$defs/Progress" }, { "type": "null" }]
+        },
+        "updated_at": { "$ref": "#/$defs/String" },
+        "connection_test": { "$ref": "#/$defs/ConnectionTest" }
       }
     },
-    "MaintenanceScope": { "type": "object", "additionalProperties": false, "required": ["kind", "paper_refs"], "properties": { "kind": { "$ref": "#/$defs/String" }, "paper_refs": { "$ref": "#/$defs/Strings" } } },
-    "GenericTerminalReceipt": { "type": "object", "additionalProperties": false, "required": ["schema", "outcome", "state_changed", "retryable", "diagnostics"], "properties": { "schema": { "const": "synthesis.maintenance_receipt.v1" }, "outcome": { "enum": ["completed", "failed", "canceled", "timed_out"] }, "state_changed": { "type": "boolean" }, "retryable": { "type": "boolean" }, "diagnostics": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/Diagnostic" } } } },
-    "MaintenanceReceipt": { "anyOf": [
-      { "$ref": "#/$defs/GenericTerminalReceipt" },
-      { "$ref": "client-reference-canonical.schema.json#/$defs/ReferenceRefreshReceipt" },
-      { "$ref": "client-reference-canonical.schema.json#/$defs/ReferenceMatchingReceipt" },
-      { "$ref": "client-citation-graph.schema.json#/$defs/MutationReceipt" },
-      { "$ref": "client-tag.schema.json#/$defs/MutationResult" },
-      { "$ref": "client-concept-topic-graph.schema.json#/$defs/ConceptMutationResult" },
-      { "$ref": "client-concept-topic-graph.schema.json#/$defs/TopicGraphMutationResult" },
-      { "$ref": "#/$defs/SyncState" }
-    ] },
+    "MaintenanceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "paper_refs"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/String" },
+        "paper_refs": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "GenericTerminalReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "outcome",
+        "state_changed",
+        "retryable",
+        "diagnostics"
+      ],
+      "properties": {
+        "schema": { "const": "synthesis.maintenance_receipt.v1" },
+        "outcome": { "enum": ["completed", "failed", "canceled", "timed_out"] },
+        "state_changed": { "type": "boolean" },
+        "retryable": { "type": "boolean" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        }
+      }
+    },
+    "MaintenanceReceipt": {
+      "anyOf": [
+        { "$ref": "#/$defs/GenericTerminalReceipt" },
+        {
+          "$ref": "client-reference-canonical.schema.json#/$defs/ReferenceRefreshReceipt"
+        },
+        {
+          "$ref": "client-reference-canonical.schema.json#/$defs/ReferenceMatchingReceipt"
+        },
+        { "$ref": "client-citation-graph.schema.json#/$defs/MutationReceipt" },
+        { "$ref": "client-tag.schema.json#/$defs/MutationResult" },
+        {
+          "$ref": "client-concept-topic-graph.schema.json#/$defs/ConceptMutationResult"
+        },
+        {
+          "$ref": "client-concept-topic-graph.schema.json#/$defs/TopicGraphMutationResult"
+        },
+        { "$ref": "#/$defs/SyncState" }
+      ]
+    },
     "MaintenanceOperation": {
-      "type": "object", "additionalProperties": false, "required": ["schema", "operation_id", "status"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "status"],
       "properties": {
-        "schema": { "const": "synthesis.maintenance_operation.v1" }, "operation_id": { "$ref": "#/$defs/String" }, "status": { "enum": ["pending", "running", "completed", "failed", "canceled", "timed_out", "not_found"] },
-        "operation_type": { "$ref": "#/$defs/String" }, "library_id": { "type": "integer", "minimum": 1 }, "scope": { "$ref": "#/$defs/MaintenanceScope" },
-        "phase": { "$ref": "#/$defs/String" }, "phase_label": { "$ref": "#/$defs/String" }, "message": { "$ref": "#/$defs/OptionalString" }, "progress_mode": { "enum": ["indeterminate", "determinate"] },
-        "processed_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "skipped_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "failed_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "total_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "created_at": { "$ref": "#/$defs/String" }, "started_at": { "$ref": "#/$defs/OptionalString" }, "completed_at": { "$ref": "#/$defs/OptionalString" }, "updated_at": { "$ref": "#/$defs/String" }, "receipt": { "$ref": "#/$defs/MaintenanceReceipt" }
+        "schema": { "const": "synthesis.maintenance_operation.v1" },
+        "operation_id": { "$ref": "#/$defs/String" },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "completed",
+            "failed",
+            "canceled",
+            "timed_out",
+            "not_found"
+          ]
+        },
+        "operation_type": { "$ref": "#/$defs/String" },
+        "library_id": { "type": "integer", "minimum": 1 },
+        "scope": { "$ref": "#/$defs/MaintenanceScope" },
+        "phase": { "$ref": "#/$defs/String" },
+        "phase_label": { "$ref": "#/$defs/String" },
+        "message": { "$ref": "#/$defs/OptionalString" },
+        "progress_mode": { "enum": ["indeterminate", "determinate"] },
+        "processed_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "skipped_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "failed_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "total_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "created_at": { "$ref": "#/$defs/String" },
+        "started_at": { "$ref": "#/$defs/OptionalString" },
+        "completed_at": { "$ref": "#/$defs/OptionalString" },
+        "updated_at": { "$ref": "#/$defs/String" },
+        "receipt": { "$ref": "#/$defs/MaintenanceReceipt" }
       }
     },
-    "MaintenanceOperationReadPayload": { "type": "object", "additionalProperties": false, "required": ["operation_id"], "properties": { "operation_id": { "$ref": "#/$defs/String" } } },
-    "GetPublicMaintenanceOperationRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/MaintenanceOperationReadPayload" } } } },
-    "GetPublicMaintenanceOperationResult": { "$ref": "#/$defs/MaintenanceOperation" },
-    "MaintenanceOperationControlPayload": { "type": "object", "additionalProperties": false, "required": ["action", "operation_id"], "properties": { "action": { "enum": ["cancel", "continue", "retry"] }, "operation_id": { "$ref": "#/$defs/String" }, "retry_key": { "$ref": "#/$defs/String" } } },
-    "ControlPublicMaintenanceOperationRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/MaintenanceOperationControlPayload" } } } },
-    "ControlPublicMaintenanceOperationResult": { "$ref": "#/$defs/MaintenanceOperation" },
-    "DebugResetPayload": { "type": "object", "additionalProperties": false, "properties": { "confirmationText": { "$ref": "#/$defs/String" }, "dryRun": { "type": "boolean" } } },
-    "DebugSynthesisCleanInstallResetRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/DebugResetPayload" } } } },
-    "DebugSynthesisCleanInstallResetResult": { "type": "object", "additionalProperties": false, "required": ["ok", "status"], "properties": { "ok": { "type": "boolean" }, "status": { "enum": ["confirmation_mismatch", "preview", "reset", "unavailable"] }, "deletedRowsByTable": { "type": "object", "patternProperties": { "^[A-Za-z][A-Za-z0-9_]{0,127}$": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" } }, "additionalProperties": false }, "resetAt": { "$ref": "#/$defs/String" }, "diagnostics": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/Diagnostic" } } } },
-    "ReconcileSynthesisRuntimeWorkStateOnStartupRequest": { "$ref": "#/$defs/NoArgs" },
-    "ReconcileCacheReadiness": { "type": "object", "additionalProperties": false, "required": ["cacheKey", "cacheKind", "status"], "properties": { "cacheKey": { "$ref": "#/$defs/String" }, "cacheKind": { "$ref": "#/$defs/String" }, "status": { "enum": ["ready", "stale", "missing", "failed", "refreshing"] }, "refreshedAt": { "$ref": "#/$defs/OptionalString" }, "updatedAt": { "$ref": "#/$defs/OptionalString" }, "staleReason": { "$ref": "#/$defs/OptionalString" } } },
-    "ReconcileMaintenance": { "type": "object", "additionalProperties": false, "required": ["backgroundJobs", "cacheReadiness"], "properties": { "backgroundJobs": { "type": "array", "maxItems": 70, "items": { "$ref": "client-topic-workbench.schema.json#/$defs/BackgroundJob" } }, "cacheReadiness": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/ReconcileCacheReadiness" } } } },
-    "ReconcileSynthesisRuntimeWorkStateOnStartupResult": { "type": "object", "additionalProperties": false, "required": ["status", "webdav", "maintenance"], "properties": { "status": { "const": "ready" }, "webdav": { "$ref": "#/$defs/SyncState" }, "maintenance": { "$ref": "#/$defs/ReconcileMaintenance" } } },
-    "ResetDatabasePayload": { "type": "object", "additionalProperties": false, "required": ["confirmationText"], "properties": { "confirmationText": { "$ref": "#/$defs/String" } } },
-    "ResetSynthesisDatabaseRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ResetDatabasePayload" } } } },
-    "ResetSynthesisDatabaseResult": { "$ref": "#/$defs/DebugSynthesisCleanInstallResetResult" },
-    "SyncWebDavNowRequest": { "$ref": "#/$defs/NoArgs" }, "SyncWebDavNowResult": { "$ref": "#/$defs/MaintenanceOperation" },
-    "PauseWebDavSyncRequest": { "$ref": "#/$defs/NoArgs" }, "PauseWebDavSyncResult": { "$ref": "#/$defs/SyncState" },
-    "ResumeWebDavSyncRequest": { "$ref": "#/$defs/NoArgs" }, "ResumeWebDavSyncResult": { "$ref": "#/$defs/SyncState" },
-    "RetryWebDavSyncRequest": { "$ref": "#/$defs/NoArgs" }, "RetryWebDavSyncResult": { "$ref": "#/$defs/MaintenanceOperation" },
-    "ResolveConflictPayload": { "type": "object", "additionalProperties": false, "required": ["action"], "properties": { "action": { "enum": ["keep_local", "clear_after_manual_edit"] } } },
-    "ResolveWebDavSyncConflictRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ResolveConflictPayload" } } } },
+    "MaintenanceOperationReadPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id"],
+      "properties": { "operation_id": { "$ref": "#/$defs/String" } }
+    },
+    "GetPublicMaintenanceOperationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MaintenanceOperationReadPayload" }
+        }
+      }
+    },
+    "GetPublicMaintenanceOperationResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
+    "MaintenanceOperationControlPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "operation_id"],
+      "properties": {
+        "action": { "enum": ["cancel", "continue", "retry"] },
+        "operation_id": { "$ref": "#/$defs/String" },
+        "retry_key": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ControlPublicMaintenanceOperationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MaintenanceOperationControlPayload" }
+        }
+      }
+    },
+    "ControlPublicMaintenanceOperationResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
+    "DebugResetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "confirmationText": { "$ref": "#/$defs/String" },
+        "dryRun": { "type": "boolean" }
+      }
+    },
+    "DebugSynthesisCleanInstallResetRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/DebugResetPayload" }
+        }
+      }
+    },
+    "DebugSynthesisCleanInstallResetResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "status"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "status": {
+          "enum": ["confirmation_mismatch", "preview", "reset", "unavailable"]
+        },
+        "deletedRowsByTable": {
+          "type": "object",
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_]{0,127}$": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            }
+          },
+          "additionalProperties": false
+        },
+        "resetAt": { "$ref": "#/$defs/String" },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/Diagnostic" }
+        }
+      }
+    },
+    "ReconcileSynthesisRuntimeWorkStateOnStartupRequest": {
+      "$ref": "#/$defs/NoArgs"
+    },
+    "ReconcileCacheReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cacheKey", "cacheKind", "status"],
+      "properties": {
+        "cacheKey": { "$ref": "#/$defs/String" },
+        "cacheKind": { "$ref": "#/$defs/String" },
+        "status": {
+          "enum": ["ready", "stale", "missing", "failed", "refreshing"]
+        },
+        "refreshedAt": { "$ref": "#/$defs/OptionalString" },
+        "updatedAt": { "$ref": "#/$defs/OptionalString" },
+        "staleReason": { "$ref": "#/$defs/OptionalString" }
+      }
+    },
+    "ReconcileMaintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backgroundJobs", "cacheReadiness"],
+      "properties": {
+        "backgroundJobs": {
+          "type": "array",
+          "maxItems": 70,
+          "items": {
+            "$ref": "client-topic-workbench.schema.json#/$defs/BackgroundJob"
+          }
+        },
+        "cacheReadiness": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/ReconcileCacheReadiness" }
+        }
+      }
+    },
+    "ReconcileSynthesisRuntimeWorkStateOnStartupResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "webdav", "maintenance"],
+      "properties": {
+        "status": { "const": "ready" },
+        "webdav": { "$ref": "#/$defs/SyncState" },
+        "maintenance": { "$ref": "#/$defs/ReconcileMaintenance" }
+      }
+    },
+    "ResetDatabasePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confirmationText"],
+      "properties": { "confirmationText": { "$ref": "#/$defs/String" } }
+    },
+    "ResetSynthesisDatabaseRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ResetDatabasePayload" }
+        }
+      }
+    },
+    "ResetSynthesisDatabaseResult": {
+      "$ref": "#/$defs/DebugSynthesisCleanInstallResetResult"
+    },
+    "SyncWebDavNowRequest": { "$ref": "#/$defs/NoArgs" },
+    "SyncWebDavNowResult": { "$ref": "#/$defs/MaintenanceOperation" },
+    "PauseWebDavSyncRequest": { "$ref": "#/$defs/NoArgs" },
+    "PauseWebDavSyncResult": { "$ref": "#/$defs/SyncState" },
+    "ResumeWebDavSyncRequest": { "$ref": "#/$defs/NoArgs" },
+    "ResumeWebDavSyncResult": { "$ref": "#/$defs/SyncState" },
+    "RetryWebDavSyncRequest": { "$ref": "#/$defs/NoArgs" },
+    "RetryWebDavSyncResult": { "$ref": "#/$defs/MaintenanceOperation" },
+    "ResolveConflictPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": { "enum": ["keep_local", "clear_after_manual_edit"] }
+      }
+    },
+    "ResolveWebDavSyncConflictRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["args"],
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/ResolveConflictPayload" }
+        }
+      }
+    },
     "ResolveWebDavSyncConflictResult": { "$ref": "#/$defs/SyncState" }
   }
 }

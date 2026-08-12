@@ -660,58 +660,72 @@ export class ComputeWorkerPoolError extends Error {
   }
 }
 
-type Task = {
+interface RustWorkerContractMap {
+  [SYNTHESIS_SIDECAR_COMPUTE_OPERATION]: {
+    request: SynthesisCitationGraphLayoutRequest;
+    result: SynthesisCitationGraphLayoutResult;
+  };
+  [RUST_METRICS_OPERATION]: {
+    request: SynthesisCitationGraphMetricsRequest;
+    result: SynthesisCitationGraphMetricsResult;
+  };
+  [SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION]: {
+    request: SynthesisCitationGraphBuildRequest;
+    result: SynthesisCitationGraphBuildResult;
+  };
+  [SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION]: {
+    request: SynthesisTagVocabularyValidationRequest;
+    result: SynthesisTagVocabularyValidationResult;
+  };
+  [SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION]: {
+    request: SynthesisTagVocabularyIndexRequest;
+    result: SynthesisTagVocabularyIndexResult;
+  };
+  [SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION]: {
+    request: SynthesisConceptKbIndexRequest;
+    result: SynthesisConceptKbIndexResult;
+  };
+  [SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION]: {
+    request: SynthesisConceptKbQueryRequest;
+    result: SynthesisConceptKbQueryResult;
+  };
+  [SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION]: {
+    request: SynthesisTopicGraphIndexRequest;
+    result: SynthesisTopicGraphIndexResult;
+  };
+  [SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION]: {
+    request: SynthesisReferenceBindingRequest;
+    result: SynthesisReferenceBindingResult;
+  };
+  [SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION]: {
+    request: SynthesisReferenceDedupeRequest;
+    result: SynthesisReferenceDedupeResult;
+  };
+  [SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION]: {
+    request: SynthesisTopicManifestValidationRequest;
+    result: SynthesisTopicValidationResult;
+  };
+  [SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION]: {
+    request: SynthesisTopicArtifactAssemblyRequest;
+    result: SynthesisTopicArtifactAssemblyResult;
+  };
+  [SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION]: {
+    request: SynthesisTopicArtifactValidationRequest;
+    result: SynthesisTopicValidationResult;
+  };
+  [SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION]: {
+    request: SynthesisTopicSectionPatchRequest;
+    result: SynthesisTopicSectionPatchResult;
+  };
+  [SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION]: {
+    request: SynthesisSidecarGraphBuildTransferRun;
+    result: void;
+  };
+}
+
+type TaskBase = {
   id: string;
-  operation:
-    | typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION
-    | typeof RUST_METRICS_OPERATION
-    | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
-    | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION
-    | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION
-    | typeof SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION
-    | typeof SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION
-    | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
-  request:
-    | SynthesisCitationGraphLayoutRequest
-    | SynthesisCitationGraphMetricsRequest
-    | SynthesisCitationGraphBuildRequest
-    | SynthesisTagVocabularyValidationRequest
-    | SynthesisTagVocabularyIndexRequest
-    | SynthesisConceptKbIndexRequest
-    | SynthesisConceptKbQueryRequest
-    | SynthesisTopicGraphIndexRequest
-    | SynthesisReferenceBindingRequest
-    | SynthesisReferenceDedupeRequest
-    | SynthesisTopicManifestValidationRequest
-    | SynthesisTopicArtifactAssemblyRequest
-    | SynthesisTopicArtifactValidationRequest
-    | SynthesisTopicSectionPatchRequest
-    | SynthesisSidecarGraphBuildTransferRun;
   cancellation: Int32Array;
-  resolve(
-    result:
-      | SynthesisCitationGraphLayoutResult
-      | SynthesisCitationGraphMetricsResult
-      | SynthesisCitationGraphBuildResult
-      | SynthesisTagVocabularyValidationResult
-      | SynthesisTagVocabularyIndexResult
-      | SynthesisConceptKbIndexResult
-      | SynthesisConceptKbQueryResult
-      | SynthesisTopicGraphIndexResult
-      | SynthesisReferenceBindingResult
-      | SynthesisReferenceDedupeResult
-      | SynthesisTopicValidationResult
-      | SynthesisTopicArtifactAssemblyResult
-      | SynthesisTopicSectionPatchResult
-      | void,
-  ): void;
   reject(error: unknown): void;
   signal?: AbortSignal;
   abortListener?: () => void;
@@ -733,6 +747,24 @@ type Task = {
   rustTransferOutputReady?: Promise<void>;
   rustExpectedRequestHash?: string;
 };
+
+type WorkerTask<Operation extends keyof RustWorkerContractMap> = TaskBase & {
+  operation: Operation;
+  request: RustWorkerContractMap[Operation]["request"];
+  resolve(result: RustWorkerContractMap[Operation]["result"]): void;
+};
+
+type Task = {
+  [Operation in keyof RustWorkerContractMap]: WorkerTask<Operation>;
+}[keyof RustWorkerContractMap];
+
+type RuntimeWorkerOperation = Exclude<
+  keyof RustWorkerContractMap,
+  typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
+>;
+type TransferTask = WorkerTask<
+  typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
+>;
 
 export type SynthesisSidecarComputeWorkerPool = {
   runCitationGraphLayout(
@@ -913,7 +945,7 @@ export function createSynthesisSidecarComputeWorkerPool(
       return;
     }
     task.settled = true;
-    clearTaskHooks(task);
+    clearTaskHooks(task as Task);
     task.reject(poolError(code));
   };
 
@@ -922,7 +954,7 @@ export function createSynthesisSidecarComputeWorkerPool(
       return;
     }
     task.settled = true;
-    clearTaskHooks(task);
+    clearTaskHooks(task as Task);
     task.reject(error);
   };
 
@@ -1062,7 +1094,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   class TransferProtocolError extends Error {}
 
-  const finishTransferSuccess = (task: Task) => {
+  const finishTransferSuccess = (task: TransferTask) => {
     if (task !== active || task.terminating || task.settled) {
       return;
     }
@@ -1071,6 +1103,18 @@ export function createSynthesisSidecarComputeWorkerPool(
     clearTaskHooks(task);
     consecutiveFailures = 0;
     task.resolve(undefined);
+    pump();
+  };
+
+  const finishRuntimeSuccess = <Operation extends RuntimeWorkerOperation>(
+    task: WorkerTask<Operation>,
+    result: RustWorkerContractMap[Operation]["result"],
+  ) => {
+    active = null;
+    task.settled = true;
+    clearTaskHooks(task as Task);
+    consecutiveFailures = 0;
+    task.resolve(result);
     pump();
   };
 
@@ -1569,117 +1613,128 @@ export function createSynthesisSidecarComputeWorkerPool(
         finishRuntimeFailure(task, "worker_result_invalid", created);
         return;
       }
-      let result:
-        | SynthesisCitationGraphLayoutResult
-        | SynthesisCitationGraphMetricsResult
-        | SynthesisTagVocabularyValidationResult
-        | SynthesisTagVocabularyIndexResult
-        | SynthesisConceptKbIndexResult
-        | SynthesisConceptKbQueryResult
-        | SynthesisTopicGraphIndexResult
-        | SynthesisCitationGraphBuildResult
-        | SynthesisReferenceBindingResult
-        | SynthesisReferenceDedupeResult
-        | SynthesisTopicValidationResult
-        | SynthesisTopicArtifactAssemblyResult
-        | SynthesisTopicSectionPatchResult
-        | undefined;
       try {
         switch (task.operation) {
           case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
-            result = rebuildSynthesisCitationGraphLayoutResult(
-              response.result,
-              task.request as SynthesisCitationGraphLayoutRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisCitationGraphLayoutResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case RUST_METRICS_OPERATION:
-            result = rebuildSynthesisCitationGraphMetricsResult(
-              response.result,
-              task.request as SynthesisCitationGraphMetricsRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisCitationGraphMetricsResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
-            result = rebuildSynthesisTagVocabularyValidationResultPayload(
-              response.result,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTagVocabularyValidationResultPayload(
+                response.result,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
-            result = rebuildSynthesisTagVocabularyIndexResultPayload(
-              response.result,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTagVocabularyIndexResultPayload(response.result),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
-            result = rebuildSynthesisConceptKbIndexResultPayload(
-              response.result,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisConceptKbIndexResultPayload(response.result),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
-            result = rebuildSynthesisConceptKbQueryResultPayload(
-              response.result,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisConceptKbQueryResultPayload(response.result),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION:
-            result = rebuildSynthesisTopicGraphIndexResultPayload(
-              response.result,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTopicGraphIndexResultPayload(response.result),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION:
-            result = rebuildSynthesisReferenceBindingResult(
-              response.result,
-              task.request as SynthesisReferenceBindingRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisReferenceBindingResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION:
-            result = rebuildSynthesisReferenceDedupeResult(
-              response.result,
-              task.request as SynthesisReferenceDedupeRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisReferenceDedupeResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION:
-            result = rebuildSynthesisTopicManifestValidationResult(
-              response.result,
-              task.request as SynthesisTopicManifestValidationRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTopicManifestValidationResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION:
-            result = rebuildSynthesisTopicArtifactAssemblyResult(
-              response.result,
-              task.request as SynthesisTopicArtifactAssemblyRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTopicArtifactAssemblyResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION:
-            result = rebuildSynthesisTopicArtifactValidationResult(
-              response.result,
-              task.request as SynthesisTopicArtifactValidationRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTopicArtifactValidationResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION:
-            result = rebuildSynthesisTopicSectionPatchResult(
-              response.result,
-              task.request as SynthesisTopicSectionPatchRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisTopicSectionPatchResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
           case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
-            result = rebuildSynthesisCitationGraphBuildResult(
-              response.result,
-              task.request as SynthesisCitationGraphBuildRequest,
+            finishRuntimeSuccess(
+              task,
+              rebuildSynthesisCitationGraphBuildResult(
+                response.result,
+                task.request,
+              ),
             );
-            break;
+            return;
+          case SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION:
+            finishRuntimeFailure(task, "worker_result_invalid", created);
+            return;
         }
       } catch {
         finishRuntimeFailure(task, "worker_result_invalid", created);
-        return;
       }
-      if (!result) {
-        finishRuntimeFailure(task, "worker_result_invalid", created);
-        return;
-      }
-      active = null;
-      task.settled = true;
-      clearTaskHooks(task);
-      consecutiveFailures = 0;
-      task.resolve(result);
-      pump();
     });
     created.once("error", () => onUnexpectedWorkerFailure(created));
     created.once("exit", () => onUnexpectedWorkerFailure(created));
@@ -1787,41 +1842,11 @@ export function createSynthesisSidecarComputeWorkerPool(
     }
   };
 
-  const enqueue = <
-    Request extends
-      | SynthesisCitationGraphLayoutRequest
-      | SynthesisCitationGraphMetricsRequest
-      | SynthesisCitationGraphBuildRequest
-      | SynthesisTagVocabularyValidationRequest
-      | SynthesisTagVocabularyIndexRequest
-      | SynthesisConceptKbIndexRequest
-      | SynthesisConceptKbQueryRequest
-      | SynthesisTopicGraphIndexRequest
-      | SynthesisReferenceBindingRequest
-      | SynthesisReferenceDedupeRequest
-      | SynthesisTopicManifestValidationRequest
-      | SynthesisTopicArtifactAssemblyRequest
-      | SynthesisTopicArtifactValidationRequest
-      | SynthesisTopicSectionPatchRequest,
-    Result extends
-      | SynthesisCitationGraphLayoutResult
-      | SynthesisCitationGraphMetricsResult
-      | SynthesisCitationGraphBuildResult
-      | SynthesisTagVocabularyValidationResult
-      | SynthesisTagVocabularyIndexResult
-      | SynthesisConceptKbIndexResult
-      | SynthesisConceptKbQueryResult
-      | SynthesisTopicGraphIndexResult
-      | SynthesisReferenceBindingResult
-      | SynthesisReferenceDedupeResult
-      | SynthesisTopicValidationResult
-      | SynthesisTopicArtifactAssemblyResult
-      | SynthesisTopicSectionPatchResult,
-  >(
-    operation: Task["operation"],
-    request: Request,
+  const enqueue = <Operation extends RuntimeWorkerOperation>(
+    operation: Operation,
+    request: RustWorkerContractMap[Operation]["request"],
     runOptions: { signal?: AbortSignal },
-  ): Promise<Result> => {
+  ): Promise<RustWorkerContractMap[Operation]["result"]> => {
     if (stopping || degraded) {
       return Promise.reject(poolError("worker_unavailable"));
     }
@@ -1832,12 +1857,12 @@ export function createSynthesisSidecarComputeWorkerPool(
       return Promise.reject(poolError("worker_canceled"));
     }
     return new Promise((resolve, reject) => {
-      const task: Task = {
+      const task: WorkerTask<Operation> = {
         id: `compute:${++taskSequence}`,
         operation,
         request,
         cancellation: new Int32Array(new SharedArrayBuffer(4)),
-        resolve: (result) => resolve(result as Result),
+        resolve,
         reject,
         signal: runOptions.signal,
         timeoutMs:
@@ -1850,30 +1875,27 @@ export function createSynthesisSidecarComputeWorkerPool(
       if (task.signal) {
         task.abortListener = () => {
           if (task === active) {
-            cancelActive(task, "worker_canceled");
+            cancelActive(task as Task, "worker_canceled");
             return;
           }
-          const index = queue.indexOf(task);
+          const index = queue.indexOf(task as Task);
           if (index >= 0) {
             queue.splice(index, 1);
-            rejectTask(task, "worker_canceled");
+            rejectTask(task as Task, "worker_canceled");
           }
         };
         task.signal.addEventListener("abort", task.abortListener, {
           once: true,
         });
       }
-      queue.push(task);
+      queue.push(task as Task);
       pump();
     });
   };
 
   const runCitationGraphLayout: SynthesisSidecarComputeWorkerPool["runCitationGraphLayout"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisCitationGraphLayoutRequest,
-        SynthesisCitationGraphLayoutResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
         rebuildSynthesisCitationGraphLayoutRequest(requestInput),
         runOptions,
@@ -1881,10 +1903,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runCitationGraphMetrics: SynthesisSidecarComputeWorkerPool["runCitationGraphMetrics"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisCitationGraphMetricsRequest,
-        SynthesisCitationGraphMetricsResult
-      >(
+      enqueue(
         RUST_METRICS_OPERATION,
         rebuildSynthesisCitationGraphMetricsRequest(requestInput),
         runOptions,
@@ -1892,10 +1911,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runCitationGraphBuild: SynthesisSidecarComputeWorkerPool["runCitationGraphBuild"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisCitationGraphBuildRequest,
-        SynthesisCitationGraphBuildResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
         rebuildSynthesisCitationGraphBuildRequest(requestInput),
         runOptions,
@@ -1903,10 +1919,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTagVocabularyValidation: SynthesisSidecarComputeWorkerPool["runTagVocabularyValidation"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisTagVocabularyValidationRequest,
-        SynthesisTagVocabularyValidationResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
         requestInput,
         runOptions,
@@ -1914,10 +1927,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTagVocabularyIndex: SynthesisSidecarComputeWorkerPool["runTagVocabularyIndex"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisTagVocabularyIndexRequest,
-        SynthesisTagVocabularyIndexResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
         requestInput,
         runOptions,
@@ -1925,7 +1935,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runConceptKbIndex: SynthesisSidecarComputeWorkerPool["runConceptKbIndex"] =
     (requestInput, runOptions = {}) =>
-      enqueue<SynthesisConceptKbIndexRequest, SynthesisConceptKbIndexResult>(
+      enqueue(
         SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
         requestInput,
         runOptions,
@@ -1933,7 +1943,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runConceptKbQuery: SynthesisSidecarComputeWorkerPool["runConceptKbQuery"] =
     (requestInput, runOptions = {}) =>
-      enqueue<SynthesisConceptKbQueryRequest, SynthesisConceptKbQueryResult>(
+      enqueue(
         SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
         requestInput,
         runOptions,
@@ -1941,7 +1951,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTopicGraphIndex: SynthesisSidecarComputeWorkerPool["runTopicGraphIndex"] =
     (requestInput, runOptions = {}) =>
-      enqueue<SynthesisTopicGraphIndexRequest, SynthesisTopicGraphIndexResult>(
+      enqueue(
         SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
         requestInput,
         runOptions,
@@ -1949,10 +1959,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runReferenceBinding: SynthesisSidecarComputeWorkerPool["runReferenceBinding"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisReferenceBindingRequest,
-        SynthesisReferenceBindingResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION,
         rebuildSynthesisReferenceBindingRequest(requestInput),
         runOptions,
@@ -1960,7 +1967,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runReferenceCanonicalDedupe: SynthesisSidecarComputeWorkerPool["runReferenceCanonicalDedupe"] =
     (requestInput, runOptions = {}) =>
-      enqueue<SynthesisReferenceDedupeRequest, SynthesisReferenceDedupeResult>(
+      enqueue(
         SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION,
         rebuildSynthesisReferenceDedupeRequest(requestInput),
         runOptions,
@@ -1968,10 +1975,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTopicManifestValidation: SynthesisSidecarComputeWorkerPool["runTopicManifestValidation"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisTopicManifestValidationRequest,
-        SynthesisTopicValidationResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION,
         rebuildSynthesisTopicManifestValidationRequest(requestInput),
         runOptions,
@@ -1979,10 +1983,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTopicArtifactAssembly: SynthesisSidecarComputeWorkerPool["runTopicArtifactAssembly"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisTopicArtifactAssemblyRequest,
-        SynthesisTopicArtifactAssemblyResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION,
         rebuildSynthesisTopicArtifactAssemblyRequest(requestInput),
         runOptions,
@@ -1990,10 +1991,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTopicArtifactValidation: SynthesisSidecarComputeWorkerPool["runTopicArtifactValidation"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisTopicArtifactValidationRequest,
-        SynthesisTopicValidationResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION,
         rebuildSynthesisTopicArtifactValidationRequest(requestInput),
         runOptions,
@@ -2001,10 +1999,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const runTopicSectionPatch: SynthesisSidecarComputeWorkerPool["runTopicSectionPatch"] =
     (requestInput, runOptions = {}) =>
-      enqueue<
-        SynthesisTopicSectionPatchRequest,
-        SynthesisTopicSectionPatchResult
-      >(
+      enqueue(
         SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION,
         rebuildSynthesisTopicSectionPatchRequest(requestInput),
         runOptions,

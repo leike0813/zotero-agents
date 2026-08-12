@@ -1,17 +1,478 @@
 {
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
-    { "id": "topic-resolver-nested-positive", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverRequest", "valid": true, "value": { "args": [{ "paper_refs": ["1:ITEM1"], "collection_key": [], "tag": { "and": ["field:ai"] }, "combine": "union", "cursor": 0, "limit": 25 }] } },
-    { "id": "workbench-jobs-nested-positive", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisBackgroundJobRowsResult", "valid": true, "value": [{ "job_id": "job:1", "source": "operation", "status": "running", "label": "Refresh", "progress": { "mode": "determinate", "percent": 50, "current": 1, "total": 2 } }] },
-    { "id": "topic-paper-digest-nested-positive", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveTopicPaperDigestRequest", "valid": true, "value": { "args": [{ "topic_id": "topic:1", "paper_ref": "1:ITEM1", "digest_ref": { "paper_ref": "1:ITEM1", "locator": "fixture:digest:ITEM1", "payload_hash": "sha256:digest", "library_id": 1, "note_key": "NOTE0001" }, "include_representative_image": true }] } },
-    { "id": "topic-apply-recursive-positive", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest", "valid": true, "value": { "args": [{ "bundle": { "kind": "topic_synthesis", "operation": "create", "language": "zh-CN", "topic_id": "topic:1", "topic_definition": { "id": "topic:1", "title": "Topic One", "aliases": ["T1"] }, "topic_resolver": { "paper_refs": ["1:ITEM1"], "collection_key": [], "tag": { "and": ["field:ai"] }, "combine": "union" }, "resolved_paper_set": { "papers": [{ "paper_ref": "1:ITEM1", "title": "Paper", "digest_ref": { "paper_ref": "1:ITEM1", "payload_type": "digest-markdown", "path": "result/digest.md" } }] }, "artifact_metadata": { "runtime": "split-skill" } }, "assets": [{ "id": "result/digest.md", "mediaType": "text/markdown", "text": "# Digest" }] }] } },
-    { "id": "topic-list-projection-recursive-positive", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListTopicsResult", "valid": true, "value": { "topics": [{ "topic_id": "topic:1", "path_id": "topic-1", "title": "Topic One", "definition": "Definition", "language": "zh-CN", "operation": "create", "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "artifact_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "metadata_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "bundle_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "paper_count": 1, "updated_at": "2026-08-12T00:00:00Z", "topic_definition": { "id": "topic:1", "title": "Topic One" }, "topic_resolver": { "paper_refs": ["1:ITEM1"], "collection_key": [], "combine": "union" }, "resolved_paper_set": { "papers": [{ "paper_ref": "1:ITEM1" }] }, "projection": { "topicGraph": { "topic": { "topic_id": "topic:1", "title": "Topic One", "definition": "Definition", "artifact_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, "relations": { "schema_id": "synthesis.topic_graph_relation_proposals", "schema_version": "1.0.0", "proposals": [] } }, "concepts": { "schema_id": "synthesis.concept_cards_proposal", "schema_version": "1.0.0", "cards": [{ "label": "Model", "aliases": [], "concept_type": "method", "definition": "Definition", "topic_relevance": "Relevant" }] }, "interestMetadata": { "schema": "topic_interest_metadata.v1", "topic_id": "topic:1", "include_terms": ["model"], "must_have_terms": [], "methods": [], "exclude_terms": [], "seed_literature_item_ids": ["1:ITEM1"] }, "discovery": { "source_paper_refs": ["1:ITEM1"], "readiness": { "baseline_input_hash": "hash-1", "baseline_dependencies": { "paper_refs": ["1:ITEM1"], "paper_artifacts": { "1:ITEM1": { "digest": { "status": "available", "hash": "hash-2" } } }, "missing_artifacts": [] }, "current_input_hash": "hash-1", "current_dependencies": null, "baseline_initialized_at": "2026-08-12T00:00:00Z", "last_scanned_at": "2026-08-12T00:00:00Z" } }, "freshness": "fresh", "source_materials_status": "complete", "source_materials_percent": 100, "stale_reasons": [], "dirty_reasons": [], "missing_sections": [] }, "freshness": "fresh", "source_materials_status": "complete", "source_materials_percent": 100, "stale_reasons": [], "dirty_reasons": [], "missing_sections": [] }], "cursor": "", "next_cursor": "", "has_more": false, "returned": 1, "total": 1, "limit": 50, "diagnostics": { "count": 1, "total_count": 1, "source": "rust-topic-application" } } },
-    { "id": "topic-detail-recursive-positive", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult", "valid": true, "value": { "ok": true, "status": "ready", "topicId": "topic:1", "title": "Topic One", "source_papers": [{ "paper_ref": "1:ITEM1", "title": "Paper" }], "topic": { "id": "topic:1", "title": "Topic One" }, "summary": { "brief": "Brief" }, "taxonomy": { "axes": [{ "axis_type": "research_route", "nodes": [{ "id": "route:1", "title": "Route" }] }] }, "improvement_dimensions": { "summary": {}, "dimensions": [{ "id": "dimension:1", "title": "Efficiency", "source_paper_refs": ["1:ITEM1"] }] }, "claims": [{ "id": "claim:1", "text": "Claim", "source_paper_refs": ["1:ITEM1"] }], "timeline_events": { "summary": {}, "events": [{ "id": "event:1", "year": 2024, "description": "Published", "source_paper_refs": ["1:ITEM1"] }] }, "debates": [{ "title": "Debate", "current_judgment": "Open", "source_paper_refs": ["1:ITEM1"] }], "coverage": { "verdict": "partial", "caveats": ["small sample"] }, "statistics": { "paper_count": 1, "time_span": { "earliest": "2024", "latest": "2024" }, "route_coverage": { "routes": 1 } }, "synthesis_report": { "markdown": "# Report", "sections": ["Summary"] }, "future_directions": [{ "id": "future:1", "title": "Scaling", "direction_type": "method_limitation", "source_paper_refs": ["1:ITEM1"] }], "review_outline": { "topic_importance": "High", "writing_strategies": [], "recommended_strategy_id": "" }, "source_artifacts": { "resolver_manifest": { "path": "runtime/resolver.json", "hash": "sha256:resolver" } }, "artifact": { "topic": { "id": "topic:1", "title": "Topic One" }, "source_papers": [{ "paper_ref": "1:ITEM1" }], "diagnostics": [] }, "manifest": { "schema_id": "synthesis.topic_analysis_manifest", "schema_version": "1.0.0", "topic_id": "topic:1", "sections": {} }, "metadata": { "schema_id": "synthesis.topic_artifact_metadata", "schema_version": "1.0.0", "topic_id": "topic:1", "paper_count": 1 }, "pathId": "topic-1", "diagnostics": [] } },
-    { "id": "topic-resolver-alias-negative", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverRequest", "valid": false, "value": { "args": [{ "paperRefs": ["1:ITEM1"], "combine": "union", "cursor": 0, "limit": 25 }] } },
-    { "id": "workbench-progress-open-negative", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisBackgroundJobRowsResult", "valid": false, "value": [{ "job_id": "job:1", "source": "operation", "status": "running", "label": "Refresh", "progress": { "mode": "determinate", "percent": 50, "legacy": true } }] },
-    { "id": "topic-paper-digest-ref-open-negative", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveTopicPaperDigestRequest", "valid": false, "value": { "args": [{ "paper_ref": "1:ITEM1", "digest_ref": { "paper_ref": "1:ITEM1", "payload_hash": "sha256:digest", "legacy_hash": "old" }, "include_representative_image": false }] } },
-    { "id": "topic-apply-definition-open-negative", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest", "valid": false, "value": { "args": [{ "bundle": { "kind": "topic_synthesis", "operation": "create", "language": "zh-CN", "topic_definition": { "id": "topic:1", "title": "Topic One", "legacy_scope": {} } }, "assets": [] }] } },
-    { "id": "topic-list-projection-concept-open-negative", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListTopicsResult", "valid": false, "value": { "topics": [{ "topic_id": "topic:1", "path_id": "topic-1", "title": "Topic One", "definition": "Definition", "language": "zh-CN", "operation": "create", "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "artifact_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "metadata_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "bundle_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "paper_count": 0, "updated_at": "2026-08-12T00:00:00Z", "topic_definition": { "id": "topic:1", "title": "Topic One" }, "topic_resolver": { "paper_refs": [], "collection_key": [], "combine": "union" }, "resolved_paper_set": { "papers": [] }, "projection": { "concepts": { "cards": [{ "label": "Model", "aliases": [], "concept_type": "method", "definition": "Definition", "topic_relevance": "Relevant", "legacy": {} }] }, "freshness": "fresh", "source_materials_status": "complete", "source_materials_percent": 100, "stale_reasons": [], "dirty_reasons": [], "missing_sections": [] }, "freshness": "fresh", "source_materials_status": "complete", "source_materials_percent": 100, "stale_reasons": [], "dirty_reasons": [], "missing_sections": [] }], "cursor": "", "next_cursor": "", "has_more": false, "returned": 1, "total": 1, "limit": 50, "diagnostics": { "count": 1, "total_count": 1, "source": "rust-topic-application" } } },
-    { "id": "topic-detail-claim-open-negative", "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult", "valid": false, "value": { "ok": true, "status": "ready", "topicId": "topic:1", "title": "Topic One", "source_papers": [], "claims": [{ "id": "claim:1", "text": "Claim", "evidence": { "freeform": true } }], "diagnostics": [] } }
+    {
+      "id": "topic-resolver-nested-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "paper_refs": ["1:ITEM1"],
+            "collection_key": [],
+            "tag": { "and": ["field:ai"] },
+            "combine": "union",
+            "cursor": 0,
+            "limit": 25
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-jobs-nested-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisBackgroundJobRowsResult",
+      "valid": true,
+      "value": [
+        {
+          "job_id": "job:1",
+          "source": "operation",
+          "status": "running",
+          "label": "Refresh",
+          "progress": {
+            "mode": "determinate",
+            "percent": 50,
+            "current": 1,
+            "total": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "topic-paper-digest-nested-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveTopicPaperDigestRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "topic_id": "topic:1",
+            "paper_ref": "1:ITEM1",
+            "digest_ref": {
+              "paper_ref": "1:ITEM1",
+              "locator": "fixture:digest:ITEM1",
+              "payload_hash": "sha256:digest",
+              "library_id": 1,
+              "note_key": "NOTE0001"
+            },
+            "include_representative_image": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-apply-recursive-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "bundle": {
+              "kind": "topic_synthesis",
+              "operation": "create",
+              "language": "zh-CN",
+              "topic_id": "topic:1",
+              "topic_definition": {
+                "id": "topic:1",
+                "title": "Topic One",
+                "aliases": ["T1"]
+              },
+              "topic_resolver": {
+                "paper_refs": ["1:ITEM1"],
+                "collection_key": [],
+                "tag": { "and": ["field:ai"] },
+                "combine": "union"
+              },
+              "resolved_paper_set": {
+                "papers": [
+                  {
+                    "paper_ref": "1:ITEM1",
+                    "title": "Paper",
+                    "digest_ref": {
+                      "paper_ref": "1:ITEM1",
+                      "payload_type": "digest-markdown",
+                      "path": "result/digest.md"
+                    }
+                  }
+                ]
+              },
+              "artifact_metadata": {
+                "runtime": "split-skill",
+                "topic_id": "topic:1",
+                "update_reason": "initial synthesis",
+                "depends_on": {
+                  "papers": ["1:ITEM1"],
+                  "artifacts": ["digest-markdown"]
+                }
+              }
+            },
+            "assets": [
+              {
+                "id": "result/digest.md",
+                "mediaType": "text/markdown",
+                "text": "# Digest"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-list-projection-recursive-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListTopicsResult",
+      "valid": true,
+      "value": {
+        "topics": [
+          {
+            "topic_id": "topic:1",
+            "path_id": "topic-1",
+            "title": "Topic One",
+            "definition": "Definition",
+            "language": "zh-CN",
+            "operation": "create",
+            "manifest_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "artifact_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "metadata_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "bundle_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "paper_count": 1,
+            "updated_at": "2026-08-12T00:00:00Z",
+            "topic_definition": { "id": "topic:1", "title": "Topic One" },
+            "topic_resolver": {
+              "paper_refs": ["1:ITEM1"],
+              "collection_key": [],
+              "combine": "union"
+            },
+            "resolved_paper_set": { "papers": [{ "paper_ref": "1:ITEM1" }] },
+            "projection": {
+              "topicGraph": {
+                "topic": {
+                  "topic_id": "topic:1",
+                  "title": "Topic One",
+                  "definition": "Definition",
+                  "artifact_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "relations": {
+                  "schema_id": "synthesis.topic_graph_relation_proposals",
+                  "schema_version": "1.0.0",
+                  "proposals": []
+                }
+              },
+              "concepts": {
+                "schema_id": "synthesis.concept_cards_proposal",
+                "schema_version": "1.0.0",
+                "cards": [
+                  {
+                    "label": "Model",
+                    "aliases": [],
+                    "concept_type": "method",
+                    "definition": "Definition",
+                    "topic_relevance": "Relevant"
+                  }
+                ]
+              },
+              "interestMetadata": {
+                "schema": "topic_interest_metadata.v1",
+                "topic_id": "topic:1",
+                "include_terms": ["model"],
+                "must_have_terms": [],
+                "methods": [],
+                "exclude_terms": [],
+                "seed_literature_item_ids": ["1:ITEM1"]
+              },
+              "discovery": {
+                "source_paper_refs": ["1:ITEM1"],
+                "readiness": {
+                  "baseline_input_hash": "hash-1",
+                  "baseline_dependencies": {
+                    "paper_refs": ["1:ITEM1"],
+                    "paper_artifacts": {
+                      "1:ITEM1": {
+                        "digest": { "status": "available", "hash": "hash-2" }
+                      }
+                    },
+                    "missing_artifacts": []
+                  },
+                  "current_input_hash": "hash-1",
+                  "current_dependencies": null,
+                  "baseline_initialized_at": "2026-08-12T00:00:00Z",
+                  "last_scanned_at": "2026-08-12T00:00:00Z"
+                }
+              },
+              "freshness": "fresh",
+              "source_materials_status": "complete",
+              "source_materials_percent": 100,
+              "stale_reasons": [],
+              "dirty_reasons": [],
+              "missing_sections": []
+            },
+            "freshness": "fresh",
+            "source_materials_status": "complete",
+            "source_materials_percent": 100,
+            "stale_reasons": [],
+            "dirty_reasons": [],
+            "missing_sections": []
+          }
+        ],
+        "cursor": "",
+        "next_cursor": "",
+        "has_more": false,
+        "returned": 1,
+        "total": 1,
+        "limit": 50,
+        "diagnostics": {
+          "count": 1,
+          "total_count": 1,
+          "source": "rust-topic-application"
+        }
+      }
+    },
+    {
+      "id": "topic-detail-recursive-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "status": "ready",
+        "topicId": "topic:1",
+        "title": "Topic One",
+        "source_papers": [{ "paper_ref": "1:ITEM1", "title": "Paper" }],
+        "topic": { "id": "topic:1", "title": "Topic One" },
+        "summary": { "brief": "Brief" },
+        "taxonomy": {
+          "axes": [
+            {
+              "axis_type": "research_route",
+              "nodes": [{ "id": "route:1", "title": "Route" }]
+            }
+          ]
+        },
+        "improvement_dimensions": {
+          "summary": {},
+          "dimensions": [
+            {
+              "id": "dimension:1",
+              "title": "Efficiency",
+              "source_paper_refs": ["1:ITEM1"]
+            }
+          ]
+        },
+        "claims": [
+          { "id": "claim:1", "text": "Claim", "source_paper_refs": ["1:ITEM1"] }
+        ],
+        "timeline_events": {
+          "summary": {},
+          "events": [
+            {
+              "id": "event:1",
+              "year": 2024,
+              "description": "Published",
+              "source_paper_refs": ["1:ITEM1"]
+            }
+          ]
+        },
+        "debates": [
+          {
+            "title": "Debate",
+            "current_judgment": "Open",
+            "source_paper_refs": ["1:ITEM1"]
+          }
+        ],
+        "coverage": { "verdict": "partial", "caveats": ["small sample"] },
+        "statistics": {
+          "paper_count": 1,
+          "time_span": { "earliest": "2024", "latest": "2024" },
+          "route_coverage": { "routes": 1 }
+        },
+        "synthesis_report": { "markdown": "# Report", "sections": ["Summary"] },
+        "future_directions": [
+          {
+            "id": "future:1",
+            "title": "Scaling",
+            "direction_type": "method_limitation",
+            "source_paper_refs": ["1:ITEM1"]
+          }
+        ],
+        "review_outline": {
+          "topic_importance": "High",
+          "writing_strategies": [],
+          "recommended_strategy_id": ""
+        },
+        "source_artifacts": {
+          "resolver_manifest": {
+            "path": "runtime/resolver.json",
+            "hash": "sha256:resolver"
+          }
+        },
+        "artifact": {
+          "topic": { "id": "topic:1", "title": "Topic One" },
+          "source_papers": [{ "paper_ref": "1:ITEM1" }],
+          "diagnostics": []
+        },
+        "manifest": {
+          "schema_id": "synthesis.topic_analysis_manifest",
+          "schema_version": "1.0.0",
+          "topic_id": "topic:1",
+          "sections": {}
+        },
+        "metadata": {
+          "schema_id": "synthesis.topic_artifact_metadata",
+          "schema_version": "1.0.0",
+          "topic_id": "topic:1",
+          "paper_count": 1
+        },
+        "pathId": "topic-1",
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "topic-resolver-alias-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "paperRefs": ["1:ITEM1"],
+            "combine": "union",
+            "cursor": 0,
+            "limit": 25
+          }
+        ]
+      }
+    },
+    {
+      "id": "workbench-progress-open-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/GetSynthesisBackgroundJobRowsResult",
+      "valid": false,
+      "value": [
+        {
+          "job_id": "job:1",
+          "source": "operation",
+          "status": "running",
+          "label": "Refresh",
+          "progress": { "mode": "determinate", "percent": 50, "legacy": true }
+        }
+      ]
+    },
+    {
+      "id": "topic-paper-digest-ref-open-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveTopicPaperDigestRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "paper_ref": "1:ITEM1",
+            "digest_ref": {
+              "paper_ref": "1:ITEM1",
+              "payload_hash": "sha256:digest",
+              "legacy_hash": "old"
+            },
+            "include_representative_image": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-apply-definition-open-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ApplyTopicSynthesisResultRequest",
+      "valid": false,
+      "value": {
+        "args": [
+          {
+            "bundle": {
+              "kind": "topic_synthesis",
+              "operation": "create",
+              "language": "zh-CN",
+              "topic_definition": {
+                "id": "topic:1",
+                "title": "Topic One",
+                "legacy_scope": {}
+              }
+            },
+            "assets": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-list-projection-concept-open-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ListTopicsResult",
+      "valid": false,
+      "value": {
+        "topics": [
+          {
+            "topic_id": "topic:1",
+            "path_id": "topic-1",
+            "title": "Topic One",
+            "definition": "Definition",
+            "language": "zh-CN",
+            "operation": "create",
+            "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "artifact_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "metadata_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "bundle_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "paper_count": 0,
+            "updated_at": "2026-08-12T00:00:00Z",
+            "topic_definition": { "id": "topic:1", "title": "Topic One" },
+            "topic_resolver": {
+              "paper_refs": [],
+              "collection_key": [],
+              "combine": "union"
+            },
+            "resolved_paper_set": { "papers": [] },
+            "projection": {
+              "concepts": {
+                "cards": [
+                  {
+                    "label": "Model",
+                    "aliases": [],
+                    "concept_type": "method",
+                    "definition": "Definition",
+                    "topic_relevance": "Relevant",
+                    "legacy": {}
+                  }
+                ]
+              },
+              "freshness": "fresh",
+              "source_materials_status": "complete",
+              "source_materials_percent": 100,
+              "stale_reasons": [],
+              "dirty_reasons": [],
+              "missing_sections": []
+            },
+            "freshness": "fresh",
+            "source_materials_status": "complete",
+            "source_materials_percent": 100,
+            "stale_reasons": [],
+            "dirty_reasons": [],
+            "missing_sections": []
+          }
+        ],
+        "cursor": "",
+        "next_cursor": "",
+        "has_more": false,
+        "returned": 1,
+        "total": 1,
+        "limit": 50,
+        "diagnostics": {
+          "count": 1,
+          "total_count": 1,
+          "source": "rust-topic-application"
+        }
+      }
+    },
+    {
+      "id": "topic-detail-claim-open-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ReadTopicDetailResult",
+      "valid": false,
+      "value": {
+        "ok": true,
+        "status": "ready",
+        "topicId": "topic:1",
+        "title": "Topic One",
+        "source_papers": [],
+        "claims": [
+          { "id": "claim:1", "text": "Claim", "evidence": { "freeform": true } }
+        ],
+        "diagnostics": []
+      }
+    }
   ]
 }

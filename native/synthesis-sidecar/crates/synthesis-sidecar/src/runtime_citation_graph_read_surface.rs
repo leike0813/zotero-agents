@@ -404,6 +404,63 @@ fn public_edge(edge: &CitationEdgeRecord, visibility: &str) -> Value {
     })
 }
 
+pub(crate) fn project_review_graph(
+    nodes: Vec<CitationNodeRecord>,
+    edges: Vec<CitationEdgeRecord>,
+    paper_refs: &[String],
+) -> (Vec<Value>, Vec<Value>) {
+    let requested = paper_refs
+        .iter()
+        .flat_map(|paper_ref| {
+            let item_key = paper_ref.rsplit(':').next().unwrap_or_default();
+            [paper_ref.clone(), format!("zotero:item:{item_key}")]
+        })
+        .collect::<BTreeSet<_>>();
+    let mut edges = edges
+        .into_iter()
+        .filter(|edge| {
+            requested.contains(&edge.source_literature_item_id)
+                && requested.contains(&edge.target_literature_item_id)
+        })
+        .collect::<Vec<_>>();
+    edges.sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
+    edges.truncate(1000);
+    let mut nodes = nodes
+        .into_iter()
+        .filter(|node| requested.contains(&node.literature_item_id))
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.literature_item_id.cmp(&right.literature_item_id));
+    nodes.truncate(500);
+    let retained = nodes
+        .iter()
+        .map(|node| node.literature_item_id.clone())
+        .collect::<BTreeSet<_>>();
+    edges.retain(|edge| {
+        retained.contains(&edge.source_literature_item_id)
+            && retained.contains(&edge.target_literature_item_id)
+    });
+    let nodes = nodes
+        .into_iter()
+        .map(|record| {
+            public_node(&ProjectedNode {
+                display_tier: if record.has_zotero_binding {
+                    "library"
+                } else {
+                    "shared_external"
+                },
+                record,
+                external_degree: None,
+                visibility: "default",
+            })
+        })
+        .collect();
+    let edges = edges
+        .iter()
+        .map(|edge| public_edge(edge, "default"))
+        .collect();
+    (nodes, edges)
+}
+
 fn ui_node(node: &ProjectedNode, metrics: Option<&CitationLightMetricsRecord>) -> Value {
     let mut value = json!({
         "id":node.record.literature_item_id,

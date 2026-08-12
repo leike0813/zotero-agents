@@ -13,13 +13,17 @@ import {
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  rebuildSynthesisSidecarForwardResult,
   isSynthesisSidecarCapability,
   isSynthesisSidecarGeneralCapability,
   isSynthesisSidecarWorkerCapability,
   isSynthesisSidecarSystemCapability,
+  type SynthesisSidecarForwardResult,
+  type SynthesisSidecarHandshakePayload,
   type SynthesisSidecarHealth,
   type SynthesisSidecarLifecycleState,
   type SynthesisSidecarSuccess,
+  type SynthesisSidecarTransferResult,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 import {
   rebuildSynthesisWorkbenchOperationalChromeReadRequest,
@@ -27,10 +31,6 @@ import {
 } from "../../../packages/synthesis-contracts/src/workbench.js";
 import { readSynthesisWorkbenchOperationalChrome } from "../../../packages/synthesis-application/src/index.js";
 import { rebuildSynthesisSidecarTransferAction } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
-import {
-  toSynthesisJsonObject,
-  type SynthesisJsonObject,
-} from "../../../packages/synthesis-contracts/src/common.js";
 import { rebuildSynthesisProtocolCapabilityDto } from "../../../packages/synthesis-contracts/src/protocolSchema.js";
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
@@ -168,11 +168,11 @@ function writeJson(
   response.end(source);
 }
 
-function success(args: {
+function success<Data extends SynthesisSidecarForwardResult>(args: {
   requestId: string;
   serviceInstanceId: string;
-  data: SynthesisJsonObject;
-}): SynthesisSidecarSuccess {
+  data: Data;
+}): SynthesisSidecarSuccess<Data> {
   return {
     ok: true,
     requestId: args.requestId,
@@ -182,7 +182,7 @@ function success(args: {
   };
 }
 
-function strictHandshake(payload: SynthesisJsonObject) {
+function strictHandshake(payload: SynthesisSidecarHandshakePayload) {
   const keys = Object.keys(payload).sort();
   if (
     keys.length !== 4 ||
@@ -215,8 +215,13 @@ function strictHandshake(payload: SynthesisJsonObject) {
   };
 }
 
-function requireEmptyPayload(payload: SynthesisJsonObject) {
-  if (Object.keys(payload).length !== 0) {
+function requireEmptyPayload(payload: unknown) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    Object.keys(payload).length !== 0
+  ) {
     throw new SidecarRuntimeError({
       status: 400,
       code: "invalid_request",
@@ -686,7 +691,7 @@ export async function startSynthesisSidecarServer(
       if (call.capability === "compute.citation_graph_build_transfer") {
         try {
           const action = rebuildSynthesisSidecarTransferAction(call.payload);
-          let result: unknown;
+          let result: SynthesisSidecarTransferResult;
           switch (action.action) {
             case "begin":
               result = transferOwner.begin(
@@ -730,7 +735,10 @@ export async function startSynthesisSidecarServer(
             success({
               requestId: call.requestId,
               serviceInstanceId,
-              data: toSynthesisJsonObject(result, "transferResult"),
+              data: rebuildSynthesisSidecarForwardResult(
+                call.capability,
+                result,
+              ),
             }),
             {},
             {
@@ -773,7 +781,10 @@ export async function startSynthesisSidecarServer(
             success({
               requestId: call.requestId,
               serviceInstanceId,
-              data: toSynthesisJsonObject(result, "workbenchChromeResult"),
+              data: rebuildSynthesisSidecarForwardResult(
+                call.capability,
+                result,
+              ),
             }),
             {},
             {
@@ -805,9 +816,9 @@ export async function startSynthesisSidecarServer(
             success({
               requestId: call.requestId,
               serviceInstanceId,
-              data: toSynthesisJsonObject(
+              data: rebuildSynthesisSidecarForwardResult(
+                call.capability,
                 result,
-                "topicCanonicalInspectResult",
               ),
             }),
             {},
@@ -871,7 +882,10 @@ export async function startSynthesisSidecarServer(
             success({
               requestId: call.requestId,
               serviceInstanceId,
-              data: toSynthesisJsonObject(result, "computeResult"),
+              data: rebuildSynthesisSidecarForwardResult(
+                call.capability,
+                result,
+              ),
             }),
             {},
             {
@@ -934,7 +948,7 @@ export async function startSynthesisSidecarServer(
           success({
             requestId: call.requestId,
             serviceInstanceId,
-            data: {
+            data: rebuildSynthesisSidecarForwardResult(call.capability, {
               protocol: SYNTHESIS_SIDECAR_PROTOCOL,
               serviceVersion: config.serviceVersion,
               serviceInstanceId,
@@ -956,7 +970,7 @@ export async function startSynthesisSidecarServer(
               canonicalStore: canonicalStore.snapshot(),
               computePool: computePool.snapshot(),
               citationGraphTransfer: transferOwner.snapshot(),
-            },
+            }),
           }),
         );
         return;
@@ -970,10 +984,10 @@ export async function startSynthesisSidecarServer(
         success({
           requestId: call.requestId,
           serviceInstanceId,
-          data: {
+          data: rebuildSynthesisSidecarForwardResult(call.capability, {
             accepted: true,
             lifecycleState: "stopping",
-          },
+          }),
         }),
         { connection: "close" },
       );

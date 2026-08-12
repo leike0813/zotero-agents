@@ -23,11 +23,21 @@ import {
   rebuildSynthesisTopicApplyResult,
   rebuildSynthesisLiteratureDigestApplyRequest,
   rebuildSynthesisLiteratureDigestApplyResult,
+  rebuildSynthesisArtifactCapabilityResult,
+  rebuildSynthesisConceptCapabilityResult,
+  rebuildSynthesisDebugCapabilityResult,
+  rebuildSynthesisLibraryIndexResult,
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisReferenceCapabilityResult,
+  rebuildSynthesisTagCapabilityResult,
+  rebuildSynthesisTopicGraphCapabilityResult,
   rebuildSynthesisWorkflowTopicOptionsRequest,
   rebuildSynthesisWorkflowTopicOptionsResult,
   rebuildSynthesisWorkbenchPaperDigestReadRequest,
   rebuildSynthesisWorkbenchPaperDigestResult,
   rebuildSynthesisWorkbenchTopicDetailResult,
+  rebuildSynthesisWorkflowReviewRequest,
+  rebuildSynthesisWorkflowReviewResult,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -576,7 +586,9 @@ function createSyncTransportClient(
   ports: LegacySyncTransportPorts,
   operationPrefix: string,
 ): SynthesisSyncTransportClient {
-  const runCommand = <T extends SynthesisSyncCommandResult>(
+  const runCommand = <
+    T extends SynthesisSyncCommandResult | SynthesisPublicMaintenanceOperation,
+  >(
     port: (() => Promise<T>) | undefined,
     operation: string,
   ) =>
@@ -1400,17 +1412,23 @@ export function createSynthesisClientFromPort(
           legacy.queryConceptKb,
           "concepts.query",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisConceptCapabilityResult(
+              "client.queryConceptKb",
+              value,
+            ),
         );
       },
       async rebuildConceptKbIndex() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.rebuildConceptKbIndex,
-                "concepts.rebuildConceptKbIndex",
-              )(),
-            ) as SynthesisPublicMaintenanceOperation,
+        return runLegacy(async () =>
+          rebuildSynthesisConceptCapabilityResult(
+            "client.rebuildConceptKbIndex",
+            await requireLegacyPort(
+              legacy.rebuildConceptKbIndex,
+              "concepts.rebuildConceptKbIndex",
+            )(),
+          ),
         );
       },
       async updateConceptDisplayText(request) {
@@ -1421,9 +1439,10 @@ export function createSynthesisClientFromPort(
             legacy.updateConceptDisplayText,
             "concepts.updateConceptDisplayText",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisConceptCapabilityResult(
+            "client.updateConceptDisplayText",
             await port(normalizedRequest),
-          ) as SynthesisConceptCommandResult;
+          );
         });
       },
       async applyConceptReviewAction(request) {
@@ -1434,9 +1453,10 @@ export function createSynthesisClientFromPort(
             legacy.applyConceptReviewAction,
             "concepts.applyConceptReviewAction",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisConceptCapabilityResult(
+            "client.applyConceptReviewAction",
             await port(normalizedRequest),
-          ) as SynthesisConceptCommandResult;
+          );
         });
       },
       async deleteConceptEntries(request) {
@@ -1446,9 +1466,10 @@ export function createSynthesisClientFromPort(
             legacy.deleteConceptEntries,
             "concepts.deleteConceptEntries",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisConceptCapabilityResult(
+            "client.deleteConceptEntries",
             await port(normalizedRequest),
-          ) as SynthesisConceptCommandResult;
+          );
         });
       },
     },
@@ -1568,14 +1589,14 @@ export function createSynthesisClientFromPort(
     },
     topicGraph: {
       async rebuildTopicGraphIndex() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.rebuildTopicGraphIndex,
-                "topicGraph.rebuildTopicGraphIndex",
-              )(),
-            ) as SynthesisPublicMaintenanceOperation,
+        return runLegacy(async () =>
+          rebuildSynthesisTopicGraphCapabilityResult(
+            "client.rebuildTopicGraphIndex",
+            await requireLegacyPort(
+              legacy.rebuildTopicGraphIndex,
+              "topicGraph.rebuildTopicGraphIndex",
+            )(),
+          ),
         );
       },
       async acceptTopicGraphRelation(request) {
@@ -1586,9 +1607,10 @@ export function createSynthesisClientFromPort(
             legacy.acceptTopicGraphRelation,
             "topicGraph.acceptTopicGraphRelation",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisTopicGraphCapabilityResult(
+            "client.acceptTopicGraphRelation",
             await port(normalizedRequest),
-          ) as SynthesisTopicGraphCommandResult;
+          );
         });
       },
       async rejectTopicGraphRelation(request) {
@@ -1599,9 +1621,10 @@ export function createSynthesisClientFromPort(
             legacy.rejectTopicGraphRelation,
             "topicGraph.rejectTopicGraphRelation",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisTopicGraphCapabilityResult(
+            "client.rejectTopicGraphRelation",
             await port(normalizedRequest),
-          ) as SynthesisTopicGraphCommandResult;
+          );
         });
       },
       async applyTopicGraphReviewAction(request) {
@@ -1612,9 +1635,10 @@ export function createSynthesisClientFromPort(
             legacy.applyTopicGraphReviewAction,
             "topicGraph.applyTopicGraphReviewAction",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisTopicGraphCapabilityResult(
+            "client.applyTopicGraphReviewAction",
             await port(normalizedRequest),
-          ) as SynthesisTopicGraphCommandResult;
+          );
         });
       },
     },
@@ -1624,6 +1648,12 @@ export function createSynthesisClientFromPort(
           legacy.startReferenceSidecarRefresh,
           "references.startRefresh",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisReferenceCapabilityResult(
+              "client.startReferenceSidecarRefresh",
+              value,
+            ),
         ) as Promise<SynthesisPublicMaintenanceOperation>;
       },
       async getSidecarIndex(request = {}) {
@@ -1631,6 +1661,12 @@ export function createSynthesisClientFromPort(
           legacy.getReferenceSidecarIndex,
           "references.getSidecarIndex",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisReferenceCapabilityResult(
+              "client.getReferenceSidecarIndex",
+              value,
+            ),
         );
       },
       async rankExternalReferences(request = {}) {
@@ -1638,6 +1674,12 @@ export function createSynthesisClientFromPort(
           legacy.rankExternalReferences,
           "references.rankExternalReferences",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisReferenceCapabilityResult(
+              "client.rankExternalReferences",
+              value,
+            ),
         );
       },
       async getAttentionQueue(request = {}) {
@@ -1645,50 +1687,56 @@ export function createSynthesisClientFromPort(
           legacy.getAttentionQueue,
           "references.getAttentionQueue",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisReferenceCapabilityResult(
+              "client.getAttentionQueue",
+              value,
+            ),
         );
       },
       async refreshReferenceSidecarNow() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.refreshReferenceSidecarNow,
-                "references.refreshReferenceSidecarNow",
-              )(),
-            ) as SynthesisPublicMaintenanceOperation,
+        return runLegacy(async () =>
+          rebuildSynthesisReferenceCapabilityResult(
+            "client.refreshReferenceSidecarNow",
+            await requireLegacyPort(
+              legacy.refreshReferenceSidecarNow,
+              "references.refreshReferenceSidecarNow",
+            )(),
+          ),
         );
       },
       async retryReferenceSidecarRefresh() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.retryReferenceSidecarRefresh,
-                "references.retryReferenceSidecarRefresh",
-              )(),
-            ) as SynthesisPublicMaintenanceOperation,
+        return runLegacy(async () =>
+          rebuildSynthesisReferenceCapabilityResult(
+            "client.retryReferenceSidecarRefresh",
+            await requireLegacyPort(
+              legacy.retryReferenceSidecarRefresh,
+              "references.retryReferenceSidecarRefresh",
+            )(),
+          ),
         );
       },
       async runAdvancedReferenceMatchingNow() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.runAdvancedReferenceMatchingNow,
-                "references.runAdvancedReferenceMatchingNow",
-              )(),
-            ) as SynthesisPublicMaintenanceOperation,
+        return runLegacy(async () =>
+          rebuildSynthesisReferenceCapabilityResult(
+            "client.runAdvancedReferenceMatchingNow",
+            await requireLegacyPort(
+              legacy.runAdvancedReferenceMatchingNow,
+              "references.runAdvancedReferenceMatchingNow",
+            )(),
+          ),
         );
       },
       async retryAdvancedReferenceMatching() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.retryAdvancedReferenceMatching,
-                "references.retryAdvancedReferenceMatching",
-              )(),
-            ) as SynthesisPublicMaintenanceOperation,
+        return runLegacy(async () =>
+          rebuildSynthesisReferenceCapabilityResult(
+            "client.retryAdvancedReferenceMatching",
+            await requireLegacyPort(
+              legacy.retryAdvancedReferenceMatching,
+              "references.retryAdvancedReferenceMatching",
+            )(),
+          ),
         );
       },
       async applyCanonicalRevisionReviewAction(request) {
@@ -1699,9 +1747,10 @@ export function createSynthesisClientFromPort(
             legacy.applyCanonicalRevisionReviewAction,
             "references.applyCanonicalRevisionReviewAction",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.applyCanonicalRevisionReviewAction",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
       async applyReferenceMatchProposalAction(request) {
@@ -1712,9 +1761,10 @@ export function createSynthesisClientFromPort(
             legacy.applyReferenceMatchProposalAction,
             "references.applyReferenceMatchProposalAction",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.applyReferenceMatchProposalAction",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
       async applyReferenceMatchProposalActions(request) {
@@ -1725,9 +1775,10 @@ export function createSynthesisClientFromPort(
             legacy.applyReferenceMatchProposalActions,
             "references.applyReferenceMatchProposalActions",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.applyReferenceMatchProposalActions",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
       async mergeEffectiveCanonicalReference(request) {
@@ -1738,9 +1789,10 @@ export function createSynthesisClientFromPort(
             legacy.mergeEffectiveCanonicalReference,
             "references.mergeEffectiveCanonicalReference",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.mergeEffectiveCanonicalReference",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
       async applyCanonicalRevisionMergeRequests(request) {
@@ -1751,9 +1803,10 @@ export function createSynthesisClientFromPort(
             legacy.applyCanonicalRevisionMergeRequests,
             "references.applyCanonicalRevisionMergeRequests",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.applyCanonicalRevisionMergeRequests",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
       async updateCanonicalReferenceMetadata(request) {
@@ -1764,9 +1817,10 @@ export function createSynthesisClientFromPort(
             legacy.updateCanonicalReferenceMetadata,
             "references.updateCanonicalReferenceMetadata",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.updateCanonicalReferenceMetadata",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
       async archiveCanonicalReference(request) {
@@ -1777,9 +1831,10 @@ export function createSynthesisClientFromPort(
             legacy.archiveCanonicalReference,
             "references.archiveCanonicalReference",
           );
-          return normalizeLegacyObject(
+          return rebuildSynthesisReferenceCapabilityResult(
+            "client.archiveCanonicalReference",
             await port(normalizedRequest),
-          ) as SynthesisReferenceCommandResult;
+          );
         });
       },
     },
@@ -1923,11 +1978,15 @@ export function createSynthesisClientFromPort(
         ) as Promise<SynthesisPublicMaintenanceOperation>;
       },
       async getSchemas(request = {}) {
-        return runLegacyJsonPort(
-          legacy.getSchemas,
-          "maintenance.getSchemas",
-          request,
-        );
+        return rebuildSynthesisProtocolCapabilityDto({
+          capability: "client.getSchemas",
+          direction: "result",
+          value: await runLegacyJsonPort(
+            legacy.getSchemas,
+            "maintenance.getSchemas",
+            request,
+          ),
+        });
       },
       async resetDatabase(request) {
         try {
@@ -2014,17 +2073,23 @@ export function createSynthesisClientFromPort(
           legacy.getPaperArtifactManifest,
           "artifacts.getManifest",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisArtifactCapabilityResult(
+              "client.getPaperArtifactManifest",
+              value,
+            ),
         );
       },
       async readPaperArtifacts(request) {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.readPaperArtifacts,
-                "artifacts.readPaperArtifacts",
-              )(request),
-            ) as SynthesisPaperArtifactsResult,
+        return runLegacy(async () =>
+          rebuildSynthesisArtifactCapabilityResult(
+            "client.readPaperArtifacts",
+            await requireLegacyPort(
+              legacy.readPaperArtifacts,
+              "artifacts.readPaperArtifacts",
+            )(request),
+          ),
         );
       },
       async exportFiltered(request, delivery) {
@@ -2033,6 +2098,11 @@ export function createSynthesisClientFromPort(
           "artifacts.exportFiltered",
           request,
           delivery,
+          (value) =>
+            rebuildSynthesisArtifactCapabilityResult(
+              "client.exportFilteredPaperArtifacts",
+              value,
+            ),
         );
       },
       async resolveTopicPaperDigest(request) {
@@ -2052,14 +2122,14 @@ export function createSynthesisClientFromPort(
     },
     tags: {
       async initializeBuiltinTagPolicy() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.initializeBuiltinTagPolicy,
-                "tags.initializeBuiltinTagPolicy",
-              )(),
-            ) as SynthesisTagVocabularySnapshot,
+        return runLegacy(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.initializeBuiltinTagPolicy",
+            await requireLegacyPort(
+              legacy.initializeBuiltinTagPolicy,
+              "tags.initializeBuiltinTagPolicy",
+            )(),
+          ),
         );
       },
       async isBuiltinTagPolicyInitialized() {
@@ -2074,24 +2144,28 @@ export function createSynthesisClientFromPort(
               "Builtin tag policy initialization response is invalid",
             );
           }
-          return initialized;
+          return rebuildSynthesisTagCapabilityResult(
+            "client.isBuiltinTagPolicyInitialized",
+            initialized,
+          );
         });
       },
       async loadTagVocabulary() {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.loadTagVocabulary,
-                "tags.loadTagVocabulary",
-              )(),
-            ) as SynthesisTagVocabularySnapshot,
+        return runLegacy(async () =>
+          rebuildSynthesisTagCapabilityResult(
+            "client.loadTagVocabulary",
+            await requireLegacyPort(
+              legacy.loadTagVocabulary,
+              "tags.loadTagVocabulary",
+            )(),
+          ),
         );
       },
       async saveTagVocabulary(request) {
         return runLegacy(async () => {
           const normalized = normalizeTagVocabularySaveRequest(request);
-          return normalizeLegacyJson(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.saveTagVocabulary",
             await requireLegacyPort(
               legacy.saveTagVocabulary,
               "tags.saveTagVocabulary",
@@ -2101,7 +2175,8 @@ export function createSynthesisClientFromPort(
       },
       async validateTagVocabulary() {
         return runLegacy(async () =>
-          normalizeLegacyJson(
+          rebuildSynthesisTagCapabilityResult(
+            "client.validateTagVocabulary",
             await requireLegacyPort(
               legacy.validateTagVocabulary,
               "tags.validateTagVocabulary",
@@ -2111,14 +2186,13 @@ export function createSynthesisClientFromPort(
       },
       async rebuildTagVocabularyIndex() {
         return runLegacy(async () => {
-          const result = normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.rebuildTagVocabularyIndex",
             await requireLegacyPort(
               legacy.rebuildTagVocabularyIndex,
               "tags.rebuildTagVocabularyIndex",
             )(),
-            "Tag vocabulary rebuild",
           );
-          return result as SynthesisPublicMaintenanceOperation;
         });
       },
       async exportTagVocabularyForRegulator() {
@@ -2138,7 +2212,10 @@ export function createSynthesisClientFromPort(
               "Tag regulator vocabulary response is invalid",
             );
           }
-          return result.map((tag) => tag as string);
+          return rebuildSynthesisTagCapabilityResult(
+            "client.exportTagVocabularyForRegulator",
+            result,
+          );
         });
       },
       async listStagedTagSuggestions() {
@@ -2155,13 +2232,17 @@ export function createSynthesisClientFromPort(
               "Staged tag suggestion response is invalid",
             );
           }
-          return result as SynthesisTagStagedSuggestion[];
+          return rebuildSynthesisTagCapabilityResult(
+            "client.listStagedTagSuggestions",
+            result,
+          );
         });
       },
       async stageTagSuggestions(request) {
         return runLegacy(async () => {
           const normalized = normalizeTagSuggestionStageRequest(request);
-          return normalizeLegacyJson(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.stageTagSuggestions",
             await requireLegacyPort(
               legacy.stageTagSuggestions,
               "tags.stageTagSuggestions",
@@ -2176,10 +2257,10 @@ export function createSynthesisClientFromPort(
             legacy.updateStagedTagSuggestion,
             "tags.updateStagedTagSuggestion",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.updateStagedTagSuggestion",
             await port(normalized),
-            "Staged Tag update",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async updateTagVocabularyEntry(request) {
@@ -2189,10 +2270,10 @@ export function createSynthesisClientFromPort(
             legacy.updateTagVocabularyEntry,
             "tags.updateTagVocabularyEntry",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.updateTagVocabularyEntry",
             await port(normalized),
-            "Tag Vocabulary entry update",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async deleteTagVocabularyEntry(request) {
@@ -2202,10 +2283,10 @@ export function createSynthesisClientFromPort(
             legacy.deleteTagVocabularyEntry,
             "tags.deleteTagVocabularyEntry",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.deleteTagVocabularyEntry",
             await port(normalized),
-            "Tag Vocabulary entry delete",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async promoteStagedTagSuggestions(request) {
@@ -2215,10 +2296,10 @@ export function createSynthesisClientFromPort(
             legacy.promoteStagedTagSuggestions,
             "tags.promoteStagedTagSuggestions",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.promoteStagedTagSuggestions",
             await port(normalized),
-            "Staged Tag promotion",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async discardStagedTagSuggestions(request) {
@@ -2228,20 +2309,20 @@ export function createSynthesisClientFromPort(
             legacy.discardStagedTagSuggestions,
             "tags.discardStagedTagSuggestions",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.discardStagedTagSuggestions",
             await port(normalized),
-            "Staged Tag discard",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async clearStagedTagSuggestions() {
         return runLegacy(async () =>
-          normalizeLegacyResultObject(
+          rebuildSynthesisTagCapabilityResult(
+            "client.clearStagedTagSuggestions",
             await requireLegacyPort(
               legacy.clearStagedTagSuggestions,
               "tags.clearStagedTagSuggestions",
             )(),
-            "Staged Tag clear",
           ),
         );
       },
@@ -2252,10 +2333,10 @@ export function createSynthesisClientFromPort(
             legacy.previewTagVocabularyImport,
             "tags.previewTagVocabularyImport",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.previewTagVocabularyImport",
             await port(normalized),
-            "Tag vocabulary import preview",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async applyTagVocabularyImport(request) {
@@ -2265,15 +2346,16 @@ export function createSynthesisClientFromPort(
             legacy.applyTagVocabularyImport,
             "tags.applyTagVocabularyImport",
           );
-          return normalizeLegacyResultObject(
+          return rebuildSynthesisTagCapabilityResult(
+            "client.applyTagVocabularyImport",
             await port(normalized),
-            "Tag vocabulary import apply",
-          ) as SynthesisTagCommandResult;
+          );
         });
       },
       async replaceTagAuditRecords(request) {
         return runLegacy(async () =>
-          normalizeLegacyObject(
+          rebuildSynthesisTagCapabilityResult(
+            "client.replaceTagAuditRecords",
             await requireLegacyPort(
               legacy.replaceTagAuditRecords,
               "tags.replaceTagAuditRecords",
@@ -2283,11 +2365,14 @@ export function createSynthesisClientFromPort(
       },
       async clearTagAuditRecord(request) {
         return runLegacy(async () => {
-          await requireLegacyPort(
+          const result = await requireLegacyPort(
             legacy.clearTagAuditRecord,
             "tags.clearTagAuditRecord",
           )(request);
-          return { ok: true as const };
+          return rebuildSynthesisTagCapabilityResult(
+            "client.clearTagAuditRecord",
+            result ?? { ok: true },
+          );
         });
       },
     },
@@ -2297,18 +2382,20 @@ export function createSynthesisClientFromPort(
           legacy.getLibraryIndex,
           "libraryIndex.getPage",
           request,
+          undefined,
+          rebuildSynthesisLibraryIndexResult,
         );
       },
     },
     workflowReview: {
-      async getInput(request = {}) {
+      async getInput(request) {
+        const normalized = rebuildSynthesisWorkflowReviewRequest(request);
         return runLegacyJsonPort(
           legacy.getReviewInput,
           "workflowReview.getInput",
-          {
-            cursor: typeof request.cursor === "string" ? request.cursor : "0",
-            limit: typeof request.limit === "number" ? request.limit : 25,
-          },
+          normalized,
+          undefined,
+          rebuildSynthesisWorkflowReviewResult,
         );
       },
     },
@@ -2318,6 +2405,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisSnapshot,
           "debug.snapshot",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisSnapshot",
+              value,
+            ),
         );
       },
       async listCache(request = {}) {
@@ -2325,6 +2418,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisCacheList,
           "debug.listCache",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisCacheList",
+              value,
+            ),
         );
       },
       async listOperations(request = {}) {
@@ -2332,6 +2431,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisOperationsList,
           "debug.listOperations",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisOperationsList",
+              value,
+            ),
         );
       },
       async listProfiler(request = {}) {
@@ -2339,6 +2444,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisProfilerList,
           "debug.listProfiler",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisProfilerList",
+              value,
+            ),
         );
       },
       async inspectPaper(request) {
@@ -2346,6 +2457,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisPaperInspect,
           "debug.inspectPaper",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisPaperInspect",
+              value,
+            ),
         );
       },
       async inspectTopic(request) {
@@ -2353,6 +2470,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisTopicInspect,
           "debug.inspectTopic",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisTopicInspect",
+              value,
+            ),
         );
       },
       async diff(request = {}) {
@@ -2360,6 +2483,12 @@ export function createSynthesisClientFromPort(
           legacy.debugSynthesisDiff,
           "debug.diff",
           request,
+          undefined,
+          (value) =>
+            rebuildSynthesisDebugCapabilityResult(
+              "client.debugSynthesisDiff",
+              value,
+            ),
         );
       },
       async cleanInstallReset(request = {}) {

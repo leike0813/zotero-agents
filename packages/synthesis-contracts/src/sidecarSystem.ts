@@ -23,7 +23,13 @@ import {
   type SynthesisSidecarRuntimeTarget,
   type SynthesisSidecarRuntimeTargetTriple,
 } from "./sidecarRuntimeBundle.js";
-
+import { rebuildSynthesisProtocolCapabilityDto } from "./protocolSchema.js";
+import type {
+  SynthesisSidecarTransferAction,
+  SynthesisSidecarTransferManifest,
+  SynthesisSidecarTransferPage,
+  SynthesisSidecarTransferStatus,
+} from "./sidecarTransfer.js";
 export { rebuildSynthesisTopicCanonicalStoreSnapshot };
 export type { SynthesisTopicCanonicalStoreSnapshot };
 
@@ -288,6 +294,177 @@ export type SynthesisSidecarCapability =
   (typeof SYNTHESIS_SIDECAR_CAPABILITIES)[number];
 
 export type SynthesisSidecarLifecycleState = "starting" | "ready" | "stopping";
+
+type SynthesisSidecarGraphNodeKind =
+  | "library_paper"
+  | "external_reference"
+  | "unresolved_reference";
+
+type SynthesisSidecarGraphLayoutRequest = {
+  graphHash: string;
+  algorithm: "force" | "radial" | "components";
+  nodes: Array<{
+    nodeId: string;
+    kind: SynthesisSidecarGraphNodeKind;
+    title?: string;
+    year?: string;
+    initialX: number;
+    initialY: number;
+  }>;
+  edges: Array<{ edgeId: string; source: string; target: string }>;
+};
+
+type SynthesisSidecarGraphLayoutResult = {
+  graphHash: string;
+  algorithm: "force" | "radial" | "components";
+  layoutEngine: "forceatlas2-rust" | "radial-rust" | "components-rust";
+  layoutVersion: 2;
+  params: Record<string, number | string>;
+  nodes: Array<{ nodeId: string; x: number; y: number }>;
+};
+
+type SynthesisSidecarGraphMetricsRequest = {
+  graphHash: string;
+  nodes: Array<{
+    nodeId: string;
+    kind: SynthesisSidecarGraphNodeKind;
+    libraryId?: number;
+    itemKey?: string;
+    title?: string;
+    year?: string;
+  }>;
+  edges: Array<{
+    edgeId: string;
+    source: string;
+    target: string;
+    mentionCount: number;
+  }>;
+};
+
+type SynthesisSidecarGraphMetricsResult = {
+  graphHash: string;
+  metricsVersion: 2;
+  params: {
+    pagerankDamping: number;
+    pagerankIterations: number;
+    foundationFormula: string;
+    frontierFormula: string;
+  };
+  graphYear: number | null;
+  libraryNodeMetrics: Array<{
+    nodeId: string;
+    paperRef?: string;
+    itemKey?: string;
+    title?: string;
+    year?: string;
+    internalInDegree: number;
+    internalOutDegree: number;
+    externalReferenceCount: number;
+    unresolvedReferenceCount: number;
+    internalPagerank: number;
+    componentId: string;
+    componentSize: number;
+    isIsolated: boolean;
+    ageNorm: number;
+    recencyNorm: number;
+    inDegreeNorm: number;
+    outDegreeNorm: number;
+    pagerankNorm: number;
+    foundationScore: number;
+    frontierScore: number;
+    synthesisRoleHints: string[];
+  }>;
+  diagnostics: {
+    libraryNodeCount: number;
+    externalReferenceCount: number;
+    unresolvedReferenceCount: number;
+    componentCount: number;
+    isolatedLibraryNodeCount: number;
+    missingYearCount: number;
+  };
+};
+
+type SynthesisSidecarGraphBuildRequest = {
+  contractVersion: "synthesis-citation-graph-build.v1";
+  scope: { kind: "full" | "source_slice"; sourceIds: string[] };
+  rolePriority: string[];
+  libraryNodes: Array<{
+    nodeId: string;
+    title?: string;
+    year?: string;
+    authors: string[];
+    aliases: string[];
+  }>;
+  references: Array<{
+    referenceId: string;
+    edgeId: string;
+    sourceId: string;
+    sourceRef?: string;
+    targetId: string;
+    targetKind: SynthesisSidecarGraphNodeKind;
+    targetTitle?: string;
+    targetYear?: string;
+    targetAuthors: string[];
+    targetAliases: string[];
+    roles: string[];
+    weight: number;
+  }>;
+};
+
+type SynthesisSidecarGraphBuildOwnership = {
+  sourceId: string;
+  edgeId: string;
+  referenceId: string;
+  targetId: string;
+  status: "accepted" | "unbound";
+};
+
+type SynthesisSidecarGraphBuildResult = {
+  contractVersion: "synthesis-citation-graph-build.v1";
+  scope: SynthesisSidecarGraphBuildRequest["scope"];
+  nodes: Array<{
+    nodeId: string;
+    kind: SynthesisSidecarGraphNodeKind;
+    title?: string;
+    year?: string;
+    authors: string[];
+    aliases: string[];
+  }>;
+  resolvedEdges: Array<{
+    edgeId: string;
+    referenceId: string;
+    sourceId: string;
+    targetId: string;
+    status: "accepted" | "unbound";
+    roles: string[];
+    weight: number;
+  }>;
+  aggregateEdges: Array<{
+    sourceId: string;
+    targetId: string;
+    mentionCount: number;
+    primaryRole: string;
+    auxRoles: Array<{ role: string; count: number }>;
+    roleEvidence: Array<{ role: string; count: number }>;
+    sourceRefs: string[];
+  }>;
+  sourceOwnership: SynthesisSidecarGraphBuildOwnership[];
+  incomingGroups: SynthesisSidecarGraphBuildOwnership[];
+  lightMetrics: Array<{
+    nodeId: string;
+    outgoingCount: number;
+    incomingCount: number;
+    localDegree: number;
+    matchedOutgoingCount: number;
+    unresolvedOutgoingCount: number;
+    ambiguousOutgoingCount: 0;
+  }>;
+  diagnostics: {
+    nodeCounts: Record<SynthesisSidecarGraphNodeKind, number>;
+    referenceCount: number;
+    aggregateEdgeCount: number;
+  };
+};
 export type SynthesisSidecarComputePoolState =
   | "idle"
   | "busy"
@@ -309,14 +486,125 @@ export type SynthesisSidecarRepositorySnapshot = {
   repositoryId: string;
 };
 
-export type SynthesisSidecarCallRequest = {
+export type SynthesisSidecarCanonicalInspectResult = {
+  status: "absent" | "ready" | "invalid";
+  topicId: string;
+  pathId: string;
+  manifestHash: string | null;
+  artifactHash: string | null;
+  metadataHash: string | null;
+  sections: Array<{ filename: string; sha256: string; bytes: number }>;
+  diagnostics: Array<
+    | "topic_current_missing_file"
+    | "unknown_current_entry"
+    | "symlink_forbidden"
+    | "invalid_json"
+    | "snapshot_invalid"
+    | "hash_mismatch"
+    | "duplicate_section_filename"
+    | "path_identity_mismatch"
+  >;
+};
+
+export type SynthesisSidecarTransferResult =
+  | SynthesisSidecarTransferStatus
+  | SynthesisSidecarTransferManifest
+  | SynthesisSidecarTransferPage
+  | { canceled: true };
+
+export interface SynthesisSidecarForwardContractMap {
+  "system.handshake": {
+    request: SynthesisSidecarHandshakePayload;
+    result: SynthesisSidecarHandshakeResult;
+  };
+  "system.shutdown": {
+    request: Record<string, never>;
+    result: SynthesisSidecarShutdownResult;
+  };
+  "workbench.chrome.read": {
+    request: Record<string, never>;
+    result: {
+      maintenance: {
+        cacheReadiness: Array<{
+          cacheKey: "reference-sidecar:library" | "citation-graph:library";
+          cacheKind: "reference-sidecar" | "citation_graph";
+          status: "missing" | "ready" | "stale" | "refreshing" | "failed";
+          refreshedAt?: string;
+          updatedAt?: string;
+          staleReason?: string;
+        }>;
+        backgroundJobs: Array<{
+          job_id: string;
+          source:
+            | "workbench"
+            | "operation"
+            | "reference_sidecar_refresh"
+            | "citation_graph_cache_rebuild"
+            | "citation_graph_layout"
+            | "webdav_sync"
+            | "canonical_maintenance";
+          status: "submitted" | "queued" | "running" | "waiting" | "failed";
+          label: string;
+          detail?: string;
+          updated_at?: string;
+          progress:
+            | { mode: "indeterminate"; label?: string }
+            | {
+                mode: "determinate";
+                percent: number;
+                current?: number;
+                total?: number;
+                label?: string;
+              };
+        }>;
+      };
+    };
+  };
+  "topics.canonical.inspect": {
+    request: { topicId: string };
+    result: SynthesisSidecarCanonicalInspectResult;
+  };
+  "transfer.content": {
+    request: SynthesisSidecarTransferAction;
+    result: SynthesisSidecarTransferResult;
+  };
+  "compute.citation_graph_layout": {
+    request: SynthesisSidecarGraphLayoutRequest;
+    result: SynthesisSidecarGraphLayoutResult;
+  };
+  "compute.citation_graph_metrics": {
+    request: SynthesisSidecarGraphMetricsRequest;
+    result: SynthesisSidecarGraphMetricsResult;
+  };
+  "compute.citation_graph_build": {
+    request: SynthesisSidecarGraphBuildRequest;
+    result: SynthesisSidecarGraphBuildResult;
+  };
+  "compute.citation_graph_build_transfer": {
+    request: SynthesisSidecarTransferAction;
+    result: SynthesisSidecarTransferResult;
+  };
+}
+
+export type SynthesisSidecarForwardRequest =
+  SynthesisSidecarForwardContractMap[keyof SynthesisSidecarForwardContractMap]["request"];
+export type SynthesisSidecarForwardResult =
+  SynthesisSidecarForwardContractMap[keyof SynthesisSidecarForwardContractMap]["result"];
+
+type SynthesisSidecarCallRequestFor<
+  Capability extends keyof SynthesisSidecarForwardContractMap,
+> = {
   protocol: string;
   requestId: string;
   profileId: string;
-  capability: string;
-  payload: SynthesisJsonObject;
+  capability: Capability;
+  payload: SynthesisSidecarForwardContractMap[Capability]["request"];
   trace?: SynthesisSidecarTraceContext;
 };
+
+export type SynthesisSidecarCallRequest = {
+  [Capability in keyof SynthesisSidecarForwardContractMap]: SynthesisSidecarCallRequestFor<Capability>;
+}[keyof SynthesisSidecarForwardContractMap];
 
 export type SynthesisSidecarHealth = {
   status: "ok";
@@ -417,19 +705,43 @@ export const SYNTHESIS_SIDECAR_ERROR_CODES = [
 export type SynthesisSidecarErrorCode =
   (typeof SYNTHESIS_SIDECAR_ERROR_CODES)[number];
 
+export type SynthesisSidecarErrorDetails = {
+  limit?: number;
+  limitKind?: "depth" | "nodes" | "string";
+  maxBytes?: number;
+  maxDepth?: number;
+  maxNodes?: number;
+  maxLength?: number;
+  expectedProtocol?: typeof SYNTHESIS_SIDECAR_PROTOCOL;
+  expectedSchemaVersion?: string;
+  capability?: SynthesisSidecarCapability;
+  configCode?: string;
+  field?: string;
+};
+
 export type SynthesisSidecarError = {
   code: SynthesisSidecarErrorCode;
   message: string;
   retryable: boolean;
-  details: SynthesisJsonObject;
+  details: SynthesisSidecarErrorDetails;
 };
 
-export type SynthesisSidecarSuccess = {
+export type SynthesisSidecarDiagnostic = {
+  code: string;
+  severity: "info" | "warning" | "error";
+  scope: string;
+  field?: string;
+  operationId?: string;
+};
+
+export type SynthesisSidecarSuccess<
+  Data extends SynthesisSidecarForwardResult = SynthesisSidecarForwardResult,
+> = {
   ok: true;
   requestId: string;
   serviceInstanceId: string;
-  data: SynthesisJsonObject;
-  diagnostics: SynthesisJsonObject[];
+  data: Data;
+  diagnostics: SynthesisSidecarDiagnostic[];
 };
 
 export type SynthesisSidecarFailure = {
@@ -442,6 +754,19 @@ export type SynthesisSidecarFailure = {
 export type SynthesisSidecarResponse =
   | SynthesisSidecarSuccess
   | SynthesisSidecarFailure;
+
+export function rebuildSynthesisSidecarForwardResult<
+  Capability extends keyof SynthesisSidecarForwardContractMap,
+>(
+  capability: Capability,
+  value: unknown,
+): SynthesisSidecarForwardContractMap[Capability]["result"] {
+  return rebuildSynthesisProtocolCapabilityDto({
+    capability,
+    direction: "result",
+    value,
+  });
+}
 
 function requireBoundedString(
   value: unknown,
@@ -487,6 +812,20 @@ export function rebuildSynthesisSidecarCallRequest(
       { location: "sidecarCallRequest" },
     );
   }
+  const capability = requireBoundedString(
+    json.capability,
+    "capability",
+    SYNTHESIS_SIDECAR_LIMITS.capabilityLength,
+  );
+  if (!isSynthesisSidecarCapability(capability)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "capability is unavailable",
+      {
+        capability,
+      },
+    );
+  }
   return {
     protocol: requireBoundedString(json.protocol, "protocol", 64),
     requestId: requireBoundedString(
@@ -499,16 +838,16 @@ export function rebuildSynthesisSidecarCallRequest(
       "profileId",
       SYNTHESIS_SIDECAR_LIMITS.profileIdLength,
     ),
-    capability: requireBoundedString(
-      json.capability,
-      "capability",
-      SYNTHESIS_SIDECAR_LIMITS.capabilityLength,
-    ),
-    payload: toSynthesisJsonObject(json.payload, "payload"),
+    capability,
+    payload: rebuildSynthesisProtocolCapabilityDto({
+      capability,
+      direction: "request",
+      value: json.payload,
+    }),
     ...(json.trace === undefined
       ? {}
       : { trace: rebuildSynthesisSidecarTraceContext(json.trace) }),
-  };
+  } as SynthesisSidecarCallRequest;
 }
 
 export function isSynthesisSidecarSystemCapability(

@@ -1,6 +1,7 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
     TopicDetailRequest, TopicDetailResult, TopicDiscoveryHintRequest, TopicFindRequest,
@@ -16,7 +17,7 @@ use synthesis_repository::{
 };
 
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_reference_canonical::LiteratureDigestApplyRequest;
+use crate::runtime_reference_canonical::{LiteratureDigestApplyRequest, ReferenceIndexRequest};
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
@@ -35,6 +36,391 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     } else {
         Err("invalid_request".into())
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkflowReviewRequest {
+    topic_id: String,
+    max_graph_nodes: Option<usize>,
+    max_graph_edges: Option<usize>,
+    max_chars: Option<usize>,
+    include_paper_artifacts: Option<bool>,
+}
+
+fn review_bound(value: Option<usize>, default: usize, maximum: usize) -> Result<usize, String> {
+    let value = value.unwrap_or(default);
+    if value == 0 || value > maximum {
+        Err("invalid_request".into())
+    } else {
+        Ok(value)
+    }
+}
+
+fn sanitize_review_artifact(value: Value) -> Value {
+    match value {
+        Value::Array(values) => {
+            Value::Array(values.into_iter().map(sanitize_review_artifact).collect())
+        }
+        Value::Object(values) => Value::Object(
+            values
+                .into_iter()
+                .filter(|(key, _)| key != "digest" && key != "digest_markdown")
+                .map(|(key, value)| (key, sanitize_review_artifact(value)))
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
+fn review_timeline(value: &Value) -> Value {
+    match value {
+        Value::Object(_) => value.clone(),
+        Value::Array(values) => json!({"summary":{},"events":values}),
+        _ => json!({"summary":{},"events":[]}),
+    }
+}
+
+fn review_improvement_dimensions(value: &Value) -> Value {
+    match value {
+        Value::Object(_) => value.clone(),
+        Value::Array(values) => json!({"summary":{},"dimensions":values}),
+        _ => json!({"summary":{},"dimensions":[]}),
+    }
+}
+
+fn review_registry_rows(
+    apps: &ProductionApplications,
+    paper_refs: &[String],
+) -> Result<Vec<Value>, String> {
+    let mut rows = Vec::new();
+    for source_refs in paper_refs.chunks(250) {
+        let mut cursor = 0usize;
+        loop {
+            let page = apps
+                .reference_canonical
+                .sidecar_index(&ReferenceIndexRequest {
+                    cursor: Some(cursor.to_string()),
+                    limit: Some(100),
+                    include_references: Some(false),
+                    source_refs: Some(source_refs.to_vec()),
+                })?;
+            let page_rows = page
+                .get("rows")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "production_projection_invalid".to_owned())?;
+            for row in page_rows {
+                let paper_ref = row["paper_ref"].as_str().unwrap_or_default();
+                if paper_ref.is_empty() {
+                    return Err("production_projection_invalid".into());
+                }
+                let coverage = match row["artifactCoverage"].as_str() {
+                    Some("complete" | "partial" | "missing") => row["artifactCoverage"].clone(),
+                    _ => json!("missing"),
+                };
+                let missing_artifacts = row["missing_artifacts"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                rows.push(json!({
+                    "paper_ref":paper_ref,
+                    "title":row["title"].as_str().filter(|value| !value.is_empty()).unwrap_or(paper_ref),
+                    "artifactCoverage":coverage,
+                    "missing_artifacts":missing_artifacts,
+                }));
+            }
+            if !page["has_more"].as_bool().unwrap_or(false) {
+                break;
+            }
+            cursor += page_rows.len();
+            if page_rows.is_empty() {
+                return Err("production_projection_invalid".into());
+            }
+        }
+    }
+    rows.sort_by(|left, right| left["paper_ref"].as_str().cmp(&right["paper_ref"].as_str()));
+    Ok(rows)
+}
+
+fn workflow_review_input(
+    apps: &ProductionApplications,
+    request: WorkflowReviewRequest,
+) -> Result<Value, String> {
+    if request.topic_id.trim().is_empty() {
+        return Err("invalid_request".into());
+    }
+    let max_graph_nodes = review_bound(request.max_graph_nodes, 500, 1000)?;
+    let max_graph_edges = review_bound(request.max_graph_edges, 1000, 2000)?;
+    let max_chars = review_bound(request.max_chars, 50_000, 200_000)?;
+    let TopicDetailResult::Ready {
+        topic, snapshot, ..
+    } = apps.topics.detail(TopicDetailRequest {
+        topic_id: request.topic_id.clone(),
+    })?
+    else {
+        return Err("topic_not_found".into());
+    };
+    let artifact = sanitize_review_artifact(snapshot.artifact.clone());
+    let artifact_object = artifact
+        .as_object()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let report = artifact_object
+        .get("synthesis_report")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    let markdown = report
+        .get("body")
+        .or_else(|| report.get("markdown"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "production_projection_invalid".to_owned())?
+        .to_owned();
+    let mut resolved_papers = topic
+        .resolved_paper_set
+        .papers
+        .iter()
+        .filter_map(|paper| {
+            let paper_ref = paper.paper_ref.trim();
+            if paper_ref.is_empty() {
+                return None;
+            }
+            let match_reasons = paper
+                .match_reasons
+                .iter()
+                .flatten()
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            Some((paper_ref.to_owned(), match_reasons))
+        })
+        .collect::<Vec<_>>();
+    resolved_papers.sort_by(|left, right| left.0.cmp(&right.0));
+    if resolved_papers.is_empty() {
+        return Err("production_projection_invalid".into());
+    }
+    let paper_refs = resolved_papers
+        .iter()
+        .map(|paper| paper.0.clone())
+        .collect::<Vec<_>>();
+    let resolved_papers = resolved_papers
+        .into_iter()
+        .map(|(paper_ref, match_reasons)| {
+            json!({"paper_ref":paper_ref,"match_reasons":match_reasons})
+        })
+        .collect::<Vec<_>>();
+    let registry_rows = review_registry_rows(apps, &paper_refs)?;
+    let missing_diagnostics = registry_rows
+        .iter()
+        .flat_map(|row| {
+            row["missing_artifacts"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|artifact_type| artifact_type.as_str().map(str::to_owned))
+                .map(|artifact_type| {
+                    let paper_ref = row["paper_ref"].as_str().unwrap_or_default();
+                    json!({
+                        "paper_ref":paper_ref,
+                        "artifact_type":artifact_type,
+                        "severity":"warning",
+                        "message":format!("{artifact_type} is missing for {paper_ref}"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let (graph_hash, graph_nodes, graph_edges) = {
+        let owner = apps.repository.owner();
+        let repository = owner
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        let graph_hash = repository
+            .get_citation_graph_application_state()?
+            .map(|state| state.graph_hash)
+            .unwrap_or(
+                synthesis_protocol::canonical_sha256(&json!({
+                    "nodes":[],
+                    "edges":[],
+                }))
+                .map_err(|_| "production_projection_invalid".to_owned())?,
+            );
+        let (nodes, edges) = crate::runtime_citation_graph_read_surface::project_review_graph(
+            repository.list_citation_nodes()?,
+            repository.list_citation_edges()?,
+            &paper_refs,
+        );
+        (graph_hash, nodes, edges)
+    };
+    let stored_metadata = snapshot.metadata.clone();
+    let stored_metadata_data = stored_metadata.get("data").and_then(Value::as_object);
+    let topic_metadata = stored_metadata_data
+        .and_then(|data| data.get("artifact_metadata"))
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let timeline = artifact_object
+        .get("timeline_events")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!(""));
+    let mut review_manifest = snapshot.manifest.clone();
+    if let Some(manifest) = review_manifest.as_object_mut() {
+        manifest.remove("artifact_hash");
+        manifest.remove("metadata_hash");
+        manifest.remove("section_hashes");
+    }
+    let manifest_hash = synthesis_protocol::canonical_sha256(&review_manifest)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
+    let artifact_hash = synthesis_protocol::canonical_sha256(&artifact)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
+    let section_hashes = snapshot
+        .sections
+        .iter()
+        .map(|(name, value)| {
+            synthesis_protocol::canonical_sha256(value)
+                .map(|hash| (name.clone(), hash))
+                .map_err(|_| "production_projection_invalid".to_owned())
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let mut canonical_metadata = json!({
+        "topic_id":request.topic_id.clone(),
+        "title":topic.title.clone(),
+        "definition":topic.definition.clone(),
+        "mode":topic.operation.clone(),
+        "bundle_hash":topic.bundle_hash.clone(),
+        "timeline":timeline.clone(),
+        "artifact_metadata":topic_metadata.clone(),
+        "updated_at":topic.updated_at.clone(),
+        "operation":topic.operation.clone(),
+        "language":topic.language.clone(),
+        "manifest_hash":manifest_hash,
+        "structured_hash":artifact_hash,
+        "artifact_hash":artifact_hash,
+        "section_hashes":section_hashes,
+        "paper_count":topic.paper_count,
+        "external_literature_count":0,
+        "coverage_summary":artifact_object.get("coverage").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})),
+        "prospective_topic_relation_proposals":artifact_object.get("prospective_topic_relation_proposals").and_then(Value::as_array).cloned().unwrap_or_default(),
+    });
+    let metadata_hash = synthesis_protocol::canonical_sha256(&canonical_metadata)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
+    canonical_metadata
+        .as_object_mut()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?
+        .insert("metadata_hash".into(), json!(metadata_hash));
+    let incomplete_sections = [
+        "taxonomy",
+        "improvement_dimensions",
+        "debates",
+        "review_outline",
+        "source_papers",
+    ]
+    .into_iter()
+    .filter(|section| !artifact_object.contains_key(*section))
+    .collect::<Vec<_>>();
+    let mut base = json!({
+        "kind":"synthesis.review_workflow_input",
+        "schema_version":"1.0.0",
+        "topic":{
+            "topic_id":request.topic_id.clone(),
+            "title":topic.title.clone(),
+            "markdown":markdown,
+            "metadata":topic_metadata.clone(),
+            "topic_definition":topic.topic_definition.clone(),
+            "resolver":topic.topic_resolver.clone(),
+        },
+        "topic_timeline":{"content":timeline},
+        "structured_topic":{
+            "artifact":artifact.clone(),
+            "manifest":review_manifest,
+            "metadata":canonical_metadata,
+            "claims":artifact_object.get("claims").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "timeline_events":review_timeline(artifact_object.get("timeline_events").unwrap_or(&Value::Null)),
+            "source_papers":artifact_object.get("source_papers").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "taxonomy":artifact_object.get("taxonomy").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})),
+            "improvement_dimensions":review_improvement_dimensions(artifact_object.get("improvement_dimensions").unwrap_or(&Value::Null)),
+            "debates":artifact_object.get("debates").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "coverage":artifact_object.get("coverage").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})),
+            "future_directions":artifact_object.get("future_directions").and_then(Value::as_array).cloned().unwrap_or_default(),
+            "review_outline":artifact_object.get("review_outline").filter(|value| value.is_object()).cloned().unwrap_or_else(|| json!({})),
+            "incomplete_sections":incomplete_sections,
+        },
+        "resolved_paper_set":{
+            "papers":resolved_papers.clone(),
+            "snapshot":{"papers":resolved_papers},
+        },
+        "registry_artifact_coverage":{"rows":registry_rows},
+        "citation_graph_slice":{
+            "graph_hash":graph_hash,
+            "nodes":graph_nodes,
+            "edges":graph_edges,
+        },
+        "missing_artifact_diagnostics":missing_diagnostics.clone(),
+        "diagnostics":{
+            "blocking":[],
+            "warnings":missing_diagnostics.iter().filter_map(|row| row["message"].as_str()).collect::<Vec<_>>(),
+        },
+    });
+    let input_hash = synthesis_protocol::canonical_sha256(&base)
+        .map_err(|_| "production_projection_invalid".to_owned())?;
+    base.as_object_mut()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?
+        .insert("input_hash".into(), json!(input_hash));
+    let mut warnings = base["diagnostics"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if markdown.chars().count() > max_chars {
+        base["topic"]["markdown"] = json!(markdown.chars().take(max_chars).collect::<String>());
+        warnings.push(json!(format!(
+            "topic markdown truncated to {max_chars} chars"
+        )));
+    }
+    if let Some(nodes) = base["citation_graph_slice"]["nodes"].as_array_mut()
+        && nodes.len() > max_graph_nodes
+    {
+        nodes.truncate(max_graph_nodes);
+        warnings.push(json!(format!(
+            "citation graph nodes truncated to {max_graph_nodes}"
+        )));
+    }
+    if let Some(edges) = base["citation_graph_slice"]["edges"].as_array_mut()
+        && edges.len() > max_graph_edges
+    {
+        edges.truncate(max_graph_edges);
+        warnings.push(json!(format!(
+            "citation graph edges truncated to {max_graph_edges}"
+        )));
+    }
+    if request.include_paper_artifacts == Some(false) {
+        base.as_object_mut()
+            .ok_or_else(|| "production_projection_invalid".to_owned())?
+            .remove("structured_topic");
+        warnings.push(json!(
+            "structured paper artifact context omitted by includePaperArtifacts=false"
+        ));
+    }
+    base["diagnostics"]["warnings"] = Value::Array(warnings);
+    Ok(base)
+}
+
+pub(crate) fn dispatch_workflow_review_input(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    workflow_review_input(apps, one::<WorkflowReviewRequest>(args)?)
 }
 
 fn review_page_query(state: &Value) -> Result<ReviewPageQuery, String> {

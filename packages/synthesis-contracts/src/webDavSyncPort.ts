@@ -154,7 +154,7 @@ function booleanValue(value: unknown, location: string) {
   return value;
 }
 
-function rebuildConnectionTest(
+export function rebuildSynthesisHostWebDavSyncConnectionTest(
   value: unknown,
 ): SynthesisHostWebDavSyncConnectionTest {
   const json = toSynthesisJsonObject(value, "connectionTest");
@@ -345,7 +345,7 @@ export function rebuildSynthesisHostWebDavSyncDescription(
   const connectionTest =
     json.connectionTest === undefined
       ? undefined
-      : rebuildConnectionTest(json.connectionTest);
+      : rebuildSynthesisHostWebDavSyncConnectionTest(json.connectionTest);
   return {
     status,
     configStatus: rebuiltStatus,

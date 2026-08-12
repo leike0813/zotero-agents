@@ -119,7 +119,9 @@
       "properties": {
         "cursor": { "$ref": "#/$defs/Cursor" },
         "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
-        "sortBy": { "enum": ["foundation", "frontier", "pagerank", "in_degree"] },
+        "sortBy": {
+          "enum": ["foundation", "frontier", "pagerank", "in_degree"]
+        },
         "paperRefs": { "$ref": "#/$defs/StringArray" }
       }
     },
@@ -172,37 +174,74 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["args"],
-      "properties": { "args": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/SliceQuery" } } }
+      "properties": {
+        "args": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/SliceQuery" }
+        }
+      }
     },
     "OptionalLayoutReadArgs": {
       "type": "object",
       "additionalProperties": false,
       "required": ["args"],
-      "properties": { "args": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/LayoutReadQuery" } } }
+      "properties": {
+        "args": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/LayoutReadQuery" }
+        }
+      }
     },
     "OptionalMetricsArgs": {
       "type": "object",
       "additionalProperties": false,
       "required": ["args"],
-      "properties": { "args": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/MetricsQuery" } } }
+      "properties": {
+        "args": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MetricsQuery" }
+        }
+      }
     },
     "OptionalUpdateArgs": {
       "type": "object",
       "additionalProperties": false,
       "required": ["args"],
-      "properties": { "args": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/UpdateCommand" } } }
+      "properties": {
+        "args": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/UpdateCommand" }
+        }
+      }
     },
     "OptionalMetricsRefreshArgs": {
       "type": "object",
       "additionalProperties": false,
       "required": ["args"],
-      "properties": { "args": { "type": "array", "maxItems": 1, "items": { "$ref": "#/$defs/MetricsRefreshCommand" } } }
+      "properties": {
+        "args": {
+          "type": "array",
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/MetricsRefreshCommand" }
+        }
+      }
     },
     "LayoutCommandArgs": {
       "type": "object",
       "additionalProperties": false,
       "required": ["args"],
-      "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/LayoutCommand" } } }
+      "properties": {
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "$ref": "#/$defs/LayoutCommand" }
+        }
+      }
     },
     "AuxRole": {
       "type": "object",
@@ -222,69 +261,210 @@
         "kind": { "$ref": "#/$defs/NodeKind" },
         "target_state": { "enum": ["library", "external", "unresolved"] },
         "aliases": { "$ref": "#/$defs/StringArray" },
+        "item_key": { "$ref": "common.schema.json#/$defs/identifier" },
+        "library_id": { "type": "integer", "minimum": 1 },
+        "provisional_key": { "$ref": "common.schema.json#/$defs/identifier" },
         "title": { "type": "string", "maxLength": 4096 },
         "year": { "type": "string", "maxLength": 64 },
         "authors": { "$ref": "#/$defs/StringArray" },
         "low_signal": { "type": "boolean" },
-        "external_degree": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "external_degree": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "visibility": { "enum": ["default", "hover_only"] },
-        "display_tier": { "enum": ["library", "shared_external", "single_external"] }
+        "display_tier": {
+          "enum": ["library", "shared_external", "single_external"]
+        }
       }
     },
     "GraphEdge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["edge_id", "source", "target", "kind", "mention_count", "primary_role", "aux_roles"],
+      "required": [
+        "edge_id",
+        "source",
+        "target",
+        "kind",
+        "mention_count",
+        "primary_role",
+        "aux_roles"
+      ],
       "properties": {
         "edge_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "source": { "$ref": "common.schema.json#/$defs/identifier" },
         "target": { "$ref": "common.schema.json#/$defs/identifier" },
         "kind": { "const": "citation" },
-        "mention_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "mention_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "primary_role": { "type": "string", "maxLength": 128 },
-        "aux_roles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/AuxRole" } },
+        "aux_roles": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/AuxRole" }
+        },
+        "role_evidence": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/AuxRole" }
+        },
+        "source_refs": { "$ref": "#/$defs/StringArray" },
         "visibility": { "enum": ["default", "hover_only"] }
       }
     },
     "PageMetadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hasMore", "totalNodes", "totalEdges", "totalHoverNodes", "totalHoverEdges", "returnedNodes", "returnedEdges", "returnedHoverNodes", "returnedHoverEdges", "querySignature", "layoutStatus", "windowStatus", "roleOptions", "responseBudgetBytes"],
+      "required": [
+        "hasMore",
+        "totalNodes",
+        "totalEdges",
+        "totalHoverNodes",
+        "totalHoverEdges",
+        "returnedNodes",
+        "returnedEdges",
+        "returnedHoverNodes",
+        "returnedHoverEdges",
+        "querySignature",
+        "layoutStatus",
+        "windowStatus",
+        "roleOptions",
+        "responseBudgetBytes"
+      ],
       "properties": {
         "nextCursor": { "type": "string", "maxLength": 4096 },
         "hasMore": { "type": "boolean" },
-        "totalNodes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "totalEdges": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "totalHoverNodes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "totalHoverEdges": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "returnedNodes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "returnedEdges": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "returnedHoverNodes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
-        "returnedHoverEdges": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "totalNodes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "totalEdges": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "totalHoverNodes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "totalHoverEdges": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "returnedNodes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "returnedEdges": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "returnedHoverNodes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "returnedHoverEdges": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
         "querySignature": { "type": "string", "maxLength": 128 },
-        "layoutStatus": { "enum": ["ready", "missing", "stale", "refreshing", "failed"] },
+        "layoutStatus": {
+          "enum": ["ready", "missing", "stale", "refreshing", "failed"]
+        },
         "windowStatus": { "enum": ["loading", "complete", "paused", "failed"] },
         "roleOptions": { "$ref": "#/$defs/StringArray" },
-        "responseBudgetBytes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }
+        "responseBudgetBytes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        }
       }
     },
     "GraphQueryResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_id", "schema_version", "graph_hash", "nodes", "edges", "hover_only_nodes", "hover_only_edges", "summary", "pagination", "diagnostics", "page"],
+      "required": [
+        "schema_id",
+        "schema_version",
+        "graph_hash",
+        "nodes",
+        "edges",
+        "hover_only_nodes",
+        "hover_only_edges",
+        "summary",
+        "pagination",
+        "diagnostics",
+        "page"
+      ],
       "properties": {
         "schema_id": { "const": "synthesis.unified_citation_graph" },
         "schema_version": { "const": "1.0.0" },
         "graph_hash": { "type": "string", "maxLength": 128 },
-        "nodes": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/GraphNode" } },
-        "edges": { "type": "array", "maxItems": 20000, "items": { "$ref": "#/$defs/GraphEdge" } },
-        "hover_only_nodes": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/GraphNode" } },
-        "hover_only_edges": { "type": "array", "maxItems": 20000, "items": { "$ref": "#/$defs/GraphEdge" } },
-        "summary": { "type": "object", "additionalProperties": false, "required": ["semantic_slice", "displayed_node_count", "displayed_edge_count", "hover_only_node_count", "hover_only_edge_count"], "properties": { "semantic_slice": { "const": "library_and_shared_external" }, "displayed_node_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "displayed_edge_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "hover_only_node_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "hover_only_edge_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" } } },
-        "pagination": { "type": "object", "additionalProperties": false, "required": ["cursor", "nextCursor", "hasMore"], "properties": { "cursor": { "type": "string", "maxLength": 4096 }, "nextCursor": { "type": "string", "maxLength": 4096 }, "hasMore": { "type": "boolean" } } },
-        "diagnostics": { "type": "object", "additionalProperties": false, "required": ["storage", "bounded", "truncated"], "properties": { "storage": { "const": "sqlite" }, "bounded": { "const": true }, "truncated": { "type": "boolean" } } },
+        "nodes": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/GraphNode" }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/GraphEdge" }
+        },
+        "hover_only_nodes": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "#/$defs/GraphNode" }
+        },
+        "hover_only_edges": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/GraphEdge" }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "semantic_slice",
+            "displayed_node_count",
+            "displayed_edge_count",
+            "hover_only_node_count",
+            "hover_only_edge_count"
+          ],
+          "properties": {
+            "semantic_slice": { "const": "library_and_shared_external" },
+            "displayed_node_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "displayed_edge_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "hover_only_node_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "hover_only_edge_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            }
+          }
+        },
+        "pagination": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cursor", "nextCursor", "hasMore"],
+          "properties": {
+            "cursor": { "type": "string", "maxLength": 4096 },
+            "nextCursor": { "type": "string", "maxLength": 4096 },
+            "hasMore": { "type": "boolean" }
+          }
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["storage", "bounded", "truncated"],
+          "properties": {
+            "storage": { "const": "sqlite" },
+            "bounded": { "const": true },
+            "truncated": { "type": "boolean" }
+          }
+        },
         "page": { "$ref": "#/$defs/PageMetadata" },
-        "cluster": { "type": "object", "additionalProperties": false, "required": ["status", "scope"], "properties": { "status": { "const": "ready" }, "scope": { "const": "overview" } } }
+        "cluster": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "scope"],
+          "properties": {
+            "status": { "const": "ready" },
+            "scope": { "const": "overview" }
+          }
+        }
       }
     },
     "OverviewQueryResult": {
@@ -300,82 +480,464 @@
       "unevaluatedProperties": false,
       "allOf": [
         { "$ref": "#/$defs/GraphQueryResult" },
-        { "type": "object", "required": ["cluster"], "properties": { "cluster": { "$ref": "#/$defs/GraphQueryResult/properties/cluster" } } }
+        {
+          "type": "object",
+          "required": ["cluster"],
+          "properties": {
+            "cluster": { "$ref": "#/$defs/GraphQueryResult/properties/cluster" }
+          }
+        }
       ]
     },
     "SliceResult": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ok", "graph_hash", "querySignature", "start_node_id", "nodes", "edges", "diagnostics"],
+      "required": [
+        "ok",
+        "graph_hash",
+        "querySignature",
+        "start_node_id",
+        "nodes",
+        "edges",
+        "diagnostics"
+      ],
       "properties": {
-        "ok": { "type": "boolean" }, "graph_hash": { "type": "string", "maxLength": 128 }, "querySignature": { "type": "string", "maxLength": 128 }, "start_node_id": { "type": "string", "maxLength": 512 },
-        "nodes": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/GraphNode" } }, "edges": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/GraphEdge" } },
-        "diagnostics": { "type": "object", "additionalProperties": false, "required": ["snapshot_found", "depth", "direction", "node_count", "edge_count", "truncated", "bounded", "warnings"], "properties": { "snapshot_found": { "type": "boolean" }, "depth": { "type": "integer", "minimum": 1, "maximum": 8 }, "direction": { "$ref": "#/$defs/Direction" }, "node_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "edge_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "truncated": { "type": "boolean" }, "bounded": { "const": true }, "warnings": { "$ref": "#/$defs/StringArray" } } }
+        "ok": { "type": "boolean" },
+        "graph_hash": { "type": "string", "maxLength": 128 },
+        "querySignature": { "type": "string", "maxLength": 128 },
+        "start_node_id": { "type": "string", "maxLength": 512 },
+        "nodes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/GraphNode" }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/GraphEdge" }
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "snapshot_found",
+            "depth",
+            "direction",
+            "node_count",
+            "edge_count",
+            "truncated",
+            "bounded",
+            "warnings"
+          ],
+          "properties": {
+            "snapshot_found": { "type": "boolean" },
+            "depth": { "type": "integer", "minimum": 1, "maximum": 8 },
+            "direction": { "$ref": "#/$defs/Direction" },
+            "node_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "edge_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "truncated": { "type": "boolean" },
+            "bounded": { "const": true },
+            "warnings": { "$ref": "#/$defs/StringArray" }
+          }
+        }
       }
     },
-    "LayoutLimits": { "type": "object", "additionalProperties": false, "required": ["maxNodes", "maxEdges", "hardMaxNodes", "hardMaxEdges"], "properties": { "maxNodes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "maxEdges": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "hardMaxNodes": { "const": 100 }, "hardMaxEdges": { "const": 200 } } },
-    "LayoutDiagnostics": { "type": "object", "additionalProperties": false, "required": ["snapshot_found", "layout_found", "node_count", "edge_count", "truncated", "limits", "warnings"], "properties": { "snapshot_found": { "type": "boolean" }, "layout_found": { "type": "boolean" }, "node_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "edge_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "truncated": { "type": "boolean" }, "limits": { "$ref": "#/$defs/LayoutLimits" }, "warnings": { "$ref": "#/$defs/StringArray" } } },
-    "LayoutResult": {
-      "type": "object", "additionalProperties": false,
-      "required": ["ok", "status", "scope", "graph_hash", "layout_hash", "layout_status", "preset", "view_key", "nodes", "edges", "diagnostics"],
+    "LayoutLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxNodes", "maxEdges", "hardMaxNodes", "hardMaxEdges"],
       "properties": {
-        "ok": { "type": "boolean" }, "status": { "enum": ["ready", "missing", "stale", "refreshing", "failed", "invalid_request", "not_found", "too_large"] }, "scope": { "enum": ["full", "slice", "explicit", "none"] }, "graph_hash": { "type": "string", "maxLength": 128 }, "layout_hash": { "type": "string", "maxLength": 128 }, "layout_status": { "enum": ["ready", "missing", "stale", "refreshing", "failed"] }, "preset": { "$ref": "#/$defs/LayoutAlgorithm" }, "view_key": { "type": "string", "maxLength": 512 },
-        "nodes": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["node_id", "node_type", "x", "y"], "properties": { "node_id": { "$ref": "common.schema.json#/$defs/identifier" }, "title": { "type": "string", "maxLength": 4096 }, "node_type": { "$ref": "#/$defs/NodeKind" }, "paper_ref": { "type": "string", "maxLength": 512 }, "year": { "type": "string", "maxLength": 64 }, "authors": { "$ref": "#/$defs/StringArray" }, "x": { "type": "number" }, "y": { "type": "number" }, "low_signal": { "type": "boolean" } } } },
-        "edges": { "type": "array", "maxItems": 200, "items": { "type": "object", "additionalProperties": false, "required": ["edge_id", "source", "target", "primary_role", "aux_roles", "weight"], "properties": { "edge_id": { "$ref": "common.schema.json#/$defs/identifier" }, "source": { "$ref": "common.schema.json#/$defs/identifier" }, "target": { "$ref": "common.schema.json#/$defs/identifier" }, "primary_role": { "type": "string", "maxLength": 128 }, "aux_roles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/AuxRole" } }, "weight": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" } } } },
+        "maxNodes": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "maxEdges": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "hardMaxNodes": { "const": 100 },
+        "hardMaxEdges": { "const": 200 }
+      }
+    },
+    "LayoutDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot_found",
+        "layout_found",
+        "node_count",
+        "edge_count",
+        "truncated",
+        "limits",
+        "warnings"
+      ],
+      "properties": {
+        "snapshot_found": { "type": "boolean" },
+        "layout_found": { "type": "boolean" },
+        "node_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "edge_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "truncated": { "type": "boolean" },
+        "limits": { "$ref": "#/$defs/LayoutLimits" },
+        "warnings": { "$ref": "#/$defs/StringArray" }
+      }
+    },
+    "LayoutResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "status",
+        "scope",
+        "graph_hash",
+        "layout_hash",
+        "layout_status",
+        "preset",
+        "view_key",
+        "nodes",
+        "edges",
+        "diagnostics"
+      ],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "status": {
+          "enum": [
+            "ready",
+            "missing",
+            "stale",
+            "refreshing",
+            "failed",
+            "invalid_request",
+            "not_found",
+            "too_large"
+          ]
+        },
+        "scope": { "enum": ["full", "slice", "explicit", "none"] },
+        "graph_hash": { "type": "string", "maxLength": 128 },
+        "layout_hash": { "type": "string", "maxLength": 128 },
+        "layout_status": {
+          "enum": ["ready", "missing", "stale", "refreshing", "failed"]
+        },
+        "preset": { "$ref": "#/$defs/LayoutAlgorithm" },
+        "view_key": { "type": "string", "maxLength": 512 },
+        "nodes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["node_id", "node_type", "x", "y"],
+            "properties": {
+              "node_id": { "$ref": "common.schema.json#/$defs/identifier" },
+              "title": { "type": "string", "maxLength": 4096 },
+              "node_type": { "$ref": "#/$defs/NodeKind" },
+              "paper_ref": { "type": "string", "maxLength": 512 },
+              "year": { "type": "string", "maxLength": 64 },
+              "authors": { "$ref": "#/$defs/StringArray" },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "low_signal": { "type": "boolean" }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "edge_id",
+              "source",
+              "target",
+              "primary_role",
+              "aux_roles",
+              "weight"
+            ],
+            "properties": {
+              "edge_id": { "$ref": "common.schema.json#/$defs/identifier" },
+              "source": { "$ref": "common.schema.json#/$defs/identifier" },
+              "target": { "$ref": "common.schema.json#/$defs/identifier" },
+              "primary_role": { "type": "string", "maxLength": 128 },
+              "aux_roles": {
+                "type": "array",
+                "maxItems": 64,
+                "items": { "$ref": "#/$defs/AuxRole" }
+              },
+              "weight": {
+                "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+              }
+            }
+          }
+        },
         "diagnostics": { "$ref": "#/$defs/LayoutDiagnostics" }
       }
     },
     "MetricItem": {
-      "type": "object", "additionalProperties": false,
-      "required": ["node_id", "paper_ref", "item_key", "title", "year", "internal_in_degree", "internal_out_degree", "external_reference_count", "unresolved_reference_count", "internal_pagerank", "component_id", "component_size", "is_isolated", "age_norm", "recency_norm", "in_degree_norm", "out_degree_norm", "pagerank_norm", "foundation_score", "frontier_score", "synthesis_role_hints"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "paper_ref",
+        "item_key",
+        "title",
+        "year",
+        "internal_in_degree",
+        "internal_out_degree",
+        "external_reference_count",
+        "unresolved_reference_count",
+        "internal_pagerank",
+        "component_id",
+        "component_size",
+        "is_isolated",
+        "age_norm",
+        "recency_norm",
+        "in_degree_norm",
+        "out_degree_norm",
+        "pagerank_norm",
+        "foundation_score",
+        "frontier_score",
+        "synthesis_role_hints"
+      ],
       "properties": {
-        "node_id": { "$ref": "common.schema.json#/$defs/identifier" }, "paper_ref": { "type": "string", "maxLength": 512 }, "item_key": { "type": "string", "maxLength": 512 }, "title": { "type": "string", "maxLength": 4096 }, "year": { "type": "string", "maxLength": 64 },
-        "internal_in_degree": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "internal_out_degree": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "external_reference_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "unresolved_reference_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "internal_pagerank": { "type": "number" }, "component_id": { "type": "string", "maxLength": 512 }, "component_size": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "is_isolated": { "type": "boolean" }, "age_norm": { "type": "number" }, "recency_norm": { "type": "number" }, "in_degree_norm": { "type": "number" }, "out_degree_norm": { "type": "number" }, "pagerank_norm": { "type": "number" }, "foundation_score": { "type": "number" }, "frontier_score": { "type": "number" }, "synthesis_role_hints": { "$ref": "#/$defs/StringArray" }
+        "node_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "paper_ref": { "type": "string", "maxLength": 512 },
+        "item_key": { "type": "string", "maxLength": 512 },
+        "title": { "type": "string", "maxLength": 4096 },
+        "year": { "type": "string", "maxLength": 64 },
+        "internal_in_degree": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "internal_out_degree": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "external_reference_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "unresolved_reference_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "internal_pagerank": { "type": "number" },
+        "component_id": { "type": "string", "maxLength": 512 },
+        "component_size": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "is_isolated": { "type": "boolean" },
+        "age_norm": { "type": "number" },
+        "recency_norm": { "type": "number" },
+        "in_degree_norm": { "type": "number" },
+        "out_degree_norm": { "type": "number" },
+        "pagerank_norm": { "type": "number" },
+        "foundation_score": { "type": "number" },
+        "frontier_score": { "type": "number" },
+        "synthesis_role_hints": { "$ref": "#/$defs/StringArray" }
       }
     },
     "MetricsResult": {
-      "type": "object", "additionalProperties": false,
-      "required": ["ok", "graph_hash", "metrics_hash", "status", "items", "cursor", "nextCursor", "hasMore", "returned", "total", "limit", "diagnostics"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "graph_hash",
+        "metrics_hash",
+        "status",
+        "items",
+        "cursor",
+        "nextCursor",
+        "hasMore",
+        "returned",
+        "total",
+        "limit",
+        "diagnostics"
+      ],
       "properties": {
-        "ok": { "type": "boolean" }, "graph_hash": { "type": "string", "maxLength": 128 }, "metrics_hash": { "type": "string", "maxLength": 128 }, "status": { "enum": ["ready", "missing", "stale"] }, "items": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/MetricItem" } }, "cursor": { "type": "string", "maxLength": 4096 }, "nextCursor": { "type": "string", "maxLength": 4096 }, "hasMore": { "type": "boolean" }, "returned": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "total": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
-        "diagnostics": { "type": "object", "additionalProperties": false, "required": ["snapshot_found", "metrics_found", "stale", "total_library_nodes", "returned_count", "limits", "warnings"], "properties": { "snapshot_found": { "type": "boolean" }, "metrics_found": { "type": "boolean" }, "stale": { "type": "boolean" }, "total_library_nodes": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "returned_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "limits": { "type": "object", "additionalProperties": false, "required": ["limit", "maxLimit"], "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "maxLimit": { "const": 100 } } }, "warnings": { "$ref": "#/$defs/StringArray" } } }
+        "ok": { "type": "boolean" },
+        "graph_hash": { "type": "string", "maxLength": 128 },
+        "metrics_hash": { "type": "string", "maxLength": 128 },
+        "status": { "enum": ["ready", "missing", "stale"] },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/MetricItem" }
+        },
+        "cursor": { "type": "string", "maxLength": 4096 },
+        "nextCursor": { "type": "string", "maxLength": 4096 },
+        "hasMore": { "type": "boolean" },
+        "returned": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "total": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "snapshot_found",
+            "metrics_found",
+            "stale",
+            "total_library_nodes",
+            "returned_count",
+            "limits",
+            "warnings"
+          ],
+          "properties": {
+            "snapshot_found": { "type": "boolean" },
+            "metrics_found": { "type": "boolean" },
+            "stale": { "type": "boolean" },
+            "total_library_nodes": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "returned_count": {
+              "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["limit", "maxLimit"],
+              "properties": {
+                "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "maxLimit": { "const": 100 }
+              }
+            },
+            "warnings": { "$ref": "#/$defs/StringArray" }
+          }
+        }
       }
     },
     "MutationReceipt": {
-      "type": "object", "additionalProperties": false,
-      "required": ["status", "graphHash", "inputHash", "metricsHash", "warnings"],
-      "properties": { "status": { "enum": ["promoted", "unchanged", "basis_mismatch", "graph_application_busy", "worker_busy", "worker_failed", "invalid_request", "repair_required", "stopping"] }, "graphHash": { "type": ["string", "null"], "maxLength": 128 }, "inputHash": { "type": ["string", "null"], "maxLength": 128 }, "metricsHash": { "type": ["string", "null"], "maxLength": 128 }, "warnings": { "$ref": "#/$defs/StringArray" } }
-    },
-    "MaintenanceOperation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["schema", "operation_id", "status"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "graphHash",
+        "inputHash",
+        "metricsHash",
+        "warnings"
+      ],
       "properties": {
-        "schema": { "const": "synthesis.maintenance_operation.v1" }, "operation_id": { "$ref": "common.schema.json#/$defs/identifier" }, "status": { "enum": ["pending", "running", "completed", "failed", "canceled", "timed_out", "not_found"] }, "operation_type": { "type": "string", "maxLength": 128 }, "library_id": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "scope": { "type": "object", "additionalProperties": false, "required": ["kind", "paper_refs"], "properties": { "kind": { "type": "string", "maxLength": 128 }, "paper_refs": { "$ref": "#/$defs/StringArray" } } }, "phase": { "type": "string", "maxLength": 128 }, "phase_label": { "type": "string", "maxLength": 512 }, "message": { "type": "string", "maxLength": 4096 }, "progress_mode": { "enum": ["indeterminate", "determinate"] }, "processed_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "skipped_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "failed_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "total_count": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "created_at": { "type": "string", "maxLength": 64 }, "started_at": { "type": "string", "maxLength": 64 }, "completed_at": { "type": "string", "maxLength": 64 }, "updated_at": { "type": "string", "maxLength": 64 }, "receipt": { "$ref": "#/$defs/MutationReceipt" }
+        "status": {
+          "enum": [
+            "promoted",
+            "unchanged",
+            "basis_mismatch",
+            "graph_application_busy",
+            "worker_busy",
+            "worker_failed",
+            "invalid_request",
+            "repair_required",
+            "stopping"
+          ]
+        },
+        "graphHash": { "type": ["string", "null"], "maxLength": 128 },
+        "inputHash": { "type": ["string", "null"], "maxLength": 128 },
+        "metricsHash": { "type": ["string", "null"], "maxLength": 128 },
+        "warnings": { "$ref": "#/$defs/StringArray" }
       }
     },
-    "QueryCitationGraphClusterRequest": { "$ref": "#/$defs/OptionalGraphQueryArgs" },
+    "MaintenanceOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "status"],
+      "properties": {
+        "schema": { "const": "synthesis.maintenance_operation.v1" },
+        "operation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "completed",
+            "failed",
+            "canceled",
+            "timed_out",
+            "not_found"
+          ]
+        },
+        "operation_type": { "type": "string", "maxLength": 128 },
+        "library_id": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "paper_refs"],
+          "properties": {
+            "kind": { "type": "string", "maxLength": 128 },
+            "paper_refs": { "$ref": "#/$defs/StringArray" }
+          }
+        },
+        "phase": { "type": "string", "maxLength": 128 },
+        "phase_label": { "type": "string", "maxLength": 512 },
+        "message": { "type": "string", "maxLength": 4096 },
+        "progress_mode": { "enum": ["indeterminate", "determinate"] },
+        "processed_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "skipped_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "failed_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "total_count": {
+          "$ref": "common.schema.json#/$defs/safeNonNegativeInteger"
+        },
+        "created_at": { "type": "string", "maxLength": 64 },
+        "started_at": { "type": "string", "maxLength": 64 },
+        "completed_at": { "type": "string", "maxLength": 64 },
+        "updated_at": { "type": "string", "maxLength": 64 },
+        "receipt": { "$ref": "#/$defs/MutationReceipt" }
+      }
+    },
+    "QueryCitationGraphClusterRequest": {
+      "$ref": "#/$defs/OptionalGraphQueryArgs"
+    },
     "QueryCitationGraphClusterResult": { "$ref": "#/$defs/ClusterQueryResult" },
     "QueryCitationGraphRequest": { "$ref": "#/$defs/OptionalGraphQueryArgs" },
     "QueryCitationGraphResult": { "$ref": "#/$defs/OverviewQueryResult" },
     "GetCitationGraphSliceRequest": { "$ref": "#/$defs/OptionalSliceArgs" },
     "GetCitationGraphSliceResult": { "$ref": "#/$defs/SliceResult" },
-    "GetCitationGraphLayoutRequest": { "$ref": "#/$defs/OptionalLayoutReadArgs" },
+    "GetCitationGraphLayoutRequest": {
+      "$ref": "#/$defs/OptionalLayoutReadArgs"
+    },
     "GetCitationGraphLayoutResult": { "$ref": "#/$defs/LayoutResult" },
     "GetCitationGraphMetricsRequest": { "$ref": "#/$defs/OptionalMetricsArgs" },
     "GetCitationGraphMetricsResult": { "$ref": "#/$defs/MetricsResult" },
     "RankLibraryPapersRequest": { "$ref": "#/$defs/OptionalMetricsArgs" },
     "RankLibraryPapersResult": { "$ref": "#/$defs/MetricsResult" },
-    "RefreshCitationGraphMetricsNowRequest": { "$ref": "#/$defs/OptionalMetricsRefreshArgs" },
-    "RefreshCitationGraphMetricsNowResult": { "$ref": "#/$defs/MaintenanceOperation" },
+    "RefreshCitationGraphMetricsNowRequest": {
+      "$ref": "#/$defs/OptionalMetricsRefreshArgs"
+    },
+    "RefreshCitationGraphMetricsNowResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
     "StartCitationGraphUpdateRequest": { "$ref": "#/$defs/OptionalUpdateArgs" },
-    "StartCitationGraphUpdateResult": { "$ref": "#/$defs/MaintenanceOperation" },
-    "RecomputeCitationGraphLayoutRequest": { "$ref": "#/$defs/LayoutCommandArgs" },
-    "RecomputeCitationGraphLayoutResult": { "$ref": "#/$defs/MaintenanceOperation" },
+    "StartCitationGraphUpdateResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
+    "RecomputeCitationGraphLayoutRequest": {
+      "$ref": "#/$defs/LayoutCommandArgs"
+    },
+    "RecomputeCitationGraphLayoutResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
     "RebuildCitationGraphCacheNowRequest": { "$ref": "#/$defs/NoArgs" },
-    "RebuildCitationGraphCacheNowResult": { "$ref": "#/$defs/MaintenanceOperation" },
-    "RefreshCitationGraphCacheIncrementalNowRequest": { "$ref": "#/$defs/NoArgs" },
-    "RefreshCitationGraphCacheIncrementalNowResult": { "$ref": "#/$defs/MaintenanceOperation" },
+    "RebuildCitationGraphCacheNowResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
+    "RefreshCitationGraphCacheIncrementalNowRequest": {
+      "$ref": "#/$defs/NoArgs"
+    },
+    "RefreshCitationGraphCacheIncrementalNowResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    },
     "RetryCitationGraphCacheRebuildRequest": { "$ref": "#/$defs/NoArgs" },
-    "RetryCitationGraphCacheRebuildResult": { "$ref": "#/$defs/MaintenanceOperation" }
+    "RetryCitationGraphCacheRebuildResult": {
+      "$ref": "#/$defs/MaintenanceOperation"
+    }
   }
 }

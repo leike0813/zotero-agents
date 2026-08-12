@@ -1,8 +1,9 @@
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use synthesis_application::tag_vocabulary::{
-    TagSelectionRequest, TagStagedUpdateRequest, TagSuggestionStageRequest,
-    TagVocabularyEntryDeleteRequest, TagVocabularyEntryUpdateRequest, TagVocabularySaveRequest,
+    TagImportPreview, TagMutationResult, TagSelectionRequest, TagStagedUpdateRequest,
+    TagSuggestionStageRequest, TagVocabularyEntryDeleteRequest, TagVocabularyEntryUpdateRequest,
+    TagVocabularySaveRequest,
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::TagAuditRecord;
@@ -17,7 +18,46 @@ struct TagImportPreviewRequest {
 #[serde(deny_unknown_fields)]
 struct TagImportApplyRequest {
     payload: String,
-    action: String,
+    action: TagImportAction,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum TagImportAction {
+    UseImported,
+    MergeNonConflicting,
+}
+
+impl TagImportAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::UseImported => "use-imported",
+            Self::MergeNonConflicting => "merge-non-conflicting",
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct TagMutationWire {
+    #[serde(flatten)]
+    result: TagMutationResult,
+    diagnostics: Vec<TagMutationDiagnosticWire>,
+    #[serde(rename = "previewDigest", skip_serializing_if = "Option::is_none")]
+    preview_digest: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct TagMutationDiagnosticWire {
+    code: String,
+    severity: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct TagImportPreviewWire {
+    #[serde(flatten)]
+    preview: TagImportPreview,
+    #[serde(rename = "previewDigest")]
+    preview_digest: String,
 }
 
 #[derive(Deserialize)]
@@ -134,12 +174,12 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     }
 }
 
-fn mutation<T: serde::Serialize>(value: T) -> Result<Value, String> {
-    let mut value = wire(value)?;
-    if let Some(object) = value.as_object_mut() {
-        object.entry("diagnostics").or_insert_with(|| json!([]));
-    }
-    Ok(value)
+fn mutation(value: TagMutationResult) -> Result<Value, String> {
+    wire(TagMutationWire {
+        result: value,
+        diagnostics: Vec::new(),
+        preview_digest: None,
+    })
 }
 
 fn snapshot(apps: &ProductionApplications) -> Result<Value, String> {
@@ -239,37 +279,24 @@ fn decode_import_payload(payload: &str) -> Result<TagVocabularySaveRequest, Stri
 fn preview_import(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one::<TagImportPreviewRequest>(args)?;
     let candidate = decode_import_payload(&request.payload)?;
-    let mut preview = wire(apps.tags.preview_public_import(&candidate)?)?;
-    preview
-        .as_object_mut()
-        .expect("preview is an object")
-        .insert(
-            "previewDigest".into(),
-            Value::String(canonical_json_hash(
-                &json!({"payload":request.payload,"candidate":candidate}),
-            )?),
-        );
-    Ok(preview)
+    wire(TagImportPreviewWire {
+        preview: apps.tags.preview_public_import(&candidate)?,
+        preview_digest: canonical_json_hash(
+            &json!({"payload":request.payload,"candidate":candidate}),
+        )?,
+    })
 }
 
 fn apply_import(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request = one::<TagImportApplyRequest>(args)?;
     let candidate = decode_import_payload(&request.payload)?;
-    if !matches!(
-        request.action.as_str(),
-        "use-imported" | "merge-non-conflicting"
-    ) {
-        return Err("invalid_request".into());
-    }
-    let mut result = mutation(
-        apps.tags
+    wire(TagMutationWire {
+        result: apps
+            .tags
             .apply_public_import(&candidate, request.action.as_str())?,
-    )?;
-    result.as_object_mut().expect("object").insert(
-        "previewDigest".into(),
-        Value::String(canonical_json_hash(&json!({"payload":request.payload}))?),
-    );
-    Ok(result)
+        diagnostics: Vec::new(),
+        preview_digest: Some(canonical_json_hash(&json!({"payload":request.payload}))?),
+    })
 }
 
 fn replace_audits(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {

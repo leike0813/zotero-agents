@@ -11,6 +11,52 @@
     "crossProcessCapabilities": 119,
     "deterministicWorkerOperations": 15
   },
+  "documents": [
+    {
+      "name": "launch-config-v3",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/LaunchConfigV3"
+    },
+    {
+      "name": "discovery-v2",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/DiscoveryV2"
+    },
+    {
+      "name": "production-discovery-v5",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/ProductionDiscoveryV5"
+    },
+    {
+      "name": "runtime-bundle-v3",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/BundleV3"
+    },
+    {
+      "name": "runtime-pointer-v2",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/PointerV2"
+    },
+    {
+      "name": "health",
+      "schemaRef": "schemas/system.schema.json#/$defs/Health"
+    },
+    {
+      "name": "handshake",
+      "schemaRef": "schemas/system.schema.json#/$defs/HandshakeResult"
+    },
+    {
+      "name": "shutdown",
+      "schemaRef": "schemas/system.schema.json#/$defs/ShutdownResult"
+    },
+    {
+      "name": "sidecar-error",
+      "schemaRef": "schemas/common.schema.json#/$defs/sidecarError"
+    },
+    {
+      "name": "trace-context",
+      "schemaRef": "schemas/observability.schema.json#/$defs/TraceContext"
+    },
+    {
+      "name": "observation-event",
+      "schemaRef": "schemas/observability.schema.json#/$defs/ObservationEvent"
+    }
+  ],
   "corpora": [
     "corpus/client-artifact-library-debug.json",
     "corpus/client-citation-graph.json",
@@ -18,8 +64,10 @@
     "corpus/client-reference-canonical.json",
     "corpus/client-tag.json",
     "corpus/client-topic-workbench.json",
+    "corpus/client-workflow-review.json",
     "corpus/client-webdav-maintenance.json",
     "corpus/compute.json",
+    "corpus/lifecycle.json",
     "corpus/reverse-host.json",
     "corpus/system.json",
     "corpus/transfer.json",
@@ -243,9 +291,9 @@
     {
       "capability": "client.getReviewInput",
       "direction": "host-to-sidecar",
-      "domain": "reference-canonical",
-      "requestSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReviewInputRequest",
-      "resultSchemaRef": "schemas/client-reference-canonical.schema.json#/$defs/GetReviewInputResult",
+      "domain": "workflow-review",
+      "requestSchemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputRequest",
+      "resultSchemaRef": "schemas/client-workflow-review.schema.json#/$defs/GetReviewInputResult",
       "errorSchemaRef": "schemas/common.schema.json#/$defs/protocolError"
     },
     {

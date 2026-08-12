@@ -63,6 +63,7 @@ import {
   rebuildSynthesisTopicListRequest,
   rebuildSynthesisTopicResolverRequest,
   rebuildSynthesisWorkbenchPaperDigestReadRequest,
+  rebuildSynthesisWorkflowReviewRequest,
 } from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import {
@@ -1310,7 +1311,7 @@ function invokeSynthesisClientCapability(
     case "getTopicReport":
       return client.topics.getTopicReport(topicReportRequest(input));
     case "getSchemas":
-      return client.maintenance.getSchemas(input);
+      return client.maintenance.getSchemas();
     case "queryConceptKb":
       return client.concepts.query(input);
     case "queryCitationGraphCluster":
@@ -1358,7 +1359,9 @@ function invokeSynthesisClientCapability(
         rebuildSynthesisWorkbenchPaperDigestReadRequest(input),
       );
     case "getReviewInput":
-      return client.workflowReview.getInput(input);
+      return client.workflowReview.getInput(
+        rebuildSynthesisWorkflowReviewRequest(input),
+      );
     case "getAttentionQueue":
       return client.references.getAttentionQueue(input);
   }
@@ -1393,6 +1396,13 @@ async function callSynthesisDebugClient(
   const object = asObject(input);
   const client = await (context.resolveSynthesisClient?.() ||
     getDefaultSynthesisClient());
+  const requiredString = (field: "paperRef" | "topicId") => {
+    const value = object[field];
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`Synthesis debug ${field} is required`);
+    }
+    return value;
+  };
   let result: SynthesisJsonObject;
   switch (methodName) {
     case "debugSynthesisSnapshot":
@@ -1405,10 +1415,14 @@ async function callSynthesisDebugClient(
       result = await client.debug.listProfiler(object as SynthesisJsonObject);
       break;
     case "debugSynthesisPaperInspect":
-      result = await client.debug.inspectPaper(object as SynthesisJsonObject);
+      result = await client.debug.inspectPaper({
+        paperRef: requiredString("paperRef"),
+      });
       break;
     case "debugSynthesisTopicInspect":
-      result = await client.debug.inspectTopic(object as SynthesisJsonObject);
+      result = await client.debug.inspectTopic({
+        topicId: requiredString("topicId"),
+      });
       break;
     case "debugSynthesisDiff":
       result = await client.debug.diff(object as SynthesisJsonObject);

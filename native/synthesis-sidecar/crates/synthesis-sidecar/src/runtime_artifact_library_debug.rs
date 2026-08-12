@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use synthesis_application::topic_digest::TopicPaperDigestRequest;
@@ -64,19 +64,154 @@ pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
         .map(|handler| handler.capability)
 }
 
-fn one_object(args: &[Value]) -> Result<Value, String> {
-    match args {
-        [] => Ok(json!({})),
-        [value] if value.is_object() => Ok(value.clone()),
-        _ => Err("invalid_request".into()),
-    }
-}
-
 fn required_object(args: &[Value]) -> Result<Value, String> {
     match args {
         [value] if value.is_object() => Ok(value.clone()),
         _ => Err("invalid_request".into()),
     }
+}
+
+fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
+    let [value] = args else {
+        return Err("invalid_request".into());
+    };
+    serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
+}
+
+fn request_value<T: Serialize>(request: T) -> Result<Value, String> {
+    serde_json::to_value(request).map_err(|_| "invalid_request".to_owned())
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyWireRequest {}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+enum ArtifactKindWire {
+    Digest,
+    References,
+    CitationAnalysis,
+    LiteratureScore,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactFilterWireRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    paper_refs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact_types: Option<Vec<ArtifactKindWire>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactReadWireRequest {
+    paper_refs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact_types: Option<Vec<ArtifactKindWire>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactExportWireRequest {
+    paper_refs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact_types: Option<Vec<ArtifactKindWire>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_root: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DeliveryModeWire {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeliveryContextWire {
+    mode: DeliveryModeWire,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LibraryIndexWireRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_tags: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_collections: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_items: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DebugCacheWireRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DebugPageWireRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DebugPaperWireRequest {
+    paper_ref: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DebugTopicWireRequest {
+    topic_id: String,
+}
+
+fn validate_strings(values: &[String], required: bool, maximum: usize) -> Result<(), String> {
+    if (required && values.is_empty())
+        || values.len() > maximum
+        || values.iter().any(|value| value.trim().is_empty())
+        || values.iter().collect::<HashSet<_>>().len() != values.len()
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
+fn validate_artifact_filter(
+    paper_refs: Option<&Vec<String>>,
+    artifact_types: Option<&Vec<ArtifactKindWire>>,
+    required: bool,
+) -> Result<(), String> {
+    match paper_refs {
+        Some(values) => validate_strings(values, required, PAGE_MAX)?,
+        None if required => return Err("invalid_request".into()),
+        None => {}
+    }
+    if artifact_types.is_some_and(|values| values.len() > 4) {
+        return Err("invalid_request".into());
+    }
+    if artifact_types
+        .is_some_and(|values| values.iter().collect::<HashSet<_>>().len() != values.len())
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
 }
 
 fn resolve_topic_paper_digest(
@@ -364,7 +499,19 @@ fn artifact_from_descriptor(
 }
 
 fn read_artifacts(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
+    let request: ArtifactReadWireRequest = one_request(args)?;
+    validate_artifact_filter(
+        Some(&request.paper_refs),
+        request.artifact_types.as_ref(),
+        true,
+    )?;
+    read_artifacts_for_request(apps, request_value(request)?)
+}
+
+fn read_artifacts_for_request(
+    apps: &ProductionApplications,
+    request: Value,
+) -> Result<Value, String> {
     let mut artifacts = scan_descriptors(apps, &request)?
         .iter()
         .map(|descriptor| artifact_from_descriptor(apps, descriptor, true))
@@ -396,7 +543,13 @@ fn read_artifacts(apps: &ProductionApplications, args: &[Value]) -> Result<Value
 }
 
 fn manifest(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let mut result = read_artifacts(apps, args)?;
+    let request: ArtifactFilterWireRequest = one_request(args)?;
+    validate_artifact_filter(
+        request.paper_refs.as_ref(),
+        request.artifact_types.as_ref(),
+        false,
+    )?;
+    let mut result = read_artifacts_for_request(apps, request_value(request)?)?;
     let diagnostics = result
         .get("diagnostics")
         .cloned()
@@ -517,17 +670,33 @@ struct ExportContent {
 
 fn export_request(args: &[Value]) -> Result<(Value, ExportMode), String> {
     match args {
-        [request] if request.is_object() => Ok((request.clone(), ExportMode::Local)),
-        [request, delivery] if request.is_object() => {
-            let delivery = delivery
-                .as_object()
-                .filter(|delivery| delivery.len() == 1)
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            match delivery.get("mode").and_then(Value::as_str) {
-                Some("local") => Ok((request.clone(), ExportMode::Local)),
-                Some("remote") => Ok((request.clone(), ExportMode::Remote)),
-                _ => Err("invalid_request".into()),
-            }
+        [request] => {
+            let request: ArtifactExportWireRequest = serde_json::from_value(request.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+            validate_artifact_filter(
+                Some(&request.paper_refs),
+                request.artifact_types.as_ref(),
+                false,
+            )?;
+            Ok((request_value(request)?, ExportMode::Local))
+        }
+        [request, delivery] => {
+            let request: ArtifactExportWireRequest = serde_json::from_value(request.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+            validate_artifact_filter(
+                Some(&request.paper_refs),
+                request.artifact_types.as_ref(),
+                false,
+            )?;
+            let delivery: DeliveryContextWire = serde_json::from_value(delivery.clone())
+                .map_err(|_| "invalid_request".to_owned())?;
+            Ok((
+                request_value(request)?,
+                match delivery.mode {
+                    DeliveryModeWire::Local => ExportMode::Local,
+                    DeliveryModeWire::Remote => ExportMode::Remote,
+                },
+            ))
         }
         _ => Err("invalid_request".into()),
     }
@@ -925,7 +1094,7 @@ fn prepare_export(
 }
 
 fn schemas(args: &[Value]) -> Result<Value, String> {
-    let _ = one_object(args)?;
+    let _: EmptyWireRequest = one_request(args)?;
     serde_json::from_str(SCHEMA_MANIFEST).map_err(|_| "production_projection_invalid".into())
 }
 
@@ -965,7 +1134,14 @@ fn all_library_items(apps: &ProductionApplications) -> Result<Vec<Value>, String
 }
 
 fn library_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
+    let request: LibraryIndexWireRequest = one_request(args)?;
+    if request
+        .limit
+        .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))
+    {
+        return Err("invalid_request".into());
+    }
+    let request = request_value(request)?;
     let items = all_library_items(apps)?;
     let mut papers = items
         .iter()
@@ -1110,12 +1286,22 @@ fn page_named(
 }
 
 fn debug_snapshot(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let _ = one_object(args)?;
+    let _: EmptyWireRequest = one_request(args)?;
+    debug_snapshot_value(apps)
+}
+fn debug_snapshot_value(apps: &ProductionApplications) -> Result<Value, String> {
     serde_json::to_value(apps.debug.snapshot()?).map_err(|_| "production_projection_invalid".into())
 }
 fn debug_cache_list(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    let snapshot = debug_snapshot(apps, &[])?;
+    let request: DebugCacheWireRequest = one_request(args)?;
+    if request
+        .limit
+        .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))
+    {
+        return Err("invalid_request".into());
+    }
+    let request = request_value(request)?;
+    let snapshot = debug_snapshot_value(apps)?;
     let mut items = snapshot
         .pointer("/caches/items")
         .and_then(Value::as_array)
@@ -1131,8 +1317,15 @@ fn debug_cache_list(apps: &ProductionApplications, args: &[Value]) -> Result<Val
     page_debug(items, &request)
 }
 fn debug_operations_list(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    let snapshot = debug_snapshot(apps, &[])?;
+    let request: DebugPageWireRequest = one_request(args)?;
+    if request
+        .limit
+        .is_some_and(|value| !(1..=PAGE_MAX).contains(&value))
+    {
+        return Err("invalid_request".into());
+    }
+    let request = request_value(request)?;
+    let snapshot = debug_snapshot_value(apps)?;
     page_debug(
         snapshot
             .pointer("/operations/items")
@@ -1155,33 +1348,28 @@ fn page_debug(items: Vec<Value>, request: &Value) -> Result<Value, String> {
     )
 }
 fn debug_profiler(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let _ = one_object(args)?;
+    let _: EmptyWireRequest = one_request(args)?;
     serde_json::to_value(apps.debug.inspect_profiler()?)
         .map_err(|_| "production_projection_invalid".into())
 }
 fn debug_paper(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    request
-        .get("paperRef")
-        .or_else(|| request.get("paper_ref"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "invalid_request".to_owned())?;
+    let request: DebugPaperWireRequest = one_request(args)?;
+    if request.paper_ref.trim().is_empty() {
+        return Err("invalid_request".into());
+    }
     Ok(json!({"status":"unavailable","diagnostics":[]}))
 }
 fn debug_topic(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
-    let topic_id = request
-        .get("topicId")
-        .or_else(|| request.get("topic_id"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    serde_json::to_value(apps.debug.inspect_topic(topic_id)?)
+    let request: DebugTopicWireRequest = one_request(args)?;
+    if request.topic_id.trim().is_empty() {
+        return Err("invalid_request".into());
+    }
+    serde_json::to_value(apps.debug.inspect_topic(&request.topic_id)?)
         .map_err(|_| "production_projection_invalid".into())
 }
 fn debug_diff(_apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args)?;
+    let request: DebugPageWireRequest = one_request(args)?;
+    let request = request_value(request)?;
     let _ = limit(&request, PAGE_DEFAULT)?;
     Ok(json!({"status":"unavailable","diagnostics":[]}))
 }

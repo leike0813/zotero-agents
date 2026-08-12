@@ -11,6 +11,9 @@ export type SynthesisJsonObject = {
   [key: string]: SynthesisJsonValue;
 };
 
+/** Owner-validated canonical artifact content; the protocol registry bounds this leaf. */
+export type SynthesisOpaqueCanonicalJson = SynthesisJsonValue;
+
 export type SynthesisDeliveryContext = {
   mode: "local" | "remote";
 };

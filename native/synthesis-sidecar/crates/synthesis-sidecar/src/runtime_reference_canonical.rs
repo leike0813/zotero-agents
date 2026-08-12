@@ -178,6 +178,37 @@ pub(crate) struct CanonicalRevisionReviewRequest {
     pub action: CanonicalRevisionReviewAction,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReferenceIndexRequest {
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+    pub include_references: Option<bool>,
+    pub source_refs: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ExternalReferenceRankRequest {
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+    pub sort_by: Option<ExternalReferenceRankSort>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExternalReferenceRankSort {
+    ExternalDegree,
+    SharedSourceCount,
+    Year,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReferenceAttentionRequest {
+    pub limit: Option<usize>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CanonicalRevisionReviewAction {
@@ -197,7 +228,6 @@ pub(crate) struct CanonicalMergePair {
 pub(crate) struct EffectiveCanonicalMergeRequest {
     pub source_effective_canonical_id: String,
     pub target_effective_canonical_id: String,
-    #[serde(default)]
     pub confirm_retarget_group: bool,
 }
 
@@ -210,15 +240,10 @@ pub(crate) struct CanonicalMergeBatchRequest {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CanonicalMetadataPatch {
-    #[serde(default)]
     pub title: Option<String>,
-    #[serde(default)]
     pub normalized_title: Option<String>,
-    #[serde(default)]
     pub year: Option<String>,
-    #[serde(default)]
     pub authors: Option<Vec<String>>,
-    #[serde(default)]
     pub identifiers: Option<BTreeMap<String, String>>,
 }
 
@@ -471,15 +496,10 @@ impl ReferenceCanonicalApplication {
         Ok(result)
     }
 
-    pub(crate) fn sidecar_index(&self, request: &Value) -> Result<Value, String> {
-        let query = page_query(request, 50, 100)?;
-        let include_references =
-            bool_field(request, &["includeReferences", "include_references"], false)?;
-        let source_filter = string_list_field(
-            request,
-            &["sourceRefs", "source_refs", "sourceRef", "source_ref"],
-            250,
-        )?;
+    pub(crate) fn sidecar_index(&self, request: &ReferenceIndexRequest) -> Result<Value, String> {
+        let query = page_query(request.cursor.as_deref(), request.limit, 50, 100)?;
+        let include_references = request.include_references.unwrap_or(false);
+        let source_filter = checked_string_list(request.source_refs.as_deref(), 250)?;
         let mut items = match self.collect_host_items() {
             Ok(items) => items,
             Err(error) if error == "reverse_host_unavailable" => {
@@ -673,16 +693,14 @@ impl ReferenceCanonicalApplication {
         }))
     }
 
-    pub(crate) fn rank_external_references(&self, request: &Value) -> Result<Value, String> {
-        let query = page_query(request, 25, 100)?;
-        let sort_by = string_field_optional(request, &["sortBy", "sort_by"])
-            .unwrap_or_else(|| "external_degree".into());
-        if !matches!(
-            sort_by.as_str(),
-            "external_degree" | "shared_source_count" | "year"
-        ) {
-            return Err("invalid_request".into());
-        }
+    pub(crate) fn rank_external_references(
+        &self,
+        request: &ExternalReferenceRankRequest,
+    ) -> Result<Value, String> {
+        let query = page_query(request.cursor.as_deref(), request.limit, 25, 100)?;
+        let sort_by = request
+            .sort_by
+            .unwrap_or(ExternalReferenceRankSort::ExternalDegree);
         let repository = self.repository.owner();
         let repository = repository
             .lock()
@@ -715,10 +733,10 @@ impl ReferenceCanonicalApplication {
             })
             .collect::<Vec<_>>();
         ranked.sort_by(|left, right| {
-            let metric = match sort_by.as_str() {
-                "year" => right.0.year.cmp(&left.0.year),
-                "shared_source_count" => right.1.len().cmp(&left.1.len()),
-                _ => right.2.cmp(&left.2),
+            let metric = match sort_by {
+                ExternalReferenceRankSort::Year => right.0.year.cmp(&left.0.year),
+                ExternalReferenceRankSort::SharedSourceCount => right.1.len().cmp(&left.1.len()),
+                ExternalReferenceRankSort::ExternalDegree => right.2.cmp(&left.2),
             };
             metric
                 .then_with(|| left.0.title.cmp(&right.0.title))
@@ -774,8 +792,11 @@ impl ReferenceCanonicalApplication {
         }))
     }
 
-    pub(crate) fn attention_queue(&self, request: &Value) -> Result<Value, String> {
-        let query = page_query_without_cursor(request, 25, 100)?;
+    pub(crate) fn attention_queue(
+        &self,
+        request: &ReferenceAttentionRequest,
+    ) -> Result<Value, String> {
+        let query = checked_limit(request.limit, 25, 100)?;
         let repository = self.repository.owner();
         let repository = repository
             .lock()
@@ -826,25 +847,6 @@ impl ReferenceCanonicalApplication {
                 "repository_basis_hash":reference_basis_hash(&repository)?,
                 "canonical_basis_hash":canonical_basis_hash(&repository)?,
             },
-        }))
-    }
-
-    pub(crate) fn review_input(&self, request: &Value) -> Result<Value, String> {
-        let query = page_query(request, 25, 100)?;
-        let page = self.matching.read_proposals(query.cursor, query.limit)?;
-        let repository = self.repository.owner();
-        let repository = repository
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        Ok(json!({
-            "records":page.records,
-            "cursor":query.cursor.to_string(),
-            "next_cursor":page.next_cursor.map(|cursor|cursor.to_string()).unwrap_or_default(),
-            "has_more":page.next_cursor.is_some(),
-            "returned":page.records.len(),
-            "limit":query.limit,
-            "repository_basis_hash":reference_basis_hash(&repository)?,
-            "canonical_basis_hash":canonical_basis_hash(&repository)?,
         }))
     }
 
@@ -945,34 +947,33 @@ impl ReferenceCanonicalApplication {
 
     pub(crate) fn start_refresh_with_checkpoint(
         &self,
-        request: &Value,
         checkpoint: &PromotionCheckpoint<'_>,
     ) -> Result<Value, String> {
-        self.run_refresh(request, false, Some(checkpoint))
+        self.run_refresh(HashSet::new(), false, Some(checkpoint))
     }
 
     #[cfg(test)]
     pub(crate) fn refresh_now(&self) -> Result<Value, String> {
-        self.run_refresh(&json!({}), false, None)
+        self.run_refresh(HashSet::new(), false, None)
     }
 
     pub(crate) fn refresh_now_with_checkpoint(
         &self,
         checkpoint: &PromotionCheckpoint<'_>,
     ) -> Result<Value, String> {
-        self.run_refresh(&json!({}), false, Some(checkpoint))
+        self.run_refresh(HashSet::new(), false, Some(checkpoint))
     }
 
     pub(crate) fn retry_refresh_with_checkpoint(
         &self,
         checkpoint: &PromotionCheckpoint<'_>,
     ) -> Result<Value, String> {
-        self.run_refresh(&json!({}), true, Some(checkpoint))
+        self.run_refresh(HashSet::new(), true, Some(checkpoint))
     }
 
     #[cfg(test)]
     pub(crate) fn retry_refresh(&self) -> Result<Value, String> {
-        self.run_refresh(&json!({}), true, None)
+        self.run_refresh(HashSet::new(), true, None)
     }
 
     pub(crate) fn run_advanced_matching_with_checkpoint(
@@ -1599,11 +1600,10 @@ impl ReferenceCanonicalApplication {
 
     fn run_refresh(
         &self,
-        request: &Value,
+        requested: HashSet<String>,
         retry: bool,
         checkpoint: Option<&PromotionCheckpoint<'_>>,
     ) -> Result<Value, String> {
-        let requested = refresh_scope_filter(request)?;
         let _mutation = self
             .mutation
             .lock()
@@ -2641,6 +2641,48 @@ struct PageQuery {
 }
 
 fn page_query(
+    cursor: Option<&str>,
+    limit: Option<usize>,
+    default_limit: usize,
+    max_limit: usize,
+) -> Result<PageQuery, String> {
+    let cursor = cursor
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|_| "invalid_request".to_owned())
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let limit = checked_limit(limit, default_limit, max_limit)?;
+    Ok(PageQuery { cursor, limit })
+}
+
+fn checked_limit(
+    limit: Option<usize>,
+    default_limit: usize,
+    max_limit: usize,
+) -> Result<usize, String> {
+    let limit = limit.unwrap_or(default_limit);
+    if limit == 0 || limit > max_limit {
+        return Err("invalid_request".into());
+    }
+    Ok(limit)
+}
+
+fn review_page_query(request: &Value) -> Result<ReviewPageQuery, String> {
+    let page = workbench_page_query(request, 25, 100)?;
+    Ok(ReviewPageQuery {
+        status: string_field_optional(request, &["status"]).unwrap_or_else(|| "open".into()),
+        kind: string_field_optional(request, &["kind"]).unwrap_or_else(|| "all".into()),
+        confidence: string_field_optional(request, &["confidence"]).unwrap_or_else(|| "all".into()),
+        search: string_field_optional(request, &["search"]).unwrap_or_default(),
+        offset: page.cursor,
+        limit: page.limit,
+    })
+}
+
+fn workbench_page_query(
     request: &Value,
     default_limit: usize,
     max_limit: usize,
@@ -2664,30 +2706,6 @@ fn page_query(
     Ok(PageQuery { cursor, limit })
 }
 
-fn review_page_query(request: &Value) -> Result<ReviewPageQuery, String> {
-    let page = page_query(request, 25, 100)?;
-    Ok(ReviewPageQuery {
-        status: string_field_optional(request, &["status"]).unwrap_or_else(|| "open".into()),
-        kind: string_field_optional(request, &["kind"]).unwrap_or_else(|| "all".into()),
-        confidence: string_field_optional(request, &["confidence"]).unwrap_or_else(|| "all".into()),
-        search: string_field_optional(request, &["search"]).unwrap_or_default(),
-        offset: page.cursor,
-        limit: page.limit,
-    })
-}
-
-fn page_query_without_cursor(
-    request: &Value,
-    default_limit: usize,
-    max_limit: usize,
-) -> Result<usize, String> {
-    let query = page_query(request, default_limit, max_limit)?;
-    if query.cursor != 0 {
-        return Err("invalid_request".into());
-    }
-    Ok(query.limit)
-}
-
 fn parse_usize(value: &Value) -> Result<usize, String> {
     match value {
         Value::String(value) => value
@@ -2701,20 +2719,25 @@ fn parse_usize(value: &Value) -> Result<usize, String> {
     }
 }
 
-fn bool_field(request: &Value, names: &[&str], fallback: bool) -> Result<bool, String> {
-    for name in names {
-        if let Some(value) = request.get(*name) {
-            return value.as_bool().ok_or_else(|| "invalid_request".to_owned());
-        }
-    }
-    Ok(fallback)
-}
-
 fn string_field_optional(request: &Value, names: &[&str]) -> Option<String> {
     names
         .iter()
         .find_map(|name| request.get(*name).and_then(Value::as_str))
         .map(str::to_owned)
+}
+
+fn checked_string_list(values: Option<&[String]>, max: usize) -> Result<Vec<String>, String> {
+    let mut result = values.unwrap_or_default().to_vec();
+    if result.len() > max || result.iter().any(|value| value.trim().is_empty()) {
+        return Err("invalid_request".into());
+    }
+    let original_len = result.len();
+    result.sort();
+    result.dedup();
+    if result.len() != original_len {
+        return Err("invalid_request".into());
+    }
+    Ok(result)
 }
 
 fn string_list_field(request: &Value, names: &[&str], max: usize) -> Result<Vec<String>, String> {
@@ -2741,24 +2764,6 @@ fn string_list_field(request: &Value, names: &[&str], max: usize) -> Result<Vec<
         return Err("invalid_request".into());
     }
     Ok(result)
-}
-
-fn refresh_scope_filter(request: &Value) -> Result<HashSet<String>, String> {
-    let object = request
-        .as_object()
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let scope = object
-        .get("scope")
-        .and_then(Value::as_str)
-        .unwrap_or("library");
-    if !matches!(scope, "library" | "papers") {
-        return Err("invalid_request".into());
-    }
-    let refs = string_list_field(request, &["paperRefs", "paper_refs"], 100)?;
-    if scope == "papers" && refs.is_empty() {
-        return Err("invalid_request".into());
-    }
-    Ok(refs.into_iter().collect())
 }
 
 fn refresh_item(item: &ReferenceHostItem) -> ReferenceRefreshItem {
@@ -4067,7 +4072,12 @@ mod tests {
         let refreshed = app.retry_refresh().expect("refresh retry");
         assert_eq!(refreshed["status"], "promoted");
         assert!(host.item_calls.load(Ordering::Relaxed) >= 2);
-        let index = app.sidecar_index(&json!({"limit":1})).expect("index");
+        let index = app
+            .sidecar_index(&ReferenceIndexRequest {
+                limit: Some(1),
+                ..ReferenceIndexRequest::default()
+            })
+            .expect("index");
         assert_eq!(index["returned"], 1);
         assert_eq!(index["total"], 2);
         assert_eq!(index["has_more"], true);
@@ -4084,7 +4094,9 @@ mod tests {
         fail.store(false, Ordering::Relaxed);
         let retried = app.retry_advanced_matching().expect("matching retry");
         assert_eq!(retried["status"], "promoted");
-        let attention = app.attention_queue(&json!({})).expect("attention");
+        let attention = app
+            .attention_queue(&ReferenceAttentionRequest::default())
+            .expect("attention");
         assert_eq!(attention["items"].as_array().expect("items").len(), 1);
         let proposal_id = attention["items"][0]["target"]
             .as_str()
@@ -4144,7 +4156,7 @@ mod tests {
         let reopened = application(&root, host, fail);
         assert_eq!(
             reopened
-                .attention_queue(&json!({}))
+                .attention_queue(&ReferenceAttentionRequest::default())
                 .expect("reopened attention")["items"]
                 .as_array()
                 .expect("items")
@@ -4345,7 +4357,9 @@ mod tests {
         assert_eq!(partial["ok"], false);
         assert_eq!(partial["processed_paper_refs"], json!(["1:AAAA1111"]));
         assert_eq!(partial["failed_paper_refs"], json!(["1:BBBB2222"]));
-        let partial_index = app.sidecar_index(&json!({})).expect("partial index");
+        let partial_index = app
+            .sidecar_index(&ReferenceIndexRequest::default())
+            .expect("partial index");
         assert_eq!(partial_index["total"], 2);
         assert_eq!(partial_index["rows"][0]["artifactCoverage"], "partial");
         assert_eq!(partial_index["rows"][1]["artifactCoverage"], "missing");
@@ -4363,7 +4377,8 @@ mod tests {
         let retried = app.retry_refresh().expect("retry convergence");
         assert_eq!(retried["ok"], true);
         assert_eq!(
-            app.sidecar_index(&json!({})).expect("converged index")["total"],
+            app.sidecar_index(&ReferenceIndexRequest::default())
+                .expect("converged index")["total"],
             2
         );
         assert_eq!(
@@ -4380,7 +4395,9 @@ mod tests {
         host.include_second.store(false, Ordering::Relaxed);
         let swept = app.refresh_now().expect("deletion sweep");
         assert_eq!(swept["ok"], true);
-        let index = app.sidecar_index(&json!({})).expect("swept index");
+        let index = app
+            .sidecar_index(&ReferenceIndexRequest::default())
+            .expect("swept index");
         assert_eq!(index["total"], 1);
         assert_eq!(index["rows"][0]["paper_ref"], "1:AAAA1111");
         let _ = std::fs::remove_dir_all(root);

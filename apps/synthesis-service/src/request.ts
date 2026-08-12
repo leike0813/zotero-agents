@@ -4,6 +4,7 @@ import {
   rebuildSynthesisSidecarCallRequest,
   SYNTHESIS_SIDECAR_LIMITS,
   type SynthesisSidecarCallRequest,
+  type SynthesisSidecarErrorDetails,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 import { SynthesisClientError } from "../../../packages/synthesis-contracts/src/common.js";
 import { SidecarRuntimeError } from "./errors.js";
@@ -37,7 +38,7 @@ function requestError(args: {
     | "request_string_too_long"
     | "request_timeout";
   message: string;
-  details?: Record<string, string | number | boolean | null>;
+  details?: SynthesisSidecarErrorDetails;
 }): never {
   throw new SidecarRuntimeError({
     status: args.status,

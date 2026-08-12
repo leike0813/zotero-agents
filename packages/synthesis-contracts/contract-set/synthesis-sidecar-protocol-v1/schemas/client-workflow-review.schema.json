@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/sidecar-protocol/v1/client-workflow-review.schema.json",
+  "$defs": {
+    "String": { "type": "string", "minLength": 1, "maxLength": 65536 },
+    "Strings": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/String" } },
+    "ReviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topicId"],
+      "properties": {
+        "topicId": { "$ref": "#/$defs/String" },
+        "maxGraphNodes": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "maxGraphEdges": { "type": "integer", "minimum": 1, "maximum": 2000 },
+        "maxChars": { "type": "integer", "minimum": 1, "maximum": 200000 },
+        "includePaperArtifacts": { "type": "boolean" }
+      }
+    },
+    "CanonicalTopicMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic_id", "title", "mode", "bundle_hash", "timeline", "artifact_metadata", "updated_at"],
+      "properties": {
+        "schema_id": { "$ref": "#/$defs/String" },
+        "schema_version": { "$ref": "#/$defs/String" },
+        "topic_id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "definition": { "type": "string", "maxLength": 65536 },
+        "mode": { "enum": ["create", "update_full", "update_patch"] },
+        "bundle_hash": { "type": "string", "maxLength": 128 },
+        "timeline": { "oneOf": [{ "type": "string", "maxLength": 1048576 }, { "$ref": "topic-domain.schema.json#/$defs/Timeline" }] },
+        "artifact_metadata": { "$ref": "topic-domain.schema.json#/$defs/ArtifactMetadata" },
+        "updated_at": { "$ref": "#/$defs/String" },
+        "operation": { "$ref": "#/$defs/String" },
+        "language": { "$ref": "#/$defs/String" },
+        "manifest_hash": { "type": "string", "maxLength": 128 },
+        "structured_hash": { "type": "string", "maxLength": 128 },
+        "artifact_hash": { "type": "string", "maxLength": 128 },
+        "metadata_hash": { "type": "string", "maxLength": 128 },
+        "section_hashes": { "$ref": "topic-domain.schema.json#/$defs/HashMap" },
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "external_literature_count": { "type": "integer", "minimum": 0 },
+        "coverage_summary": { "$ref": "topic-domain.schema.json#/$defs/Coverage" },
+        "prospective_topic_relation_proposals": { "type": "array", "maxItems": 1000, "items": { "$ref": "topic-domain.schema.json#/$defs/TopicRelationProposal" } }
+      }
+    },
+    "ReviewTopic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topic_id", "title", "markdown", "metadata", "topic_definition", "resolver"],
+      "properties": {
+        "topic_id": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "markdown": { "type": "string", "minLength": 1, "maxLength": 200000 },
+        "metadata": { "$ref": "topic-domain.schema.json#/$defs/ArtifactMetadata" },
+        "topic_definition": { "$ref": "topic-domain.schema.json#/$defs/TopicDefinition" },
+        "resolver": { "$ref": "topic-domain.schema.json#/$defs/TopicResolver" }
+      }
+    },
+    "TimelineContent": {
+      "oneOf": [
+        { "type": "string", "maxLength": 1048576 },
+        { "$ref": "topic-domain.schema.json#/$defs/Timeline" }
+      ]
+    },
+    "StructuredTopic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "claims", "timeline_events", "source_papers", "taxonomy", "improvement_dimensions", "debates", "coverage", "future_directions", "review_outline", "incomplete_sections"],
+      "properties": {
+        "artifact": { "$ref": "topic-domain.schema.json#/$defs/TopicArtifact" },
+        "manifest": { "$ref": "topic-domain.schema.json#/$defs/TopicManifest" },
+        "metadata": { "$ref": "#/$defs/CanonicalTopicMetadata" },
+        "claims": { "type": "array", "maxItems": 5000, "items": { "$ref": "topic-domain.schema.json#/$defs/Claim" } },
+        "timeline_events": { "$ref": "topic-domain.schema.json#/$defs/Timeline" },
+        "source_papers": { "type": "array", "maxItems": 25000, "items": { "$ref": "topic-domain.schema.json#/$defs/ResolvedPaper" } },
+        "taxonomy": { "$ref": "topic-domain.schema.json#/$defs/Taxonomy" },
+        "improvement_dimensions": { "$ref": "topic-domain.schema.json#/$defs/ImprovementDimensions" },
+        "debates": { "type": "array", "maxItems": 1000, "items": { "$ref": "topic-domain.schema.json#/$defs/Debate" } },
+        "coverage": { "$ref": "topic-domain.schema.json#/$defs/Coverage" },
+        "future_directions": { "type": "array", "maxItems": 1000, "items": { "$ref": "topic-domain.schema.json#/$defs/FutureDirection" } },
+        "review_outline": { "$ref": "topic-domain.schema.json#/$defs/ReviewOutline" },
+        "incomplete_sections": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "ReviewResolvedPaper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "match_reasons"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "match_reasons": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "RegistryCoverageRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "title", "artifactCoverage", "missing_artifacts"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "title": { "$ref": "#/$defs/String" },
+        "artifactCoverage": { "enum": ["complete", "partial", "missing"] },
+        "missing_artifacts": { "$ref": "#/$defs/Strings" }
+      }
+    },
+    "MissingArtifactDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "artifact_type", "severity", "message"],
+      "properties": {
+        "paper_ref": { "$ref": "#/$defs/String" },
+        "artifact_type": { "$ref": "#/$defs/String" },
+        "severity": { "const": "warning" },
+        "message": { "$ref": "#/$defs/String" }
+      }
+    },
+    "ReviewWorkflowInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema_version", "input_hash", "topic", "topic_timeline", "resolved_paper_set", "registry_artifact_coverage", "citation_graph_slice", "missing_artifact_diagnostics", "diagnostics"],
+      "properties": {
+        "kind": { "const": "synthesis.review_workflow_input" },
+        "schema_version": { "const": "1.0.0" },
+        "input_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+        "topic": { "$ref": "#/$defs/ReviewTopic" },
+        "topic_timeline": { "type": "object", "additionalProperties": false, "required": ["content"], "properties": { "content": { "$ref": "#/$defs/TimelineContent" } } },
+        "structured_topic": { "$ref": "#/$defs/StructuredTopic" },
+        "resolved_paper_set": { "type": "object", "additionalProperties": false, "required": ["papers", "snapshot"], "properties": { "papers": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/ReviewResolvedPaper" } }, "snapshot": { "type": "object", "additionalProperties": false, "required": ["papers"], "properties": { "papers": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/ReviewResolvedPaper" } } } } } },
+        "registry_artifact_coverage": { "type": "object", "additionalProperties": false, "required": ["rows"], "properties": { "rows": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/RegistryCoverageRow" } } } },
+        "citation_graph_slice": { "type": "object", "additionalProperties": false, "required": ["graph_hash", "nodes", "edges"], "properties": { "graph_hash": { "$ref": "common.schema.json#/$defs/sha256" }, "nodes": { "type": "array", "maxItems": 1000, "items": { "$ref": "client-citation-graph.schema.json#/$defs/GraphNode" } }, "edges": { "type": "array", "maxItems": 2000, "items": { "$ref": "client-citation-graph.schema.json#/$defs/GraphEdge" } } } },
+        "missing_artifact_diagnostics": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/MissingArtifactDiagnostic" } },
+        "diagnostics": { "type": "object", "additionalProperties": false, "required": ["blocking", "warnings"], "properties": { "blocking": { "$ref": "#/$defs/Strings" }, "warnings": { "$ref": "#/$defs/Strings" } } }
+      }
+    },
+    "GetReviewInputRequest": { "type": "object", "additionalProperties": false, "required": ["args"], "properties": { "args": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/ReviewRequest" } } } },
+    "GetReviewInputResult": { "$ref": "#/$defs/ReviewWorkflowInput" }
+  }
+}

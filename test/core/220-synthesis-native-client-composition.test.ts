@@ -914,20 +914,18 @@ describe("Synthesis native client composition", function () {
       diagnostics: [],
       total: 1,
     };
-    const reviewResult = {
-      reference: {
-        records: [],
-        cursor: "",
-        next_cursor: "",
-        has_more: false,
-        returned: 0,
-        limit: 25,
-        repository_basis_hash: `sha256:${"1".repeat(64)}`,
-        canonical_basis_hash: `sha256:${"2".repeat(64)}`,
-      },
-      concept: [],
-      topicGraph: [],
-    };
+    const reviewCorpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          ROOT,
+          "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-workflow-review.json",
+        ),
+        "utf8",
+      ),
+    ) as { cases: Array<{ id: string; value: unknown }> };
+    const reviewResult = reviewCorpus.cases.find(
+      (entry) => entry.id === "workflow-review-recursive-positive",
+    )!.value;
     const transferredResult = (capability: string) =>
       capability === "client.getReviewInput" ? reviewResult : publicResult;
     const transferPage = (content: string) => {
@@ -1008,7 +1006,7 @@ describe("Synthesis native client composition", function () {
     });
     assert.deepEqual(result, publicResult);
     assert.deepEqual(
-      await composition.client.workflowReview.getInput({}),
+      await composition.client.workflowReview.getInput({ topicId: "topic:1" }),
       reviewResult,
     );
     assert.deepEqual(actions, [

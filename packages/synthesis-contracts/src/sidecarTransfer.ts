@@ -363,7 +363,7 @@ export type SynthesisSidecarTransferAction =
   | {
       action: "get_output_page";
       sessionId: string;
-      kind: string;
+      kind: SynthesisSidecarTransferPageKind;
       pageIndex: number;
     };
 
@@ -1318,7 +1318,7 @@ export function rebuildSynthesisSidecarTransferAction(
           "transferAction.sessionId",
           SYNTHESIS_SIDECAR_TRANSFER_LIMITS.sessionIdLength,
         ),
-        kind: boundedString(object.kind, "transferAction.kind", 64),
+        kind: pageKind(object.kind, "transferAction.kind"),
         pageIndex: nonNegativeInteger(
           object.pageIndex,
           "transferAction.pageIndex",

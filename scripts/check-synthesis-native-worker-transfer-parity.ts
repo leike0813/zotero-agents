@@ -21,6 +21,10 @@ const CORPUS_PATH = path.resolve(
   import.meta.dirname,
   "../packages/synthesis-contracts/contract-set/synthesis-native-worker-transfer-v1/corpus.json",
 );
+const PROTOCOL_CORPUS_PATH = path.resolve(
+  import.meta.dirname,
+  "../packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/worker.json",
+);
 
 type Corpus = {
   schema: string;
@@ -135,6 +139,50 @@ export async function checkSynthesisNativeWorkerTransferParity(
     resultSha256: string;
   };
   const errors = assertOwnership(root);
+  const protocolCorpusSource = fs.readFileSync(PROTOCOL_CORPUS_PATH, "utf8");
+  const protocolCorpus = JSON.parse(protocolCorpusSource) as {
+    schema: string;
+    cases: Array<{ id: string; valid: boolean }>;
+  };
+  const rustProtocol = spawnSync(
+    "cargo",
+    [
+      "+nightly-2026-07-25",
+      "run",
+      "--quiet",
+      "--locked",
+      "--manifest-path",
+      "native/synthesis-sidecar/Cargo.toml",
+      "-p",
+      "synthesis-sidecar",
+      "--example",
+      "worker_protocol_corpus_parity",
+    ],
+    { cwd: root, encoding: "utf8", input: protocolCorpusSource },
+  );
+  if (rustProtocol.status !== 0) {
+    errors.push(`worker_protocol_rust_failed:${rustProtocol.stderr.trim()}`);
+  } else {
+    const result = JSON.parse(rustProtocol.stdout) as {
+      schema: string;
+      cases: Array<{ id: string; accepted: boolean }>;
+    };
+    const expected = new Map(
+      protocolCorpus.cases.map((entry) => [entry.id, entry.valid]),
+    );
+    if (result.schema !== protocolCorpus.schema) {
+      errors.push("worker_protocol_schema_mismatch");
+    }
+    for (const entry of result.cases) {
+      if (entry.accepted !== expected.get(entry.id)) {
+        errors.push(`worker_protocol_case_mismatch:${entry.id}`);
+      }
+      expected.delete(entry.id);
+    }
+    for (const id of expected.keys()) {
+      errors.push(`worker_protocol_case_missing:${id}`);
+    }
+  }
   if (rustResult.schema !== corpus.schema) errors.push("schema_mismatch");
   if (
     JSON.stringify(rustResult.lifecycle) !== JSON.stringify(corpus.lifecycle)
@@ -178,6 +226,7 @@ export async function checkSynthesisNativeWorkerTransferParity(
     ),
     resultSha256: rustResult.resultSha256,
     nativeSmoke: Boolean(binary),
+    protocolCorpusCases: protocolCorpus.cases.length,
     errors,
   };
 }

@@ -8,8 +8,8 @@
 
 - [x] 2.1 Replace the production `SynthesisClientPort` unknown/legacy bridge with a concrete operation request/result map
 - [x] 2.2 Close Topic/Workbench and Citation request/result families and remove their Rust manual default reconstruction
-- [ ] 2.3 Close Reference and Tag request/result families and remove their Rust manual default reconstruction
-- [ ] 2.4 Close Concept/Topic Graph, Artifact/Debug, and WebDAV/Maintenance request/result families and remove their Rust manual default reconstruction
+- [x] 2.3 Close Reference and Tag request/result families and remove their Rust manual default reconstruction
+- [x] 2.4 Close Concept/Topic Graph, Artifact/Debug, and WebDAV/Maintenance request/result families and remove their Rust manual default reconstruction
 
 ## 3. Reverse-Host DTOs
 
@@ -22,13 +22,13 @@
 - [x] 4.1 Define direction/target/capability-discriminated transfer manifest, header, page, row, and locator DTOs
 - [x] 4.2 Make `rootSha256` mandatory across Rust producers, TypeScript consumers, mocks, and fixtures
 - [x] 4.3 Define concrete run header, sections, rows, frames, and results for all 15 deterministic worker operations
-- [ ] 4.4 Remove generic worker `Map`/`Value` domain boundaries and add TS/Rust corpus parity
+- [x] 4.4 Remove generic worker `Map`/`Value` domain boundaries and add TS/Rust corpus parity
 
 ## 5. System, Lifecycle, and Cleanup
 
-- [ ] 5.1 Define capability-discriminated request/result unions for the nine non-client forward capabilities and close error/diagnostic/trace DTOs
-- [ ] 5.2 Align lifecycle and bundle contracts with launch v3, discovery v2, production discovery v5, health, handshake, and shutdown
-- [ ] 5.3 Delete the superseded cross-language contract set and every unauthorized production generic DTO escape hatch
+- [x] 5.1 Define capability-discriminated request/result unions for the nine non-client forward capabilities and close error/diagnostic/trace DTOs
+- [x] 5.2 Align lifecycle and bundle contracts with launch v3, discovery v2, production discovery v5, health, handshake, and shutdown
+- [x] 5.3 Delete the superseded cross-language contract set and every unauthorized production generic DTO escape hatch
 - [x] 5.4 Update Synthesis documentation, audit follow-up, and dependent removal-change prerequisites
 
 ## 6. Verification

@@ -711,7 +711,7 @@ impl CitationGraphComputePort for NativeCitationGraphComputePort {
                 "target":edge.target_literature_item_id,
             })).collect::<Vec<_>>(),
         });
-        let result = match self.compute.run_direct(
+        let result: Value = match self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::CitationGraphLayout,
             worker_request,
         ) {
@@ -850,7 +850,7 @@ impl TagVocabularyComputePort for NativeTagVocabularyComputePort {
             .protocols
             .first()
             .ok_or_else(|| "invalid_request".to_owned())?;
-        self.compute.run_direct(
+        let _: Value = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TagVocabularyValidate,
             serde_json::json!({
                 "contractVersion":"synthesis-tag-vocabulary.v1",
@@ -2086,7 +2086,7 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
                     "manifest":manifest,
                 }),
             )
-            .and_then(|result| {
+            .and_then(|result: Value| {
                 if result.get("ok").and_then(Value::as_bool) == Some(true) {
                     Ok(())
                 } else {
@@ -2101,7 +2101,7 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
         sections: &std::collections::BTreeMap<String, Value>,
     ) -> Result<Value, String> {
         self.compute
-            .run_direct(
+            .run_direct::<_, Value>(
                 crate::runtime_worker_pool::WorkerOperation::TopicArtifactAssemble,
                 serde_json::json!({
                     "contractVersion":synthesis_topic_structured_artifact::CONTRACT_VERSION,
@@ -2126,7 +2126,7 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
                     "artifact":artifact,
                 }),
             )
-            .and_then(|result| {
+            .and_then(|result: Value| {
                 if result.get("ok").and_then(Value::as_bool) == Some(true) {
                     Ok(())
                 } else {
@@ -2141,7 +2141,7 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
         patch_manifest: &Value,
         changed_sections: &std::collections::BTreeMap<String, Value>,
     ) -> Result<synthesis_application::PatchOutput, String> {
-        let result = self.compute.run_direct(
+        let result: Value = self.compute.run_direct(
             crate::runtime_worker_pool::WorkerOperation::TopicSectionPatch,
             serde_json::json!({
                 "contractVersion":synthesis_topic_structured_artifact::CONTRACT_VERSION,

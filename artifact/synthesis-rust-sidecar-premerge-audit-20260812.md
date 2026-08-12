@@ -2,8 +2,8 @@
 
 日期：2026-08-12  
 候选：`45a1c6cb3781830c9bcc605b58a2b8332c3869ce`（`refactor: restore synthesis rust sidecar main parity (stage 22)`）  
-用户行为基线：`v0.8.3` / `8eed0829cd19d54b58c60684c9fd875741235958`  
-可执行 Node oracle：`e210997a11e0054a3cb4ae0656e5cfb96102a09c`
+主线行为基线：`main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`
+可执行 Node oracle：辅助证据；不得覆盖主线源码、调用方与测试所定义的行为
 
 ## 结论
 
@@ -25,7 +25,7 @@
 
 ### 基线选择
 
-`v0.8.3` 是用户指定的行为基线。迁移使用的 Node oracle 固定在 `e210997a`；它比 tag 晚一个提交，但对本次核查的 Synthesis service、contracts、engine、application、repository、边界检查和早期 parity tests 无源码差异，因此可作为可执行基线。
+本轮加固固定使用 `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c` 作为行为基线。具体行为应从该身份的源码、调用方和测试交叉确认。Node oracle 只用于发现差异；若 oracle 与主线证据冲突，以主线为准，并把差异记录为 oracle 漂移，不能为了让 oracle 通过而恢复未文档化别名、缺失字段默认值或已偏离主线的副作用。
 
 身份核验命令：
 
@@ -507,12 +507,16 @@ source-fresh 真实进程回归为 **2 passing**。一条在首个 WebDAV retry 
 
 ## 第六阶段修复复验：递归 DTO 合同
 
-本节记录 OpenSpec change `harden-synthesis-sidecar-recursive-dto-contracts` 的实现进展。固定实现基线为 `7db3a2f6994318c27857c39daf785fabff27a7b1`。这一阶段针对上文“外层类型存在、嵌套数据仍可经 `unknown` / `SynthesisJsonObject` / `serde_json::Value` 穿透”的问题建立统一协议事实源；它不改变 96 项公开 client operation、14 项 reverse-Host capability、数据库 schema 或生产 capability fingerprint。
+本节记录 OpenSpec change `harden-synthesis-sidecar-recursive-dto-contracts` 的实现进展。行为判断固定到 `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`；Node oracle 只保留为辅助差分工具。工作区实现起点另行记录，不参与定义业务行为。这一阶段针对上文“外层类型存在、嵌套数据仍可经 `unknown` / `SynthesisJsonObject` / `serde_json::Value` 穿透”的问题建立统一协议事实源；它不改变 96 项公开 client operation、14 项 reverse-Host capability、数据库 schema 或生产 capability fingerprint。
 
-新增的 `synthesis-sidecar-protocol-v1` 注册表逐项映射 119 个跨进程 capability 和 15 个 deterministic worker operation 的 request、result 与 error `$defs`。递归闭包门禁会沿 `$ref` 检查对象闭合、数组元素、union 分支和孤儿定义；通用 JSON 只保留两个具名、版本化且有容量与完整性约束的叶子：外部 artifact canonical JSON，以及 transfer/worker 的 canonical text chunk。当前检查结果为 119/119、15/15、未授权泛型逃逸 0，协议 corpus 为 32 个 positive case 和 30 个 nested negative case。
+新增的 `synthesis-sidecar-protocol-v1` 注册表逐项映射 119 个跨进程 capability 和 15 个 deterministic worker operation 的 request、result 与 error `$defs`。递归闭包门禁会沿 `$ref` 检查对象闭合、数组元素、union 分支和孤儿定义；通用 JSON 只保留具名、版本化且有容量与完整性约束的 opaque leaf。最终注册表包含 18 个 schema、799 个递归定义，语料总计 39 个 positive case 和 39 个 nested negative case，其中 protocol capability 覆盖为 38 positive / 36 negative；指纹为 `sha256:2aca59a9a8c196c69a8b0d8e8be19c5a907dbbb55f6e77dd58291673c378a1ec`。检查结果为 119/119、15/15、未授权泛型逃逸 0。
 
 生产 TypeScript native composition 现在按 capability 在发送 request 前、收到普通或 transfer-backed result 后执行递归 schema 重建；Node sidecar 在鉴权、身份与 lifecycle 门禁之后校验 capability payload，因此不会让 DTO 错误改变 401/403 的安全优先级。Topic/Workbench 进一步落成具体的 TypeScript 与 Rust domain DTO；Rust 持久化 Topic 行重新打开时直接反序列化这些 DTO，不再用别名探测和空对象拼装掩盖结构漂移。reverse-Host request/result、transfer locator、transfer manifest/page/row 以及 Host effect diagnostics 也进入严格重建路径，所有 output locator 均以 `rootSha256` 绑定 session 与预期根摘要。
 
-严格接线暴露并修正了此前 corpus 没覆盖的真实合同漂移：Topic apply 的 inline assets 与 sealed transfer 是两个封闭分支；Reference 首次 refresh 接受显式空 options；Tag save/stage 由 TypeScript 边界补齐 Rust 所需的具体字段；Artifact read 的 `artifact_types` 保持明确可选；Workflow Review 在出站前补齐分页 DTO。相关 TypeScript 聚焦测试、Node runtime 鉴权顺序、七个 production surface、native runtime parity 和 worker-transfer parity 均已通过。
+严格接线暴露并修正了此前 corpus 没覆盖的真实合同漂移：Topic apply 的 inline assets 与 sealed transfer 是两个封闭分支；Reference 首次 refresh 接受显式空 options；Tag save/stage 由 TypeScript 边界补齐 Rust 所需的具体字段；Artifact read 的 `artifact_types` 保持明确可选。`client.getReviewInput` 是本轮最关键的基线纠偏：Node oracle 与早期迁移曾把它误写成 review queue 分页 DTO，但固定主线明确返回 `synthesis.review_workflow_input`。最终实现恢复完整递归形态，包括 Topic artifact、manifest、flat canonical metadata、normalized resolved paper snapshot、registry coverage、Citation Graph slice、diagnostics 和输入哈希；别名 `topic_id` 被拒绝。真实 Rust 进程 route 已验证这一路径，未采用 oracle 的分页行为。
 
-这项 change 尚不能据此授权删除 Node oracle 或 plugin legacy owner。两个 removal change 已将递归 DTO change 的完整完成列为前置条件；旧 cross-language executable parity set、仍在 Rust worker/domain 内部使用的通用 `Map` / `Value` 边界，以及尚未迁完的 Reference、Tag、Concept/Graph、Artifact/Debug、WebDAV/Maintenance 和 system/lifecycle 静态 DTO 仍需继续关闭。四个 application differential 的既有 drift 也没有在本阶段被静默放行。
+旧 `synthesis-cross-language-v1` contract set 已删除；system、lifecycle、launch/discovery/runtime bundle、error/diagnostic/trace、九项非 client forward capability、14 项 reverse-Host capability、96 项 production client capability 和 15 项 worker operation 均由新注册表闭合。Rust worker 的 `Map` / `Value` 仅留在私有 framing/codec 层，domain 调用经序列化请求与具体结果 DTO 边界；TypeScript worker task 使用 operation-discriminated request/result。production capability 仍为 96/96，指纹保持 `f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523`。
+
+最终门禁结果：TypeScript contracts、service 与根 typecheck 通过；production roster、cross-language、worker-transfer、native runtime 与七个 surface parity gate 通过；Rust format、workspace/all-targets Clippy、locked workspace build 与 257 项 workspace tests 全部通过；固定基线 Workflow Review 真实进程回归 1 passing；OpenSpec strict、scoped Prettier 与 whitespace gate 通过。四个 application differential 中此前已记录的 Node oracle drift 仍作为辅助诊断保留，没有被 allowlist，也没有驱动 DTO 或业务行为变更。
+
+这项 change 的完成不授权删除 Node oracle 或 plugin legacy owner；相关 removal change 仍需按各自范围单独执行。本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed、触发发布或运行 Gitee 同步。

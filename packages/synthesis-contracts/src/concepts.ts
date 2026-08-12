@@ -1,5 +1,5 @@
-import type { SynthesisJsonObject } from "./common";
 import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
+import { rebuildSynthesisProtocolCapabilityDto } from "./protocolSchema.js";
 
 export const SYNTHESIS_CONCEPT_REVIEW_ACTIONS = [
   "approve_create",
@@ -32,9 +32,76 @@ export type SynthesisConceptDeleteRequest = {
   conceptIds: string[];
 };
 
-export type SynthesisConceptCommandResult = SynthesisJsonObject;
-export type SynthesisConceptQueryRequest = SynthesisJsonObject;
-export type SynthesisConceptQueryResult = SynthesisJsonObject;
+export type SynthesisConceptDiagnostic = {
+  code: string;
+  severity: "warning" | "error";
+};
+
+export type SynthesisConceptCommandResult = {
+  status:
+    | "committed"
+    | "unchanged"
+    | "not_found"
+    | "basis_mismatch"
+    | "concept_kb_busy"
+    | "invalid_request"
+    | "worker_failed"
+    | "stopping";
+  manifestHash: string | null;
+  revision: number;
+  changedConceptIds: string[];
+  reviewIds: string[];
+  diagnostics: SynthesisConceptDiagnostic[];
+};
+
+export type SynthesisConceptQueryRequest = {
+  labels?: string[];
+  aliases?: string[];
+  label?: string;
+  query?: string;
+  limit?: number;
+};
+
+export type SynthesisConceptQueryMatch = {
+  aliasMatches: Array<{ aliasId: string; conceptId: string }>;
+  ambiguous: boolean;
+  exactConceptIds: string[];
+  label: string;
+  senseIds: string[];
+};
+
+export type SynthesisConceptQueryResult = {
+  ok: true;
+  labels: string[];
+  matches: SynthesisConceptQueryMatch[];
+  truncated: boolean;
+  limits: { limit: number; maxLimit: 100; total: number };
+  diagnostics: Array<{
+    code: string;
+    details?: { requested: number };
+  }>;
+};
+
+export type SynthesisConceptCapabilityResultMap = {
+  "client.queryConceptKb": SynthesisConceptQueryResult;
+  "client.rebuildConceptKbIndex": SynthesisPublicMaintenanceOperation;
+  "client.updateConceptDisplayText": SynthesisConceptCommandResult;
+  "client.applyConceptReviewAction": SynthesisConceptCommandResult;
+  "client.deleteConceptEntries": SynthesisConceptCommandResult;
+};
+
+export function rebuildSynthesisConceptCapabilityResult<
+  Capability extends keyof SynthesisConceptCapabilityResultMap,
+>(
+  capability: Capability,
+  value: unknown,
+): SynthesisConceptCapabilityResultMap[Capability] {
+  return rebuildSynthesisProtocolCapabilityDto({
+    capability,
+    direction: "result",
+    value,
+  });
+}
 
 export interface SynthesisConceptsClient {
   query(

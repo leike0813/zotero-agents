@@ -1,4 +1,5 @@
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use synthesis_application::concept_kb::{
     ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptReviewAction, ConceptReviewRequest,
@@ -95,17 +96,11 @@ fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
 }
 
-fn one_object(args: &[Value], allowed: &[&str]) -> Result<Map<String, Value>, String> {
+fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
     let [value] = args else {
         return Err("invalid_request".into());
     };
-    let object = value
-        .as_object()
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err("invalid_request".into());
-    }
-    Ok(object.clone())
+    serde_json::from_value(value.clone()).map_err(|_| "invalid_request".to_owned())
 }
 
 fn no_args(args: &[Value]) -> Result<(), String> {
@@ -116,22 +111,12 @@ fn no_args(args: &[Value]) -> Result<(), String> {
     }
 }
 
-fn bounded_text(value: &Value) -> Result<String, String> {
-    let value = value
-        .as_str()
-        .ok_or_else(|| "invalid_request".to_owned())?
-        .trim();
+fn bounded_text(value: &str) -> Result<String, String> {
+    let value = value.trim();
     if value.is_empty() || value.len() > MAX_TEXT_BYTES || value.chars().any(char::is_control) {
         return Err("invalid_request".into());
     }
     Ok(value.split_whitespace().collect::<Vec<_>>().join(" "))
-}
-
-fn required(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .ok_or_else(|| "invalid_request".to_owned())
-        .and_then(bounded_text)
 }
 
 fn concept_basis(apps: &ProductionApplications) -> Result<String, String> {
@@ -148,56 +133,85 @@ fn topic_graph_basis(apps: &ProductionApplications) -> Result<String, String> {
         .ok_or_else(|| "topic_graph_not_initialized".into())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConceptQueryWireRequest {
+    labels: Option<Vec<String>>,
+    aliases: Option<Vec<String>>,
+    label: Option<String>,
+    query: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConceptQueryAliasMatchWire {
+    alias_id: String,
+    concept_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConceptQueryMatchWire {
+    alias_matches: Vec<ConceptQueryAliasMatchWire>,
+    ambiguous: bool,
+    exact_concept_ids: Vec<String>,
+    label: String,
+    sense_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConceptApplicationQueryResult {
+    matches: Vec<ConceptQueryMatchWire>,
+}
+
+#[derive(Debug, Serialize)]
+struct ConceptQueryLimitsWire {
+    limit: usize,
+    #[serde(rename = "maxLimit")]
+    max_limit: usize,
+    total: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ConceptQueryDiagnosticDetailsWire {
+    requested: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ConceptQueryDiagnosticWire {
+    code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<ConceptQueryDiagnosticDetailsWire>,
+}
+
+#[derive(Debug, Serialize)]
+struct ConceptQueryResultWire {
+    ok: bool,
+    labels: Vec<String>,
+    matches: Vec<ConceptQueryMatchWire>,
+    truncated: bool,
+    limits: ConceptQueryLimitsWire,
+    diagnostics: Vec<ConceptQueryDiagnosticWire>,
+}
+
 fn query_labels(args: &[Value]) -> Result<(Vec<String>, usize), String> {
-    let request = match args {
-        [] => Map::new(),
-        [value] => value
-            .as_object()
-            .cloned()
-            .ok_or_else(|| "invalid_request".to_owned())?,
-        _ => return Err("invalid_request".into()),
-    };
-    const FIELDS: &[&str] = &[
-        "concept_candidate_labels",
-        "conceptCandidateLabels",
-        "labels",
-        "aliases",
-        "label",
-        "query",
-        "limit",
-    ];
-    if request.keys().any(|key| !FIELDS.contains(&key.as_str())) {
+    let request: ConceptQueryWireRequest = one_request(args)?;
+    let limit = request.limit.unwrap_or(50);
+    if !(1..=MAX_QUERY_LABELS).contains(&limit) {
         return Err("invalid_request".into());
     }
-    let limit = match request.get("limit") {
-        None => 50,
-        Some(Value::Number(value)) => value
-            .as_u64()
-            .filter(|value| *value > 0 && *value <= MAX_QUERY_LABELS as u64)
-            .ok_or_else(|| "invalid_request".to_owned())?
-            as usize,
-        _ => return Err("invalid_request".into()),
-    };
     let mut labels = BTreeSet::new();
-    for key in [
-        "concept_candidate_labels",
-        "conceptCandidateLabels",
-        "labels",
-        "aliases",
-    ] {
-        if let Some(value) = request.get(key) {
-            let values = value
-                .as_array()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            for value in values {
-                labels.insert(bounded_text(value)?);
-            }
+    for values in [request.labels, request.aliases].into_iter().flatten() {
+        if values.len() > MAX_QUERY_LABELS {
+            return Err("invalid_request".into());
+        }
+        for value in values {
+            labels.insert(bounded_text(&value)?);
         }
     }
-    for key in ["label", "query"] {
-        if let Some(value) = request.get(key) {
-            labels.insert(bounded_text(value)?);
-        }
+    for value in [request.label, request.query].into_iter().flatten() {
+        labels.insert(bounded_text(&value)?);
     }
     let total = labels.len();
     Ok((labels.into_iter().take(limit).collect(), total))
@@ -207,48 +221,70 @@ fn query(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
     let (labels, total) = query_labels(args)?;
     let truncated = total > labels.len();
     match apps.concepts.query(&json!({"labels":labels})) {
-        Ok(result) => Ok(json!({
-            "ok": true,
-            "labels": labels,
-            "matches": result.get("matches").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-            "truncated": truncated,
-            "limits": {"limit": total, "maxLimit": MAX_QUERY_LABELS, "total": total},
-            "diagnostics": [{"code":"bounded_read_only","details":{"requested":total}}],
-        })),
+        Ok(result) => {
+            let result: ConceptApplicationQueryResult = serde_json::from_value(result)
+                .map_err(|_| "production_projection_invalid".to_owned())?;
+            wire(ConceptQueryResultWire {
+                ok: true,
+                labels,
+                matches: result.matches,
+                truncated,
+                limits: ConceptQueryLimitsWire {
+                    limit: total,
+                    max_limit: MAX_QUERY_LABELS,
+                    total,
+                },
+                diagnostics: vec![ConceptQueryDiagnosticWire {
+                    code: "bounded_read_only",
+                    details: Some(ConceptQueryDiagnosticDetailsWire { requested: total }),
+                }],
+            })
+        }
         Err(code) if code == "concept_kb_index_stale" || code == "concept_kb_index_invalid" => {
-            Ok(json!({
-                "ok": true,
-                "labels": labels,
-                "matches": labels.iter().map(|label| json!({"label":label,"exactConceptIds":[],"aliasMatches":[],"senseIds":[],"ambiguous":false})).collect::<Vec<_>>(),
-            "truncated": truncated,
-                "limits": {"limit": total, "maxLimit": MAX_QUERY_LABELS, "total": total},
-                "diagnostics": [{"code":"concept_kb_index_unavailable"},{"code":"bounded_read_only","details":{"requested":total}}],
-            }))
+            let matches = labels
+                .iter()
+                .map(|label| ConceptQueryMatchWire {
+                    alias_matches: Vec::new(),
+                    ambiguous: false,
+                    exact_concept_ids: Vec::new(),
+                    label: label.clone(),
+                    sense_ids: Vec::new(),
+                })
+                .collect();
+            wire(ConceptQueryResultWire {
+                ok: true,
+                labels,
+                matches,
+                truncated,
+                limits: ConceptQueryLimitsWire {
+                    limit: total,
+                    max_limit: MAX_QUERY_LABELS,
+                    total,
+                },
+                diagnostics: vec![
+                    ConceptQueryDiagnosticWire {
+                        code: "concept_kb_index_unavailable",
+                        details: None,
+                    },
+                    ConceptQueryDiagnosticWire {
+                        code: "bounded_read_only",
+                        details: Some(ConceptQueryDiagnosticDetailsWire { requested: total }),
+                    },
+                ],
+            })
         }
         Err(code) => Err(code),
     }
 }
 
 fn update_display_text(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args, &["conceptId", "fields"])?;
-    let concept_id = required(&request, "conceptId")?;
-    let fields = request
-        .get("fields")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    if fields.is_empty()
-        || fields.keys().any(|key| {
-            ![
-                "short_definition",
-                "shortDefinition",
-                "definition",
-                "usage_note",
-                "usageNote",
-                "editorial_note",
-                "editorialNote",
-            ]
-            .contains(&key.as_str())
-        })
+    let request: ConceptDisplayWireRequest = one_request(args)?;
+    let concept_id = bounded_text(&request.concept_id)?;
+    let fields = request.fields;
+    if fields.short_definition.is_none()
+        && fields.definition.is_none()
+        && fields.usage_note.is_none()
+        && fields.editorial_note.is_none()
     {
         return Err("invalid_request".into());
     }
@@ -259,11 +295,9 @@ fn update_display_text(apps: &ProductionApplications, args: &[Value]) -> Result<
         .into_iter()
         .find(|entry| entry.concept_id == concept_id)
         .ok_or_else(|| "not_found".to_owned())?;
-    let text = |snake: &str, camel: &str, fallback: &str| -> Result<String, String> {
-        fields
-            .get(snake)
-            .or_else(|| fields.get(camel))
-            .map(bounded_text)
+    let text = |value: Option<String>, fallback: &str| -> Result<String, String> {
+        value
+            .map(|value| bounded_text(&value))
             .transpose()
             .map(|value| value.unwrap_or_else(|| fallback.to_owned()))
     };
@@ -273,28 +307,24 @@ fn update_display_text(apps: &ProductionApplications, args: &[Value]) -> Result<
                 expected_manifest_hash: concept_basis(apps)?,
                 concept_id,
                 label: current.label,
-                short_definition: text(
-                    "short_definition",
-                    "shortDefinition",
-                    &current.short_definition,
-                )?,
-                definition: text("definition", "definition", &current.definition)?,
-                usage_note: text("usage_note", "usageNote", &current.usage_note)?,
-                editorial_note: text("editorial_note", "editorialNote", &current.editorial_note)?,
+                short_definition: text(fields.short_definition, &current.short_definition)?,
+                definition: text(fields.definition, &current.definition)?,
+                usage_note: text(fields.usage_note, &current.usage_note)?,
+                editorial_note: text(fields.editorial_note, &current.editorial_note)?,
             }),
     )
 }
 
 fn review_concept(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args, &["reviewId", "action", "targetConceptId"])?;
-    let action = match required(&request, "action")?.as_str() {
-        "approve_create" => ConceptReviewAction::Approve,
-        "merge_into_existing" => ConceptReviewAction::Merge,
-        "reject" => ConceptReviewAction::Reject,
-        _ => return Err("invalid_request".into()),
+    let request: ConceptReviewWireRequest = one_request(args)?;
+    let action = match request.action {
+        ConceptReviewWireAction::ApproveCreate => ConceptReviewAction::Approve,
+        ConceptReviewWireAction::MergeIntoExisting => ConceptReviewAction::Merge,
+        ConceptReviewWireAction::Reject => ConceptReviewAction::Reject,
     };
     let target = request
-        .get("targetConceptId")
+        .target_concept_id
+        .as_deref()
         .map(bounded_text)
         .transpose()?;
     if (matches!(action, ConceptReviewAction::Merge)) != target.is_some() {
@@ -302,21 +332,18 @@ fn review_concept(apps: &ProductionApplications, args: &[Value]) -> Result<Value
     }
     wire(apps.concepts.review(&ConceptReviewRequest {
         expected_manifest_hash: concept_basis(apps)?,
-        review_id: required(&request, "reviewId")?,
+        review_id: bounded_text(&request.review_id)?,
         action,
         target_concept_id: target,
     }))
 }
 
 fn delete_concepts(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args, &["conceptIds"])?;
+    let request: ConceptDeleteWireRequest = one_request(args)?;
     let ids = request
-        .get("conceptIds")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let ids = ids
+        .concept_ids
         .iter()
-        .map(bounded_text)
+        .map(|value| bounded_text(value))
         .collect::<Result<BTreeSet<_>, _>>()?;
     if ids.is_empty() || ids.len() > MAX_QUERY_LABELS {
         return Err("invalid_request".into());
@@ -332,8 +359,8 @@ fn decide_relation(
     args: &[Value],
     status: TopicGraphRelationStatus,
 ) -> Result<Value, String> {
-    let request = one_object(args, &["edgeId"])?;
-    let edge_id = required(&request, "edgeId")?;
+    let request: TopicGraphEdgeWireRequest = one_request(args)?;
+    let edge_id = bounded_text(&request.edge_id)?;
     let refresh_discovery = status == TopicGraphRelationStatus::Confirmed
         && apps.topic_graph.load()?.edges.iter().any(|edge| {
             edge.edge_id == edge_id && edge.status == "suggested" && edge.relation == "broader_than"
@@ -362,17 +389,74 @@ fn decide_relation(
 }
 
 fn review_topic_graph(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one_object(args, &["reviewId", "action"])?;
-    let action = match required(&request, "action")?.as_str() {
-        "approve_suggested" => TopicGraphReviewAction::ApproveSuggested,
-        "reject" => TopicGraphReviewAction::Reject,
-        _ => return Err("invalid_request".into()),
+    let request: TopicGraphReviewWireRequest = one_request(args)?;
+    let action = match request.action {
+        TopicGraphReviewWireAction::ApproveSuggested => TopicGraphReviewAction::ApproveSuggested,
+        TopicGraphReviewWireAction::Reject => TopicGraphReviewAction::Reject,
     };
     wire(apps.topic_graph.review(&TopicGraphReviewRequest {
         expected_manifest_hash: topic_graph_basis(apps)?,
-        review_id: required(&request, "reviewId")?,
+        review_id: bounded_text(&request.review_id)?,
         action,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConceptDisplayWireRequest {
+    concept_id: String,
+    fields: ConceptDisplayFieldsWire,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConceptDisplayFieldsWire {
+    short_definition: Option<String>,
+    definition: Option<String>,
+    usage_note: Option<String>,
+    editorial_note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ConceptReviewWireAction {
+    ApproveCreate,
+    MergeIntoExisting,
+    Reject,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConceptReviewWireRequest {
+    review_id: String,
+    action: ConceptReviewWireAction,
+    target_concept_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConceptDeleteWireRequest {
+    concept_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicGraphEdgeWireRequest {
+    edge_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TopicGraphReviewWireAction {
+    ApproveSuggested,
+    Reject,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicGraphReviewWireRequest {
+    review_id: String,
+    action: TopicGraphReviewWireAction,
 }
 
 #[cfg(test)]

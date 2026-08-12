@@ -48,6 +48,9 @@ export type SynthesisCitationGraphNode = {
   kind: "library_paper" | "external_reference" | "unresolved_reference";
   target_state: "library" | "external" | "unresolved";
   aliases: string[];
+  item_key?: string;
+  library_id?: number;
+  provisional_key?: string;
   title?: string;
   year?: string;
   authors?: string[];
@@ -65,6 +68,8 @@ export type SynthesisCitationGraphEdge = {
   mention_count: number;
   primary_role: string;
   aux_roles: Array<{ role: string; count: number }>;
+  role_evidence?: Array<{ role: string; count: number }>;
+  source_refs?: string[];
   visibility?: "default" | "hover_only";
 };
 

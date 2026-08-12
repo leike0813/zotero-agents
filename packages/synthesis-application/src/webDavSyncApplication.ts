@@ -43,7 +43,7 @@ function cleanString(value: unknown) {
 function diagnostic(
   code: string,
   severity: "info" | "warning" | "error" = "warning",
-  details?: unknown,
+  details?: SynthesisWebDavSyncDiagnostic["details"],
 ): SynthesisWebDavSyncDiagnostic {
   return {
     code,

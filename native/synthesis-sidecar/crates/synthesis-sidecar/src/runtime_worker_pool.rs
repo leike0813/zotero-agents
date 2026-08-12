@@ -1,3 +1,4 @@
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -671,11 +672,21 @@ impl NativeComputePool {
         }
     }
 
-    pub(crate) fn run_direct(
+    pub(crate) fn run_direct<Request, ResultDto>(
         &self,
         operation: WorkerOperation,
-        request: Value,
-    ) -> Result<Value, String> {
+        request: Request,
+    ) -> Result<ResultDto, String>
+    where
+        Request: Serialize,
+        ResultDto: DeserializeOwned,
+    {
+        let request = serde_json::to_value(request).map_err(|_| "invalid_request")?;
+        let result = self.run_direct_json(operation, request)?;
+        serde_json::from_value(result).map_err(|_| "worker_result_invalid".to_owned())
+    }
+
+    fn run_direct_json(&self, operation: WorkerOperation, request: Value) -> Result<Value, String> {
         #[cfg(test)]
         if self.executable == std::env::current_exe().unwrap_or_default()
             && matches!(
