@@ -255,7 +255,7 @@ The target model avoids automatic drift fan-out. Zotero Library drift is handled
 | Large Zotero changes happened outside Synthesis | UI/debug may recommend explicit reference sidecar refresh or binding repair. |
 | Structural inconsistency is suspected | Fail closed for cache writes and ask for inspect/repair; do not generate per-item fan-out. |
 
-Startup may do repository health checks, cancel persisted `running` operation rows that cannot belong to the new process, and perform phased Workbench read-model warmup. It must not reconcile sidecar cache, enqueue work, replay old operations, or start refresh. Warmup is not a maintenance operation: it may read bounded surface state, fill in-memory UI cache, and yield between phases, but it must not write domain cache rows.
+Startup may do repository health checks, explicitly reconcile persisted non-terminal operation receipts, and perform phased Workbench read-model warmup. Repository open itself does not classify lifecycle state. The reconciler reads stable bounded operation-ID pages: public maintenance `pending` rows require explicit continuation, public maintenance `running` rows fail because their external-effect outcome is unknown, and other stale `running` rows are canceled. It must not reconcile sidecar cache, enqueue work, replay old operations, or start refresh. Warmup is not a maintenance operation: it may read bounded surface state, fill in-memory UI cache, and yield between phases, but it must not write domain cache rows.
 
 ## Cache Refresh Safety
 

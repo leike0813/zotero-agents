@@ -8,7 +8,8 @@ use synthesis_repository::{OperationQuery, OperationRecord};
 
 use crate::runtime_production_ports::ProductionApplications;
 
-const BASIS_KIND: &str = "public_maintenance_operation";
+pub(crate) const PUBLIC_MAINTENANCE_BASIS_KIND: &str = "public_maintenance_operation";
+const RECONCILIATION_PAGE_LIMIT: usize = 1_000;
 
 thread_local! {
     static CURRENT_OPERATION_ID: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -45,7 +46,7 @@ pub(crate) fn encode_basis(basis: &PublicMaintenanceBasis) -> Result<String, Str
 }
 
 pub(crate) fn decode_basis(row: &OperationRecord) -> Result<PublicMaintenanceBasis, String> {
-    if row.basis_kind != BASIS_KIND || row.basis_value.is_empty() {
+    if row.basis_kind != PUBLIC_MAINTENANCE_BASIS_KIND || row.basis_value.is_empty() {
         return Err("operation_basis_missing".into());
     }
     serde_json::from_str(&row.basis_value).map_err(|_| "operation_basis_invalid".into())
@@ -208,7 +209,7 @@ pub(crate) fn control(
     let Some(mut row) = repository.get_operation(operation_id)? else {
         return Err("not_found".into());
     };
-    if row.basis_kind != BASIS_KIND {
+    if row.basis_kind != PUBLIC_MAINTENANCE_BASIS_KIND {
         return Err("not_found".into());
     }
     match action {
@@ -285,7 +286,7 @@ pub(crate) fn control(
                 message: "Explicit continuation is required before retry work starts".into(),
                 progress_mode: "indeterminate".into(),
                 total_count: row.total_count,
-                basis_kind: BASIS_KIND.into(),
+                basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
                 basis_value,
                 source_hash,
                 diagnostics_json: "[]".into(),
@@ -293,7 +294,9 @@ pub(crate) fn control(
                 updated_at: now.into(),
                 ..OperationRecord::default()
             };
-            repository.insert_operation_if_absent(&successor)
+            repository
+                .insert_operation_if_absent(&successor)
+                .map(|(stored, _)| stored)
         }
         _ => Err("invalid_request".into()),
     }
@@ -307,20 +310,22 @@ pub(crate) fn reconcile_restart(apps: &ProductionApplications, now: &str) -> Res
     let repository = repository
         .lock()
         .map_err(|_| "repository_unavailable".to_owned())?;
-    let rows = repository.list_operations(&OperationQuery {
-        include_completed: true,
-        limit: 1_000,
-        ..OperationQuery::default()
-    })?;
-    for mut row in rows.into_iter().filter(|row| row.basis_kind == BASIS_KIND) {
-        match row.status.as_str() {
-            "pending" => {
-                row.phase = "continuation_required".into();
-                row.phase_label = "Continuation required".into();
-                row.updated_at = now.into();
-                repository.upsert_operation(&row)?;
-            }
-            "running" => {
+    let mut start_after_operation_id = None;
+    loop {
+        let rows = repository.list_operations(&OperationQuery {
+            statuses: vec!["running".into()],
+            order_by_operation_id: true,
+            start_after_operation_id: start_after_operation_id.clone(),
+            limit: RECONCILIATION_PAGE_LIMIT,
+            ..OperationQuery::default()
+        })?;
+        if rows.is_empty() {
+            break;
+        }
+        start_after_operation_id = rows.last().map(|row| row.operation_id.clone());
+        let page_len = rows.len();
+        for mut row in rows {
+            if row.basis_kind == PUBLIC_MAINTENANCE_BASIS_KIND {
                 row.status = "failed".into();
                 row.phase = "restart_reconciliation_failed".into();
                 row.phase_label = "Restart reconciliation failed".into();
@@ -334,8 +339,56 @@ pub(crate) fn reconcile_restart(apps: &ProductionApplications, now: &str) -> Res
                 row.completed_at = now.into();
                 row.updated_at = now.into();
                 repository.finish_operation_if_nonterminal(&row)?;
+            } else {
+                row.status = "canceled".into();
+                row.phase = "service_restart".into();
+                row.phase_label = "Service restarted".into();
+                row.message = "Interrupted by sidecar service restart.".into();
+                row.diagnostics_json = serde_json::to_string(&vec![json!({
+                    "code":"synthesis_operation_stale_after_restart",
+                    "severity":"warning",
+                })])
+                .map_err(|_| "serialization_failed")?;
+                row.completed_at = now.into();
+                row.updated_at = now.into();
+                repository.finish_operation_if_nonterminal(&row)?;
             }
-            _ => {}
+        }
+        if page_len < RECONCILIATION_PAGE_LIMIT {
+            break;
+        }
+    }
+
+    let mut start_after_operation_id = None;
+    loop {
+        let rows = repository.list_operations(&OperationQuery {
+            statuses: vec!["pending".into()],
+            basis_kinds: vec![PUBLIC_MAINTENANCE_BASIS_KIND.into()],
+            order_by_operation_id: true,
+            start_after_operation_id: start_after_operation_id.clone(),
+            limit: RECONCILIATION_PAGE_LIMIT,
+            ..OperationQuery::default()
+        })?;
+        if rows.is_empty() {
+            break;
+        }
+        start_after_operation_id = rows.last().map(|row| row.operation_id.clone());
+        let page_len = rows.len();
+        for mut row in rows {
+            if row.phase == "continuation_required" {
+                continue;
+            }
+            let expected_phase = row.phase.clone();
+            row.phase = "continuation_required".into();
+            row.phase_label = "Continuation required".into();
+            row.message = "Explicit continuation is required before work restarts".into();
+            row.updated_at = now.into();
+            repository
+                .update_operation_if_current(&row, "pending", Some(&expected_phase))?
+                .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+        }
+        if page_len < RECONCILIATION_PAGE_LIMIT {
+            break;
         }
     }
     Ok(())
@@ -359,7 +412,7 @@ mod tests {
             retry_key: Some("retry-1".into()),
         };
         let row = OperationRecord {
-            basis_kind: BASIS_KIND.into(),
+            basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
             basis_value: encode_basis(&basis).expect("encode"),
             ..OperationRecord::default()
         };
@@ -411,7 +464,7 @@ mod tests {
             operation_type: basis.capability.clone(),
             status: "running".into(),
             phase: "running".into(),
-            basis_kind: BASIS_KIND.into(),
+            basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
             basis_value: encode_basis(&basis).expect("basis"),
             source_hash: basis.source_hash,
             diagnostics_json: "[]".into(),

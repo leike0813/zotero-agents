@@ -3550,6 +3550,277 @@ describe("Synthesis Rust production client route", function () {
     }
   });
 
+  it("replays one public maintenance request without duplicating its worker or Host reads", async function () {
+    this.timeout(60_000);
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    let releaseItems: () => void = () => undefined;
+    const itemsReleased = new Promise<void>((resolve) => {
+      releaseItems = resolve;
+    });
+    let observeItems: () => void = () => undefined;
+    const itemsObserved = new Promise<void>((resolve) => {
+      observeItems = resolve;
+    });
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "maintenance-request-replay",
+      hostFixture: {
+        async handle({ capability, payload }) {
+          const cursor = String(payload.cursor || "");
+          const limit = Number(payload.limit || 100);
+          if (capability === "library.items.list_page") {
+            observeItems();
+            await itemsReleased;
+            return {
+              items: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              snapshotRevision: "maintenance-replay-items",
+            };
+          }
+          if (capability === "library.artifacts.scan_page") {
+            return {
+              artifacts: [],
+              cursor,
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              limit,
+              snapshotRevision: "maintenance-replay-artifacts",
+            };
+          }
+          if (capability === "webdav.describe") {
+            return { configured: false };
+          }
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    const requestId = "maintenance-request-replay-fixed";
+    try {
+      const firstPromise = call(
+        harness.port,
+        "client.refreshReferenceSidecarNow",
+        { args: [] },
+        undefined,
+        requestId,
+      );
+      await itemsObserved;
+      const replayPromise = call(
+        harness.port,
+        "client.refreshReferenceSidecarNow",
+        { args: [] },
+        undefined,
+        requestId,
+      );
+      const [first, replay] = await Promise.all([firstPromise, replayPromise]);
+      releaseItems();
+      assert.equal(first.status, 200, JSON.stringify(first.body));
+      assert.equal(replay.status, 200, JSON.stringify(replay.body));
+      assert.equal(replay.body.data.operation_id, first.body.data.operation_id);
+      const terminal = await waitForMaintenanceOperation(
+        harness.port,
+        first.body.data.operation_id,
+      );
+      assert.equal(terminal.status, "completed", JSON.stringify(terminal));
+
+      const terminalReplay = await call(
+        harness.port,
+        "client.refreshReferenceSidecarNow",
+        { args: [] },
+        undefined,
+        requestId,
+      );
+      assert.equal(
+        terminalReplay.status,
+        200,
+        JSON.stringify(terminalReplay.body),
+      );
+      assert.equal(
+        terminalReplay.body.data.operation_id,
+        first.body.data.operation_id,
+      );
+      assert.equal(terminalReplay.body.data.status, "completed");
+      assert.equal(
+        harness.recorder.hostCalls.filter(
+          (entry) => entry.capability === "library.items.list_page",
+        ).length,
+        1,
+      );
+      assert.equal(
+        harness.recorder.hostCalls.filter(
+          (entry) => entry.capability === "library.artifacts.scan_page",
+        ).length,
+        1,
+      );
+      assert.equal(
+        harness
+          .observations()
+          .filter(
+            (event) =>
+              event.phase === "maintenance-started" &&
+              event.identities?.operation === first.body.data.operation_id,
+          ).length,
+        1,
+      );
+    } finally {
+      releaseItems();
+      await harness.stop();
+    }
+  });
+
+  it("reconciles every persisted operation across bounded restart pages", async function () {
+    this.timeout(60_000);
+    assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-maintenance-restart-pages-"),
+    );
+    let harness = await startSynthesisProductionRouteHarness({
+      id: "maintenance-restart-initialize",
+      root,
+    });
+    try {
+      await harness.stop();
+      const databasePath = path.join(root, "state", "synthesis.db");
+      const database = new DatabaseSync(databasePath);
+      const insert = database.prepare(
+        `INSERT INTO synt_operation(
+           operation_id,operation_type,status,phase,basis_kind,basis_value,
+           source_hash,diagnostics_json,created_at,updated_at
+         ) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+      );
+      database.exec("BEGIN IMMEDIATE");
+      for (let index = 0; index < 1_001; index += 1) {
+        const suffix = String(index).padStart(4, "0");
+        insert.run(
+          `maintenance:pending:${suffix}`,
+          "client.rebuildCitationGraphCacheNow",
+          "pending",
+          "accepted",
+          "public_maintenance_operation",
+          "{}",
+          `sha256:pending-${suffix}`,
+          "[]",
+          "2026-08-11T00:00:00.000Z",
+          "2026-08-11T00:00:00.000Z",
+        );
+        insert.run(
+          `maintenance:completed:${suffix}`,
+          "client.rebuildCitationGraphCacheNow",
+          "completed",
+          "completed",
+          "public_maintenance_operation",
+          "{}",
+          `sha256:completed-${suffix}`,
+          "[]",
+          "2026-08-12T00:00:00.000Z",
+          "2026-08-12T00:00:00.000Z",
+        );
+      }
+      insert.run(
+        "maintenance:running:restart",
+        "client.syncWebDavNow",
+        "running",
+        "running",
+        "public_maintenance_operation",
+        "{}",
+        "sha256:running-public",
+        "[]",
+        "2026-08-11T00:00:00.000Z",
+        "2026-08-11T00:00:00.000Z",
+      );
+      insert.run(
+        "generic:running:restart",
+        "fixture_generic_operation",
+        "running",
+        "running",
+        "fixture",
+        "",
+        "sha256:running-generic",
+        "[]",
+        "2026-08-11T00:00:00.000Z",
+        "2026-08-11T00:00:00.000Z",
+      );
+      database.exec("COMMIT");
+      database.close();
+
+      harness = await startSynthesisProductionRouteHarness({
+        id: "maintenance-restart-reopen",
+        root,
+      });
+      const reopened = new DatabaseSync(databasePath);
+      const pending = reopened
+        .prepare(
+          `SELECT COUNT(*) AS count FROM synt_operation
+           WHERE basis_kind='public_maintenance_operation'
+             AND status='pending' AND phase='continuation_required'`,
+        )
+        .get() as { count: number };
+      assert.equal(pending.count, 1_001);
+      const publicRunning = reopened
+        .prepare(
+          `SELECT status,phase,diagnostics_json FROM synt_operation
+           WHERE operation_id='maintenance:running:restart'`,
+        )
+        .get() as {
+        status: string;
+        phase: string;
+        diagnostics_json: string;
+      };
+      assert.equal(publicRunning.status, "failed");
+      assert.equal(publicRunning.phase, "restart_reconciliation_failed");
+      assert.include(
+        publicRunning.diagnostics_json,
+        "restart_external_effect_unknown",
+      );
+      const genericRunning = reopened
+        .prepare(
+          `SELECT status,phase,diagnostics_json FROM synt_operation
+           WHERE operation_id='generic:running:restart'`,
+        )
+        .get() as {
+        status: string;
+        phase: string;
+        diagnostics_json: string;
+      };
+      assert.equal(genericRunning.status, "canceled");
+      assert.equal(genericRunning.phase, "service_restart");
+      assert.include(
+        genericRunning.diagnostics_json,
+        "synthesis_operation_stale_after_restart",
+      );
+      const terminalRows = reopened
+        .prepare(
+          `SELECT COUNT(*) AS count FROM synt_operation
+           WHERE operation_id LIKE 'maintenance:completed:%'
+             AND status='completed' AND phase='completed'
+             AND updated_at='2026-08-12T00:00:00.000Z'`,
+        )
+        .get() as { count: number };
+      assert.equal(terminalRows.count, 1_001);
+      reopened.close();
+
+      for (const operationId of [
+        "maintenance:pending:0000",
+        "maintenance:pending:1000",
+        "maintenance:running:restart",
+      ]) {
+        const receipt = await call(
+          harness.port,
+          "client.getPublicMaintenanceOperation",
+          { args: [{ operation_id: operationId }] },
+        );
+        assert.equal(receipt.status, 200, JSON.stringify(receipt.body));
+        assert.notEqual(receipt.body.data.status, "not_found");
+      }
+    } finally {
+      await harness.stop();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("initializes once, holds the production lock, and ignores legacy lifecycle files", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-rust-route-"));

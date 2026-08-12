@@ -42,6 +42,7 @@ impl WorkbenchApplication {
             ],
             include_completed: true,
             limit: FAILED_LIMIT,
+            ..OperationQuery::default()
         })?;
         let mut jobs = running
             .into_iter()

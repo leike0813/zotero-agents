@@ -358,7 +358,10 @@ pub struct TopicGraphScopeRecord {
 pub struct OperationQuery {
     pub statuses: Vec<String>,
     pub operation_types: Vec<String>,
+    pub basis_kinds: Vec<String>,
     pub include_completed: bool,
+    pub order_by_operation_id: bool,
+    pub start_after_operation_id: Option<String>,
     pub limit: usize,
 }
 
@@ -1035,7 +1038,7 @@ impl Repository {
     fn open_database(
         database_path: PathBuf,
         repository_id: String,
-        reconcile_now: &str,
+        _reconcile_now: &str,
     ) -> Result<Self, String> {
         let connection = Connection::open_with_flags(
             &database_path,
@@ -1084,22 +1087,6 @@ impl Repository {
                 .execute(
                     "INSERT OR IGNORE INTO synt_durable_sync_state(singleton_id,revision,updated_at) VALUES(1,0,'')",
                     [],
-                )
-                .map_err(map_sqlite_error)?;
-            connection
-                .execute(
-                    "UPDATE synt_operation SET
-                       status='canceled',
-                       phase='service_restart',
-                       message='Interrupted by sidecar service restart.',
-                       completed_at=CASE WHEN ?1='' THEN completed_at ELSE ?1 END,
-                       updated_at=CASE
-                         WHEN ?1<>'' THEN ?1
-                         WHEN updated_at='' THEN created_at
-                         ELSE updated_at
-                       END
-                     WHERE status='running'",
-                    [reconcile_now],
                 )
                 .map_err(map_sqlite_error)?;
             connection
@@ -1559,13 +1546,29 @@ impl Repository {
                 placeholders(&query.operation_types)?
             ));
         }
+        if !query.basis_kinds.is_empty() {
+            clauses.push(format!(
+                "basis_kind IN ({})",
+                placeholders(&query.basis_kinds)?
+            ));
+        }
+        if let Some(operation_id) = query.start_after_operation_id.as_deref() {
+            validate_identity_part(operation_id)?;
+            values.push(json!(operation_id));
+            clauses.push(format!("operation_id > ?{}", values.len()));
+        }
         values.push(json!(limit));
         let sql = format!(
-            "SELECT * FROM synt_operation {} ORDER BY updated_at DESC,operation_id ASC LIMIT ?{}",
+            "SELECT * FROM synt_operation {} ORDER BY {} LIMIT ?{}",
             if clauses.is_empty() {
                 String::new()
             } else {
                 format!("WHERE {}", clauses.join(" AND "))
+            },
+            if query.order_by_operation_id {
+                "operation_id ASC"
+            } else {
+                "updated_at DESC,operation_id ASC"
             },
             values.len()
         );
@@ -1703,11 +1706,11 @@ impl Repository {
     pub fn insert_operation_if_absent(
         &self,
         record: &OperationRecord,
-    ) -> Result<OperationRecord, String> {
+    ) -> Result<(OperationRecord, bool), String> {
         validate_identity_part(&record.operation_id)?;
         validate_identity_part(&record.operation_type)?;
         record_observed_repository_write();
-        self.connection()?.execute(
+        let inserted = self.connection()?.execute(
             "INSERT OR IGNORE INTO synt_operation(
                 operation_id,operation_type,library_id,scope_kind,scope_ref,status,label,phase,
                 phase_label,message,progress_mode,processed_count,skipped_count,failed_count,
@@ -1722,9 +1725,11 @@ impl Repository {
                 record.source_hash, record.diagnostics_json, record.created_at, record.started_at,
                 record.completed_at, record.updated_at,
             ],
-        ).map_err(map_sqlite_error)?;
-        self.get_operation(&record.operation_id)?
-            .ok_or_else(|| "operation_receipt_missing".to_owned())
+        ).map_err(map_sqlite_error)? > 0;
+        let stored = self
+            .get_operation(&record.operation_id)?
+            .ok_or_else(|| "operation_receipt_missing".to_owned())?;
+        Ok((stored, inserted))
     }
 
     pub fn get_cache_basis(&self, cache_key: &str) -> Result<Option<CacheBasisRecord>, String> {
@@ -3295,7 +3300,7 @@ mod tests {
     }
 
     #[test]
-    fn restart_cancels_only_running_operations() {
+    fn restart_preserves_operations_for_explicit_reconciliation() {
         let root = root("restart");
         let repository = Repository::open(&root, identity()).expect("open");
         for (id, status, updated_at) in [
@@ -3332,7 +3337,7 @@ mod tests {
             vec![
                 json!({"operation_id":"canceled","status":"canceled"}),
                 json!({"operation_id":"failed","status":"failed"}),
-                json!({"operation_id":"running","status":"canceled"}),
+                json!({"operation_id":"running","status":"running"}),
                 json!({"operation_id":"succeeded","status":"succeeded"}),
             ]
         );
@@ -3619,20 +3624,77 @@ mod tests {
             updated_at: "2026-08-02T00:00:00.000Z".into(),
             ..OperationRecord::default()
         };
-        repository
+        let (inserted, was_inserted) = repository
             .insert_operation_if_absent(&first)
             .expect("insert");
+        assert!(was_inserted);
+        assert_eq!(inserted.phase, "continuation_required");
         let duplicate = OperationRecord {
             phase: "queued".into(),
             ..first.clone()
         };
-        assert_eq!(
+        let (replayed, was_inserted) = repository
+            .insert_operation_if_absent(&duplicate)
+            .expect("replay");
+        assert!(!was_inserted);
+        assert_eq!(replayed.phase, "continuation_required");
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn operation_id_keyset_order_is_stable_from_the_first_page() {
+        let root = root("operation-keyset-order");
+        let repository = Repository::open(&root, identity()).expect("open");
+        for (operation_id, updated_at) in [
+            ("operation:c", "2026-08-02T00:00:01.000Z"),
+            ("operation:a", "2026-08-02T00:00:03.000Z"),
+            ("operation:b", "2026-08-02T00:00:02.000Z"),
+        ] {
             repository
-                .insert_operation_if_absent(&duplicate)
-                .expect("replay")
-                .phase,
-            "continuation_required"
+                .upsert_operation(&OperationRecord {
+                    operation_id: operation_id.into(),
+                    operation_type: "fixture".into(),
+                    status: "pending".into(),
+                    created_at: updated_at.into(),
+                    updated_at: updated_at.into(),
+                    ..OperationRecord::default()
+                })
+                .expect("seed");
+        }
+
+        let first_page = repository
+            .list_operations(&OperationQuery {
+                statuses: vec!["pending".into()],
+                order_by_operation_id: true,
+                limit: 2,
+                ..OperationQuery::default()
+            })
+            .expect("first page");
+        assert_eq!(
+            first_page
+                .iter()
+                .map(|row| row.operation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["operation:a", "operation:b"]
         );
+        let second_page = repository
+            .list_operations(&OperationQuery {
+                statuses: vec!["pending".into()],
+                order_by_operation_id: true,
+                start_after_operation_id: first_page.last().map(|row| row.operation_id.clone()),
+                limit: 2,
+                ..OperationQuery::default()
+            })
+            .expect("second page");
+        assert_eq!(
+            second_page
+                .iter()
+                .map(|row| row.operation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["operation:c"]
+        );
+
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

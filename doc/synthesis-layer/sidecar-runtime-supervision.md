@@ -103,6 +103,23 @@ startup reconciliation closes restart orphans; receipt reads remain pure.
 Layout has a 120-second public work deadline, a 90-second direct worker phase,
 and a bounded client observation deadline beyond the public limit.
 
+Public maintenance identity is the canonical hash of request ID, capability,
+and argument source hash; acceptance time is receipt metadata and never part of
+identity. The durable insert is the execution ownership boundary. Only its
+winner publishes `maintenance-started`, acquires a canonical-maintenance epoch,
+and spawns work. An identical request replay returns the stored pending,
+running, or terminal receipt without repeating Host effects. A different
+request ID is a distinct requested operation even when capability and arguments
+match.
+
+Repository open preserves operation lifecycle state for the explicit startup
+reconciler. That boundary traverses stable operation-ID pages rather than a
+newest-row window: public pending receipts become `continuation_required`,
+public running receipts become `restart_reconciliation_failed` with
+`restart_external_effect_unknown`, and other stale running operations become
+`canceled` with `synthesis_operation_stale_after_restart`. Terminal receipts
+remain unchanged, and startup never automatically replays maintenance work.
+
 ## Diagnostics
 
 The plugin has two independent observation planes. Runtime Log is a Host-owned

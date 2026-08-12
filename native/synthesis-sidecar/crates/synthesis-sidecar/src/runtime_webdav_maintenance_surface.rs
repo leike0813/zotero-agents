@@ -6,8 +6,8 @@ use synthesis_sidecar::production_capabilities::ProductionClientSemanticSuccess;
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
-    PublicMaintenanceBasis, checkpoint_before_promotion, control as control_operation,
-    current_operation_id, encode_basis, reconcile_restart,
+    PUBLIC_MAINTENANCE_BASIS_KIND, PublicMaintenanceBasis, checkpoint_before_promotion,
+    control as control_operation, current_operation_id, encode_basis, reconcile_restart,
 };
 
 /// The single public adapter for the WebDAV and maintenance operations.
@@ -191,7 +191,7 @@ pub(crate) fn begin_public_maintenance_operation(
     source_hash: &str,
     deadline_ms: u64,
     now: &str,
-) -> Result<OperationRecord, String> {
+) -> Result<(OperationRecord, bool), String> {
     let request = args.first().and_then(Value::as_object);
     let paper_refs = request
         .and_then(|value| value.get("paper_refs").or_else(|| value.get("paperRefs")))
@@ -222,7 +222,7 @@ pub(crate) fn begin_public_maintenance_operation(
         phase_label: "Accepted".into(),
         progress_mode: "indeterminate".into(),
         total_count: paper_refs.len() as i64,
-        basis_kind: "public_maintenance_operation".into(),
+        basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
         basis_value: encode_basis(&PublicMaintenanceBasis {
             capability: operation_type.into(),
             args: args.to_vec(),
@@ -237,13 +237,16 @@ pub(crate) fn begin_public_maintenance_operation(
         updated_at: now.into(),
         ..OperationRecord::default()
     };
-    apps.repository
+    let (stored, inserted) = apps
+        .repository
         .owner()
         .lock()
         .map_err(|_| "repository_unavailable".to_owned())?
         .insert_operation_if_absent(&row)?;
-    emit_public_maintenance_event(&row, "maintenance-started", "started", None);
-    Ok(row)
+    if inserted {
+        emit_public_maintenance_event(&stored, "maintenance-started", "started", None);
+    }
+    Ok((stored, inserted))
 }
 
 pub(crate) fn mark_public_maintenance_running(

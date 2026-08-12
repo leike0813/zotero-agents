@@ -24,6 +24,7 @@ export const SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE = path.join(
 export const SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN =
   "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
+let directRequestSequence = 0;
 
 export type SynthesisProductionRouteHostCall = {
   capability: string;
@@ -145,10 +146,13 @@ export async function callSynthesisProductionRoute(
   capability: string,
   payload: unknown,
   trace?: SynthesisSidecarTraceContext,
+  requestId?: string,
 ) {
+  directRequestSequence = (directRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
   const requestBody = JSON.stringify({
     protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-    requestId: `test:${capability}`,
+    requestId:
+      requestId ?? `test:${capability}:${Date.now()}:${directRequestSequence}`,
     profileId: "1".repeat(64),
     capability,
     payload,

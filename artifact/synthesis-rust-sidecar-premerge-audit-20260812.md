@@ -407,3 +407,55 @@ Synthesis Rust production client route
 本阶段只关闭 HTTP admission、framing、timeout 与 shutdown drain 缺口。代表图、Related Items、WebDAV autosync、旧 Tag binding 迁移、maintenance replay、application parity、性能 fixture、full core suite、restart reconciliation 以及已列出的 transfer/WebDAV 竞态仍按原审计等级保留。因而本报告的整体结论不变：候选尚不能据此直接合入主线。
 
 本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed 或触发任何发布流程。发布与 prebuild 仍是后续独立且需明确授权的工作。
+
+## 第四阶段修复复验：maintenance replay 与 restart reconciliation
+
+本节记录独立 OpenSpec change `harden-synthesis-public-maintenance-replay` 的实现与复验。固定实现基线为 `454e8bf1d04e0241089cb7d754d472628f4252ec`；最终工作区补丁身份（不含本审计文件，tracked binary diff 加按路径排序的 untracked 文件内容哈希）为 `sha256:1f2cdfeccb408a999b2e703267c662c7e467c441296a5daf26cd93ad3493ac46`。本阶段只关闭上文 maintenance request replay 与 restart reconciliation 两项，不改变其它阻断项的状态。
+
+### Replay 所有权
+
+公开 maintenance operation identity 现在只由 capability、公开 request ID 与 canonical source hash 决定，不再包含受理时间。同一请求及相同输入会命中同一 durable receipt；仓储的 `INSERT OR IGNORE` 同时返回持久化记录与 first-insert 标记，只有 first insert 可以发布 `maintenance-started`、取得 autosync maintenance epoch 并创建 worker。replay 在任何非终态或终态阶段都直接返回已有 receipt，不重复读取 Host、不重复执行外部副作用，也不重复发布 lifecycle。
+
+命中相同 operation ID 后，运行时还会核对 operation type、公开 maintenance basis kind 与 source hash。持久化 basis 冲突时返回稳定的 `basis_mismatch`，不会借 replay 路径执行另一份工作。retry successor 沿用同一个原子插入事实源，重复 retry 仍只取得首次创建的 successor。
+
+### Restart reconciliation
+
+仓储 open 不再修改 operation lifecycle。启动后的显式 reconciliation 使用 operation ID 升序的有界 keyset page，从第一页起就保持相同顺序，每页最多 1,000 条：
+
+- 所有 public maintenance `running` receipt 转为 `failed / restart_reconciliation_failed`，并记录 `restart_external_effect_unknown`；由于外部副作用结果未知，不做自动 replay。
+- 所有其它 `running` receipt 转为 `canceled / service_restart`，并记录 `synthesis_operation_stale_after_restart`。
+- 所有 public maintenance `pending` receipt 转为 `continuation_required`，等待显式继续。
+- completed、succeeded、failed、canceled、timed_out 等 terminal receipt 由 SQL 条件排除，不进入启动写路径。
+
+仓储回归以更新时间和 operation ID 逆序的数据锁定第一页排序，避免第一页按 `updated_at`、后续页按 ID 游标造成漏行。真实进程回归另外写入 1,001 条 public pending、1 条 public running、1 条 generic running 与 1,001 条 terminal distractor，证明跨页恢复覆盖全部非终态记录且不改 terminal receipt。
+
+### TDD 与真实进程证据
+
+实现前，两条新 production-route 用例在固定基线二进制上为 **0 passing / 2 failing**：相同 request ID 的并发 replay 得到不同 operation ID；含 1,001 条 public pending 的重启场景没有完成跨页 reconciliation。实现及第一页 keyset 排序修正后，两条用例为 **2 passing**。replay 用例同时断言一个 operation ID、一次 `library.items.list_page`、一次 artifact scan Host read、一次 `maintenance-started`，并在 terminal 后再次 replay 验证 receipt 不变。
+
+完整 `test/core/229-synthesis-production-client-rust-route.test.ts` 为 **19 passing / 1 failing**。失败项是 `plans and applies Related Items effects after a successful incremental Graph refresh` 的 echo 断言；同一用例在未应用本阶段补丁的固定基线 `454e8bf1` 上独立运行同样失败，因此不归因于本阶段。该既有回归仍需单独处理，不能把整个 route 文件记为全绿。
+
+### 第四阶段验证结果
+
+| 验证 | 结果 | 本阶段证据 |
+|---|---:|---|
+| Rust format | PASS | 固定 nightly 的 workspace `fmt --check` |
+| Rust Clippy | PASS | workspace/all-targets，`-D warnings` |
+| Rust workspace tests | PASS | 247 passed；新增 repository keyset-order 回归通过 |
+| Rust workspace build | PASS | locked workspace build |
+| maintenance replay + restart route | PASS | 2 passing，真实 source-fresh sidecar 进程 |
+| service boundary | PASS | 无 missing、unknown、contract violation 或 unauthorized retirement |
+| TypeScript contracts | PASS | package typecheck |
+| cross-language contracts | PASS | 6 schema / 115 definitions / 14 positive / 15 negative |
+| production capabilities | PASS | 96 capability / 96 operation，fingerprint `f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523` 未变化 |
+| WebDAV/Maintenance surface parity | PASS | 10 operations |
+| OpenSpec strict | PASS | change 与 353 项 main specs 严格校验；delta 已同步并归档 |
+| Prettier / diff check | PASS | 变更 TypeScript 文件与 whitespace gate 通过 |
+
+本阶段没有新增或删除 public client method、wire operation、reverse-Host capability、SQLite 表、schema 或依赖。生产 roster 仍为 96 operations / 14 reverse-Host capabilities。repository open 的 `_reconcile_now` 形参暂时保留，是现有调用契约的一部分；它不再承载生命周期副作用。
+
+### 剩余阻断与范围
+
+本阶段没有处理 transfer session 在 executing/publishing 期间的 pinning 与 byte ownership、maintenance worker 的统一 drain、WebDAV state CAS/互斥及 pause/retry/stop 时序、四个 application parity gate、性能 fixture、full core suite、Related Items 既有 echo 失败、automatic retry schedule 的代码/规格漂移或 Zotero 7/9 desktop smoke。整个 premerge 因此仍不能判定为通过。
+
+本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed、触发发布或运行 Gitee 同步。上述流程仍需在后续任务中单独授权。

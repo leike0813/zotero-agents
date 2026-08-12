@@ -12,7 +12,7 @@ use crate::runtime_diagnostics::{
     with_observation_context,
 };
 use crate::runtime_public_maintenance_operation::{
-    PublicMaintenanceBasis, decode_basis, with_operation_context,
+    PUBLIC_MAINTENANCE_BASIS_KIND, PublicMaintenanceBasis, decode_basis, with_operation_context,
 };
 use crate::runtime_webdav_maintenance_surface::{
     begin_public_maintenance_operation, finish_public_maintenance_operation,
@@ -427,14 +427,14 @@ fn start_public_maintenance_operation(
     let identity_hash = canonical_json_hash(&json!({
         "capability":capability,
         "requestId":request_id,
-        "acceptedAt":accepted_at,
+        "sourceHash":source_hash,
     }))?;
     let operation_id = format!(
         "maintenance:{}:{}",
         capability.trim_start_matches("client."),
         &identity_hash["sha256:".len().."sha256:".len() + 24]
     );
-    let accepted = begin_public_maintenance_operation(
+    let (accepted, inserted) = begin_public_maintenance_operation(
         state.applications.as_ref(),
         &operation_id,
         capability,
@@ -443,7 +443,16 @@ fn start_public_maintenance_operation(
         work_deadline_ms,
         &accepted_at,
     )?;
+    if accepted.operation_type != capability
+        || accepted.basis_kind != PUBLIC_MAINTENANCE_BASIS_KIND
+        || accepted.source_hash != source_hash
+    {
+        return Err("basis_mismatch".into());
+    }
     let accepted_dto = public_maintenance_operation_dto(&accepted)?;
+    if !inserted {
+        return Ok(accepted_dto);
+    }
     let applications = Arc::clone(&state.applications);
     let mut canonical_maintenance = applications
         .canonical_autosync

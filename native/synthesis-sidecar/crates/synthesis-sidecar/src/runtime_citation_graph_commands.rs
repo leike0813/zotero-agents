@@ -787,6 +787,7 @@ fn retry(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String>
             operation_types: vec![FULL_INTENT.into(), INCREMENTAL_INTENT.into()],
             include_completed: true,
             limit: 1,
+            ..OperationQuery::default()
         })?
         .into_iter()
         .next();
@@ -1197,6 +1198,7 @@ mod tests {
                 operation_types: vec![INCREMENTAL_INTENT.into()],
                 include_completed: true,
                 limit: 1,
+                ..OperationQuery::default()
             })
             .expect("operations")
             .into_iter()
@@ -1253,6 +1255,7 @@ mod tests {
                 operation_types: vec![INCREMENTAL_INTENT.into()],
                 include_completed: true,
                 limit: 1,
+                ..OperationQuery::default()
             })
             .expect("operations")
             .into_iter()
