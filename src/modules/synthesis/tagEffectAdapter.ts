@@ -14,7 +14,7 @@ import {
 } from "./zoteroItemRefAdapter";
 
 function diagnostic(code: string) {
-  return { code, severity: "error" };
+  return { code, severity: "error" as const };
 }
 
 export function createZoteroSynthesisStagedTagBindingMigrationPort(): SynthesisHostStagedTagBindingMigrationPort {

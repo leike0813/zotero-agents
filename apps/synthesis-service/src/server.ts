@@ -22,7 +22,7 @@ import {
   type SynthesisSidecarSuccess,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 import {
-  rebuildSynthesisWorkbenchChromeReadRequest,
+  rebuildSynthesisWorkbenchOperationalChromeReadRequest,
   rebuildSynthesisWorkbenchOperationalChromeResult,
 } from "../../../packages/synthesis-contracts/src/workbench.js";
 import { readSynthesisWorkbenchOperationalChrome } from "../../../packages/synthesis-application/src/index.js";
@@ -31,6 +31,7 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "../../../packages/synthesis-contracts/src/common.js";
+import { rebuildSynthesisProtocolCapabilityDto } from "../../../packages/synthesis-contracts/src/protocolSchema.js";
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphMetricsRequest,
@@ -669,6 +670,19 @@ export async function startSynthesisSidecarServer(
           retryable: true,
         });
       }
+      try {
+        rebuildSynthesisProtocolCapabilityDto({
+          capability: call.capability,
+          direction: "request",
+          value: call.payload,
+        });
+      } catch {
+        throw new SidecarRuntimeError({
+          status: 400,
+          code: "invalid_request",
+          message: "The Synthesis sidecar capability payload is invalid.",
+        });
+      }
       if (call.capability === "compute.citation_graph_build_transfer") {
         try {
           const action = rebuildSynthesisSidecarTransferAction(call.payload);
@@ -742,7 +756,7 @@ export async function startSynthesisSidecarServer(
       if (isSynthesisSidecarGeneralCapability(call.capability)) {
         if (call.capability === "workbench.chrome.read") {
           try {
-            rebuildSynthesisWorkbenchChromeReadRequest(call.payload);
+            rebuildSynthesisWorkbenchOperationalChromeReadRequest(call.payload);
           } catch {
             throw new SidecarRuntimeError({
               status: 400,

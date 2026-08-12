@@ -1,4 +1,8 @@
-import { SynthesisClientError, toSynthesisJsonObject } from "./common.js";
+import {
+  SynthesisClientError,
+  assertSynthesisExactFields,
+  toSynthesisJsonObject,
+} from "./common.js";
 
 export const SYNTHESIS_HOST_ITEM_KEY_MAX = 128 as const;
 
@@ -16,6 +20,7 @@ export function rebuildSynthesisHostItemRef(
   location = "itemRef",
 ): SynthesisHostItemRef {
   const json = toSynthesisJsonObject(value, location);
+  assertSynthesisExactFields(json, ["libraryId", "itemKey"], [], location);
   if (!Number.isSafeInteger(json.libraryId) || Number(json.libraryId) <= 0) {
     return invalidRequest(`${location}.libraryId is invalid`);
   }

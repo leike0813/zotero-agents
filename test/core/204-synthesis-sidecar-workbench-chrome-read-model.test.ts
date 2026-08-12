@@ -7,7 +7,7 @@ import {
   type SynthesisWorkbenchOperationalRepository,
 } from "../../packages/synthesis-application/src/index";
 import {
-  rebuildSynthesisWorkbenchChromeReadRequest,
+  rebuildSynthesisWorkbenchOperationalChromeReadRequest,
   rebuildSynthesisWorkbenchOperationalChromeResult,
 } from "../../packages/synthesis-contracts/src/workbench";
 import type {
@@ -104,11 +104,11 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
   });
   it("strictly rebuilds requests and operational results", function () {
     assert.deepEqual(
-      rebuildSynthesisWorkbenchChromeReadRequest({ state: { tab: "graph" } }),
-      { state: { tab: "graph" } },
+      rebuildSynthesisWorkbenchOperationalChromeReadRequest({}),
+      {},
     );
     assert.throws(() =>
-      rebuildSynthesisWorkbenchChromeReadRequest({ state: {}, extra: true }),
+      rebuildSynthesisWorkbenchOperationalChromeReadRequest({ state: {} }),
     );
 
     const result = rebuildSynthesisWorkbenchOperationalChromeResult({
@@ -308,7 +308,6 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
       const result =
         await createSynthesisSidecarWorkbenchClient().readOperationalChrome(
           connection,
-          { state: {} },
         );
       assert.equal(result.maintenance.cacheReadiness[0]?.status, "ready");
       assert.equal(
@@ -426,7 +425,6 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
       await code(() =>
         createSynthesisSidecarWorkbenchClient().readOperationalChrome(
           connection,
-          { state: {} },
           { signal: controller.signal },
         ),
       ),
@@ -449,7 +447,7 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
       await code(() =>
         createSynthesisSidecarWorkbenchClient({
           fetch: invalidFetch,
-        }).readOperationalChrome(connection, { state: {} }),
+        }).readOperationalChrome(connection),
       ),
       "response_invalid",
     );
@@ -467,7 +465,7 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
         createSynthesisSidecarWorkbenchClient({
           fetch: timeoutFetch,
           deadlineMs: 5,
-        }).readOperationalChrome(connection, { state: {} }),
+        }).readOperationalChrome(connection),
       ),
       "request_timeout",
     );
@@ -479,7 +477,7 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
       await code(() =>
         createSynthesisSidecarWorkbenchClient({
           fetch: unavailableFetch,
-        }).readOperationalChrome(connection, { state: {} }),
+        }).readOperationalChrome(connection),
       ),
       "service_unavailable",
     );

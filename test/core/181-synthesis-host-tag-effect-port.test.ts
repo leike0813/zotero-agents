@@ -41,18 +41,18 @@ function effect(
 }
 
 describe("Synthesis Host Tag effect port", function () {
-  it("canonically rebuilds stable refs and drops unknown fields", function () {
+  it("canonically rebuilds stable refs and rejects unknown fields", function () {
     assert.deepEqual(
       rebuildSynthesisHostItemRef({
         libraryId: 1,
         itemKey: "ABCD1234",
-        ignored: true,
       }),
       { libraryId: 1, itemKey: "ABCD1234" },
     );
     for (const invalid of [
       { libraryId: 0, itemKey: "ABCD1234" },
       { libraryId: 1, itemKey: "../bad" },
+      { libraryId: 1, itemKey: "ABCD1234", ignored: true },
       { libraryId: 1, itemKey: "ABCD1234", callback: () => undefined },
     ]) {
       assert.throws(

@@ -1,8 +1,24 @@
+import type { SynthesisDeliveryContext, SynthesisJsonObject } from "./common";
 import type {
-  SynthesisDeliveryContext,
-  SynthesisJsonObject,
-  SynthesisJsonValue,
-} from "./common";
+  SynthesisCitationAnalysisArtifact,
+  SynthesisDigestArtifact,
+  SynthesisLiteratureMatchingMetadata,
+  SynthesisLiteratureScore,
+  SynthesisMatchedReference,
+  SynthesisReferencesArtifact,
+  SynthesisTopicMetadata,
+  SynthesisTopicResultBundle,
+  SynthesisWorkflowSource,
+} from "./topicDomain";
+import type { SynthesisTopicApplicationApplyResult } from "./topicApplication";
+import {
+  rebuildSynthesisProtocolDto,
+  SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+} from "./protocolSchema";
+import type {
+  SynthesisWorkbenchPaperDigestReadRequest,
+  SynthesisWorkbenchPaperDigestResult,
+} from "./workbench";
 
 export type SynthesisWorkflowItemSnapshot = {
   libraryId: number;
@@ -25,13 +41,13 @@ export type SynthesisWorkflowItemSnapshot = {
 
 export type SynthesisLiteratureDigestApplyRequest =
   SynthesisWorkflowItemSnapshot & {
-    digest?: SynthesisJsonObject;
-    references?: SynthesisJsonObject;
-    citationAnalysis?: SynthesisJsonObject;
-    literatureScore?: SynthesisJsonObject;
-    literatureMatchingMetadata?: SynthesisJsonValue;
-    matchedReferences?: SynthesisJsonValue;
-    source?: SynthesisJsonValue;
+    digest?: SynthesisDigestArtifact;
+    references?: SynthesisReferencesArtifact;
+    citationAnalysis?: SynthesisCitationAnalysisArtifact;
+    literatureScore?: SynthesisLiteratureScore;
+    literatureMatchingMetadata?: SynthesisLiteratureMatchingMetadata;
+    matchedReferences?: SynthesisMatchedReference[];
+    source?: SynthesisWorkflowSource;
   };
 
 export type SynthesisMaterializedAsset = {
@@ -41,16 +57,83 @@ export type SynthesisMaterializedAsset = {
 };
 
 export type SynthesisTopicApplyRequest = {
-  bundle: SynthesisJsonObject;
+  bundle: SynthesisTopicResultBundle;
   assets: SynthesisMaterializedAsset[];
 };
 
-export type SynthesisTopicApplyResult = SynthesisJsonObject;
+export type SynthesisTopicApplyResult = SynthesisTopicApplicationApplyResult;
+
+export type SynthesisLiteratureDigestApplyResult = {
+  ok: boolean;
+  status: "sidecar_applied";
+  sourceRef: string;
+  source_ref: string;
+  paperRef: string;
+  reference_count: number;
+  input_reference_count: number;
+  rejected_reference_count: number;
+  warning_reference_count: number;
+  matched_count: number;
+  decision_count: number;
+  stale_canonical_governance: {
+    affected: number;
+    autoRedirected: number;
+    autoStaled: number;
+    proposalsCreated: number;
+    blocked: number;
+  };
+  operationId: string;
+  idempotent: boolean;
+};
+
+export function rebuildSynthesisLiteratureDigestApplyRequest(
+  value: unknown,
+): SynthesisLiteratureDigestApplyRequest {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition: "LiteratureDigestPayload",
+    value,
+    direction: "request",
+  });
+}
+
+export function rebuildSynthesisLiteratureDigestApplyResult(
+  value: unknown,
+): SynthesisLiteratureDigestApplyResult {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition: "ApplyLiteratureDigestSidecarResult",
+    value,
+    direction: "result",
+  });
+}
+
+export function rebuildSynthesisTopicApplyRequest(
+  value: unknown,
+): SynthesisTopicApplyRequest {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition: "TopicApplyPayload",
+    value,
+    direction: "request",
+  });
+}
+
+export function rebuildSynthesisTopicApplyResult(
+  value: unknown,
+): SynthesisTopicApplyResult {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition: "ApplyTopicSynthesisResultResult",
+    value,
+    direction: "result",
+  });
+}
 
 export interface SynthesisWorkflowApplyClient {
   applyLiteratureDigestSidecar(
     request: SynthesisLiteratureDigestApplyRequest,
-  ): Promise<SynthesisJsonObject>;
+  ): Promise<SynthesisLiteratureDigestApplyResult>;
   applyTopicSynthesisResult(
     request: SynthesisTopicApplyRequest,
   ): Promise<SynthesisTopicApplyResult>;
@@ -60,13 +143,28 @@ export type SynthesisTopicReportRequest = {
   topicId: string;
 };
 
-export type SynthesisTopicReportResult = SynthesisJsonObject & {
+export type SynthesisTopicReportResult = {
   ok: boolean;
-  status: string;
+  status: "available" | "not_found";
   topic_id: string;
+  title?: string;
+  format: "markdown";
   markdown: string;
+  source?: SynthesisWorkflowSource;
+  metadata?: SynthesisTopicMetadata;
   diagnostics: string[];
 };
+
+export function rebuildSynthesisTopicReportResult(
+  value: unknown,
+): SynthesisTopicReportResult {
+  return rebuildSynthesisProtocolDto({
+    schemaId: SYNTHESIS_TOPIC_WORKBENCH_SCHEMA_ID,
+    definition: "GetTopicReportResult",
+    value,
+    direction: "result",
+  });
+}
 
 export type SynthesisPaperArtifactsRequest = {
   paper_refs: string[];
@@ -94,6 +192,6 @@ export interface SynthesisArtifactsClient {
     delivery?: SynthesisDeliveryContext,
   ): Promise<SynthesisArtifactQueryResult>;
   resolveTopicPaperDigest(
-    request: SynthesisArtifactQueryRequest,
-  ): Promise<SynthesisArtifactQueryResult>;
+    request: SynthesisWorkbenchPaperDigestReadRequest,
+  ): Promise<SynthesisWorkbenchPaperDigestResult>;
 }

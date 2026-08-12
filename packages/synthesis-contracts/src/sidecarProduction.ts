@@ -30,6 +30,72 @@ import {
   rebuildSynthesisSidecarTraceContext,
   type SynthesisSidecarTraceContext,
 } from "./sidecarObservability.js";
+import {
+  rebuildSynthesisHostArtifactReadRequest,
+  rebuildSynthesisHostArtifactReadResult,
+  rebuildSynthesisHostArtifactScanPageRequest,
+  rebuildSynthesisHostArtifactScanPageResult,
+  rebuildSynthesisHostLibraryItemsByRefRequest,
+  rebuildSynthesisHostLibraryItemsByRefResult,
+  rebuildSynthesisHostLibraryItemsPageResult,
+  rebuildSynthesisHostPageRequest,
+  type SynthesisHostArtifactReadRequest,
+  type SynthesisHostArtifactReadResult,
+  type SynthesisHostArtifactScanPageRequest,
+  type SynthesisHostArtifactScanPageResult,
+  type SynthesisHostLibraryItemsByRefRequest,
+  type SynthesisHostLibraryItemsByRefResult,
+  type SynthesisHostLibraryItemsPageResult,
+  type SynthesisHostPageRequest,
+} from "./hostRead.js";
+import {
+  rebuildSynthesisHostExportDeliveryResult,
+  rebuildSynthesisHostExportDeliveryTransferRequest,
+  rebuildSynthesisHostRunWorkspaceMaterializationResult,
+  rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest,
+  type SynthesisHostExportDeliveryResult,
+  type SynthesisHostExportDeliveryTransferRequest,
+  type SynthesisHostRunWorkspaceMaterializationResult,
+  type SynthesisHostRunWorkspaceMaterializationTransferRequest,
+} from "./exportDelivery.js";
+import {
+  rebuildSynthesisHostRepresentativeImageReadRequest,
+  rebuildSynthesisHostRepresentativeImageReadResult,
+  type SynthesisHostRepresentativeImageReadRequest,
+  type SynthesisHostRepresentativeImageReadResult,
+} from "./representativeImageRead.js";
+import {
+  rebuildSynthesisHostRelatedItemsEffectBatchRequest,
+  rebuildSynthesisHostRelatedItemsEffectBatchResult,
+  type SynthesisHostRelatedItemsEffectBatchRequest,
+  type SynthesisHostRelatedItemsEffectBatchResult,
+} from "./relatedItemsEffect.js";
+import {
+  rebuildSynthesisHostStagedTagBindingResolutionRequest,
+  rebuildSynthesisHostStagedTagBindingResolutionResult,
+  rebuildSynthesisHostTagEffectBatchRequest,
+  rebuildSynthesisHostTagEffectBatchResult,
+  type SynthesisHostStagedTagBindingResolutionRequest,
+  type SynthesisHostStagedTagBindingResolutionResult,
+  type SynthesisHostTagEffectBatchRequest,
+  type SynthesisHostTagEffectBatchResult,
+} from "./tagEffect.js";
+import {
+  rebuildSynthesisHostWebDavSyncDescription,
+  rebuildSynthesisHostWebDavSyncEnsureCollectionRequest,
+  rebuildSynthesisHostWebDavSyncEnsureCollectionResult,
+  rebuildSynthesisHostWebDavSyncReadRequest,
+  rebuildSynthesisHostWebDavSyncReadResult,
+  rebuildSynthesisHostWebDavSyncWriteRequest,
+  rebuildSynthesisHostWebDavSyncWriteResult,
+  type SynthesisHostWebDavSyncDescription,
+  type SynthesisHostWebDavSyncEnsureCollectionRequest,
+  type SynthesisHostWebDavSyncEnsureCollectionResult,
+  type SynthesisHostWebDavSyncReadRequest,
+  type SynthesisHostWebDavSyncReadResult,
+  type SynthesisHostWebDavSyncWriteRequest,
+  type SynthesisHostWebDavSyncWriteResult,
+} from "./webDavSyncPort.js";
 
 export const SYNTHESIS_REVERSE_HOST_CALL_SCHEMA =
   "synthesis-reverse-host-call.v1" as const;
@@ -64,6 +130,73 @@ export const SYNTHESIS_REVERSE_HOST_CAPABILITIES = [
 
 export type SynthesisReverseHostCapability =
   (typeof SYNTHESIS_REVERSE_HOST_CAPABILITIES)[number];
+
+export interface SynthesisReverseHostContractMap {
+  "library.items.list_page": {
+    request: Omit<SynthesisHostPageRequest, "libraryId">;
+    result: SynthesisHostLibraryItemsPageResult;
+  };
+  "library.items.get_by_ref": {
+    request: Omit<SynthesisHostLibraryItemsByRefRequest, "libraryId">;
+    result: SynthesisHostLibraryItemsByRefResult;
+  };
+  "library.artifacts.scan_page": {
+    request: Omit<SynthesisHostArtifactScanPageRequest, "libraryId">;
+    result: SynthesisHostArtifactScanPageResult;
+  };
+  "library.artifacts.read": {
+    request: SynthesisHostArtifactReadRequest;
+    result: SynthesisHostArtifactReadResult;
+  };
+  "library.representative_image.read": {
+    request: SynthesisHostRepresentativeImageReadRequest;
+    result: SynthesisHostRepresentativeImageReadResult;
+  };
+  "delivery.export.publish_archive": {
+    request: SynthesisHostExportDeliveryTransferRequest;
+    result: SynthesisHostExportDeliveryResult;
+  };
+  "delivery.export.materialize_run_workspace": {
+    request: SynthesisHostRunWorkspaceMaterializationTransferRequest;
+    result: SynthesisHostRunWorkspaceMaterializationResult;
+  };
+  "webdav.describe": {
+    request: Record<string, never>;
+    result: SynthesisHostWebDavSyncDescription;
+  };
+  "webdav.read_text": {
+    request: SynthesisHostWebDavSyncReadRequest;
+    result: SynthesisHostWebDavSyncReadResult;
+  };
+  "webdav.write_text": {
+    request: SynthesisHostWebDavSyncWriteRequest;
+    result: SynthesisHostWebDavSyncWriteResult;
+  };
+  "webdav.ensure_collection": {
+    request: SynthesisHostWebDavSyncEnsureCollectionRequest;
+    result: SynthesisHostWebDavSyncEnsureCollectionResult;
+  };
+  "effects.related_items.apply_batch": {
+    request: SynthesisHostRelatedItemsEffectBatchRequest;
+    result: SynthesisHostRelatedItemsEffectBatchResult;
+  };
+  "effects.tags.apply_batch": {
+    request: SynthesisHostTagEffectBatchRequest;
+    result: SynthesisHostTagEffectBatchResult;
+  };
+  "effects.staged_tag_binding.resolve": {
+    request: SynthesisHostStagedTagBindingResolutionRequest;
+    result: SynthesisHostStagedTagBindingResolutionResult;
+  };
+}
+
+export type SynthesisReverseHostPayload<
+  Capability extends SynthesisReverseHostCapability,
+> = SynthesisReverseHostContractMap[Capability]["request"];
+
+export type SynthesisReverseHostResult<
+  Capability extends SynthesisReverseHostCapability,
+> = SynthesisReverseHostContractMap[Capability]["result"];
 
 export const SYNTHESIS_REVERSE_HOST_CAPABILITY_POLICIES = Object.freeze({
   "library.artifacts.scan_page": Object.freeze({
@@ -110,7 +243,7 @@ export function synthesisReverseHostCallTimeoutMs(capability: string) {
   return policy?.callTimeoutMs ?? SYNTHESIS_REVERSE_HOST_LIMITS.callTimeoutMs;
 }
 
-export type SynthesisReverseHostCall = {
+type SynthesisReverseHostCallBase = {
   schema: typeof SYNTHESIS_REVERSE_HOST_CALL_SCHEMA;
   requestId: string;
   profileId: string;
@@ -118,10 +251,15 @@ export type SynthesisReverseHostCall = {
   operationId: string;
   correlationId?: string;
   trace?: SynthesisSidecarTraceContext;
-  capability: SynthesisReverseHostCapability;
   deadlineAtMs: number;
-  payload: SynthesisJsonObject;
 };
+
+export type SynthesisReverseHostCall = {
+  [Capability in SynthesisReverseHostCapability]: SynthesisReverseHostCallBase & {
+    capability: Capability;
+    payload: SynthesisReverseHostPayload<Capability>;
+  };
+}[SynthesisReverseHostCapability];
 
 export type SynthesisProductionRepositorySnapshot = {
   mode: "production";
@@ -554,6 +692,175 @@ export function rebuildSynthesisProductionHandshakeResult(
   });
 }
 
+export function rebuildSynthesisReverseHostPayload<
+  Capability extends SynthesisReverseHostCapability,
+>(
+  capability: Capability,
+  value: unknown,
+): SynthesisReverseHostPayload<Capability> {
+  let rebuilt: SynthesisReverseHostContractMap[SynthesisReverseHostCapability]["request"];
+  switch (capability) {
+    case "library.items.list_page":
+      {
+        const payload = toSynthesisJsonObject(value, "hostPageRequest");
+        exactFields(
+          payload,
+          [
+            ...(payload.cursor === undefined ? [] : ["cursor"]),
+            ...(payload.limit === undefined ? [] : ["limit"]),
+          ],
+          "hostPageRequest",
+        );
+        const { libraryId: _libraryId, ...request } =
+          rebuildSynthesisHostPageRequest({ ...payload, libraryId: 1 });
+        rebuilt = request;
+      }
+      break;
+    case "library.items.get_by_ref":
+      {
+        const payload = toSynthesisJsonObject(
+          value,
+          "hostLibraryItemsByRefRequest",
+        );
+        exactFields(payload, ["paperRefs"], "hostLibraryItemsByRefRequest");
+        const { libraryId: _libraryId, ...request } =
+          rebuildSynthesisHostLibraryItemsByRefRequest({
+            ...payload,
+            libraryId: 1,
+          });
+        rebuilt = request;
+      }
+      break;
+    case "library.artifacts.scan_page":
+      {
+        const payload = toSynthesisJsonObject(
+          value,
+          "hostArtifactScanPageRequest",
+        );
+        exactFields(
+          payload,
+          [
+            ...(payload.cursor === undefined ? [] : ["cursor"]),
+            ...(payload.limit === undefined ? [] : ["limit"]),
+            ...(payload.paperRefs === undefined ? [] : ["paperRefs"]),
+            ...(payload.artifactTypes === undefined ? [] : ["artifactTypes"]),
+          ],
+          "hostArtifactScanPageRequest",
+        );
+        const { libraryId: _libraryId, ...request } =
+          rebuildSynthesisHostArtifactScanPageRequest({
+            ...payload,
+            libraryId: 1,
+          });
+        rebuilt = request;
+      }
+      break;
+    case "library.artifacts.read":
+      rebuilt = rebuildSynthesisHostArtifactReadRequest(value);
+      break;
+    case "library.representative_image.read":
+      rebuilt = rebuildSynthesisHostRepresentativeImageReadRequest(value);
+      break;
+    case "delivery.export.publish_archive":
+      rebuilt = rebuildSynthesisHostExportDeliveryTransferRequest(value);
+      break;
+    case "delivery.export.materialize_run_workspace":
+      rebuilt =
+        rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest(value);
+      break;
+    case "webdav.describe": {
+      const payload = toSynthesisJsonObject(value, "webDavDescribeRequest");
+      exactFields(payload, [], "webDavDescribeRequest");
+      rebuilt = {};
+      break;
+    }
+    case "webdav.read_text":
+      rebuilt = rebuildSynthesisHostWebDavSyncReadRequest(value);
+      break;
+    case "webdav.write_text":
+      rebuilt = rebuildSynthesisHostWebDavSyncWriteRequest(value);
+      break;
+    case "webdav.ensure_collection":
+      rebuilt = rebuildSynthesisHostWebDavSyncEnsureCollectionRequest(value);
+      break;
+    case "effects.related_items.apply_batch":
+      rebuilt = rebuildSynthesisHostRelatedItemsEffectBatchRequest(value);
+      break;
+    case "effects.tags.apply_batch":
+      rebuilt = rebuildSynthesisHostTagEffectBatchRequest(value);
+      break;
+    case "effects.staged_tag_binding.resolve":
+      rebuilt = rebuildSynthesisHostStagedTagBindingResolutionRequest(value);
+      break;
+    default:
+      invalid("synthesisReverseHostPayload.capability");
+  }
+  return rebuilt as SynthesisReverseHostPayload<Capability>;
+}
+
+export function rebuildSynthesisReverseHostResult<
+  Capability extends SynthesisReverseHostCapability,
+>(
+  capability: Capability,
+  value: unknown,
+  request: SynthesisReverseHostPayload<Capability>,
+): SynthesisReverseHostResult<Capability> {
+  let rebuilt: SynthesisReverseHostContractMap[SynthesisReverseHostCapability]["result"];
+  switch (capability) {
+    case "library.items.list_page":
+      rebuilt = rebuildSynthesisHostLibraryItemsPageResult(value);
+      break;
+    case "library.items.get_by_ref":
+      rebuilt = rebuildSynthesisHostLibraryItemsByRefResult(value);
+      break;
+    case "library.artifacts.scan_page":
+      rebuilt = rebuildSynthesisHostArtifactScanPageResult(value);
+      break;
+    case "library.artifacts.read":
+      rebuilt = rebuildSynthesisHostArtifactReadResult(value);
+      break;
+    case "library.representative_image.read":
+      rebuilt = rebuildSynthesisHostRepresentativeImageReadResult(value);
+      break;
+    case "delivery.export.publish_archive":
+      rebuilt = rebuildSynthesisHostExportDeliveryResult(value);
+      break;
+    case "delivery.export.materialize_run_workspace":
+      rebuilt = rebuildSynthesisHostRunWorkspaceMaterializationResult(value);
+      break;
+    case "webdav.describe":
+      rebuilt = rebuildSynthesisHostWebDavSyncDescription(value);
+      break;
+    case "webdav.read_text":
+      rebuilt = rebuildSynthesisHostWebDavSyncReadResult(value);
+      break;
+    case "webdav.write_text":
+      rebuilt = rebuildSynthesisHostWebDavSyncWriteResult(value);
+      break;
+    case "webdav.ensure_collection":
+      rebuilt = rebuildSynthesisHostWebDavSyncEnsureCollectionResult(value);
+      break;
+    case "effects.related_items.apply_batch":
+      rebuilt = rebuildSynthesisHostRelatedItemsEffectBatchResult(
+        value,
+        request,
+      );
+      break;
+    case "effects.tags.apply_batch":
+      rebuilt = rebuildSynthesisHostTagEffectBatchResult(value, request);
+      break;
+    case "effects.staged_tag_binding.resolve":
+      rebuilt = rebuildSynthesisHostStagedTagBindingResolutionResult(
+        value,
+        request,
+      );
+      break;
+    default:
+      invalid("synthesisReverseHostResult.capability");
+  }
+  return rebuilt as SynthesisReverseHostResult<Capability>;
+}
+
 export function rebuildSynthesisReverseHostCall(
   value: unknown,
 ): SynthesisReverseHostCall {
@@ -583,6 +890,7 @@ export function rebuildSynthesisReverseHostCall(
   ) {
     invalid(`${location}.identity`);
   }
+  const capability = record.capability as SynthesisReverseHostCapability;
   return Object.freeze({
     schema: SYNTHESIS_REVERSE_HOST_CALL_SCHEMA,
     requestId: boundedString(record.requestId, `${location}.requestId`, 512),
@@ -609,12 +917,12 @@ export function rebuildSynthesisReverseHostCall(
     ...(record.trace === undefined
       ? {}
       : { trace: rebuildSynthesisSidecarTraceContext(record.trace) }),
-    capability: record.capability as SynthesisReverseHostCapability,
+    capability,
     deadlineAtMs: safeInteger(
       record.deadlineAtMs,
       `${location}.deadlineAtMs`,
       0,
     ),
-    payload: toSynthesisJsonObject(record.payload, `${location}.payload`),
-  });
+    payload: rebuildSynthesisReverseHostPayload(capability, record.payload),
+  }) as SynthesisReverseHostCall;
 }

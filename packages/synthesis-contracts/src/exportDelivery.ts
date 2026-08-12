@@ -1,5 +1,6 @@
 import {
   SynthesisClientError,
+  assertSynthesisExactFields,
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common";
@@ -197,6 +198,12 @@ function rebuildEntries(
   let totalBytes = 0;
   return value.map((value, index) => {
     const entry = toSynthesisJsonObject(value, `${location}[${index}]`);
+    assertSynthesisExactFields(
+      entry,
+      ["path", "text"],
+      [],
+      `${location}[${index}]`,
+    );
     const entryPath = rebuildEntryPath(entry.path, `entries[${index}].path`);
     if (paths.has(entryPath)) {
       return invalidRequest("Export delivery entry paths must be unique");
@@ -274,6 +281,22 @@ function rebuildDescriptor(
   capability: SynthesisHostExportDeliveryCapability,
 ): SynthesisHostExportDeliveryDescriptor {
   const descriptor = toSynthesisJsonObject(value, "exportDelivery.bundle");
+  assertSynthesisExactFields(
+    descriptor,
+    [
+      "fileId",
+      "sourceKind",
+      "displayName",
+      "contentType",
+      "size",
+      "sha256",
+      "createdAt",
+      "expiresAt",
+      "owner",
+    ],
+    [],
+    "exportDelivery.bundle",
+  );
   const fileId = requiredTrimmedString(descriptor.fileId, "fileId", 256);
   if (!/^file-[A-Za-z0-9-]+$/.test(fileId)) {
     return invalidRequest("Export delivery fileId is invalid");
@@ -299,6 +322,12 @@ function rebuildDescriptor(
     descriptor.owner,
     "exportDelivery.bundle.owner",
   );
+  assertSynthesisExactFields(
+    owner,
+    ["capability"],
+    [],
+    "exportDelivery.bundle.owner",
+  );
   if (rebuildCapability(owner.capability) !== capability) {
     return invalidRequest("Export delivery owner capability is invalid");
   }
@@ -319,6 +348,12 @@ export function rebuildSynthesisHostExportDeliveryRequest(
   value: unknown,
 ): SynthesisHostExportDeliveryRequest {
   const json = toSynthesisJsonObject(value, "exportDeliveryRequest");
+  assertSynthesisExactFields(
+    json,
+    ["capability", "displayName", "entries"],
+    [],
+    "exportDeliveryRequest",
+  );
   const capability = rebuildCapability(json.capability);
   const displayName = rebuildDisplayName(json.displayName);
   const entries = rebuildEntries(json.entries, "exportDeliveryRequest.entries");
@@ -329,6 +364,12 @@ export function rebuildSynthesisHostExportDeliveryTransferRequest(
   value: unknown,
 ): SynthesisHostExportDeliveryTransferRequest {
   const json = toSynthesisJsonObject(value, "exportDeliveryTransferRequest");
+  assertSynthesisExactFields(
+    json,
+    ["capability", "displayName", "contentTransfer"],
+    [],
+    "exportDeliveryTransferRequest",
+  );
   return {
     capability: rebuildCapability(json.capability),
     displayName: rebuildDisplayName(json.displayName),
@@ -343,6 +384,12 @@ export function rebuildSynthesisHostRunWorkspaceMaterializationRequest(
 ): SynthesisHostRunWorkspaceMaterializationRequest {
   const json = toSynthesisJsonObject(
     value,
+    "runWorkspaceMaterializationRequest",
+  );
+  assertSynthesisExactFields(
+    json,
+    ["capability", "runRoot", "entries"],
+    [],
     "runWorkspaceMaterializationRequest",
   );
   if (json.capability !== "paper_artifacts.export_filtered") {
@@ -377,6 +424,12 @@ export function rebuildSynthesisHostRunWorkspaceMaterializationTransferRequest(
     value,
     "runWorkspaceMaterializationTransferRequest",
   );
+  assertSynthesisExactFields(
+    json,
+    ["capability", "runRoot", "contentTransfer"],
+    [],
+    "runWorkspaceMaterializationTransferRequest",
+  );
   if (json.capability !== "paper_artifacts.export_filtered") {
     return invalidRequest(
       "Run workspace materialization capability is invalid",
@@ -396,6 +449,12 @@ export function rebuildSynthesisHostRunWorkspaceMaterializationResult(
 ): SynthesisHostRunWorkspaceMaterializationResult {
   const json = toSynthesisJsonObject(
     value,
+    "runWorkspaceMaterializationResult",
+  );
+  assertSynthesisExactFields(
+    json,
+    ["status", "capability", "entryCount"],
+    [],
     "runWorkspaceMaterializationResult",
   );
   if (
@@ -420,6 +479,12 @@ export function rebuildSynthesisHostExportDeliveryResult(
   const json = toSynthesisJsonObject(value, "exportDeliveryResult");
   const capability = rebuildCapability(json.capability);
   if (json.status === "unavailable") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "capability", "diagnostics"],
+      [],
+      "exportDeliveryResult",
+    );
     return {
       status: "unavailable",
       capability,
@@ -429,8 +494,20 @@ export function rebuildSynthesisHostExportDeliveryResult(
   if (json.status !== "available") {
     return invalidRequest("Export delivery result status is invalid");
   }
+  assertSynthesisExactFields(
+    json,
+    ["status", "capability", "delivery", "diagnostics"],
+    [],
+    "exportDeliveryResult",
+  );
   const delivery = toSynthesisJsonObject(
     json.delivery,
+    "exportDeliveryResult.delivery",
+  );
+  assertSynthesisExactFields(
+    delivery,
+    ["mode", "bundle", "downloadCommand", "unpackHint"],
+    [],
     "exportDeliveryResult.delivery",
   );
   if (delivery.mode !== "bridge-download") {

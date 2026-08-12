@@ -5,6 +5,19 @@ use synthesis_canonical_store::TopicSnapshot;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostEffectDiagnostic {
+    pub code: String,
+    pub severity: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub message: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub field: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CacheReadiness {
     pub cache_key: String,
     pub cache_kind: String,
@@ -78,9 +91,7 @@ pub struct TopicApplyRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TopicListRequest {
-    #[serde(default)]
     pub cursor: String,
-    #[serde(default = "default_topic_limit")]
     pub limit: usize,
 }
 
@@ -185,6 +196,304 @@ impl TopicSourceMaterialsStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDefinitionDto {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aliases: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_include: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_exclude: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicResolverTagDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub and: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub or: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicResolverCombineDto {
+    Union,
+    Intersection,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicResolverDto {
+    pub paper_refs: Vec<String>,
+    pub collection_key: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<TopicResolverTagDto>,
+    pub combine: TopicResolverCombineDto,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDigestReferenceDto {
+    pub paper_ref: String,
+    pub payload_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library_id: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicLiteratureQualityDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResolvedTopicPaperDto {
+    pub paper_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub year: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthesis_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_reasons: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authors: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub literature_quality: Option<TopicLiteratureQualityDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_selection_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caveats: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest_ref: Option<TopicDigestReferenceDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResolvedTopicPaperSetDto {
+    pub papers: Vec<ResolvedTopicPaperDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicRelationProposalDto {
+    pub target_topic_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_topic_title: Option<String>,
+    pub relation_type: String,
+    pub confidence: f64,
+    pub rationale: String,
+    pub source_paper_refs: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicRelationProposalsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposals: Option<Vec<TopicRelationProposalDto>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicGraphProjectionTopicDto {
+    pub topic_id: String,
+    pub title: String,
+    pub definition: String,
+    pub artifact_hash: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicGraphProjectionDto {
+    pub topic: TopicGraphProjectionTopicDto,
+    pub relations: TopicRelationProposalsDto,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicConceptCardDto {
+    pub label: String,
+    pub aliases: Vec<String>,
+    pub concept_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_definition: Option<String>,
+    pub definition: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disambiguation: Option<String>,
+    pub topic_relevance: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<TopicConceptConfidenceDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<Vec<TopicConceptEvidenceDto>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relations: Option<Vec<TopicConceptRelationDto>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopicConceptConfidenceDto {
+    High,
+    Medium,
+    Low,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicConceptEvidenceDto {
+    pub paper_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_or_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicConceptRelationDto {
+    pub target_concept_id: String,
+    pub relation: String,
+    pub confidence: TopicConceptConfidenceDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Vec<TopicConceptEvidenceDto>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicConceptCardsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cards: Option<Vec<TopicConceptCardDto>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicInterestMetadataDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_terms: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub must_have_terms: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub methods: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_terms: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_literature_item_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDependencyArtifactDto {
+    pub status: String,
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDependencySnapshotDto {
+    pub paper_refs: Vec<String>,
+    pub paper_artifacts: BTreeMap<String, BTreeMap<String, TopicDependencyArtifactDto>>,
+    pub missing_artifacts: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicReadinessProjectionDto {
+    pub baseline_input_hash: String,
+    pub baseline_dependencies: Option<TopicDependencySnapshotDto>,
+    pub current_input_hash: String,
+    pub current_dependencies: Option<TopicDependencySnapshotDto>,
+    pub baseline_initialized_at: String,
+    pub last_scanned_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicDiscoveryProjectionDto {
+    pub source_paper_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<TopicReadinessProjectionDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TopicProjectionDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "topicGraph")]
+    pub topic_graph: Option<TopicGraphProjectionDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concepts: Option<TopicConceptCardsDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "interestMetadata")]
+    pub interest_metadata: Option<TopicInterestMetadataDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery: Option<TopicDiscoveryProjectionDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "recommendedUpdate")]
+    pub recommended_update: Option<TopicRecommendedUpdateDto>,
+    pub freshness: TopicFreshness,
+    pub source_materials_status: TopicSourceMaterialsStatus,
+    pub source_materials_percent: i64,
+    pub stale_reasons: Vec<String>,
+    pub dirty_reasons: Vec<String>,
+    pub missing_sections: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TopicRecommendedUpdateDto {
+    pub action_label: String,
+    pub freshness: TopicFreshness,
+    pub source_materials_status: TopicSourceMaterialsStatus,
+    #[serde(default)]
+    pub blocked: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TopicRecord {
     pub topic_id: String,
@@ -199,10 +508,10 @@ pub struct TopicRecord {
     pub bundle_hash: String,
     pub paper_count: i64,
     pub updated_at: String,
-    pub topic_definition: Value,
-    pub topic_resolver: Value,
-    pub resolved_paper_set: Value,
-    pub projection: Value,
+    pub topic_definition: TopicDefinitionDto,
+    pub topic_resolver: TopicResolverDto,
+    pub resolved_paper_set: ResolvedTopicPaperSetDto,
+    pub projection: TopicProjectionDto,
     pub freshness: TopicFreshness,
     pub source_materials_status: TopicSourceMaterialsStatus,
     pub source_materials_percent: i64,
@@ -239,8 +548,8 @@ pub struct TopicFindRow {
     pub updated_at: String,
     pub matched_paper_refs: Vec<String>,
     pub match_sources: Vec<String>,
-    pub freshness: Value,
-    pub source_materials_status: Value,
+    pub freshness: TopicFreshness,
+    pub source_materials_status: TopicSourceMaterialsStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

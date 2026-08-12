@@ -40,7 +40,7 @@ async function saveItem(item: any) {
 function diagnostic(code: string, message?: string) {
   return {
     code,
-    severity: "error",
+    severity: "error" as const,
     ...(message ? { message } : {}),
   };
 }

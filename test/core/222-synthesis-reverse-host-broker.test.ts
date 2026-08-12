@@ -18,11 +18,55 @@ const profileId = "1".repeat(64);
 const serviceInstanceId = "service-1";
 const token = "token-1";
 
-function makeHandlers(run: (capability: string) => unknown) {
+function emptyPage() {
+  return {
+    cursor: "",
+    nextCursor: "",
+    hasMore: false,
+    returned: 0,
+    limit: 50,
+    items: [],
+  };
+}
+
+function tagPayload(tag = "topic:one") {
+  return {
+    effects: [
+      {
+        effectId: "effect-1",
+        action: "ensure_present",
+        target: { libraryId: 1, itemKey: "ABCD1234" },
+        tag,
+        provenance: { kind: "staged_tag_promotion" },
+        precondition: { target: "exists" },
+        permission: {
+          scope: "synthesis.tags",
+          reason: "promote_staged_tag",
+        },
+      },
+    ],
+  };
+}
+
+function tagResult() {
+  return {
+    receipts: [
+      {
+        effectId: "effect-1",
+        action: "ensure_present",
+        status: "applied",
+        occurredAt: "2026-08-12T00:00:00.000Z",
+        diagnostics: [],
+      },
+    ],
+  };
+}
+
+function makeHandlers(run: (capability: string, payload: unknown) => unknown) {
   return Object.fromEntries(
     SYNTHESIS_REVERSE_HOST_CAPABILITIES.map((capability) => [
       capability,
-      async () => run(capability),
+      async (payload: unknown) => run(capability, payload),
     ]),
   ) as SynthesisReverseHostHandlers;
 }
@@ -69,13 +113,19 @@ describe("Synthesis reverse Host broker", function () {
       now: () => 10_000,
       isHostConnected: () => true,
       authorizeCapability: () => true,
-      handlers: makeHandlers(() => ({ value: "目录" })),
+      handlers: makeHandlers(() => ({
+        status: "available",
+        content: { kind: "text", text: "目录", mediaType: "text/plain" },
+        diagnostics: [],
+      })),
       recordTraceEvent: (event) => events.push(event),
     });
 
     await broker.dispatch({
       authorizationToken: token,
-      call: call("library.artifacts.read"),
+      call: call("library.artifacts.read", {
+        payload: { locator: "note:1", expectedHash: "sha256:expected" },
+      }),
     });
 
     assert.deepEqual(
@@ -107,7 +157,7 @@ describe("Synthesis reverse Host broker", function () {
       authorizeCapability: () => true,
       handlers: makeHandlers((capability) => {
         routed.push(capability);
-        return { capability };
+        return emptyPage();
       }),
     });
     assert.deepEqual(
@@ -115,7 +165,7 @@ describe("Synthesis reverse Host broker", function () {
         authorizationToken: token,
         call: call("library.items.list_page"),
       }),
-      { capability: "library.items.list_page" },
+      emptyPage(),
     );
     assert.deepEqual(routed, ["library.items.list_page"]);
   });
@@ -130,7 +180,7 @@ describe("Synthesis reverse Host broker", function () {
       now: () => 10_000,
       isHostConnected: () => true,
       authorizeCapability: () => true,
-      handlers: makeHandlers(() => ({ ok: true })),
+      handlers: makeHandlers(() => emptyPage()),
     });
 
     assert.deepEqual(
@@ -140,7 +190,7 @@ describe("Synthesis reverse Host broker", function () {
           serviceInstanceId: "preflight-instance",
         }),
       }),
-      { ok: true },
+      emptyPage(),
     );
     boundInstance = serviceInstanceId;
     let stale: unknown;
@@ -170,19 +220,20 @@ describe("Synthesis reverse Host broker", function () {
       authorizeCapability: () => permitted,
       handlers: makeHandlers(() => {
         effects += 1;
-        return {};
+        return tagResult();
       }),
     });
     const attempts = [
       {
         authorizationToken: "wrong",
-        call: call("effects.tags.apply_batch"),
+        call: call("effects.tags.apply_batch", { payload: tagPayload() }),
         expected: "reverse_host_unauthorized",
       },
       {
         authorizationToken: token,
         call: call("effects.tags.apply_batch", {
           serviceInstanceId: "stale",
+          payload: tagPayload(),
         }),
         expected: "reverse_host_stale_instance",
       },
@@ -190,6 +241,7 @@ describe("Synthesis reverse Host broker", function () {
         authorizationToken: token,
         call: call("effects.tags.apply_batch", {
           deadlineAtMs: 10_000,
+          payload: tagPayload(),
         }),
         expected: "reverse_host_deadline_invalid",
       },
@@ -208,7 +260,7 @@ describe("Synthesis reverse Host broker", function () {
     try {
       await broker.dispatch({
         authorizationToken: token,
-        call: call("effects.tags.apply_batch"),
+        call: call("effects.tags.apply_batch", { payload: tagPayload() }),
       });
     } catch (caught) {
       disconnected = caught;
@@ -220,7 +272,7 @@ describe("Synthesis reverse Host broker", function () {
     try {
       await broker.dispatch({
         authorizationToken: token,
-        call: call("effects.tags.apply_batch"),
+        call: call("effects.tags.apply_batch", { payload: tagPayload() }),
       });
     } catch (caught) {
       denied = caught;
@@ -238,22 +290,25 @@ describe("Synthesis reverse Host broker", function () {
       now: () => 10_000,
       isHostConnected: () => true,
       authorizeCapability: () => true,
-      handlers: makeHandlers(() => ({ effects: ++effects })),
+      handlers: makeHandlers(() => {
+        effects += 1;
+        return tagResult();
+      }),
     });
     const first = {
       authorizationToken: token,
       call: call("effects.tags.apply_batch", {
-        payload: { tag: "one" },
+        payload: tagPayload("topic:one"),
       }),
     };
-    assert.deepEqual(await broker.dispatch(first), { effects: 1 });
-    assert.deepEqual(await broker.dispatch(first), { effects: 1 });
+    assert.deepEqual(await broker.dispatch(first), tagResult());
+    assert.deepEqual(await broker.dispatch(first), tagResult());
     let conflict: unknown;
     try {
       await broker.dispatch({
         authorizationToken: token,
         call: call("effects.tags.apply_batch", {
-          payload: { tag: "two" },
+          payload: tagPayload("topic:two"),
         }),
       });
     } catch (caught) {
@@ -261,5 +316,66 @@ describe("Synthesis reverse Host broker", function () {
     }
     assert.equal(reason(conflict), "reverse_host_operation_conflict");
     assert.equal(effects, 1);
+  });
+
+  it("rejects unknown nested request and result fields at the broker boundary", async function () {
+    let calls = 0;
+    const broker = createSynthesisReverseHostBroker({
+      profileId,
+      serviceInstanceId,
+      authorizationToken: token,
+      now: () => 10_000,
+      isHostConnected: () => true,
+      authorizeCapability: () => true,
+      handlers: makeHandlers(() => {
+        calls += 1;
+        return {
+          ...tagResult(),
+          receipts: [
+            {
+              ...tagResult().receipts[0],
+              diagnostics: [
+                { code: "failed", severity: "error", ignored: true },
+              ],
+            },
+          ],
+        };
+      }),
+    });
+    const invalidRequest = tagPayload() as Record<string, unknown>;
+    const effects = invalidRequest.effects as Array<Record<string, unknown>>;
+    effects[0] = {
+      ...effects[0],
+      permission: {
+        ...((effects[0]?.permission as Record<string, unknown>) || {}),
+        ignored: true,
+      },
+    };
+    let requestError: unknown;
+    try {
+      await broker.dispatch({
+        authorizationToken: token,
+        call: call("effects.tags.apply_batch", { payload: invalidRequest }),
+      });
+    } catch (error) {
+      requestError = error;
+    }
+    assert.instanceOf(requestError, SynthesisClientError);
+    assert.equal(calls, 0);
+
+    let resultError: unknown;
+    try {
+      await broker.dispatch({
+        authorizationToken: token,
+        call: call("effects.tags.apply_batch", {
+          operationId: "operation-result-invalid",
+          payload: tagPayload(),
+        }),
+      });
+    } catch (error) {
+      resultError = error;
+    }
+    assert.instanceOf(resultError, SynthesisClientError);
+    assert.equal(calls, 1);
   });
 });

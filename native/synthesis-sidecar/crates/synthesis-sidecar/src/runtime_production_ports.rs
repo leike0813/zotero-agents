@@ -2,6 +2,7 @@ use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
     TopicLibraryQueryAdapter,
 };
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -37,9 +38,10 @@ use synthesis_application::webdav_sync::{
 };
 use synthesis_application::{
     CanonicalStorePort, CitationGraphApplication, ConceptKbApplication,
-    DebugMaintenanceApplication, DurableBundleApplication, ReferenceMatchingApplication,
-    ReferenceRefreshApplication, RepositoryPort, TagVocabularyApplication, TopicApplication,
-    TopicGraphApplication, TopicLibraryQueryPort, WebDavSyncApplication, WorkbenchApplication,
+    DebugMaintenanceApplication, DurableBundleApplication, HostEffectDiagnostic,
+    ReferenceMatchingApplication, ReferenceRefreshApplication, RepositoryPort,
+    TagVocabularyApplication, TopicApplication, TopicGraphApplication, TopicLibraryQueryPort,
+    WebDavSyncApplication, WorkbenchApplication,
 };
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_protocol::utc_now_iso8601;
@@ -1722,6 +1724,44 @@ pub(crate) struct ReverseHostApplicationPort {
     service_instance_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReverseHostEffectReceiptDto {
+    effect_id: String,
+    action: String,
+    status: String,
+    occurred_at: String,
+    diagnostics: Vec<HostEffectDiagnostic>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReverseHostEffectBatchResultDto {
+    receipts: Vec<ReverseHostEffectReceiptDto>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReverseHostItemRefDto {
+    library_id: i64,
+    item_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReverseHostResolvedBindingDto {
+    item_id: i64,
+    r#ref: ReverseHostItemRefDto,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReverseHostBindingResolutionDto {
+    resolved: Vec<ReverseHostResolvedBindingDto>,
+    missing_item_ids: Vec<i64>,
+    diagnostics: Vec<HostEffectDiagnostic>,
+}
+
 impl ReverseHostApplicationPort {
     fn call(&self, capability: &str, payload: Value) -> Result<Value, String> {
         let config = self
@@ -1825,7 +1865,7 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
         if effects.is_empty() || effects.len() > 100 {
             return Err("invalid_request".into());
         }
-        let result = self.call(
+        let result: ReverseHostEffectBatchResultDto = serde_json::from_value(self.call(
             "effects.tags.apply_batch",
             serde_json::json!({
                 "effects":effects.iter().map(|effect| serde_json::json!({
@@ -1838,12 +1878,9 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
                     "permission":{"scope":"synthesis.tags","reason":"promote_staged_tag"},
                 })).collect::<Vec<_>>(),
             }),
-        )?;
-        let receipts = result
-            .get("receipts")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-        if receipts.len() != effects.len() {
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        if result.receipts.len() != effects.len() {
             return Err("reverse_host_result_invalid".into());
         }
         let expected = effects
@@ -1851,51 +1888,30 @@ impl TagHostEffectPort for ReverseHostApplicationPort {
             .map(|effect| effect.effect_id.as_str())
             .collect::<HashSet<_>>();
         let mut seen = HashSet::new();
-        receipts
-            .iter()
+        result
+            .receipts
+            .into_iter()
             .map(|receipt| {
-                let receipt = receipt
-                    .as_object()
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let effect_id = receipt
-                    .get("effectId")
-                    .and_then(Value::as_str)
-                    .filter(|effect_id| expected.contains(*effect_id) && seen.insert(*effect_id))
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                if receipt.get("action").and_then(Value::as_str) != Some("ensure_present") {
+                if !expected.contains(receipt.effect_id.as_str())
+                    || !seen.insert(receipt.effect_id.clone())
+                    || receipt.action != "ensure_present"
+                {
                     return Err("reverse_host_result_invalid".into());
                 }
-                let status = receipt
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .filter(|status| {
-                        matches!(
-                            *status,
-                            "applied" | "already_satisfied" | "not_found" | "failed"
-                        )
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let occurred_at = receipt
-                    .get("occurredAt")
-                    .and_then(Value::as_str)
-                    .filter(|value| {
-                        synthesis_protocol::unix_millis_from_utc_iso8601(value).is_some()
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let diagnostics = receipt
-                    .get("diagnostics")
-                    .and_then(Value::as_array)
-                    .filter(|diagnostics| diagnostics.len() <= 20)
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                if diagnostics.iter().any(|entry| !entry.is_object()) {
+                if !matches!(
+                    receipt.status.as_str(),
+                    "applied" | "already_satisfied" | "not_found" | "failed"
+                ) || synthesis_protocol::unix_millis_from_utc_iso8601(&receipt.occurred_at)
+                    .is_none()
+                    || receipt.diagnostics.len() > 20
+                {
                     return Err("reverse_host_result_invalid".into());
                 }
                 Ok(TagHostEffectReceipt {
-                    effect_id: effect_id.into(),
-                    status: status.into(),
-                    occurred_at: occurred_at.into(),
-                    diagnostics_json: serde_json::to_string(diagnostics)
-                        .map_err(|_| "reverse_host_result_invalid".to_owned())?,
+                    effect_id: receipt.effect_id,
+                    status: receipt.status,
+                    occurred_at: receipt.occurred_at,
+                    diagnostics: receipt.diagnostics,
                 })
             })
             .collect()
@@ -1910,15 +1926,12 @@ impl RelatedItemsHostEffectPort for ReverseHostApplicationPort {
         if effects.is_empty() || effects.len() > 25 {
             return Err("invalid_request".into());
         }
-        let result = self.call(
+        let result: ReverseHostEffectBatchResultDto = serde_json::from_value(self.call(
             "effects.related_items.apply_batch",
             serde_json::json!({"effects":effects}),
-        )?;
-        let receipts = result
-            .get("receipts")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-        if receipts.len() != effects.len() {
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        if result.receipts.len() != effects.len() {
             return Err("reverse_host_result_invalid".into());
         }
         let expected = effects
@@ -1926,54 +1939,28 @@ impl RelatedItemsHostEffectPort for ReverseHostApplicationPort {
             .map(|effect| (effect.effect_id.as_str(), effect.action.as_str()))
             .collect::<BTreeMap<_, _>>();
         let mut seen = HashSet::new();
-        receipts
-            .iter()
+        result
+            .receipts
+            .into_iter()
             .map(|receipt| {
-                let receipt = receipt
-                    .as_object()
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let effect_id = receipt
-                    .get("effectId")
-                    .and_then(Value::as_str)
-                    .filter(|effect_id| {
-                        expected.contains_key(*effect_id) && seen.insert(*effect_id)
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let action = receipt
-                    .get("action")
-                    .and_then(Value::as_str)
-                    .filter(|action| expected.get(effect_id) == Some(action))
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let status = receipt
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .filter(|status| {
-                        matches!(
-                            *status,
-                            "applied" | "already_satisfied" | "not_found" | "failed"
-                        )
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let occurred_at = receipt
-                    .get("occurredAt")
-                    .and_then(Value::as_str)
-                    .filter(|value| {
-                        synthesis_protocol::unix_millis_from_utc_iso8601(value).is_some()
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let diagnostics = receipt
-                    .get("diagnostics")
-                    .and_then(Value::as_array)
-                    .filter(|diagnostics| {
-                        diagnostics.len() <= 20 && diagnostics.iter().all(Value::is_object)
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                if expected.get(receipt.effect_id.as_str()) != Some(&receipt.action.as_str())
+                    || !seen.insert(receipt.effect_id.clone())
+                    || !matches!(
+                        receipt.status.as_str(),
+                        "applied" | "already_satisfied" | "not_found" | "failed"
+                    )
+                    || synthesis_protocol::unix_millis_from_utc_iso8601(&receipt.occurred_at)
+                        .is_none()
+                    || receipt.diagnostics.len() > 20
+                {
+                    return Err("reverse_host_result_invalid".into());
+                }
                 Ok(RelatedItemsHostReceipt {
-                    effect_id: effect_id.into(),
-                    action: action.into(),
-                    status: status.into(),
-                    occurred_at: occurred_at.into(),
-                    diagnostics: diagnostics.clone(),
+                    effect_id: receipt.effect_id,
+                    action: receipt.action,
+                    status: receipt.status,
+                    occurred_at: receipt.occurred_at,
+                    diagnostics: receipt.diagnostics,
                 })
             })
             .collect()
@@ -1994,76 +1981,51 @@ impl TagLegacyBindingResolverPort for ReverseHostApplicationPort {
         {
             return Err("invalid_request".into());
         }
-        let result = self.call(
+        let result: ReverseHostBindingResolutionDto = serde_json::from_value(self.call(
             "effects.staged_tag_binding.resolve",
             serde_json::json!({"libraryId":library_id,"itemIds":item_ids}),
-        )?;
-        let object = result
-            .as_object()
-            .filter(|object| object.len() == 3)
-            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-        let resolved = object
-            .get("resolved")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-        let missing = object
-            .get("missingItemIds")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-        let diagnostics = object
-            .get("diagnostics")
-            .and_then(Value::as_array)
-            .filter(|values| values.len() <= 20 && values.iter().all(Value::is_object))
-            .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".to_owned())?;
+        if result.diagnostics.len() > 20 {
+            return Err("reverse_host_result_invalid".into());
+        }
         let requested = item_ids.iter().copied().collect::<HashSet<_>>();
         let mut partition = HashSet::new();
-        let resolved = resolved
-            .iter()
+        let resolved = result
+            .resolved
+            .into_iter()
             .map(|entry| {
-                let entry = entry
-                    .as_object()
-                    .filter(|entry| entry.len() == 2)
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let item_id = entry
-                    .get("itemId")
-                    .and_then(Value::as_i64)
-                    .filter(|item_id| requested.contains(item_id) && partition.insert(*item_id))
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let reference = entry
-                    .get("ref")
-                    .and_then(Value::as_object)
-                    .filter(|reference| reference.len() == 2)
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let ref_library_id = reference
-                    .get("libraryId")
-                    .and_then(Value::as_i64)
-                    .filter(|candidate| *candidate == library_id)
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
-                let item_key = reference
-                    .get("itemKey")
-                    .and_then(Value::as_str)
-                    .filter(|item_key| {
-                        !item_key.is_empty()
-                            && item_key.len() <= 128
-                            && item_key.bytes().all(|byte| byte.is_ascii_alphanumeric())
-                    })
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())?;
+                if !requested.contains(&entry.item_id)
+                    || !partition.insert(entry.item_id)
+                    || entry.r#ref.library_id != library_id
+                    || entry.r#ref.item_key.is_empty()
+                    || entry.r#ref.item_key.len() > 128
+                    || !entry
+                        .r#ref
+                        .item_key
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric())
+                {
+                    return Err("reverse_host_result_invalid".into());
+                }
                 Ok((
-                    item_id,
+                    entry.item_id,
                     TagParentBinding {
-                        library_id: ref_library_id,
-                        item_key: item_key.into(),
+                        library_id: entry.r#ref.library_id,
+                        item_key: entry.r#ref.item_key,
                     },
                 ))
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let missing_item_ids = missing
-            .iter()
+        let missing_item_ids = result
+            .missing_item_ids
+            .into_iter()
             .map(|item_id| {
-                item_id
-                    .as_i64()
-                    .filter(|item_id| requested.contains(item_id) && partition.insert(*item_id))
-                    .ok_or_else(|| "reverse_host_result_invalid".to_owned())
+                if requested.contains(&item_id) && partition.insert(item_id) {
+                    Ok(item_id)
+                } else {
+                    Err("reverse_host_result_invalid".to_owned())
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
         if partition != requested {
@@ -2072,7 +2034,7 @@ impl TagLegacyBindingResolverPort for ReverseHostApplicationPort {
         Ok(TagLegacyBindingResolution {
             resolved,
             missing_item_ids,
-            diagnostics: diagnostics.clone(),
+            diagnostics: result.diagnostics,
         })
     }
 }
@@ -2221,6 +2183,30 @@ mod tests {
     use synthesis_repository::{
         CanonicalReferenceRecord, RawReferenceRecord, ReferenceRedirectFactRecord,
     };
+
+    #[test]
+    fn reverse_host_effect_dtos_reject_unknown_nested_fields() {
+        let valid = json!({
+            "receipts": [{
+                "effectId": "effect:1",
+                "action": "ensure_present",
+                "status": "applied",
+                "occurredAt": "2026-08-12T00:00:00.000Z",
+                "diagnostics": [{"code":"ok","severity":"info"}],
+            }],
+        });
+        assert!(serde_json::from_value::<ReverseHostEffectBatchResultDto>(valid).is_ok());
+        let invalid = json!({
+            "receipts": [{
+                "effectId": "effect:1",
+                "action": "ensure_present",
+                "status": "applied",
+                "occurredAt": "2026-08-12T00:00:00.000Z",
+                "diagnostics": [{"code":"ok","severity":"info","ignored":true}],
+            }],
+        });
+        assert!(serde_json::from_value::<ReverseHostEffectBatchResultDto>(invalid).is_err());
+    }
 
     #[test]
     fn citation_compute_nodes_omit_blank_optional_text_and_bound_nonblank_text() {

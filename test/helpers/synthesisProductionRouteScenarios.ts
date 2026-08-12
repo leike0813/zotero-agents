@@ -46,7 +46,12 @@ export type SynthesisProductionRouteScenario = {
 
 export type SynthesisProductionRouteScenarioOutcome =
   | { kind: "result"; value: unknown }
-  | { kind: "stable-error"; code: string };
+  | {
+      kind: "stable-error";
+      code: string;
+      message?: string;
+      details?: Record<string, unknown>;
+    };
 
 type BaselineScenarioExpectations = {
   resultTypes: {
@@ -94,7 +99,12 @@ function assertExpectedSemantic(args: {
   }
   if (args.outcome.kind !== "result") {
     throw new Error(
-      `production route unexpected error for ${args.operation}: ${args.outcome.code}`,
+      `production route unexpected error for ${args.operation}: ${args.outcome.code} ${JSON.stringify(
+        {
+          message: args.outcome.message,
+          details: args.outcome.details,
+        },
+      )}`,
     );
   }
   const value = args.outcome.value;
@@ -148,13 +158,20 @@ const GROUPED_INVOCATIONS: Record<
   SynthesisSidecarProductionClientCapability,
   (client: SynthesisClient) => Promise<unknown>
 > = {
-  "client.listTopics": (client) => client.topics.list({}),
+  "client.listTopics": (client) =>
+    client.topics.list({ cursor: "", limit: 50 }),
   "client.findTopicsByPaperRef": (client) =>
-    client.topics.findByPaperRef({ paperRef: "1:SCENARIO1" }),
+    client.topics.findByPaperRef({ paper_refs: ["1:SCENARIO1"] }),
   "client.getTopicContext": (client) =>
-    client.topics.getContext({ topicId: "topic:missing" }),
+    client.topics.getContext({ topicId: "topic:missing", view: "full" }),
   "client.resolveResolver": (client) =>
-    client.topics.resolveResolver({ paper_refs: ["1:SCENARIO1"] }),
+    client.topics.resolveResolver({
+      paper_refs: ["1:SCENARIO1"],
+      collection_key: [],
+      combine: "union",
+      cursor: 0,
+      limit: 100,
+    }),
   "client.queryCitationGraphCluster": (client) => client.graph.queryCluster({}),
   "client.queryCitationGraph": (client) => client.graph.getOverview({}),
   "client.getCitationGraphSlice": (client) =>
@@ -218,7 +235,18 @@ const GROUPED_INVOCATIONS: Record<
   "client.applyLiteratureDigestSidecar": (client) =>
     client.workflowApply.applyLiteratureDigestSidecar(literatureApplyRequest),
   "client.applyTopicSynthesisResult": (client) =>
-    client.workflowApply.applyTopicSynthesisResult({ bundle: {}, assets: [] }),
+    client.workflowApply.applyTopicSynthesisResult({
+      bundle: {
+        kind: "topic_synthesis",
+        operation: "create",
+        language: "en",
+        topic_definition: {
+          id: "topic:scenario-invalid",
+          title: "Scenario invalid Topic",
+        },
+      },
+      assets: [],
+    }),
   "client.getTopicReport": (client) =>
     client.topics.getTopicReport({ topicId: "topic:missing" }),
   "client.deleteTopicArtifact": (client) =>
@@ -295,10 +323,12 @@ const GROUPED_INVOCATIONS: Record<
   "client.clearStagedTagSuggestions": (client) =>
     client.tags.clearStagedTagSuggestions(),
   "client.previewTagVocabularyImport": (client) =>
-    client.tags.previewTagVocabularyImport({ payload: "{}" }),
+    client.tags.previewTagVocabularyImport({
+      payload: '{"entries":[],"aliases":{},"abbrev":{}}',
+    }),
   "client.applyTagVocabularyImport": (client) =>
     client.tags.applyTagVocabularyImport({
-      payload: "{}",
+      payload: '{"entries":[],"aliases":{},"abbrev":{}}',
       action: "merge-non-conflicting",
     }),
   "client.replaceTagAuditRecords": (client) =>
@@ -317,6 +347,7 @@ const GROUPED_INVOCATIONS: Record<
     client.artifacts.resolveTopicPaperDigest({
       topicId: "topic:missing",
       paperRef: "1:SCENARIO1",
+      includeRepresentativeImage: false,
     }),
   "client.recomputeCitationGraphLayout": (client) =>
     client.graph.recomputeCitationGraphLayout({ algorithm: "force" }),
@@ -390,7 +421,7 @@ const GROUPED_INVOCATIONS: Record<
   "client.resumeWebDavSync": (client) => client.sync.webDav.resume(),
   "client.retryWebDavSync": (client) => client.sync.webDav.retry(),
   "client.resolveWebDavSyncConflict": (client) =>
-    client.sync.webDav.resolveConflict({ action: "skip" }),
+    client.sync.webDav.resolveConflict({ action: "keep_local" }),
 };
 
 export function readSynthesisProductionRouteInventory() {
@@ -517,7 +548,12 @@ export async function executeSynthesisProductionRouteScenarios(
       };
     } catch (error) {
       if (!(error instanceof SynthesisClientError)) throw error;
-      outcome = { kind: "stable-error", code: error.code };
+      outcome = {
+        kind: "stable-error",
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      };
     }
     const primaryCalls = harness.recorder.wire
       .slice(wireOffset)
@@ -529,7 +565,7 @@ export async function executeSynthesisProductionRouteScenarios(
       throw new Error(
         `production route mismatch for ${scenario.operation}: ${primaryCalls
           .map(({ capability }) => capability)
-          .join(",")}`,
+          .join(",")} ${JSON.stringify(outcome)}`,
       );
     }
     if (
@@ -547,17 +583,26 @@ export async function executeSynthesisProductionRouteScenarios(
       const operationId = String(
         (outcome.value as Record<string, unknown>).operation_id,
       );
-      outcome = {
-        kind: "result",
-        value: await waitForSynthesisProductionRouteReceipt({
-          operationId,
-          attempts: 400,
-          getOperation: (candidate) =>
-            harness.client.maintenance.getOperation({
-              operation_id: candidate,
-            }),
-        }),
-      };
+      try {
+        outcome = {
+          kind: "result",
+          value: await waitForSynthesisProductionRouteReceipt({
+            operationId,
+            attempts: 400,
+            getOperation: (candidate) =>
+              harness.client.maintenance.getOperation({
+                operation_id: candidate,
+              }),
+          }),
+        };
+      } catch (error) {
+        if (!(error instanceof SynthesisClientError)) throw error;
+        throw new Error(
+          `production route receipt invalid for ${scenario.operation}: ${error.code} ${JSON.stringify(
+            error.details,
+          )}`,
+        );
+      }
     }
     scenario.assertSemantic(outcome);
     const queryTerminals = await waitForSynthesisProductionRouteEvidence({

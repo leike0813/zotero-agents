@@ -1,7 +1,5 @@
 import {
-  rebuildSynthesisWorkbenchChromeReadRequest,
   rebuildSynthesisWorkbenchOperationalChromeResult,
-  type SynthesisWorkbenchChromeReadRequest,
   type SynthesisWorkbenchOperationalChromeResult,
 } from "../../packages/synthesis-contracts/src/workbench";
 import type { SynthesisSidecarErrorCode } from "../../packages/synthesis-contracts/src/sidecarSystem";
@@ -39,14 +37,13 @@ export function createSynthesisSidecarWorkbenchClient(options?: {
   return {
     async readOperationalChrome(
       connection: SynthesisSidecarWorkbenchConnection,
-      input: SynthesisWorkbenchChromeReadRequest,
       callOptions: { signal?: AbortSignal; deadlineMs?: number } = {},
     ): Promise<SynthesisWorkbenchOperationalChromeResult> {
       try {
         return await rpc.call({
           connection,
           capability: "workbench.chrome.read",
-          payload: rebuildSynthesisWorkbenchChromeReadRequest(input),
+          payload: {},
           rebuildResult: rebuildSynthesisWorkbenchOperationalChromeResult,
           signal: callOptions.signal,
           deadlineMs: callOptions.deadlineMs,

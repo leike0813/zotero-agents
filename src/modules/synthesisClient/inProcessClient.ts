@@ -10,6 +10,24 @@ import {
   SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   rebuildSynthesisHostItemRefs,
+  rebuildSynthesisTopicContextRequest,
+  rebuildSynthesisTopicContextResult,
+  rebuildSynthesisTopicFindRequest,
+  rebuildSynthesisTopicFindResult,
+  rebuildSynthesisTopicListRequest,
+  rebuildSynthesisTopicListResult,
+  rebuildSynthesisTopicResolverRequest,
+  rebuildSynthesisTopicResolverResult,
+  rebuildSynthesisTopicReportResult,
+  rebuildSynthesisTopicApplyRequest,
+  rebuildSynthesisTopicApplyResult,
+  rebuildSynthesisLiteratureDigestApplyRequest,
+  rebuildSynthesisLiteratureDigestApplyResult,
+  rebuildSynthesisWorkflowTopicOptionsRequest,
+  rebuildSynthesisWorkflowTopicOptionsResult,
+  rebuildSynthesisWorkbenchPaperDigestReadRequest,
+  rebuildSynthesisWorkbenchPaperDigestResult,
+  rebuildSynthesisWorkbenchTopicDetailResult,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -79,197 +97,245 @@ import {
   type SynthesisJsonObject,
   type SynthesisEffectiveCanonicalReferenceMergeRequest,
   type SynthesisWorkbenchPaperDigestResult,
+  type SynthesisWorkbenchBackgroundJobRow,
   type SynthesisWorkbenchProjection,
   type SynthesisWorkbenchSurfaceName,
   type SynthesisWorkbenchTopicDetailResult,
 } from "../../../packages/synthesis-contracts/src/index";
 import { isTransientStorageBusyError } from "../guardedSqlite";
 
-type LegacySynthesisJsonPort = (
-  request: SynthesisJsonObject,
-  delivery?: SynthesisDeliveryContext,
-) => Promise<unknown>;
+type ClientMethod<
+  Group extends keyof SynthesisClient,
+  Method extends keyof SynthesisClient[Group],
+> = SynthesisClient[Group][Method] extends (...args: infer Args) => infer Result
+  ? (...args: Args) => Result
+  : never;
+
+type SyncTransportMethod<
+  Method extends keyof SynthesisClient["sync"]["webDav"],
+> = SynthesisClient["sync"]["webDav"][Method];
 
 export interface SynthesisClientPort {
-  listTopics?: LegacySynthesisJsonPort;
-  findTopicsByPaperRef?: LegacySynthesisJsonPort;
-  getTopicContext?: LegacySynthesisJsonPort;
-  resolveResolver?: LegacySynthesisJsonPort;
-  queryCitationGraphCluster?: LegacySynthesisJsonPort;
-  queryCitationGraph?: LegacySynthesisJsonPort;
-  getCitationGraphSlice?: LegacySynthesisJsonPort;
-  getCitationGraphLayout?: LegacySynthesisJsonPort;
-  getCitationGraphMetrics?: LegacySynthesisJsonPort;
-  rankLibraryPapers?: LegacySynthesisJsonPort;
-  refreshCitationGraphMetricsNow?: LegacySynthesisJsonPort;
-  startCitationGraphUpdate?: LegacySynthesisJsonPort;
-  getReferenceSidecarIndex?: LegacySynthesisJsonPort;
-  rankExternalReferences?: LegacySynthesisJsonPort;
-  getAttentionQueue?: LegacySynthesisJsonPort;
-  startReferenceSidecarRefresh?: LegacySynthesisJsonPort;
-  getPaperArtifactManifest?: LegacySynthesisJsonPort;
-  exportFilteredPaperArtifacts?: LegacySynthesisJsonPort;
-  queryConceptKb?: LegacySynthesisJsonPort;
-  getSchemas?: LegacySynthesisJsonPort;
-  getPublicMaintenanceOperation?: LegacySynthesisJsonPort;
-  controlPublicMaintenanceOperation?: LegacySynthesisJsonPort;
-  getLibraryIndex?: LegacySynthesisJsonPort;
-  getReviewInput?: LegacySynthesisJsonPort;
-  debugSynthesisSnapshot?: LegacySynthesisJsonPort;
-  debugSynthesisCacheList?: LegacySynthesisJsonPort;
-  debugSynthesisOperationsList?: LegacySynthesisJsonPort;
-  debugSynthesisProfilerList?: LegacySynthesisJsonPort;
-  debugSynthesisPaperInspect?: LegacySynthesisJsonPort;
-  debugSynthesisTopicInspect?: LegacySynthesisJsonPort;
-  debugSynthesisDiff?: LegacySynthesisJsonPort;
-  debugSynthesisCleanInstallReset?: LegacySynthesisJsonPort;
-  listWorkflowTopicOptions(
-    request?: SynthesisWorkflowTopicOptionsRequest,
-  ): Promise<SynthesisWorkflowTopicOptionsResult>;
+  listTopics?: ClientMethod<"topics", "list">;
+  findTopicsByPaperRef?: ClientMethod<"topics", "findByPaperRef">;
+  getTopicContext?: ClientMethod<"topics", "getContext">;
+  resolveResolver?: ClientMethod<"topics", "resolveResolver">;
+  queryCitationGraphCluster?: ClientMethod<"graph", "queryCluster">;
+  queryCitationGraph?: ClientMethod<"graph", "getOverview">;
+  getCitationGraphSlice?: ClientMethod<"graph", "getSlice">;
+  getCitationGraphLayout?: ClientMethod<"graph", "getPersistedLayout">;
+  getCitationGraphMetrics?: ClientMethod<"graph", "getMetrics">;
+  rankLibraryPapers?: ClientMethod<"graph", "rankLibraryPapers">;
+  refreshCitationGraphMetricsNow?: ClientMethod<"graph", "refreshMetricsNow">;
+  startCitationGraphUpdate?: ClientMethod<"graph", "startUpdate">;
+  getReferenceSidecarIndex?: ClientMethod<"references", "getSidecarIndex">;
+  rankExternalReferences?: ClientMethod<"references", "rankExternalReferences">;
+  getAttentionQueue?: ClientMethod<"references", "getAttentionQueue">;
+  startReferenceSidecarRefresh?: ClientMethod<"references", "startRefresh">;
+  getPaperArtifactManifest?: ClientMethod<"artifacts", "getManifest">;
+  exportFilteredPaperArtifacts?: ClientMethod<"artifacts", "exportFiltered">;
+  queryConceptKb?: ClientMethod<"concepts", "query">;
+  getSchemas?: ClientMethod<"maintenance", "getSchemas">;
+  getPublicMaintenanceOperation?: ClientMethod<"maintenance", "getOperation">;
+  controlPublicMaintenanceOperation?: ClientMethod<
+    "maintenance",
+    "controlOperation"
+  >;
+  getLibraryIndex?: ClientMethod<"libraryIndex", "getPage">;
+  getReviewInput?: ClientMethod<"workflowReview", "getInput">;
+  debugSynthesisSnapshot?: ClientMethod<"debug", "snapshot">;
+  debugSynthesisCacheList?: ClientMethod<"debug", "listCache">;
+  debugSynthesisOperationsList?: ClientMethod<"debug", "listOperations">;
+  debugSynthesisProfilerList?: ClientMethod<"debug", "listProfiler">;
+  debugSynthesisPaperInspect?: ClientMethod<"debug", "inspectPaper">;
+  debugSynthesisTopicInspect?: ClientMethod<"debug", "inspectTopic">;
+  debugSynthesisDiff?: ClientMethod<"debug", "diff">;
+  debugSynthesisCleanInstallReset?: ClientMethod<"debug", "cleanInstallReset">;
+  listWorkflowTopicOptions: ClientMethod<"topics", "listWorkflowOptions">;
   reconcileSynthesisRuntimeWorkStateOnStartup?(): SynthesisStartupReconcileResult;
-  resetSynthesisDatabase?(
-    request: SynthesisDatabaseResetRequest,
-  ): Promise<SynthesisDatabaseResetResult>;
-  consumeRelatedItemsSyncEcho?(
+  resetSynthesisDatabase?: ClientMethod<"maintenance", "resetDatabase">;
+  consumeRelatedItemsSyncEcho?: (
     request: SynthesisRelatedItemsEchoRequest,
-  ): Promise<unknown>;
-  applyLiteratureDigestSidecar?(
-    request: SynthesisLiteratureDigestApplyRequest,
-  ): Promise<unknown>;
+  ) => Promise<boolean>;
+  applyLiteratureDigestSidecar?: ClientMethod<
+    "workflowApply",
+    "applyLiteratureDigestSidecar"
+  >;
   applyTopicSynthesisResult?(
-    bundle: unknown,
+    bundle: SynthesisTopicApplyRequest["bundle"],
     context?: {
       bundleReader: { readText(path: string): Promise<string> };
       controlledAssets?: SynthesisTopicApplyRequest["assets"];
     },
-  ): Promise<unknown>;
-  getTopicReport?(request: SynthesisTopicReportRequest): Promise<unknown>;
-  deleteTopicArtifact?(
-    request: SynthesisTopicArtifactDeleteRequest,
-  ): Promise<unknown>;
-  purgeDeletedTopicArtifacts?(): Promise<unknown>;
-  rejectTopicDiscoveryHint?(
-    request: SynthesisTopicDiscoveryHintRequest,
-  ): Promise<unknown>;
-  restoreTopicDiscoveryHint?(
-    request: SynthesisTopicDiscoveryHintRequest,
-  ): Promise<unknown>;
-  rebuildTopicGraphIndex?(): Promise<unknown>;
-  acceptTopicGraphRelation?(
-    request: SynthesisTopicGraphEdgeDecisionRequest,
-  ): Promise<unknown>;
-  rejectTopicGraphRelation?(
-    request: SynthesisTopicGraphEdgeDecisionRequest,
-  ): Promise<unknown>;
-  applyTopicGraphReviewAction?(
-    request: SynthesisTopicGraphReviewActionRequest,
-  ): Promise<unknown>;
-  readPaperArtifacts?(
-    request: SynthesisPaperArtifactsRequest,
-  ): Promise<unknown>;
-  initializeBuiltinTagPolicy?(): Promise<unknown>;
+  ): Promise<SynthesisTopicApplyResult>;
+  getTopicReport?: ClientMethod<"topics", "getTopicReport">;
+  deleteTopicArtifact?: ClientMethod<"topics", "deleteTopicArtifact">;
+  purgeDeletedTopicArtifacts?: ClientMethod<
+    "topics",
+    "purgeDeletedTopicArtifacts"
+  >;
+  rejectTopicDiscoveryHint?: ClientMethod<"topics", "rejectTopicDiscoveryHint">;
+  restoreTopicDiscoveryHint?: ClientMethod<
+    "topics",
+    "restoreTopicDiscoveryHint"
+  >;
+  rebuildTopicGraphIndex?: ClientMethod<"topicGraph", "rebuildTopicGraphIndex">;
+  acceptTopicGraphRelation?: ClientMethod<
+    "topicGraph",
+    "acceptTopicGraphRelation"
+  >;
+  rejectTopicGraphRelation?: ClientMethod<
+    "topicGraph",
+    "rejectTopicGraphRelation"
+  >;
+  applyTopicGraphReviewAction?: ClientMethod<
+    "topicGraph",
+    "applyTopicGraphReviewAction"
+  >;
+  readPaperArtifacts?: ClientMethod<"artifacts", "readPaperArtifacts">;
+  initializeBuiltinTagPolicy?: ClientMethod<
+    "tags",
+    "initializeBuiltinTagPolicy"
+  >;
   isBuiltinTagPolicyInitialized?(): boolean | Promise<boolean>;
-  loadTagVocabulary?(): Promise<unknown>;
-  saveTagVocabulary?(
-    request: SynthesisTagVocabularySaveRequest,
-  ): Promise<unknown>;
-  validateTagVocabulary?(): Promise<unknown>;
-  rebuildTagVocabularyIndex?(): Promise<unknown>;
-  exportTagVocabularyForRegulator?(): Promise<unknown>;
-  listStagedTagSuggestions?(): Promise<unknown>;
-  stageTagSuggestions?(
-    request: SynthesisTagSuggestionStageRequest,
-  ): Promise<unknown>;
-  updateStagedTagSuggestion?(
-    request: SynthesisStagedTagUpdateRequest,
-  ): Promise<unknown>;
-  updateTagVocabularyEntry?(
-    request: SynthesisTagVocabularyEntryUpdateRequest,
-  ): Promise<unknown>;
-  deleteTagVocabularyEntry?(
-    request: SynthesisTagVocabularyEntryDeleteRequest,
-  ): Promise<unknown>;
-  promoteStagedTagSuggestions?(
-    request: SynthesisTagSelectionRequest,
-  ): Promise<unknown>;
-  discardStagedTagSuggestions?(
-    request: SynthesisTagSelectionRequest,
-  ): Promise<unknown>;
-  clearStagedTagSuggestions?(): Promise<unknown>;
-  previewTagVocabularyImport?(
-    request: SynthesisTagImportPreviewRequest,
-  ): Promise<unknown>;
-  applyTagVocabularyImport?(
-    request: SynthesisTagImportApplyRequest,
-  ): Promise<unknown>;
-  replaceTagAuditRecords?(
-    request: SynthesisTagAuditReplaceRequest,
-  ): Promise<unknown>;
-  clearTagAuditRecord?(request: {
-    libraryId: number;
-    itemKey: string;
-  }): Promise<unknown>;
+  loadTagVocabulary?: ClientMethod<"tags", "loadTagVocabulary">;
+  saveTagVocabulary?: ClientMethod<"tags", "saveTagVocabulary">;
+  validateTagVocabulary?: ClientMethod<"tags", "validateTagVocabulary">;
+  rebuildTagVocabularyIndex?: ClientMethod<"tags", "rebuildTagVocabularyIndex">;
+  exportTagVocabularyForRegulator?: ClientMethod<
+    "tags",
+    "exportTagVocabularyForRegulator"
+  >;
+  listStagedTagSuggestions?: ClientMethod<"tags", "listStagedTagSuggestions">;
+  stageTagSuggestions?: ClientMethod<"tags", "stageTagSuggestions">;
+  updateStagedTagSuggestion?: ClientMethod<"tags", "updateStagedTagSuggestion">;
+  updateTagVocabularyEntry?: ClientMethod<"tags", "updateTagVocabularyEntry">;
+  deleteTagVocabularyEntry?: ClientMethod<"tags", "deleteTagVocabularyEntry">;
+  promoteStagedTagSuggestions?: ClientMethod<
+    "tags",
+    "promoteStagedTagSuggestions"
+  >;
+  discardStagedTagSuggestions?: ClientMethod<
+    "tags",
+    "discardStagedTagSuggestions"
+  >;
+  clearStagedTagSuggestions?: ClientMethod<"tags", "clearStagedTagSuggestions">;
+  previewTagVocabularyImport?: ClientMethod<
+    "tags",
+    "previewTagVocabularyImport"
+  >;
+  applyTagVocabularyImport?: ClientMethod<"tags", "applyTagVocabularyImport">;
+  replaceTagAuditRecords?: ClientMethod<"tags", "replaceTagAuditRecords">;
+  clearTagAuditRecord?: ClientMethod<"tags", "clearTagAuditRecord">;
   getSynthesisWorkbenchChromeInput?(
     state: Record<string, unknown>,
-  ): Promise<unknown>;
+  ): Promise<SynthesisWorkbenchProjection>;
   getSynthesisWorkbenchSurfaceInput?(
     surface: SynthesisWorkbenchSurfaceName,
     state: Record<string, unknown>,
-  ): Promise<unknown>;
-  getSynthesisBackgroundJobRows?(): Promise<unknown>;
-  readTopicDetail?(request: { topicId: string }): Promise<unknown>;
-  resolveTopicPaperDigest?: LegacySynthesisJsonPort;
-  recomputeCitationGraphLayout?(
-    request: SynthesisCitationGraphLayoutRequest,
-  ): Promise<unknown>;
-  rebuildCitationGraphCacheNow?(): Promise<unknown>;
-  refreshCitationGraphCacheIncrementalNow?(): Promise<unknown>;
-  retryCitationGraphCacheRebuild?(): Promise<unknown>;
-  refreshReferenceSidecarNow?(): Promise<unknown>;
-  retryReferenceSidecarRefresh?(): Promise<unknown>;
-  runAdvancedReferenceMatchingNow?(): Promise<unknown>;
-  retryAdvancedReferenceMatching?(): Promise<unknown>;
-  applyCanonicalRevisionReviewAction?(
-    request: SynthesisCanonicalRevisionReviewRequest,
-  ): Promise<unknown>;
-  applyReferenceMatchProposalAction?(
-    request: SynthesisReferenceMatchProposalActionRequest,
-  ): Promise<unknown>;
-  applyReferenceMatchProposalActions?(
-    request: SynthesisReferenceMatchProposalActionsRequest,
-  ): Promise<unknown>;
-  mergeEffectiveCanonicalReference?(
-    request: SynthesisEffectiveCanonicalReferenceMergeRequest,
-  ): Promise<unknown>;
-  applyCanonicalRevisionMergeRequests?(
-    request: SynthesisCanonicalRevisionMergeRequestsRequest,
-  ): Promise<unknown>;
-  updateCanonicalReferenceMetadata?(
-    request: SynthesisCanonicalReferenceMetadataUpdateRequest,
-  ): Promise<unknown>;
-  archiveCanonicalReference?(
-    request: SynthesisCanonicalReferenceArchiveRequest,
-  ): Promise<unknown>;
-  rebuildConceptKbIndex?(): Promise<unknown>;
-  updateConceptDisplayText?(
-    request: SynthesisConceptDisplayTextUpdateRequest,
-  ): Promise<unknown>;
-  applyConceptReviewAction?(
-    request: SynthesisConceptReviewActionRequest,
-  ): Promise<unknown>;
-  deleteConceptEntries?(
-    request: SynthesisConceptDeleteRequest,
-  ): Promise<unknown>;
-  syncWebDavNow?(): Promise<unknown>;
-  pauseWebDavSync?(): Promise<unknown>;
-  resumeWebDavSync?(): Promise<unknown>;
-  retryWebDavSync?(): Promise<unknown>;
-  resolveWebDavSyncConflict?(
-    request: SynthesisSyncConflictResolutionRequest,
-  ): Promise<unknown>;
+  ): Promise<SynthesisWorkbenchProjection>;
+  getSynthesisBackgroundJobRows?(): Promise<
+    SynthesisWorkbenchBackgroundJobRow[]
+  >;
+  readTopicDetail?(request: {
+    topicId: string;
+  }): Promise<SynthesisWorkbenchTopicDetailResult>;
+  resolveTopicPaperDigest?(
+    request: SynthesisTopicPaperDigestWireRequest,
+  ): Promise<SynthesisWorkbenchPaperDigestResult>;
+  recomputeCitationGraphLayout?: ClientMethod<
+    "graph",
+    "recomputeCitationGraphLayout"
+  >;
+  rebuildCitationGraphCacheNow?: ClientMethod<
+    "graph",
+    "rebuildCitationGraphCacheNow"
+  >;
+  refreshCitationGraphCacheIncrementalNow?: ClientMethod<
+    "graph",
+    "refreshCitationGraphCacheIncrementalNow"
+  >;
+  retryCitationGraphCacheRebuild?: ClientMethod<
+    "graph",
+    "retryCitationGraphCacheRebuild"
+  >;
+  refreshReferenceSidecarNow?: ClientMethod<
+    "references",
+    "refreshReferenceSidecarNow"
+  >;
+  retryReferenceSidecarRefresh?: ClientMethod<
+    "references",
+    "retryReferenceSidecarRefresh"
+  >;
+  runAdvancedReferenceMatchingNow?: ClientMethod<
+    "references",
+    "runAdvancedReferenceMatchingNow"
+  >;
+  retryAdvancedReferenceMatching?: ClientMethod<
+    "references",
+    "retryAdvancedReferenceMatching"
+  >;
+  applyCanonicalRevisionReviewAction?: ClientMethod<
+    "references",
+    "applyCanonicalRevisionReviewAction"
+  >;
+  applyReferenceMatchProposalAction?: ClientMethod<
+    "references",
+    "applyReferenceMatchProposalAction"
+  >;
+  applyReferenceMatchProposalActions?: ClientMethod<
+    "references",
+    "applyReferenceMatchProposalActions"
+  >;
+  mergeEffectiveCanonicalReference?: ClientMethod<
+    "references",
+    "mergeEffectiveCanonicalReference"
+  >;
+  applyCanonicalRevisionMergeRequests?: ClientMethod<
+    "references",
+    "applyCanonicalRevisionMergeRequests"
+  >;
+  updateCanonicalReferenceMetadata?: ClientMethod<
+    "references",
+    "updateCanonicalReferenceMetadata"
+  >;
+  archiveCanonicalReference?: ClientMethod<
+    "references",
+    "archiveCanonicalReference"
+  >;
+  rebuildConceptKbIndex?: ClientMethod<"concepts", "rebuildConceptKbIndex">;
+  updateConceptDisplayText?: ClientMethod<
+    "concepts",
+    "updateConceptDisplayText"
+  >;
+  applyConceptReviewAction?: ClientMethod<
+    "concepts",
+    "applyConceptReviewAction"
+  >;
+  deleteConceptEntries?: ClientMethod<"concepts", "deleteConceptEntries">;
+  syncWebDavNow?: SyncTransportMethod<"runNow">;
+  pauseWebDavSync?: SyncTransportMethod<"pause">;
+  resumeWebDavSync?: SyncTransportMethod<"resume">;
+  retryWebDavSync?: SyncTransportMethod<"retry">;
+  resolveWebDavSyncConflict?: SyncTransportMethod<"resolveConflict">;
 }
 
-export type LegacySynthesisPort = SynthesisClientPort;
+type SynthesisTopicPaperDigestWireRequest = {
+  topic_id?: string;
+  paper_ref: string;
+  digest_ref?: {
+    paper_ref: string;
+    locator?: string;
+    payload_hash: string;
+    library_id?: number;
+    note_key?: string;
+  };
+  include_representative_image: boolean;
+};
+
+export type LegacySynthesisPort = Partial<
+  Record<keyof SynthesisClientPort, (...args: any[]) => any>
+>;
 
 function normalizeClientError(error: unknown): SynthesisClientError {
   if (error instanceof SynthesisClientError) {
@@ -368,20 +434,29 @@ function normalizeDeliveryContext(
   return { mode: context.mode };
 }
 
-function runLegacyJsonPort(
-  port: LegacySynthesisJsonPort | undefined,
+function runLegacyJsonPort<Request, Result>(
+  port:
+    | ((
+        request: Request,
+        delivery?: SynthesisDeliveryContext,
+      ) => Promise<Result>)
+    | undefined,
   operation: string,
-  request: unknown = {},
+  request: Request = {} as Request,
   delivery?: SynthesisDeliveryContext,
-) {
+  rebuildResult?: (value: unknown) => Result,
+): Promise<Result> {
   return runLegacy(async () => {
     const normalizedRequest = toSynthesisJsonObject(request, "$.request");
     const normalizedDelivery = normalizeDeliveryContext(delivery);
     const invoke = requireLegacyPort(port, operation);
-    return normalizeLegacyResultObject(
-      await invoke(normalizedRequest, normalizedDelivery),
-      operation,
+    const result = await invoke(
+      normalizedRequest as unknown as Request,
+      normalizedDelivery,
     );
+    return rebuildResult
+      ? rebuildResult(result)
+      : (normalizeLegacyResultObject(result, operation) as unknown as Result);
   });
 }
 
@@ -488,13 +563,13 @@ function normalizeSyncConflictResolutionRequest(
 }
 
 type LegacySyncTransportPorts = {
-  runNow?: () => Promise<unknown>;
-  pause?: () => Promise<unknown>;
-  resume?: () => Promise<unknown>;
-  retry?: () => Promise<unknown>;
+  runNow?: () => Promise<SynthesisPublicMaintenanceOperation>;
+  pause?: () => Promise<SynthesisSyncCommandResult>;
+  resume?: () => Promise<SynthesisSyncCommandResult>;
+  retry?: () => Promise<SynthesisPublicMaintenanceOperation>;
   resolveConflict?: (
     request: SynthesisSyncConflictResolutionRequest,
-  ) => Promise<unknown>;
+  ) => Promise<SynthesisSyncCommandResult>;
 };
 
 function createSyncTransportClient(
@@ -502,7 +577,7 @@ function createSyncTransportClient(
   operationPrefix: string,
 ): SynthesisSyncTransportClient {
   const runCommand = <T extends SynthesisSyncCommandResult>(
-    port: (() => Promise<unknown>) | undefined,
+    port: (() => Promise<T>) | undefined,
     operation: string,
   ) =>
     runLegacy(
@@ -631,7 +706,15 @@ function normalizeTagVocabularySaveRequest(
       { field: "entries" },
     );
   }
-  return request as unknown as SynthesisTagVocabularySaveRequest;
+  return {
+    entries: request.entries as SynthesisTagVocabularySaveRequest["entries"],
+    aliases: (request.aliases ?? {}) as Record<string, string>,
+    abbrev: (request.abbrev ?? {}) as Record<string, string>,
+    protocol: (request.protocol ?? null) as never,
+    ...(request.transactionId === undefined
+      ? {}
+      : { transactionId: request.transactionId as string }),
+  };
 }
 
 function normalizeTagSuggestionStageRequest(
@@ -648,7 +731,21 @@ function normalizeTagSuggestionStageRequest(
       { field: "entries" },
     );
   }
-  return request as unknown as SynthesisTagSuggestionStageRequest;
+  return {
+    entries: request.entries.map((entry, index) => {
+      const suggestion = toSynthesisJsonObject(
+        entry,
+        `$.request.entries[${index}]`,
+      );
+      return {
+        tag: suggestion.tag as string,
+        facet: (suggestion.facet ?? "") as string,
+        note: (suggestion.note ?? "") as string,
+        source_flow: (suggestion.source_flow ?? "") as string,
+        parent_bindings: (suggestion.parent_bindings ?? []) as never[],
+      };
+    }),
+  };
 }
 
 function normalizeTagSelectionRequest(
@@ -1197,39 +1294,98 @@ function normalizeConceptDeleteRequest(
 }
 
 function mapPaperDigestRequest(value: unknown): SynthesisJsonObject {
-  const request = toSynthesisJsonObject(value, "$.request");
-  const mapped: SynthesisJsonObject = {};
-  const optionalStringFields = [
-    ["topicId", "topicId"],
-    ["paperRef", "paper_ref"],
-  ] as const;
-  for (const [source, target] of optionalStringFields) {
-    const field = request[source];
-    if (field === undefined) continue;
-    if (typeof field !== "string") {
-      throw new SynthesisClientError(
-        "invalid_request",
-        `Synthesis Workbench ${source} must be a string`,
-        { field: source },
-      );
-    }
-    mapped[target] = field;
+  const request = rebuildSynthesisWorkbenchPaperDigestReadRequest(value);
+  const allowed = [
+    "topicId",
+    "paperRef",
+    "digestRef",
+    "includeRepresentativeImage",
+  ];
+  if (Object.keys(request).some((field) => !allowed.includes(field))) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Workbench paper digest request has unsupported fields",
+    );
+  }
+  const paperRef = normalizeRequiredString(
+    request.paperRef,
+    "paperRef",
+    "Synthesis Workbench paperRef",
+  );
+  if (typeof request.includeRepresentativeImage !== "boolean") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Workbench includeRepresentativeImage is required",
+      { field: "includeRepresentativeImage" },
+    );
+  }
+  const mapped: SynthesisJsonObject = {
+    paper_ref: paperRef,
+    include_representative_image: request.includeRepresentativeImage,
+  };
+  if (request.topicId !== undefined) {
+    mapped.topic_id = normalizeTopicId(request.topicId);
   }
   if (request.digestRef !== undefined) {
-    mapped.digest_ref = toSynthesisJsonObject(
+    const digestRef = toSynthesisJsonObject(
       request.digestRef,
       "$.request.digestRef",
     );
-  }
-  if (request.includeRepresentativeImage !== undefined) {
-    if (typeof request.includeRepresentativeImage !== "boolean") {
+    const digestFields = [
+      "paperRef",
+      "locator",
+      "payloadHash",
+      "libraryId",
+      "noteKey",
+    ];
+    if (
+      Object.keys(digestRef).some((field) => !digestFields.includes(field)) ||
+      digestRef.paperRef !== paperRef ||
+      typeof digestRef.payloadHash !== "string" ||
+      digestRef.payloadHash.length === 0
+    ) {
       throw new SynthesisClientError(
         "invalid_request",
-        "Synthesis Workbench includeRepresentativeImage must be a boolean",
-        { field: "includeRepresentativeImage" },
+        "Synthesis Workbench digestRef is invalid",
+        { field: "digestRef" },
       );
     }
-    mapped.include_representative_image = request.includeRepresentativeImage;
+    const locator =
+      digestRef.locator === undefined
+        ? undefined
+        : normalizeRequiredString(
+            digestRef.locator,
+            "digestRef.locator",
+            "Synthesis Workbench digest locator",
+          );
+    const libraryId = digestRef.libraryId;
+    if (
+      libraryId !== undefined &&
+      (typeof libraryId !== "number" ||
+        !Number.isSafeInteger(libraryId) ||
+        libraryId <= 0)
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Synthesis Workbench digestRef libraryId is invalid",
+        { field: "digestRef.libraryId" },
+      );
+    }
+    const noteKey =
+      digestRef.noteKey === undefined
+        ? undefined
+        : normalizeRequiredString(
+            digestRef.noteKey,
+            "digestRef.noteKey",
+            "Synthesis Workbench digest noteKey",
+          );
+    mapped.digest_ref = {
+      paper_ref: paperRef,
+      payload_hash: digestRef.payloadHash,
+      ...(locator ? { locator } : {}),
+      ...(libraryId === undefined ? {} : { library_id: libraryId }),
+      ...(noteKey ? { note_key: noteKey } : {}),
+    };
   }
   return mapped;
 }
@@ -1628,47 +1784,61 @@ export function createSynthesisClientFromPort(
       },
     },
     topics: {
-      async list(request = {}) {
-        return runLegacyJsonPort(legacy.listTopics, "topics.list", request);
+      async list(request) {
+        return runLegacyJsonPort(
+          legacy.listTopics,
+          "topics.list",
+          rebuildSynthesisTopicListRequest(request),
+          undefined,
+          rebuildSynthesisTopicListResult,
+        );
       },
-      async findByPaperRef(request = {}) {
+      async findByPaperRef(request) {
         return runLegacyJsonPort(
           legacy.findTopicsByPaperRef,
           "topics.findByPaperRef",
-          request,
+          rebuildSynthesisTopicFindRequest(request),
+          undefined,
+          rebuildSynthesisTopicFindResult,
         );
       },
       async getContext(request, delivery) {
         return runLegacyJsonPort(
           legacy.getTopicContext,
           "topics.getContext",
-          request,
+          rebuildSynthesisTopicContextRequest(request),
           delivery,
+          rebuildSynthesisTopicContextResult,
         );
       },
       async resolveResolver(request) {
         return runLegacyJsonPort(
           legacy.resolveResolver,
           "topics.resolveResolver",
-          request,
+          rebuildSynthesisTopicResolverRequest(request),
+          undefined,
+          rebuildSynthesisTopicResolverResult,
         );
       },
       async listWorkflowOptions(request) {
         try {
-          return await legacy.listWorkflowTopicOptions(request);
+          return rebuildSynthesisWorkflowTopicOptionsResult(
+            await legacy.listWorkflowTopicOptions(
+              rebuildSynthesisWorkflowTopicOptionsRequest(request),
+            ),
+          );
         } catch (error) {
           throw normalizeClientError(error);
         }
       },
       async getTopicReport(request) {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.getTopicReport,
-                "topics.getTopicReport",
-              )(request),
-            ) as SynthesisTopicReportResult,
+        return runLegacy(async () =>
+          rebuildSynthesisTopicReportResult(
+            await requireLegacyPort(
+              legacy.getTopicReport,
+              "topics.getTopicReport",
+            )(request),
+          ),
         );
       },
       async deleteTopicArtifact(request) {
@@ -1795,16 +1965,17 @@ export function createSynthesisClientFromPort(
     workflowApply: {
       async applyLiteratureDigestSidecar(request) {
         return runLegacy(async () =>
-          normalizeLegacyObject(
+          rebuildSynthesisLiteratureDigestApplyResult(
             await requireLegacyPort(
               legacy.applyLiteratureDigestSidecar,
               "workflowApply.applyLiteratureDigestSidecar",
-            )(request),
+            )(rebuildSynthesisLiteratureDigestApplyRequest(request)),
           ),
         );
       },
       async applyTopicSynthesisResult(request: SynthesisTopicApplyRequest) {
         return runLegacy(async () => {
+          request = rebuildSynthesisTopicApplyRequest(request);
           const assets = new Map(
             request.assets.map((asset) => [asset.id, asset.text] as const),
           );
@@ -1833,7 +2004,7 @@ export function createSynthesisClientFromPort(
             },
             controlledAssets: request.assets,
           });
-          return normalizeLegacyObject(result) as SynthesisTopicApplyResult;
+          return rebuildSynthesisTopicApplyResult(result);
         });
       },
     },
@@ -1865,10 +2036,17 @@ export function createSynthesisClientFromPort(
         );
       },
       async resolveTopicPaperDigest(request) {
-        return runLegacyJsonPort(
-          legacy.resolveTopicPaperDigest,
-          "artifacts.resolveTopicPaperDigest",
-          request,
+        return runLegacy(async () =>
+          rebuildSynthesisWorkbenchPaperDigestResult(
+            await requireLegacyPort(
+              legacy.resolveTopicPaperDigest,
+              "artifacts.resolveTopicPaperDigest",
+            )(
+              mapPaperDigestRequest(
+                request,
+              ) as SynthesisTopicPaperDigestWireRequest,
+            ),
+          ),
         );
       },
     },
@@ -2127,7 +2305,10 @@ export function createSynthesisClientFromPort(
         return runLegacyJsonPort(
           legacy.getReviewInput,
           "workflowReview.getInput",
-          request,
+          {
+            cursor: typeof request.cursor === "string" ? request.cursor : "0",
+            limit: typeof request.limit === "number" ? request.limit : 25,
+          },
         );
       },
     },
@@ -2229,25 +2410,27 @@ export function createSynthesisClientFromPort(
         );
       },
       async readTopicDetail(request) {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.readTopicDetail,
-                "workbench.readTopicDetail",
-              )({ topicId: normalizeTopicId(request.topicId) }),
-            ) as SynthesisWorkbenchTopicDetailResult,
+        return runLegacy(async () =>
+          rebuildSynthesisWorkbenchTopicDetailResult(
+            await requireLegacyPort(
+              legacy.readTopicDetail,
+              "workbench.readTopicDetail",
+            )({ topicId: normalizeTopicId(request.topicId) }),
+          ),
         );
       },
       async readPaperDigest(request) {
-        return runLegacy(
-          async () =>
-            normalizeLegacyObject(
-              await requireLegacyPort(
-                legacy.resolveTopicPaperDigest,
-                "workbench.readPaperDigest",
-              )(mapPaperDigestRequest(request)),
-            ) as SynthesisWorkbenchPaperDigestResult,
+        return runLegacy(async () =>
+          rebuildSynthesisWorkbenchPaperDigestResult(
+            await requireLegacyPort(
+              legacy.resolveTopicPaperDigest,
+              "workbench.readPaperDigest",
+            )(
+              mapPaperDigestRequest(
+                request,
+              ) as SynthesisTopicPaperDigestWireRequest,
+            ),
+          ),
         );
       },
     },
@@ -2257,5 +2440,7 @@ export function createSynthesisClientFromPort(
 export function createInProcessSynthesisClient(
   legacy: LegacySynthesisPort,
 ): SynthesisClient {
-  return createSynthesisClientFromPort(legacy);
+  return createSynthesisClientFromPort(
+    legacy as unknown as SynthesisClientPort,
+  );
 }

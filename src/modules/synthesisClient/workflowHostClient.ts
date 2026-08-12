@@ -1,5 +1,6 @@
 import {
   SynthesisClientError,
+  rebuildSynthesisTopicApplyRequest,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -383,7 +384,7 @@ export async function materializeTopicApplyRequest(
   };
   rewriteKnownLocators(bundle);
 
-  return { bundle, assets };
+  return rebuildSynthesisTopicApplyRequest({ bundle, assets });
 }
 
 function compactOptionalJsonFields(input: Record<string, unknown>) {

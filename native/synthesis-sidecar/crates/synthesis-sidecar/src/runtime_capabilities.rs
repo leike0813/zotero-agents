@@ -618,7 +618,7 @@ pub(crate) fn handle_connection(
                 )
             }
             "workbench.chrome.read" => {
-                if !exact_payload(&call.payload, &["state"]) || !call.payload["state"].is_object() {
+                if !exact_payload(&call.payload, &[]) {
                     return response(&mut stream, 400, error_response("invalid_request"));
                 }
                 let data = state.applications.workbench.read_json()?;

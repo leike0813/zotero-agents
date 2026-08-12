@@ -301,7 +301,11 @@ function topicApplyRequest(topicId: string) {
         id: "asset/resolver",
         mediaType: "application/json",
         text: JSON.stringify({
-          resolver: { query: "durable production topic" },
+          resolver: {
+            paper_refs: [sourcePaperRef],
+            collection_key: [],
+            combine: "union",
+          },
           resolved_paper_set: { papers: [{ paper_ref: sourcePaperRef }] },
         }),
       },
@@ -1649,6 +1653,8 @@ describe("Synthesis Rust production client route", function () {
       );
       const importPayload = JSON.stringify({
         entries: [{ tag: "topic:imported-dto", facet: "topic" }],
+        aliases: {},
+        abbrev: {},
       });
       const importPreview =
         await harness.client.tags.previewTagVocabularyImport({
@@ -1935,7 +1941,11 @@ describe("Synthesis Rust production client route", function () {
         "client.getSynthesisWorkbenchSurfaceInput",
         { args: ["topics", { artifacts: {} }] },
       );
-      assert.equal(topicProjection.status, 200);
+      assert.equal(
+        topicProjection.status,
+        200,
+        JSON.stringify(topicProjection.body),
+      );
       assert.deepInclude(topicProjection.body.data.artifacts[0], {
         id: topicId,
         title: "Production Topic",

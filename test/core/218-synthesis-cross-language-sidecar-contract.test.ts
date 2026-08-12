@@ -48,7 +48,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.negativeCaseCount, 15);
     assert.equal(
       result.fingerprint,
-      "sha256:0e21f5068292d20136d85611087fa3016387567daea3d93c40006e2f3552da72",
+      "sha256:459564d83cbbbd1276b30979a1bb1c57e6442fa1e50ad61c0842064aaa05d160",
     );
   });
 
@@ -105,14 +105,24 @@ describe("Synthesis cross-language sidecar contract", function () {
         requestId: "r1",
         profileId: "p1",
         capability: "system.handshake",
-        payload: {},
+        payload: {
+          schemaVersion: "synthesis-repository-foundation.v1",
+          bundleId: "1".repeat(64),
+          buildFingerprint: "2".repeat(64),
+          supervisorInstanceId: "supervisor-1",
+        },
       }),
       {
         protocol: "synthesis-sidecar.v1",
         requestId: "r1",
         profileId: "p1",
         capability: "system.handshake",
-        payload: {},
+        payload: {
+          schemaVersion: "synthesis-repository-foundation.v1",
+          bundleId: "1".repeat(64),
+          buildFingerprint: "2".repeat(64),
+          supervisorInstanceId: "supervisor-1",
+        },
       },
     );
     assert.throws(() =>
@@ -121,7 +131,12 @@ describe("Synthesis cross-language sidecar contract", function () {
         requestId: "r1",
         profileId: "p1",
         capability: "system.handshake",
-        payload: {},
+        payload: {
+          schemaVersion: "synthesis-repository-foundation.v1",
+          bundleId: "1".repeat(64),
+          buildFingerprint: "2".repeat(64),
+          supervisorInstanceId: "supervisor-1",
+        },
         unknown: true,
       }),
     );

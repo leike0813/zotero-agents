@@ -1,13 +1,14 @@
 use crate::concept_kb::{ConceptKbApplication, ConceptMutationStatus};
 use crate::dto::{
-    TopicApplyRequest, TopicApplyResult, TopicApplyStatus, TopicContextRequest, TopicContextResult,
-    TopicContextView, TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailRequest,
+    ResolvedTopicPaperSetDto, TopicApplyRequest, TopicApplyResult, TopicApplyStatus,
+    TopicContextRequest, TopicContextResult, TopicContextView, TopicDefinitionDto,
+    TopicDeleteRequest, TopicDeleteResult, TopicDeleteStatus, TopicDetailRequest,
     TopicDetailResult, TopicDiscoveryHintRequest, TopicDiscoveryHintResult, TopicFindDiagnostics,
     TopicFindRequest, TopicFindResult, TopicFindRow, TopicFreshness, TopicListRequest,
-    TopicListResult, TopicPurgeResult, TopicRecord, TopicReportRequest, TopicReportResult,
-    TopicResolverCombine, TopicResolverPaper, TopicResolverRequest, TopicResolverResult,
-    TopicSourceMaterialsStatus, TopicWorkflowFilter, TopicWorkflowOption,
-    TopicWorkflowOptionsResult,
+    TopicListResult, TopicProjectionDto, TopicPurgeResult, TopicRecord, TopicReportRequest,
+    TopicReportResult, TopicResolverCombine, TopicResolverDto, TopicResolverPaper,
+    TopicResolverRequest, TopicResolverResult, TopicSourceMaterialsStatus, TopicWorkflowFilter,
+    TopicWorkflowOption, TopicWorkflowOptionsResult,
 };
 use crate::ports::{
     StructuredArtifactPort, TopicCanonicalPort, TopicLibraryQueryPort, TopicRepositoryPort,
@@ -16,6 +17,7 @@ use crate::topic_graph::{
     TopicGraphApplication, TopicGraphIngestRequest, TopicGraphMaterializedTopic,
     TopicGraphMutationStatus, TopicGraphProposal, TopicGraphProposalKind,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -316,8 +318,11 @@ impl TopicApplication {
             .project_rows(rows)?
             .into_iter()
             .filter_map(|topic| {
-                let mut matched = resolved_paper_refs(&topic.resolved_paper_set)
-                    .into_iter()
+                let mut matched = topic
+                    .resolved_paper_set
+                    .papers
+                    .iter()
+                    .map(|paper| paper.paper_ref.clone())
                     .filter(|paper_ref| requested.contains(paper_ref))
                     .collect::<Vec<_>>();
                 matched.sort();
@@ -333,16 +338,8 @@ impl TopicApplication {
                     updated_at: topic.updated_at,
                     matched_paper_refs: matched,
                     match_sources: vec!["current_dependencies".into()],
-                    freshness: topic
-                        .projection
-                        .get("freshness")
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                    source_materials_status: topic
-                        .projection
-                        .get("source_materials_status")
-                        .cloned()
-                        .unwrap_or(Value::Null),
+                    freshness: topic.projection.freshness,
+                    source_materials_status: topic.projection.source_materials_status,
                 })
             })
             .collect::<Vec<_>>();
@@ -381,7 +378,12 @@ impl TopicApplication {
             .project_rows(rows)?
             .into_iter()
             .filter(|topic| {
-                filter == TopicWorkflowFilter::All || !topic_update_blocked(&topic.projection)
+                filter == TopicWorkflowFilter::All
+                    || !topic
+                        .projection
+                        .recommended_update
+                        .as_ref()
+                        .is_some_and(|update| update.blocked)
             })
             .map(|topic| {
                 let title = if topic.title.trim().is_empty() {
@@ -413,21 +415,16 @@ impl TopicApplication {
                         }),
                     },
                     TopicWorkflowFilter::Updatable => {
-                        let update = topic_update_projection(&topic.projection);
-                        let action = update
-                            .get("actionLabel")
-                            .or_else(|| update.get("action_label"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("Update");
-                        let freshness = update
-                            .get("freshness")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown");
-                        let source_status = update
-                            .get("sourceMaterialsStatus")
-                            .or_else(|| update.get("source_materials_status"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("missing");
+                        let update = topic.projection.recommended_update.as_ref();
+                        let action = update.map_or("Update", |update| update.action_label.as_str());
+                        let freshness = update.map_or_else(
+                            || topic.projection.freshness.as_str(),
+                            |update| update.freshness.as_str(),
+                        );
+                        let source_status = update.map_or_else(
+                            || topic.projection.source_materials_status.as_str(),
+                            |update| update.source_materials_status.as_str(),
+                        );
                         TopicWorkflowOption {
                             value: topic.topic_id.clone(),
                             label: title.clone(),
@@ -1141,6 +1138,33 @@ impl TopicApplication {
         } else {
             canonical_json(&parsed.resolved_paper_set).unwrap_or_else(|_| "{}".into())
         };
+        let topic_definition_json = if parsed.topic_definition == json!({}) {
+            snapshot
+                .artifact
+                .get("topic")
+                .filter(|topic| {
+                    topic
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| !id.is_empty())
+                })
+                .and_then(|topic| canonical_json(topic).ok())
+                .or_else(|| {
+                    inherited_state
+                        .as_ref()
+                        .map(|state| state.topic_definition_json.clone())
+                })
+                .unwrap_or_else(|| {
+                    canonical_json(&json!({
+                        "id": parsed.topic_id,
+                        "title": parsed.title,
+                        "definition": parsed.definition,
+                    }))
+                    .unwrap_or_else(|_| "{}".into())
+                })
+        } else {
+            canonical_json(&parsed.topic_definition).unwrap_or_else(|_| "{}".into())
+        };
         let state = TopicApplicationStateRecord {
             topic_id: parsed.topic_id.clone(),
             path_id: snapshot.path_id.clone(),
@@ -1156,8 +1180,7 @@ impl TopicApplication {
                 .as_array()
                 .map(|rows| rows.len() as i64)
                 .unwrap_or_default(),
-            topic_definition_json: canonical_json(&parsed.topic_definition)
-                .unwrap_or_else(|_| "{}".into()),
+            topic_definition_json,
             topic_resolver_json,
             resolved_paper_set_json,
             created_at,
@@ -1857,6 +1880,10 @@ fn parse_object(text: &str) -> Result<Value, String> {
     }
 }
 
+fn parse_topic_dto<T: DeserializeOwned>(value: Value, field: &str) -> Result<T, String> {
+    serde_json::from_value(value).map_err(|_| format!("repository_topic_{field}_invalid"))
+}
+
 fn resolved_paper_refs(value: &Value) -> Vec<String> {
     value
         .get("papers")
@@ -1871,30 +1898,6 @@ fn resolved_paper_refs(value: &Value) -> Vec<String> {
                 .map(str::to_owned)
         })
         .collect()
-}
-
-fn topic_update_projection(projection: &Value) -> &serde_json::Map<String, Value> {
-    projection
-        .get("recommendedUpdate")
-        .or_else(|| projection.get("recommended_update"))
-        .or_else(|| {
-            projection
-                .get("discovery")
-                .and_then(|value| value.get("recommended_update"))
-        })
-        .and_then(Value::as_object)
-        .unwrap_or_else(|| {
-            static EMPTY: std::sync::OnceLock<serde_json::Map<String, Value>> =
-                std::sync::OnceLock::new();
-            EMPTY.get_or_init(serde_json::Map::new)
-        })
-}
-
-fn topic_update_blocked(projection: &Value) -> bool {
-    topic_update_projection(projection)
-        .get("blocked")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
 }
 
 fn resolver_strings(value: &Value) -> Vec<String> {
@@ -2282,10 +2285,19 @@ fn project_record(
         bundle_hash: state.bundle_hash,
         paper_count: state.paper_count,
         updated_at: state.updated_at,
-        topic_definition: parse_object(&state.topic_definition_json)?,
-        topic_resolver: parse_object(&state.topic_resolver_json)?,
-        resolved_paper_set: parse_object(&state.resolved_paper_set_json)?,
-        projection,
+        topic_definition: parse_topic_dto::<TopicDefinitionDto>(
+            parse_object(&state.topic_definition_json)?,
+            "definition",
+        )?,
+        topic_resolver: parse_topic_dto::<TopicResolverDto>(
+            parse_object(&state.topic_resolver_json)?,
+            "resolver",
+        )?,
+        resolved_paper_set: parse_topic_dto::<ResolvedTopicPaperSetDto>(
+            parse_object(&state.resolved_paper_set_json)?,
+            "resolved_paper_set",
+        )?,
+        projection: parse_topic_dto::<TopicProjectionDto>(projection, "projection")?,
         freshness: readiness.freshness,
         source_materials_status: readiness.source_materials_status,
         source_materials_percent: readiness.source_materials_percent,
@@ -2658,7 +2670,7 @@ mod tests {
                 TopicAsset {
                     id: "asset/resolver".into(),
                     media_type: "application/json".into(),
-                    text: r#"{"resolver":{"query":"typed"},"resolved_paper_set":{"papers":[{"paper_ref":"1:AAAA"}]}}"#.into(),
+                    text: r#"{"resolver":{"paper_refs":["1:AAAA"],"collection_key":[],"combine":"union"},"resolved_paper_set":{"papers":[{"paper_ref":"1:AAAA"}]}}"#.into(),
                 },
             ],
         }

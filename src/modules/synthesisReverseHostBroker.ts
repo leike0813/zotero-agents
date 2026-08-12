@@ -2,10 +2,11 @@ import {
   SYNTHESIS_REVERSE_HOST_CAPABILITIES,
   SynthesisClientError,
   rebuildSynthesisReverseHostCall,
-  toSynthesisJsonValue,
-  type SynthesisJsonValue,
+  rebuildSynthesisReverseHostResult,
   type SynthesisReverseHostCall,
   type SynthesisReverseHostCapability,
+  type SynthesisReverseHostPayload,
+  type SynthesisReverseHostResult,
   type SynthesisSidecarObservationEvent,
 } from "../../packages/synthesis-contracts/src";
 import { timingSafeEqualString } from "../utils/timingSafeEqual";
@@ -20,15 +21,17 @@ type HandlerContext = {
   deadlineAtMs: number;
 };
 
-export type SynthesisReverseHostHandler = (
-  payload: SynthesisReverseHostCall["payload"],
+export type SynthesisReverseHostHandler<
+  Capability extends SynthesisReverseHostCapability =
+    SynthesisReverseHostCapability,
+> = (
+  payload: SynthesisReverseHostPayload<Capability>,
   context: HandlerContext,
-) => Promise<unknown>;
+) => Promise<SynthesisReverseHostResult<Capability>>;
 
-export type SynthesisReverseHostHandlers = Record<
-  SynthesisReverseHostCapability,
-  SynthesisReverseHostHandler
->;
+export type SynthesisReverseHostHandlers = {
+  [Capability in SynthesisReverseHostCapability]: SynthesisReverseHostHandler<Capability>;
+};
 
 type BrokerOptions = {
   profileId: string;
@@ -51,7 +54,7 @@ type DispatchInput = {
 
 type EffectResult = {
   callIdentity: string;
-  result: SynthesisJsonValue;
+  result: SynthesisReverseHostResult<SynthesisReverseHostCapability>;
 };
 
 const MAX_DEADLINE_AHEAD_MS = 60_000;
@@ -95,7 +98,10 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
   assertCompleteHandlers(options.handlers);
   let active = true;
   const completedEffects = new Map<string, EffectResult>();
-  const inFlightEffects = new Map<string, Promise<SynthesisJsonValue>>();
+  const inFlightEffects = new Map<
+    string,
+    Promise<SynthesisReverseHostResult<SynthesisReverseHostCapability>>
+  >();
 
   async function execute(call: SynthesisReverseHostCall) {
     const startedAt = options.now();
@@ -118,14 +124,18 @@ export function createSynthesisReverseHostBroker(options: BrokerOptions) {
       if (!(await options.authorizeCapability(call))) {
         failure("unavailable", "permission_denied");
       }
-      const handler = options.handlers[call.capability];
-      const result = toSynthesisJsonValue(
+      const handler = options.handlers[call.capability] as (
+        payload: SynthesisReverseHostPayload<SynthesisReverseHostCapability>,
+        context: HandlerContext,
+      ) => Promise<unknown>;
+      const result = rebuildSynthesisReverseHostResult(
+        call.capability,
         await handler(call.payload, {
           requestId: call.requestId,
           operationId: call.operationId,
           deadlineAtMs: call.deadlineAtMs,
         }),
-        "synthesisReverseHostResult",
+        call.payload,
       );
       record({
         context: trace,

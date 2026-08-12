@@ -33,7 +33,6 @@
       "client.getLibraryIndex": "unavailable",
       "client.getPaperArtifactManifest": "unavailable",
       "client.readPaperArtifacts": "unavailable",
-      "client.resolveWebDavSyncConflict": "invalid_request",
       "client.resetSynthesisDatabase": "unavailable",
       "client.debugSynthesisCleanInstallReset": "unavailable"
     }

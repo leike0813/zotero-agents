@@ -38,7 +38,7 @@ type BrokerDispatch = {
   dispatch(input: {
     authorizationToken: string;
     call: unknown;
-  }): Promise<SynthesisJsonValue>;
+  }): Promise<unknown>;
 };
 
 function response(status: number, body: SynthesisJsonValue) {
@@ -66,10 +66,13 @@ export async function handleSynthesisReverseHostHttpRequest(
   try {
     return response(200, {
       ok: true,
-      result: await broker.dispatch({
-        authorizationToken,
-        call: request.body,
-      }),
+      result: toSynthesisJsonValue(
+        await broker.dispatch({
+          authorizationToken,
+          call: request.body,
+        }),
+        "synthesisReverseHostHttpResult",
+      ),
     });
   } catch (error) {
     if (error instanceof SynthesisClientError) {

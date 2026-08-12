@@ -15,6 +15,14 @@ export type SynthesisDeliveryContext = {
   mode: "local" | "remote";
 };
 
+export type SynthesisStructuredDiagnostic = {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message?: string;
+  field?: string;
+  reason?: string;
+};
+
 export const SYNTHESIS_PROTOCOL_VERSION = "1" as const;
 
 export type SynthesisRequestScope = {
@@ -147,4 +155,75 @@ export function toSynthesisJsonObject(
     );
   }
   return normalized;
+}
+
+export function assertSynthesisExactFields(
+  value: SynthesisJsonObject,
+  required: readonly string[],
+  optional: readonly string[] = [],
+  location = "$",
+) {
+  const allowed = new Set([...required, ...optional]);
+  const fields = Object.keys(value);
+  if (
+    required.some((field) => !Object.hasOwn(value, field)) ||
+    fields.some((field) => !allowed.has(field))
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `Synthesis JSON object fields are invalid at ${location}`,
+      { location },
+    );
+  }
+}
+
+export function rebuildSynthesisStructuredDiagnostic(
+  value: unknown,
+  location = "diagnostic",
+): SynthesisStructuredDiagnostic {
+  const record = toSynthesisJsonObject(value, location);
+  assertSynthesisExactFields(
+    record,
+    ["code", "severity"],
+    ["message", "field", "reason"],
+    location,
+  );
+  const string = (field: string, maximum: number) => {
+    const entry = record[field];
+    if (
+      typeof entry !== "string" ||
+      entry.length === 0 ||
+      entry.length > maximum
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        `Synthesis diagnostic field is invalid at ${location}.${field}`,
+        { location: `${location}.${field}` },
+      );
+    }
+    return entry;
+  };
+  if (
+    record.severity !== "info" &&
+    record.severity !== "warning" &&
+    record.severity !== "error"
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `Synthesis diagnostic severity is invalid at ${location}.severity`,
+      { location: `${location}.severity` },
+    );
+  }
+  const message =
+    record.message === undefined ? undefined : string("message", 4096);
+  const field = record.field === undefined ? undefined : string("field", 512);
+  const reason =
+    record.reason === undefined ? undefined : string("reason", 512);
+  return {
+    code: string("code", 512),
+    severity: record.severity,
+    ...(message === undefined ? {} : { message }),
+    ...(field === undefined ? {} : { field }),
+    ...(reason === undefined ? {} : { reason }),
+  };
 }

@@ -25,6 +25,7 @@ import {
   type SynthesisHostTagEffectPort,
   type SynthesisHostWebDavSyncPort,
   type SynthesisJsonObject,
+  type SynthesisReverseHostPayload,
   type SynthesisSidecarOutputTransferReference,
 } from "../../packages/synthesis-contracts/src";
 import {
@@ -66,6 +67,27 @@ type Ports = {
   };
 };
 
+type ReverseHostHandlerContext = Parameters<SynthesisReverseHostHandler>[1];
+type UnscopedSynthesisReverseHostHandlers = Omit<
+  SynthesisReverseHostHandlers,
+  | "library.items.list_page"
+  | "library.items.get_by_ref"
+  | "library.artifacts.scan_page"
+> & {
+  "library.items.list_page": (
+    payload: SynthesisHostPageRequest,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["library"]["listItemsPage"]>;
+  "library.items.get_by_ref": (
+    payload: SynthesisHostLibraryItemsByRefRequest,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["library"]["getItemsByRef"]>;
+  "library.artifacts.scan_page": (
+    payload: SynthesisHostArtifactScanPageRequest,
+    context: ReverseHostHandlerContext,
+  ) => ReturnType<SynthesisHostReadPort["artifacts"]["scanPage"]>;
+};
+
 const HOST_SNAPSHOT_TTL_MS = 10_000;
 const HOST_SNAPSHOT_LIMIT_BYTES = 8 * 1024 * 1024;
 
@@ -90,7 +112,7 @@ function exactPayload(
 
 export function createSynthesisReverseHostHandlers(
   ports: Ports,
-): SynthesisReverseHostHandlers {
+): UnscopedSynthesisReverseHostHandlers {
   const consumeExportEntries = async (
     capability: string,
     contentTransfer: SynthesisSidecarOutputTransferReference,
@@ -232,7 +254,7 @@ export function createScopedSynthesisReverseHostHandlers(
   >();
   let snapshotCounter = 0;
   let revisionCounter = 0;
-  const injectLibraryScope = <T extends SynthesisJsonObject>(
+  const injectLibraryScope = <T extends object>(
     payload: T,
   ): T & { libraryId: number } => {
     if ("libraryId" in payload || "library_id" in payload) {
@@ -268,7 +290,7 @@ export function createScopedSynthesisReverseHostHandlers(
   };
   const resolveSnapshot = (
     kind: "items" | "artifacts",
-    payload: SynthesisJsonObject,
+    payload: { cursor?: string },
   ) => {
     expireSnapshots();
     const token = typeof payload.cursor === "string" ? payload.cursor : "";
@@ -291,10 +313,13 @@ export function createScopedSynthesisReverseHostHandlers(
       revision: snapshot.revision,
     };
   };
-  const page = async <T extends { nextCursor: string; hasMore: boolean }>(
+  const page = async <
+    P extends { cursor?: string },
+    T extends { nextCursor: string; hasMore: boolean },
+  >(
     kind: "items" | "artifacts",
-    payload: SynthesisJsonObject,
-    read: (scoped: SynthesisJsonObject) => Promise<T>,
+    payload: P,
+    read: (scoped: P & { libraryId: number }) => Promise<T>,
   ) => {
     const snapshot = resolveSnapshot(kind, payload);
     const result = await read({
@@ -322,34 +347,28 @@ export function createScopedSynthesisReverseHostHandlers(
   };
   return {
     ...handlers,
-    "library.items.list_page": ((
-      payload: SynthesisJsonObject,
-      context: Parameters<SynthesisReverseHostHandler>[1],
+    "library.items.list_page": (
+      payload: SynthesisReverseHostPayload<"library.items.list_page">,
+      context: ReverseHostHandlerContext,
     ) =>
-      page(
-        "items",
-        payload,
-        async (scoped) =>
-          handlers["library.items.list_page"](scoped, context) as never,
-      )) as SynthesisReverseHostHandler,
-    "library.items.get_by_ref": ((
-      payload: SynthesisJsonObject,
-      context: Parameters<SynthesisReverseHostHandler>[1],
+      page("items", payload, async (scoped) =>
+        handlers["library.items.list_page"](scoped, context),
+      ),
+    "library.items.get_by_ref": (
+      payload: SynthesisReverseHostPayload<"library.items.get_by_ref">,
+      context: ReverseHostHandlerContext,
     ) =>
       handlers["library.items.get_by_ref"](
         injectLibraryScope(payload),
         context,
-      )) as SynthesisReverseHostHandler,
-    "library.artifacts.scan_page": ((
-      payload: SynthesisJsonObject,
-      context: Parameters<SynthesisReverseHostHandler>[1],
+      ),
+    "library.artifacts.scan_page": (
+      payload: SynthesisReverseHostPayload<"library.artifacts.scan_page">,
+      context: ReverseHostHandlerContext,
     ) =>
-      page(
-        "artifacts",
-        payload,
-        async (scoped) =>
-          handlers["library.artifacts.scan_page"](scoped, context) as never,
-      )) as SynthesisReverseHostHandler,
+      page("artifacts", payload, async (scoped) =>
+        handlers["library.artifacts.scan_page"](scoped, context),
+      ),
   };
 }
 

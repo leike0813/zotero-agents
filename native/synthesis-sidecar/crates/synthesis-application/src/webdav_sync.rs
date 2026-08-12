@@ -26,9 +26,37 @@ pub struct WebDavHostDescription {
     pub username: String,
     #[serde(default)]
     pub credential_updated_at: String,
-    #[serde(default)]
-    pub connection_test: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_test: Option<WebDavConnectionTest>,
     pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct WebDavConnectionTest {
+    pub ok: bool,
+    pub tested_at: String,
+    pub config_status: String,
+    pub diagnostics: Vec<WebDavConnectionDiagnostic>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebDavConnectionDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<WebDavConnectionDiagnosticDetails>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebDavConnectionDiagnosticDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub body: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -277,7 +305,8 @@ impl WebDavSyncApplication {
             remote_path: host.remote_path.clone(),
             username: host.username.clone(),
             credential_updated_at: host.credential_updated_at.clone(),
-            connection_test: host.connection_test.clone(),
+            connection_test: serde_json::to_value(&host.connection_test)
+                .map_err(|_| "webdav_host_description_invalid".to_owned())?,
             diagnostics: host
                 .diagnostics
                 .iter()
@@ -297,7 +326,8 @@ impl WebDavSyncApplication {
         state.remote_path = host.remote_path;
         state.username = host.username;
         state.credential_updated_at = host.credential_updated_at;
-        state.connection_test = host.connection_test;
+        state.connection_test = serde_json::to_value(&host.connection_test)
+            .map_err(|_| "webdav_host_description_invalid".to_owned())?;
         if stale_syncing(&state, &timestamp)? {
             state.queue_state = "failed_retryable".into();
             state.diagnostics = vec![diagnostic("webdav_sync_stale_running_recovered", "warning")];

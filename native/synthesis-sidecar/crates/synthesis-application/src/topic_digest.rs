@@ -20,66 +20,6 @@ pub struct TopicPaperDigestRequest {
     pub include_representative_image: bool,
 }
 
-impl TopicPaperDigestRequest {
-    pub fn from_value(value: &Value) -> Result<Self, String> {
-        let object = value
-            .as_object()
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let digest_ref = object
-            .get("digest_ref")
-            .or_else(|| object.get("digestRef"))
-            .and_then(Value::as_object);
-        let string = |names: &[&str]| {
-            names.iter().find_map(|name| {
-                object
-                    .get(*name)
-                    .or_else(|| digest_ref.and_then(|digest| digest.get(*name)))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_owned)
-            })
-        };
-        let library_id = ["library_id", "libraryId"].iter().find_map(|name| {
-            digest_ref
-                .and_then(|digest| digest.get(*name))
-                .and_then(Value::as_i64)
-        });
-        if library_id.is_some_and(|value| value <= 0) {
-            return Err("invalid_request".into());
-        }
-        let note_key = string(&["note_key", "noteKey"]);
-        if note_key
-            .as_deref()
-            .is_some_and(|value| !valid_item_key(value))
-        {
-            return Err("invalid_request".into());
-        }
-        Ok(Self {
-            paper_ref: string(&["paper_ref", "paperRef"]).unwrap_or_default(),
-            locator: string(&["locator"]),
-            recorded_hash: string(&[
-                "payload_hash",
-                "payloadHash",
-                "expected_hash",
-                "expectedHash",
-            ])
-            .unwrap_or_default(),
-            library_id,
-            note_key,
-            include_representative_image: object
-                .get("include_representative_image")
-                .or_else(|| object.get("includeRepresentativeImage"))
-                .is_some_and(Value::is_boolean)
-                && object
-                    .get("include_representative_image")
-                    .or_else(|| object.get("includeRepresentativeImage"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-        })
-    }
-}
-
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TopicDigestArtifactReadResult {

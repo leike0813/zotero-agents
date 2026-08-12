@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use synthesis_application::topic_digest::TopicPaperDigestRequest;
@@ -82,9 +83,72 @@ fn resolve_topic_paper_digest(
     apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
-    let request = TopicPaperDigestRequest::from_value(&required_object(args)?)?;
+    let wire: TopicPaperDigestWireRequest =
+        serde_json::from_value(required_object(args)?).map_err(|_| "invalid_request".to_owned())?;
+    if wire.paper_ref.trim().is_empty()
+        || wire
+            .digest_ref
+            .as_ref()
+            .is_some_and(|digest| digest.paper_ref != wire.paper_ref)
+        || wire
+            .digest_ref
+            .as_ref()
+            .and_then(|digest| digest.library_id)
+            .is_some_and(|library_id| library_id <= 0)
+        || wire
+            .digest_ref
+            .as_ref()
+            .and_then(|digest| digest.note_key.as_deref())
+            .is_some_and(|note_key| {
+                note_key.is_empty()
+                    || note_key.len() > 64
+                    || !note_key
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric())
+            })
+    {
+        return Err("invalid_request".into());
+    }
+    let request = TopicPaperDigestRequest {
+        paper_ref: wire.paper_ref,
+        locator: wire
+            .digest_ref
+            .as_ref()
+            .and_then(|digest| digest.locator.clone()),
+        recorded_hash: wire
+            .digest_ref
+            .as_ref()
+            .map(|digest| digest.payload_hash.clone())
+            .unwrap_or_default(),
+        library_id: wire
+            .digest_ref
+            .as_ref()
+            .and_then(|digest| digest.library_id),
+        note_key: wire.digest_ref.and_then(|digest| digest.note_key),
+        include_representative_image: wire.include_representative_image,
+    };
     serde_json::to_value(apps.topic_digests.resolve(request)?)
         .map_err(|_| "result_serialize_failed".to_owned())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPaperDigestWireRequest {
+    #[allow(dead_code)]
+    topic_id: Option<String>,
+    paper_ref: String,
+    digest_ref: Option<TopicPaperDigestRefWire>,
+    include_representative_image: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicPaperDigestRefWire {
+    paper_ref: String,
+    locator: Option<String>,
+    payload_hash: String,
+    library_id: Option<i64>,
+    note_key: Option<String>,
 }
 
 fn string_list(request: &Value, names: &[&str]) -> Result<Vec<String>, String> {

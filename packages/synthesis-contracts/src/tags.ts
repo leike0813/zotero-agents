@@ -44,7 +44,7 @@ export type SynthesisTagVocabularySaveRequest = {
   entries: SynthesisTagVocabularyEntry[];
   aliases?: Record<string, string>;
   abbrev?: Record<string, string>;
-  protocol?: SynthesisTagProtocol;
+  protocol?: SynthesisTagProtocol | null;
   transactionId?: string;
 };
 

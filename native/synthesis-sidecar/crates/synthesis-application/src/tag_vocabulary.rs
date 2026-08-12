@@ -69,11 +69,8 @@ pub struct TagProtocol {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TagVocabularySaveRequest {
     pub entries: Vec<TagVocabularyEntry>,
-    #[serde(default)]
     pub aliases: BTreeMap<String, String>,
-    #[serde(default)]
     pub abbrev: BTreeMap<String, String>,
-    #[serde(default)]
     pub protocol: Option<TagProtocol>,
     #[serde(default)]
     pub transaction_id: Option<String>,
@@ -123,13 +120,9 @@ pub struct TagParentBinding {
 #[serde(deny_unknown_fields)]
 pub struct TagSuggestionInput {
     pub tag: String,
-    #[serde(default)]
     pub facet: String,
-    #[serde(default)]
     pub note: String,
-    #[serde(default)]
     pub source_flow: String,
-    #[serde(default)]
     pub parent_bindings: Vec<TagParentBinding>,
 }
 
@@ -332,7 +325,7 @@ pub struct TagHostEffectReceipt {
     pub effect_id: String,
     pub status: String,
     pub occurred_at: String,
-    pub diagnostics_json: String,
+    pub diagnostics: Vec<crate::HostEffectDiagnostic>,
 }
 
 pub trait TagLegacyBindingResolverPort: Send + Sync {
@@ -347,7 +340,7 @@ pub trait TagLegacyBindingResolverPort: Send + Sync {
 pub struct TagLegacyBindingResolution {
     pub resolved: Vec<(i64, TagParentBinding)>,
     pub missing_item_ids: Vec<i64>,
-    pub diagnostics: Vec<Value>,
+    pub diagnostics: Vec<crate::HostEffectDiagnostic>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1506,7 +1499,8 @@ impl TagVocabularyApplication {
                             effect_id: receipt.effect_id,
                             status: receipt.status,
                             occurred_at: receipt.occurred_at,
-                            diagnostics_json: receipt.diagnostics_json,
+                            diagnostics_json: serde_json::to_string(&receipt.diagnostics)
+                                .unwrap_or_else(|_| "[]".into()),
                             updated_at: now.into(),
                         })
                         .collect::<Vec<_>>()
@@ -2115,8 +2109,7 @@ fn validate_effect_receipts(
                 receipt.status.as_str(),
                 "applied" | "already_satisfied" | "not_found" | "failed"
             ) || synthesis_protocol::unix_millis_from_utc_iso8601(&receipt.occurred_at).is_none()
-                || !serde_json::from_str::<Value>(&receipt.diagnostics_json)
-                    .is_ok_and(|value| value.is_array())
+                || receipt.diagnostics.len() > 20
         })
     {
         return Err("tag_effect_receipt_invalid".into());
@@ -2194,7 +2187,7 @@ fn validate_legacy_resolution(
     requested: &[i64],
     result: &TagLegacyBindingResolution,
 ) -> Result<(), String> {
-    if result.diagnostics.len() > 20 || result.diagnostics.iter().any(|entry| !entry.is_object()) {
+    if result.diagnostics.len() > 20 {
         return Err("staged_tag_binding_resolution_invalid".into());
     }
     let requested = requested.iter().copied().collect::<HashSet<_>>();
@@ -2299,7 +2292,7 @@ mod tests {
                             .cloned()
                             .unwrap_or_else(|| "applied".into()),
                         occurred_at: "2026-08-03T00:00:00.000Z".into(),
-                        diagnostics_json: "[]".into(),
+                        diagnostics: Vec::new(),
                     })
                     .collect())
             } else {

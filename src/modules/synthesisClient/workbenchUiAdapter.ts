@@ -34,13 +34,6 @@ const graphMutationErrorCodes = {
   stopping: "unavailable",
 } as const satisfies Record<string, SynthesisClientErrorCode>;
 
-const legacyGraphMutationSuccessStatuses = new Set([
-  "completed",
-  "bootstrapped",
-  "skipped",
-  "superseded",
-]);
-
 function graphMutationFailureMessage(status: string) {
   return `Citation Graph command failed (${status.replace(/_/g, " ")}).`;
 }
@@ -146,34 +139,17 @@ export function classifySynthesisWorkbenchGraphMutationResult<
         { status },
       );
     }
-    if (result.ok === true && legacyGraphMutationSuccessStatuses.has(status)) {
-      return result;
-    }
     throw new SynthesisClientError(
       "internal",
       graphMutationFailureMessage(status),
       { status },
     );
   }
-  if (result.ok === false) {
-    throw new SynthesisClientError(
-      "internal",
-      "Citation Graph command failed.",
-      { ok: false },
-    );
-  }
-  if (
-    typeof result.failed === "number" &&
-    Number.isFinite(result.failed) &&
-    result.failed > 0
-  ) {
-    throw new SynthesisClientError(
-      "internal",
-      "Citation Graph command failed.",
-      { failed: result.failed },
-    );
-  }
-  return result;
+  throw new SynthesisClientError(
+    "internal",
+    "Citation Graph command result is missing its contract status.",
+    {},
+  );
 }
 
 export function resolveSynthesisWorkbenchGraphLayoutStatus(args: {
@@ -260,19 +236,60 @@ export function toSynthesisWorkbenchPaperDigestReadRequest(
   const includeRepresentativeImageValue =
     args.include_representative_image ?? args.includeRepresentativeImage;
 
+  if (!paperRef || typeof includeRepresentativeImageValue !== "boolean") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Workbench paper digest request is incomplete",
+      {
+        field: !paperRef ? "paperRef" : "includeRepresentativeImage",
+      },
+    );
+  }
+
+  let digestRef: SynthesisWorkbenchPaperDigestReadRequest["digestRef"];
+  if (digestRefValue !== undefined) {
+    const source = toSynthesisJsonObject(
+      digestRefValue,
+      "$.workbench.digestRef",
+    );
+    const digestPaperRef = source.paper_ref ?? source.paperRef;
+    const payloadHash = source.payload_hash ?? source.payloadHash;
+    const locator = source.locator;
+    const libraryId = source.library_id ?? source.libraryId;
+    const noteKey = source.note_key ?? source.noteKey;
+    if (
+      typeof digestPaperRef !== "string" ||
+      digestPaperRef.trim() !== paperRef ||
+      typeof payloadHash !== "string" ||
+      !payloadHash.trim() ||
+      (locator !== undefined &&
+        (typeof locator !== "string" || !locator.trim())) ||
+      (libraryId !== undefined &&
+        (typeof libraryId !== "number" ||
+          !Number.isSafeInteger(libraryId) ||
+          libraryId <= 0)) ||
+      (noteKey !== undefined &&
+        (typeof noteKey !== "string" || !noteKey.trim()))
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Synthesis Workbench digest reference is invalid",
+        { field: "digestRef" },
+      );
+    }
+    digestRef = {
+      paperRef,
+      payloadHash: payloadHash.trim(),
+      ...(typeof locator === "string" ? { locator: locator.trim() } : {}),
+      ...(typeof libraryId === "number" ? { libraryId } : {}),
+      ...(typeof noteKey === "string" ? { noteKey: noteKey.trim() } : {}),
+    };
+  }
+
   return {
     ...(topicId ? { topicId } : {}),
-    ...(paperRef ? { paperRef } : {}),
-    ...(digestRefValue !== undefined
-      ? {
-          digestRef: toSynthesisJsonObject(
-            digestRefValue,
-            "$.workbench.digestRef",
-          ),
-        }
-      : {}),
-    ...(typeof includeRepresentativeImageValue === "boolean"
-      ? { includeRepresentativeImage: includeRepresentativeImageValue }
-      : {}),
+    paperRef,
+    ...(digestRef ? { digestRef } : {}),
+    includeRepresentativeImage: includeRepresentativeImageValue,
   };
 }

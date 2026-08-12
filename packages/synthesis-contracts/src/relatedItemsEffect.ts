@@ -1,7 +1,9 @@
 import {
   SynthesisClientError,
+  assertSynthesisExactFields,
+  rebuildSynthesisStructuredDiagnostic,
   toSynthesisJsonObject,
-  type SynthesisJsonObject,
+  type SynthesisStructuredDiagnostic,
 } from "./common";
 import {
   rebuildSynthesisHostItemRef,
@@ -42,7 +44,7 @@ export type SynthesisHostRelatedItemsEffectReceipt = {
   action: SynthesisHostRelatedItemsEffectAction;
   status: "applied" | "already_satisfied" | "not_found" | "failed";
   occurredAt: string;
-  diagnostics: SynthesisJsonObject[];
+  diagnostics: SynthesisStructuredDiagnostic[];
 };
 
 export type SynthesisHostRelatedItemsEffectBatchResult = {
@@ -81,16 +83,37 @@ function rebuildEffect(
   value: unknown,
   index: number,
 ): SynthesisHostRelatedItemsEffect {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    invalidRequest(`effects[${index}] must be an object`);
-  }
-  const record = value as Record<string, unknown>;
+  const record = toSynthesisJsonObject(value, `effects[${index}]`);
+  assertSynthesisExactFields(
+    record,
+    ["effectId", "action", "source", "target", "provenance", "permission"],
+    [],
+    `effects[${index}]`,
+  );
   const effectId = cleanString(record.effectId);
   const action = rebuildAction(record.action);
   const source = rebuildItemRef(record.source, `effects[${index}].source`);
   const target = rebuildItemRef(record.target, `effects[${index}].target`);
-  const provenance = record.provenance as Record<string, unknown> | undefined;
-  const permission = record.permission as Record<string, unknown> | undefined;
+  const provenance = toSynthesisJsonObject(
+    record.provenance,
+    `effects[${index}].provenance`,
+  );
+  const permission = toSynthesisJsonObject(
+    record.permission,
+    `effects[${index}].permission`,
+  );
+  assertSynthesisExactFields(
+    provenance,
+    ["citationEdgeId", "kind"],
+    [],
+    `effects[${index}].provenance`,
+  );
+  assertSynthesisExactFields(
+    permission,
+    ["scope", "reason"],
+    [],
+    `effects[${index}].permission`,
+  );
   const citationEdgeId = cleanString(provenance?.citationEdgeId);
   const provenanceKind = cleanString(provenance?.kind);
   const permissionScope = cleanString(permission?.scope);
@@ -140,6 +163,7 @@ export function rebuildSynthesisHostRelatedItemsEffectBatchRequest(
   value: unknown,
 ): SynthesisHostRelatedItemsEffectBatchRequest {
   const json = toSynthesisJsonObject(value, "relatedItemsEffectBatch");
+  assertSynthesisExactFields(json, ["effects"], [], "relatedItemsEffectBatch");
   if (!Array.isArray(json.effects)) {
     invalidRequest("Related Items effects must be an array");
   }
@@ -164,10 +188,13 @@ function rebuildReceipt(
   value: unknown,
   index: number,
 ): SynthesisHostRelatedItemsEffectReceipt {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    invalidRequest(`receipts[${index}] must be an object`);
-  }
-  const record = value as Record<string, unknown>;
+  const record = toSynthesisJsonObject(value, `receipts[${index}]`);
+  assertSynthesisExactFields(
+    record,
+    ["effectId", "action", "status", "occurredAt", "diagnostics"],
+    [],
+    `receipts[${index}]`,
+  );
   const effectId = cleanString(record.effectId);
   const action = rebuildAction(record.action);
   const status = record.status;
@@ -193,7 +220,7 @@ function rebuildReceipt(
     status,
     occurredAt,
     diagnostics: record.diagnostics.map((diagnostic, diagnosticIndex) =>
-      toSynthesisJsonObject(
+      rebuildSynthesisStructuredDiagnostic(
         diagnostic,
         `receipts[${index}].diagnostics[${diagnosticIndex}]`,
       ),
@@ -203,8 +230,15 @@ function rebuildReceipt(
 
 export function rebuildSynthesisHostRelatedItemsEffectBatchResult(
   value: unknown,
+  requestValue?: unknown,
 ): SynthesisHostRelatedItemsEffectBatchResult {
   const json = toSynthesisJsonObject(value, "relatedItemsEffectBatchResult");
+  assertSynthesisExactFields(
+    json,
+    ["receipts"],
+    [],
+    "relatedItemsEffectBatchResult",
+  );
   if (
     !Array.isArray(json.receipts) ||
     json.receipts.length < 1 ||
@@ -219,6 +253,21 @@ export function rebuildSynthesisHostRelatedItemsEffectBatchResult(
       invalidRequest("Related Items effect receipt IDs must be unique");
     }
     ids.add(receipt.effectId);
+  }
+  if (requestValue !== undefined) {
+    const request =
+      rebuildSynthesisHostRelatedItemsEffectBatchRequest(requestValue);
+    const expected = new Map(
+      request.effects.map((effect) => [effect.effectId, effect.action]),
+    );
+    if (
+      receipts.length !== request.effects.length ||
+      receipts.some(
+        (receipt) => expected.get(receipt.effectId) !== receipt.action,
+      )
+    ) {
+      invalidRequest("Related Items effect receipts do not match the request");
+    }
   }
   return { receipts };
 }

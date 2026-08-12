@@ -125,7 +125,7 @@
         {
           "id": "asset/resolver",
           "mediaType": "application/json",
-          "text": "{\"resolved_paper_set\":{\"papers\":[{\"paper_ref\":\"1:AAAA\"}]},\"resolver\":{\"query\":\"typed\"}}"
+          "text": "{\"resolved_paper_set\":{\"papers\":[{\"paper_ref\":\"1:AAAA\"}]},\"topic_resolver\":{\"paper_refs\":[\"1:AAAA\"],\"collection_key\":[],\"combine\":\"union\"}}"
         }
       ]
     },

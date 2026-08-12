@@ -504,3 +504,15 @@ source-fresh 真实进程回归为 **2 passing**。一条在首个 WebDAV retry 
 本阶段没有处理四个 application differential parity gate、production-route performance fixture、full Node core suite 的既有加载问题、Related Items echo 既有失败或 Zotero 7/9 desktop smoke。因而这里确认的是第五阶段列出的 transfer/WebDAV 并发缺口已经关闭，不能据此把整个 premerge 审计改判为通过。
 
 本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed、触发发布或运行 Gitee 同步。上述流程仍需后续任务单独授权。
+
+## 第六阶段修复复验：递归 DTO 合同
+
+本节记录 OpenSpec change `harden-synthesis-sidecar-recursive-dto-contracts` 的实现进展。固定实现基线为 `7db3a2f6994318c27857c39daf785fabff27a7b1`。这一阶段针对上文“外层类型存在、嵌套数据仍可经 `unknown` / `SynthesisJsonObject` / `serde_json::Value` 穿透”的问题建立统一协议事实源；它不改变 96 项公开 client operation、14 项 reverse-Host capability、数据库 schema 或生产 capability fingerprint。
+
+新增的 `synthesis-sidecar-protocol-v1` 注册表逐项映射 119 个跨进程 capability 和 15 个 deterministic worker operation 的 request、result 与 error `$defs`。递归闭包门禁会沿 `$ref` 检查对象闭合、数组元素、union 分支和孤儿定义；通用 JSON 只保留两个具名、版本化且有容量与完整性约束的叶子：外部 artifact canonical JSON，以及 transfer/worker 的 canonical text chunk。当前检查结果为 119/119、15/15、未授权泛型逃逸 0，协议 corpus 为 32 个 positive case 和 30 个 nested negative case。
+
+生产 TypeScript native composition 现在按 capability 在发送 request 前、收到普通或 transfer-backed result 后执行递归 schema 重建；Node sidecar 在鉴权、身份与 lifecycle 门禁之后校验 capability payload，因此不会让 DTO 错误改变 401/403 的安全优先级。Topic/Workbench 进一步落成具体的 TypeScript 与 Rust domain DTO；Rust 持久化 Topic 行重新打开时直接反序列化这些 DTO，不再用别名探测和空对象拼装掩盖结构漂移。reverse-Host request/result、transfer locator、transfer manifest/page/row 以及 Host effect diagnostics 也进入严格重建路径，所有 output locator 均以 `rootSha256` 绑定 session 与预期根摘要。
+
+严格接线暴露并修正了此前 corpus 没覆盖的真实合同漂移：Topic apply 的 inline assets 与 sealed transfer 是两个封闭分支；Reference 首次 refresh 接受显式空 options；Tag save/stage 由 TypeScript 边界补齐 Rust 所需的具体字段；Artifact read 的 `artifact_types` 保持明确可选；Workflow Review 在出站前补齐分页 DTO。相关 TypeScript 聚焦测试、Node runtime 鉴权顺序、七个 production surface、native runtime parity 和 worker-transfer parity 均已通过。
+
+这项 change 尚不能据此授权删除 Node oracle 或 plugin legacy owner。两个 removal change 已将递归 DTO change 的完整完成列为前置条件；旧 cross-language executable parity set、仍在 Rust worker/domain 内部使用的通用 `Map` / `Value` 边界，以及尚未迁完的 Reference、Tag、Concept/Graph、Artifact/Debug、WebDAV/Maintenance 和 system/lifecycle 静态 DTO 仍需继续关闭。四个 application differential 的既有 drift 也没有在本阶段被静默放行。

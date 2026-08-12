@@ -19796,9 +19796,28 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           continue;
         }
         const title = cleanString(row.title) || topicId;
-        const freshness = cleanString(stateRow?.freshness) || "unknown";
-        const sourceMaterialsStatus =
-          cleanString(stateRow?.source_materials_status) || "missing";
+        const rawFreshness = cleanString(stateRow?.freshness);
+        const freshness = [
+          "fresh",
+          "stale",
+          "dirty",
+          "queued",
+          "running",
+          "failed",
+          "unknown",
+        ].includes(rawFreshness)
+          ? (rawFreshness as SynthesisWorkflowTopicOption["meta"]["freshness"])
+          : "unknown";
+        const rawSourceMaterialsStatus = cleanString(
+          stateRow?.source_materials_status,
+        );
+        const sourceMaterialsStatus = [
+          "complete",
+          "partial",
+          "missing",
+        ].includes(rawSourceMaterialsStatus)
+          ? (rawSourceMaterialsStatus as SynthesisWorkflowTopicOption["meta"]["sourceMaterialsStatus"])
+          : "missing";
         options.push({
           value: topicId,
           label: title,

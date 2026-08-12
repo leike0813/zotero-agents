@@ -37,7 +37,7 @@ async function resolveSynthesisTopicOptions(
   client: Pick<SynthesisClient, "topics">,
 ): Promise<WorkflowParameterOptionsResult> {
   const result = await client.topics.listWorkflowOptions({
-    filter: source.filter,
+    filter: source.filter === "updatable" ? "updatable" : "all",
   });
   return {
     options: result.options as WorkflowParameterOption[],

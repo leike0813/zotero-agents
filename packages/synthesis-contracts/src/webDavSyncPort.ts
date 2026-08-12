@@ -1,5 +1,6 @@
 import {
   SynthesisClientError,
+  assertSynthesisExactFields,
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common.js";
@@ -26,8 +27,20 @@ export type SynthesisHostWebDavSyncDescription = {
   remotePath: string;
   username: string;
   credentialUpdatedAt?: string;
-  connectionTest?: SynthesisJsonObject;
+  connectionTest?: SynthesisHostWebDavSyncConnectionTest;
   diagnostics: string[];
+};
+
+export type SynthesisHostWebDavSyncConnectionTest = {
+  ok: boolean;
+  tested_at: string;
+  config_status: SynthesisHostWebDavSyncConfigStatus;
+  diagnostics: Array<{
+    code: string;
+    severity: "info" | "warning" | "error";
+    message: string;
+    details?: { status?: number; body?: string };
+  }>;
 };
 
 export type SynthesisHostWebDavSyncReadRequest = { path: string };
@@ -141,6 +154,92 @@ function booleanValue(value: unknown, location: string) {
   return value;
 }
 
+function rebuildConnectionTest(
+  value: unknown,
+): SynthesisHostWebDavSyncConnectionTest {
+  const json = toSynthesisJsonObject(value, "connectionTest");
+  assertSynthesisExactFields(
+    json,
+    ["ok", "tested_at", "config_status", "diagnostics"],
+    [],
+    "connectionTest",
+  );
+  if (!Array.isArray(json.diagnostics) || json.diagnostics.length > 20) {
+    return invalid("connectionTest.diagnostics is invalid");
+  }
+  return {
+    ok: booleanValue(json.ok, "connectionTest.ok"),
+    tested_at: stringValue(json.tested_at, "connectionTest.tested_at", {
+      max: 64,
+    }),
+    config_status: configStatus(json.config_status),
+    diagnostics: json.diagnostics.map((entry, index) => {
+      const location = `connectionTest.diagnostics[${index}]`;
+      const diagnostic = toSynthesisJsonObject(entry, location);
+      assertSynthesisExactFields(
+        diagnostic,
+        ["code", "severity", "message"],
+        ["details"],
+        location,
+      );
+      if (
+        diagnostic.severity !== "info" &&
+        diagnostic.severity !== "warning" &&
+        diagnostic.severity !== "error"
+      ) {
+        return invalid(`${location}.severity is invalid`);
+      }
+      const details =
+        diagnostic.details === undefined
+          ? undefined
+          : toSynthesisJsonObject(diagnostic.details, `${location}.details`);
+      if (details) {
+        assertSynthesisExactFields(
+          details,
+          [],
+          ["status", "body"],
+          `${location}.details`,
+        );
+        if (
+          details.status !== undefined &&
+          (!Number.isSafeInteger(details.status) || Number(details.status) < 0)
+        ) {
+          return invalid(`${location}.details.status is invalid`);
+        }
+      }
+      return {
+        code: stringValue(diagnostic.code, `${location}.code`, { max: 512 }),
+        severity: diagnostic.severity,
+        message: stringValue(diagnostic.message, `${location}.message`, {
+          allowEmpty: true,
+          max: 4096,
+        }),
+        ...(details
+          ? {
+              details: {
+                ...(details.status === undefined
+                  ? {}
+                  : { status: Number(details.status) }),
+                ...(details.body === undefined
+                  ? {}
+                  : {
+                      body: stringValue(
+                        details.body,
+                        `${location}.details.body`,
+                        {
+                          allowEmpty: true,
+                          max: 4096,
+                        },
+                      ),
+                    }),
+              },
+            }
+          : {}),
+      };
+    }),
+  };
+}
+
 function managedPath(value: unknown, location: string) {
   const path = stringValue(value, location, { max: PATH_MAX });
   const segments = path.split("/");
@@ -208,6 +307,21 @@ export function rebuildSynthesisHostWebDavSyncDescription(
   value: unknown,
 ): SynthesisHostWebDavSyncDescription {
   const json = toSynthesisJsonObject(value, "webDavSyncDescription");
+  assertSynthesisExactFields(
+    json,
+    [
+      "status",
+      "configStatus",
+      "autoSyncEnabled",
+      "autoRetryEnabled",
+      "baseUrl",
+      "remotePath",
+      "username",
+      "diagnostics",
+    ],
+    ["credentialUpdatedAt", "connectionTest"],
+    "webDavSyncDescription",
+  );
   if (
     json.status !== "available" &&
     json.status !== "disabled" &&
@@ -231,7 +345,7 @@ export function rebuildSynthesisHostWebDavSyncDescription(
   const connectionTest =
     json.connectionTest === undefined
       ? undefined
-      : toSynthesisJsonObject(json.connectionTest, "connectionTest");
+      : rebuildConnectionTest(json.connectionTest);
   return {
     status,
     configStatus: rebuiltStatus,
@@ -253,6 +367,7 @@ export function rebuildSynthesisHostWebDavSyncReadRequest(
   value: unknown,
 ): SynthesisHostWebDavSyncReadRequest {
   const json = toSynthesisJsonObject(value, "webDavSyncReadRequest");
+  assertSynthesisExactFields(json, ["path"], [], "webDavSyncReadRequest");
   return { path: managedPath(json.path, "path") };
 }
 
@@ -261,6 +376,12 @@ export function rebuildSynthesisHostWebDavSyncReadResult(
 ): SynthesisHostWebDavSyncReadResult {
   const json = toSynthesisJsonObject(value, "webDavSyncReadResult");
   if (json.status === "available") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "text", "diagnostics"],
+      ["etag"],
+      "webDavSyncReadResult",
+    );
     const etag = optionalString(json, "etag", 1024);
     return {
       status: "available",
@@ -270,12 +391,24 @@ export function rebuildSynthesisHostWebDavSyncReadResult(
     };
   }
   if (json.status === "missing") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      [],
+      "webDavSyncReadResult",
+    );
     return {
       status: "missing",
       diagnostics: emptyDiagnostics(json.diagnostics),
     };
   }
   if (json.status === "unavailable") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      [],
+      "webDavSyncReadResult",
+    );
     return {
       status: "unavailable",
       diagnostics: diagnostics(json.diagnostics, false),
@@ -288,6 +421,12 @@ export function rebuildSynthesisHostWebDavSyncWriteRequest(
   value: unknown,
 ): SynthesisHostWebDavSyncWriteRequest {
   const json = toSynthesisJsonObject(value, "webDavSyncWriteRequest");
+  assertSynthesisExactFields(
+    json,
+    ["path", "text"],
+    ["ifMatch"],
+    "webDavSyncWriteRequest",
+  );
   const ifMatch = optionalString(json, "ifMatch", 1024);
   return {
     path: managedPath(json.path, "path"),
@@ -301,6 +440,12 @@ export function rebuildSynthesisHostWebDavSyncWriteResult(
 ): SynthesisHostWebDavSyncWriteResult {
   const json = toSynthesisJsonObject(value, "webDavSyncWriteResult");
   if (json.status === "written") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      ["etag"],
+      "webDavSyncWriteResult",
+    );
     const etag = optionalString(json, "etag", 1024);
     return {
       status: "written",
@@ -309,6 +454,12 @@ export function rebuildSynthesisHostWebDavSyncWriteResult(
     };
   }
   if (json.status === "conflict" || json.status === "unavailable") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      [],
+      "webDavSyncWriteResult",
+    );
     return {
       status: json.status,
       diagnostics: diagnostics(json.diagnostics, false),
@@ -321,6 +472,7 @@ export function rebuildSynthesisHostWebDavSyncEnsureCollectionRequest(
   value: unknown,
 ): SynthesisHostWebDavSyncEnsureCollectionRequest {
   const json = toSynthesisJsonObject(value, "webDavSyncCollectionRequest");
+  assertSynthesisExactFields(json, ["path"], [], "webDavSyncCollectionRequest");
   return { path: managedPath(json.path, "path") };
 }
 
@@ -329,9 +481,21 @@ export function rebuildSynthesisHostWebDavSyncEnsureCollectionResult(
 ): SynthesisHostWebDavSyncEnsureCollectionResult {
   const json = toSynthesisJsonObject(value, "webDavSyncCollectionResult");
   if (json.status === "ready") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      [],
+      "webDavSyncCollectionResult",
+    );
     return { status: "ready", diagnostics: emptyDiagnostics(json.diagnostics) };
   }
   if (json.status === "unavailable") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      [],
+      "webDavSyncCollectionResult",
+    );
     return {
       status: "unavailable",
       diagnostics: diagnostics(json.diagnostics, false),

@@ -251,17 +251,14 @@ export function createSynthesisSidecarContentTransferClient(options: {
 export async function consumeSynthesisSidecarOutputJson(args: {
   rpcClient: SynthesisSidecarTransferRpcClient;
   connection: SynthesisSidecarTransferConnection;
-  reference:
-    | SynthesisSidecarOutputTransferReference
-    | { sessionId: string; rootSha256?: string };
+  reference: SynthesisSidecarOutputTransferReference;
   target: "production_client_result" | "host_export_entries";
   capability: string;
   cancelAfterRead?: boolean;
 }): Promise<SynthesisJsonValue> {
-  const reference =
-    args.reference.rootSha256 === undefined
-      ? args.reference
-      : rebuildSynthesisSidecarOutputTransferReference(args.reference);
+  const reference = rebuildSynthesisSidecarOutputTransferReference(
+    args.reference,
+  );
   const client = createSynthesisSidecarContentTransferClient({
     rpcClient: args.rpcClient,
   });
@@ -292,8 +289,7 @@ export async function consumeSynthesisSidecarOutputJson(args: {
       !Number.isSafeInteger(header.byteLength) ||
       header.byteLength < 0 ||
       typeof header.sha256 !== "string" ||
-      (reference.rootSha256 !== undefined &&
-        manifest.rootSha256 !== reference.rootSha256) ||
+      manifest.rootSha256 !== reference.rootSha256 ||
       manifest.rootSha256 !==
         hashSynthesisContractCanonicalJson(manifestBody) ||
       manifest.pages.some(

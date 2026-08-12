@@ -18,6 +18,8 @@ import { canonicalizeSynthesisEngineJson } from "../../packages/synthesis-engine
 import {
   SYNTHESIS_SIDECAR_TRANSFER_LIMITS,
   rebuildSynthesisSidecarTransferAction,
+  rebuildSynthesisSidecarTransferManifest,
+  rebuildSynthesisSidecarTransferPage,
   rebuildSynthesisSidecarTransferStatus,
   type SynthesisSidecarTransferManifest,
 } from "../../packages/synthesis-contracts/src/sidecarTransfer";
@@ -237,6 +239,33 @@ describe("Synthesis Citation Graph Build large transfer", function () {
         lastActivityAtMs: 2,
       }).execution.lastFailure?.code,
       "worker_timeout",
+    );
+  });
+
+  it("rejects unknown nested transfer fields and descriptor/row kind mismatches", function () {
+    const manifest = inputManifest();
+    assert.throws(() =>
+      rebuildSynthesisSidecarTransferManifest({
+        ...manifest,
+        header: {
+          ...manifest.header,
+          scope: { ...manifest.header.scope, ignored: true },
+        },
+      }),
+    );
+
+    const libraryPage = inputPages()[0];
+    assert.throws(() =>
+      rebuildSynthesisSidecarTransferPage({
+        ...libraryPage,
+        rows: [{ ...libraryPage.rows[0], ignored: true }],
+      }),
+    );
+    assert.throws(() =>
+      rebuildSynthesisSidecarTransferPage({
+        descriptor: { ...libraryPage.descriptor, kind: "resolved_edges" },
+        rows: libraryPage.rows,
+      }),
     );
   });
 

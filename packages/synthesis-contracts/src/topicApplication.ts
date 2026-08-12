@@ -3,6 +3,13 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common.js";
+import type {
+  SynthesisResolvedPaperSet,
+  SynthesisTopicDefinition,
+  SynthesisTopicProjection,
+  SynthesisTopicResolver,
+  SynthesisTopicResultBundle,
+} from "./topicDomain.js";
 
 export const SYNTHESIS_TOPIC_APPLICATION_LIMITS = {
   assets: 256,
@@ -19,7 +26,7 @@ export type SynthesisTopicApplicationAsset = {
 };
 
 export type SynthesisTopicApplicationApplyRequest = {
-  bundle: SynthesisJsonObject;
+  bundle: SynthesisTopicResultBundle;
   assets: SynthesisTopicApplicationAsset[];
 };
 
@@ -43,10 +50,10 @@ export type SynthesisTopicApplicationRecord = {
   bundleHash: string;
   paperCount: number;
   updatedAt: string;
-  topicDefinition: SynthesisJsonObject;
-  topicResolver: SynthesisJsonObject;
-  resolvedPaperSet: SynthesisJsonObject;
-  projection: SynthesisJsonObject;
+  topicDefinition: SynthesisTopicDefinition;
+  topicResolver: SynthesisTopicResolver;
+  resolvedPaperSet: SynthesisResolvedPaperSet;
+  projection: SynthesisTopicProjection;
 };
 
 export type SynthesisTopicApplicationListResult = {
@@ -73,8 +80,12 @@ export type SynthesisTopicApplicationApplyResult = {
     | "invalid_request";
   topicId: string;
   operationId: string;
-  hashes: SynthesisJsonObject;
-  mismatches: SynthesisJsonObject[];
+  hashes: Record<string, string>;
+  mismatches: Array<{
+    name: string;
+    base: string;
+    current: string;
+  }>;
   warnings: string[];
 };
 
@@ -246,7 +257,7 @@ export function rebuildSynthesisTopicApplicationApplyRequest(
       text: asset.text,
     };
   });
-  return { bundle, assets };
+  return { bundle: bundle as SynthesisTopicResultBundle, assets };
 }
 
 export function rebuildSynthesisTopicApplicationListRequest(

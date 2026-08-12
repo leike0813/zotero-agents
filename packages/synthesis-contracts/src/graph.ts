@@ -1,4 +1,3 @@
-import type { SynthesisJsonObject } from "./common";
 import type { SynthesisPublicMaintenanceOperation } from "./lifecycle";
 
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_ALGORITHMS = [
@@ -15,8 +14,34 @@ export type SynthesisCitationGraphLayoutRequest = {
   force?: boolean;
 };
 
-export type SynthesisGraphCommandResult = SynthesisJsonObject;
-export type SynthesisGraphCommandRequest = SynthesisJsonObject;
+export type SynthesisGraphCommandResult = {
+  status:
+    | "promoted"
+    | "unchanged"
+    | "basis_mismatch"
+    | "graph_application_busy"
+    | "worker_busy"
+    | "worker_failed"
+    | "invalid_request"
+    | "repair_required"
+    | "stopping";
+  graphHash: string | null;
+  inputHash: string | null;
+  metricsHash: string | null;
+  warnings: string[];
+};
+
+export type SynthesisGraphCommandRequest = {
+  scope?: string;
+  paperRefs?: string[];
+  expectedReferenceBasisHash?: string;
+  idempotencyKey?: string;
+};
+
+export type SynthesisCitationGraphMetricsRefreshRequest = {
+  graphHash?: string;
+  expectedGraphHash?: string;
+};
 
 export type SynthesisCitationGraphNode = {
   node_id: string;
@@ -126,9 +151,24 @@ export type SynthesisGraphQueryResult = {
   edges: SynthesisCitationGraphEdge[];
   hover_only_nodes: SynthesisCitationGraphNode[];
   hover_only_edges: SynthesisCitationGraphEdge[];
-  summary: Record<string, unknown>;
-  pagination: Record<string, unknown>;
-  diagnostics: Record<string, unknown>;
+  summary: {
+    semantic_slice: "library_and_shared_external";
+    displayed_node_count: number;
+    displayed_edge_count: number;
+    hover_only_node_count: number;
+    hover_only_edge_count: number;
+  };
+  pagination: {
+    cursor: string;
+    nextCursor: string;
+    hasMore: boolean;
+  };
+  diagnostics: {
+    storage: "sqlite";
+    bounded: true;
+    truncated: boolean;
+  };
+  cluster?: { status: "ready"; scope: "overview" };
   page?: SynthesisCitationGraphPageMetadata;
 };
 
@@ -151,7 +191,16 @@ export type SynthesisCitationGraphSliceResult = {
   start_node_id: string;
   nodes: SynthesisCitationGraphNode[];
   edges: SynthesisCitationGraphEdge[];
-  diagnostics: Record<string, unknown>;
+  diagnostics: {
+    snapshot_found: boolean;
+    depth: number;
+    direction: "incoming" | "outgoing" | "both";
+    node_count: number;
+    edge_count: number;
+    truncated: boolean;
+    bounded: true;
+    warnings: string[];
+  };
   querySignature?: string;
   roleOptions?: string[];
 };
@@ -210,7 +259,20 @@ export type SynthesisCitationGraphLayoutReadResult = {
     aux_roles: Array<{ role: string; count: number }>;
     weight: number;
   }>;
-  diagnostics: Record<string, unknown>;
+  diagnostics: {
+    snapshot_found: boolean;
+    layout_found: boolean;
+    node_count: number;
+    edge_count: number;
+    truncated: boolean;
+    limits: {
+      maxNodes: number;
+      maxEdges: number;
+      hardMaxNodes: 100;
+      hardMaxEdges: 200;
+    };
+    warnings: string[];
+  };
 };
 
 export type SynthesisCitationGraphMetricsRequest = {
@@ -225,14 +287,44 @@ export type SynthesisCitationGraphMetricsResult = {
   graph_hash: string;
   metrics_hash: string;
   status: "ready" | "missing" | "stale";
-  items: SynthesisJsonObject[];
+  items: Array<{
+    node_id: string;
+    paper_ref: string;
+    item_key: string;
+    title: string;
+    year: string;
+    internal_in_degree: number;
+    internal_out_degree: number;
+    external_reference_count: number;
+    unresolved_reference_count: number;
+    internal_pagerank: number;
+    component_id: string;
+    component_size: number;
+    is_isolated: boolean;
+    age_norm: number;
+    recency_norm: number;
+    in_degree_norm: number;
+    out_degree_norm: number;
+    pagerank_norm: number;
+    foundation_score: number;
+    frontier_score: number;
+    synthesis_role_hints: string[];
+  }>;
   cursor: string;
   nextCursor: string;
   hasMore: boolean;
   returned: number;
   total: number;
   limit: number;
-  diagnostics: Record<string, unknown>;
+  diagnostics: {
+    snapshot_found: boolean;
+    metrics_found: boolean;
+    stale: boolean;
+    total_library_nodes: number;
+    returned_count: number;
+    limits: { limit: number; maxLimit: 100 };
+    warnings: string[];
+  };
 };
 
 export interface SynthesisGraphClient {
@@ -258,7 +350,7 @@ export interface SynthesisGraphClient {
     request?: SynthesisCitationGraphMetricsRequest,
   ): Promise<SynthesisCitationGraphMetricsResult>;
   refreshMetricsNow(
-    request?: SynthesisGraphCommandRequest,
+    request?: SynthesisCitationGraphMetricsRefreshRequest,
   ): Promise<SynthesisPublicMaintenanceOperation>;
   recomputeCitationGraphLayout(
     request: SynthesisCitationGraphLayoutRequest,

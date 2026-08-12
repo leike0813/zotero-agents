@@ -34,20 +34,20 @@ static OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 struct PublicUpdateRequest {
     #[serde(default)]
     scope: Option<String>,
-    #[serde(default, alias = "paper_refs")]
+    #[serde(default)]
     paper_refs: Vec<String>,
-    #[serde(default, alias = "expected_reference_basis_hash")]
+    #[serde(default)]
     expected_reference_basis_hash: Option<String>,
-    #[serde(default, alias = "idempotency_key")]
+    #[serde(default)]
     idempotency_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PublicMetricsRequest {
-    #[serde(default, alias = "graph_hash")]
+    #[serde(default)]
     graph_hash: Option<String>,
-    #[serde(default, alias = "expected_graph_hash")]
+    #[serde(default)]
     expected_graph_hash: Option<String>,
 }
 

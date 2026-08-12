@@ -1,0 +1,118 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    {
+      "id": "citation-graph-query-request-nested",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/QueryCitationGraphRequest",
+      "valid": true,
+      "value": {
+        "args": [
+          {
+            "window": {
+              "nodeLimit": 20,
+              "edgeLimit": 40,
+              "hoverNodeLimit": 10,
+              "hoverEdgeLimit": 20
+            },
+            "basis": {
+              "expectedGraphHash": "graph:1",
+              "layoutAlgorithm": "force",
+              "topicId": "topic:1"
+            },
+            "filters": {
+              "topicId": "topic:1",
+              "nodeKinds": ["library_paper"],
+              "roles": ["background"],
+              "includeLowSignal": false,
+              "search": "contracts"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "citation-metrics-result-nested",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphMetricsResult",
+      "valid": true,
+      "value": {
+        "ok": true,
+        "graph_hash": "graph:1",
+        "metrics_hash": "metrics:1",
+        "status": "ready",
+        "items": [
+          {
+            "node_id": "node:1",
+            "paper_ref": "1:ITEM1",
+            "item_key": "ITEM1",
+            "title": "Contracts",
+            "year": "2026",
+            "internal_in_degree": 1,
+            "internal_out_degree": 2,
+            "external_reference_count": 3,
+            "unresolved_reference_count": 0,
+            "internal_pagerank": 0.5,
+            "component_id": "component:1",
+            "component_size": 1,
+            "is_isolated": false,
+            "age_norm": 0.1,
+            "recency_norm": 0.9,
+            "in_degree_norm": 0.5,
+            "out_degree_norm": 1,
+            "pagerank_norm": 0.7,
+            "foundation_score": 0.6,
+            "frontier_score": 0.8,
+            "synthesis_role_hints": ["foundation"]
+          }
+        ],
+        "cursor": "0",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 1,
+        "total": 1,
+        "limit": 10,
+        "diagnostics": {
+          "snapshot_found": true,
+          "metrics_found": true,
+          "stale": false,
+          "total_library_nodes": 1,
+          "returned_count": 1,
+          "limits": { "limit": 10, "maxLimit": 100 },
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "citation-graph-request-snake-case-alias",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/StartCitationGraphUpdateRequest",
+      "valid": false,
+      "value": { "args": [{ "paper_refs": ["1:ITEM1"] }] }
+    },
+    {
+      "id": "citation-metrics-result-generic-item",
+      "schemaRef": "schemas/client-citation-graph.schema.json#/$defs/GetCitationGraphMetricsResult",
+      "valid": false,
+      "value": {
+        "ok": true,
+        "graph_hash": "",
+        "metrics_hash": "",
+        "status": "missing",
+        "items": [{ "node_id": "node:1" }],
+        "cursor": "0",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 0,
+        "total": 0,
+        "limit": 10,
+        "diagnostics": {
+          "snapshot_found": false,
+          "metrics_found": false,
+          "stale": false,
+          "total_library_nodes": 0,
+          "returned_count": 0,
+          "limits": { "limit": 10, "maxLimit": 100 },
+          "warnings": []
+        }
+      }
+    }
+  ]
+}

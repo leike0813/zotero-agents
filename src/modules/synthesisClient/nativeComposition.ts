@@ -5,12 +5,15 @@ import {
   SynthesisClientError,
   canonicalizeSynthesisContractJsonArtifact,
   hashSynthesisContractCanonicalJson,
+  rebuildSynthesisProtocolCapabilityDto,
+  rebuildSynthesisSidecarOutputTransferReference,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
   type SynthesisJsonObject,
   type SynthesisMaterializedAsset,
-  type SynthesisSidecarTransferManifest,
+  type SynthesisSidecarTopicAssetsManifest,
+  type SynthesisSidecarTopicAssetTransferDescriptor,
   type SynthesisSidecarTransferPage,
   type SynthesisSidecarProductionClientCapability,
 } from "../../../packages/synthesis-contracts/src";
@@ -92,18 +95,24 @@ function splitContentText(text: string) {
 }
 
 function topicAssetTransfer(assets: SynthesisMaterializedAsset[]): {
-  manifest: SynthesisSidecarTransferManifest;
-  pages: SynthesisSidecarTransferPage[];
+  manifest: SynthesisSidecarTopicAssetsManifest;
+  pages: Extract<
+    SynthesisSidecarTransferPage,
+    { descriptor: { kind: "content" } }
+  >[];
 } {
-  const pages: SynthesisSidecarTransferPage[] = [];
-  const descriptors: SynthesisJsonObject[] = [];
+  const pages: Extract<
+    SynthesisSidecarTransferPage,
+    { descriptor: { kind: "content" } }
+  >[] = [];
+  const descriptors: SynthesisSidecarTopicAssetTransferDescriptor[] = [];
   for (const asset of assets) {
     const firstPage = pages.length;
     for (const chunk of splitContentText(asset.text)) {
-      const rows = [chunk];
+      const rows: [string] = [chunk];
       const artifact = canonicalizeSynthesisContractJsonArtifact(rows);
       const descriptor = {
-        kind: "content",
+        kind: "content" as const,
         pageIndex: pages.length,
         rowCount: 1,
         byteLength: artifact.byteLength,
@@ -124,7 +133,7 @@ function topicAssetTransfer(assets: SynthesisMaterializedAsset[]): {
     transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
     encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
     direction: "input" as const,
-    header: { target: "topic_apply_assets", assets: descriptors },
+    header: { target: "topic_apply_assets" as const, assets: descriptors },
     pages: pages.map((page) => page.descriptor),
   };
   return {
@@ -173,14 +182,12 @@ async function resolveContentTransferResult(args: {
     args.result,
     "$.nativeSynthesisLocator",
   );
-  const transferReference = toSynthesisJsonObject(
+  const transferReference = rebuildSynthesisSidecarOutputTransferReference(
     resultObject.contentTransfer,
-    "$.nativeSynthesisLocator.contentTransfer",
   );
   if (
     Object.keys(resultObject).length !== 1 ||
-    Object.keys(transferReference).length !== 1 ||
-    typeof transferReference.sessionId !== "string"
+    Object.keys(transferReference).length !== 2
   ) {
     throw new SynthesisClientError(
       "unavailable",
@@ -190,7 +197,7 @@ async function resolveContentTransferResult(args: {
   return consumeSynthesisSidecarOutputJson({
     rpcClient: args.rpcClient,
     connection: rpcConnection(args.connection),
-    reference: { sessionId: transferReference.sessionId },
+    reference: transferReference,
     target: "production_client_result",
     capability: args.operation,
   });
@@ -338,17 +345,16 @@ function createNativePort(args: {
           }
           let result: unknown;
           try {
+            const payload =
+              rebuildSynthesisProtocolCapabilityDto<SynthesisJsonObject>({
+                capability: operation,
+                direction: "request",
+                value: { args: normalizedArgs },
+              });
             result = await args.rpcClient.call({
               connection: rpcConnection(connection),
               capability: operation,
-              payload: toSynthesisJsonObject(
-                {
-                  args: normalizedArgs.map((value) =>
-                    value === undefined ? null : value,
-                  ),
-                },
-                "$.nativeSynthesisCall",
-              ),
+              payload,
               rebuildResult: (value) =>
                 toSynthesisJsonValue(value, "$.nativeSynthesisResult"),
               deadlineMs: synthesisProductionTransportDeadlineMs(operation),
@@ -369,6 +375,11 @@ function createNativePort(args: {
                 result,
               });
             }
+            result = rebuildSynthesisProtocolCapabilityDto({
+              capability: operation,
+              direction: "result",
+              value: result,
+            });
           } finally {
             if (staged) {
               await staged.client

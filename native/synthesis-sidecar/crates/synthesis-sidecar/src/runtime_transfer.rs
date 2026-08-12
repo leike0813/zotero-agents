@@ -1,8 +1,9 @@
 use crate::runtime_worker_pool::{
     PagedInputFrame, PagedInputSource, PagedOutputCommit, PagedOutputFrame, PagedOutputSink,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,6 +25,266 @@ const MAX_SERVICE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const CONTENT_CHUNK_TARGET_BYTES: usize = 416 * 1024;
 const IDLE_TTL_MS: u64 = 5 * 60 * 1000;
 const ABSOLUTE_TTL_MS: u64 = 30 * 60 * 1000;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TransferPageDescriptorDto {
+    kind: String,
+    page_index: u64,
+    row_count: u64,
+    byte_length: u64,
+    sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationScopeDto {
+    kind: String,
+    source_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationInputHeaderDto {
+    contract_version: String,
+    scope: CitationScopeDto,
+    role_priority: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CitationNodeCountsDto {
+    library_paper: u64,
+    external_reference: u64,
+    unresolved_reference: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationDiagnosticsDto {
+    node_counts: CitationNodeCountsDto,
+    reference_count: u64,
+    aggregate_edge_count: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationOutputHeaderDto {
+    contract_version: String,
+    scope: CitationScopeDto,
+    diagnostics: CitationDiagnosticsDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicAssetDescriptorDto {
+    id: String,
+    media_type: String,
+    byte_length: u64,
+    sha256: String,
+    first_page: u64,
+    page_count: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "target", rename_all = "snake_case", deny_unknown_fields)]
+enum ContentInputHeaderDto {
+    TopicApplyAssets {
+        assets: Vec<TopicAssetDescriptorDto>,
+    },
+    ProductionClientResult,
+    HostExportEntries,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "target", rename_all = "snake_case", deny_unknown_fields)]
+enum ContentOutputHeaderDto {
+    ProductionClientResult {
+        capability: String,
+        byte_length: u64,
+        sha256: String,
+    },
+    HostExportEntries {
+        capability: String,
+        byte_length: u64,
+        sha256: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum TransferManifestHeaderDto {
+    CitationInput(CitationInputHeaderDto),
+    CitationOutput(CitationOutputHeaderDto),
+    ContentInput(ContentInputHeaderDto),
+    ContentOutput(ContentOutputHeaderDto),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TransferManifestDto {
+    transfer_version: String,
+    encoding: String,
+    direction: String,
+    header: TransferManifestHeaderDto,
+    pages: Vec<TransferPageDescriptorDto>,
+    root_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationLibraryNodeDto {
+    node_id: String,
+    title: Option<String>,
+    year: Option<String>,
+    authors: Vec<String>,
+    aliases: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CitationNodeKindDto {
+    LibraryPaper,
+    ExternalReference,
+    UnresolvedReference,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CitationEdgeStatusDto {
+    Accepted,
+    Unbound,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationReferenceDto {
+    reference_id: String,
+    edge_id: String,
+    source_id: String,
+    source_ref: Option<String>,
+    target_id: String,
+    target_kind: CitationNodeKindDto,
+    target_title: Option<String>,
+    target_year: Option<String>,
+    target_authors: Vec<String>,
+    target_aliases: Vec<String>,
+    roles: Vec<String>,
+    weight: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationGraphNodeDto {
+    node_id: String,
+    kind: CitationNodeKindDto,
+    title: Option<String>,
+    year: Option<String>,
+    authors: Vec<String>,
+    aliases: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationResolvedEdgeDto {
+    edge_id: String,
+    reference_id: String,
+    source_id: String,
+    target_id: String,
+    status: CitationEdgeStatusDto,
+    roles: Vec<String>,
+    weight: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationRoleEvidenceDto {
+    role: String,
+    count: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationAggregateEdgeDto {
+    source_id: String,
+    target_id: String,
+    mention_count: u64,
+    primary_role: String,
+    aux_roles: Vec<CitationRoleEvidenceDto>,
+    role_evidence: Vec<CitationRoleEvidenceDto>,
+    source_refs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationOwnershipDto {
+    source_id: String,
+    edge_id: String,
+    reference_id: String,
+    target_id: String,
+    status: CitationEdgeStatusDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CitationLightMetricDto {
+    node_id: String,
+    outgoing_count: u64,
+    incoming_count: u64,
+    local_degree: u64,
+    matched_outgoing_count: u64,
+    unresolved_outgoing_count: u64,
+    ambiguous_outgoing_count: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TransferPageDto {
+    descriptor: TransferPageDescriptorDto,
+    rows: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+enum TransferActionDto {
+    Begin {
+        #[serde(rename = "idempotencyKey")]
+        idempotency_key: String,
+        manifest: TransferManifestDto,
+    },
+    PutInputPage {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        page: TransferPageDto,
+    },
+    SealInput {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    Execute {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    Status {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    GetOutputManifest {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+    GetOutputPage {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        kind: String,
+        #[serde(rename = "pageIndex")]
+        page_index: u64,
+    },
+    Cancel {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
+}
 
 struct StagedPage {
     path: PathBuf,
@@ -119,6 +380,404 @@ struct ByteReservation {
 struct TransferOutputOwnership {
     root: PathBuf,
     _reservations: Vec<ByteReservation>,
+}
+
+fn valid_transfer_hash(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_transfer_text(value: &str, max: usize) -> bool {
+    !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
+}
+
+fn validate_scope(scope: &CitationScopeDto) -> Result<(), String> {
+    let mut source_ids = HashSet::with_capacity(scope.source_ids.len());
+    if !matches!(scope.kind.as_str(), "full" | "source_slice")
+        || scope.source_ids.len() > 25_000
+        || scope
+            .source_ids
+            .iter()
+            .any(|value| !valid_transfer_text(value, 4_096) || !source_ids.insert(value))
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
+fn validate_descriptor(descriptor: &TransferPageDescriptorDto) -> Result<(), String> {
+    if !matches!(
+        descriptor.kind.as_str(),
+        "library_nodes"
+            | "references"
+            | "nodes"
+            | "resolved_edges"
+            | "aggregate_edges"
+            | "source_ownership"
+            | "incoming_groups"
+            | "light_metrics"
+            | "content"
+    ) || descriptor.page_index > 255
+        || descriptor.row_count > 100_000
+        || descriptor.byte_length > MAX_PAGE_BYTES
+        || !valid_transfer_hash(&descriptor.sha256)
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(())
+}
+
+fn validate_manifest_dto(manifest: &TransferManifestDto, content_only: bool) -> Result<(), String> {
+    if !valid_transfer_hash(&manifest.root_sha256)
+        || manifest.pages.len() > MAX_DIRECTION_PAGES
+        || manifest.pages.iter().try_fold(0_u64, |total, page| {
+            validate_descriptor(page)?;
+            total
+                .checked_add(page.byte_length)
+                .ok_or_else(|| "transfer_limit_exceeded".to_owned())
+        })? > MAX_DIRECTION_BYTES
+    {
+        return Err("invalid_request".into());
+    }
+    let citation =
+        manifest.transfer_version == TRANSFER_VERSION && manifest.encoding == TRANSFER_ENCODING;
+    let content = manifest.transfer_version == CONTENT_TRANSFER_VERSION
+        && manifest.encoding == CONTENT_TRANSFER_ENCODING;
+    if (!citation && !content) || (content_only && !content) {
+        return Err("invalid_request".into());
+    }
+    match (&manifest.header, citation, manifest.direction.as_str()) {
+        (TransferManifestHeaderDto::CitationInput(header), true, "input") => {
+            if header.contract_version != "synthesis-citation-graph-build.v1"
+                || header
+                    .role_priority
+                    .iter()
+                    .any(|value| !valid_transfer_text(value, 4_096))
+                || manifest
+                    .pages
+                    .iter()
+                    .any(|page| !matches!(page.kind.as_str(), "library_nodes" | "references"))
+            {
+                return Err("invalid_request".into());
+            }
+            validate_scope(&header.scope)?;
+        }
+        (TransferManifestHeaderDto::CitationOutput(header), true, "output") => {
+            if header.contract_version != "synthesis-citation-graph-build.v1"
+                || manifest.pages.iter().any(|page| {
+                    !matches!(
+                        page.kind.as_str(),
+                        "nodes"
+                            | "resolved_edges"
+                            | "aggregate_edges"
+                            | "source_ownership"
+                            | "incoming_groups"
+                            | "light_metrics"
+                    )
+                })
+            {
+                return Err("invalid_request".into());
+            }
+            validate_scope(&header.scope)?;
+        }
+        (
+            TransferManifestHeaderDto::ContentInput(ContentInputHeaderDto::TopicApplyAssets {
+                assets,
+            }),
+            false,
+            "input",
+        ) => {
+            if assets.len() > 256
+                || manifest.pages.iter().any(|page| page.kind != "content")
+                || assets.iter().any(|asset| {
+                    !valid_transfer_text(&asset.id, 256)
+                        || !matches!(
+                            asset.media_type.as_str(),
+                            "application/json" | "text/markdown" | "text/plain"
+                        )
+                        || asset.byte_length > MAX_DIRECTION_BYTES
+                        || !valid_transfer_hash(&asset.sha256)
+                        || asset.page_count == 0
+                        || asset.first_page > 255
+                        || asset.page_count > 256
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        (
+            TransferManifestHeaderDto::ContentInput(
+                ContentInputHeaderDto::ProductionClientResult
+                | ContentInputHeaderDto::HostExportEntries,
+            ),
+            false,
+            "input",
+        ) if manifest.pages.is_empty() => {}
+        (TransferManifestHeaderDto::ContentOutput(header), false, "output") => {
+            if manifest.pages.iter().any(|page| page.kind != "content") {
+                return Err("invalid_request".into());
+            }
+            match header {
+                ContentOutputHeaderDto::ProductionClientResult {
+                    capability,
+                    byte_length,
+                    sha256,
+                } => {
+                    let capabilities =
+                        synthesis_sidecar::production_capabilities::production_client_capabilities(
+                        )?;
+                    if !capabilities.iter().any(|candidate| candidate == capability)
+                        || *byte_length > MAX_DIRECTION_BYTES
+                        || !valid_transfer_hash(sha256)
+                    {
+                        return Err("invalid_request".into());
+                    }
+                }
+                ContentOutputHeaderDto::HostExportEntries {
+                    capability,
+                    byte_length,
+                    sha256,
+                } => {
+                    if capability != "paper_artifacts.export_filtered"
+                        || *byte_length > MAX_DIRECTION_BYTES
+                        || !valid_transfer_hash(sha256)
+                    {
+                        return Err("invalid_request".into());
+                    }
+                }
+            }
+        }
+        _ => return Err("invalid_request".into()),
+    }
+    Ok(())
+}
+
+fn validate_page_dto(page: TransferPageDto) -> Result<(), String> {
+    validate_descriptor(&page.descriptor)?;
+    let expected_rows = page.descriptor.row_count as usize;
+    let rows = page.rows;
+    match page.descriptor.kind.as_str() {
+        "library_nodes" => {
+            let rows: Vec<CitationLibraryNodeDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.node_id, 4_096)
+                        || row
+                            .title
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
+                        || row
+                            .year
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 64))
+                        || !valid_string_list(&row.authors, false)
+                        || !valid_string_list(&row.aliases, true)
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "references" => {
+            let rows: Vec<CitationReferenceDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.reference_id, 4_096)
+                        || !valid_transfer_text(&row.edge_id, 4_096)
+                        || !valid_transfer_text(&row.source_id, 4_096)
+                        || !valid_transfer_text(&row.target_id, 4_096)
+                        || row
+                            .source_ref
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
+                        || row
+                            .target_title
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
+                        || row
+                            .target_year
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 64))
+                        || !valid_string_list(&row.target_authors, false)
+                        || !valid_string_list(&row.target_aliases, true)
+                        || !valid_string_list(&row.roles, false)
+                        || !row.weight.is_finite()
+                        || row.weight <= 0.0
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "nodes" => {
+            let rows: Vec<CitationGraphNodeDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.node_id, 4_096)
+                        || row
+                            .title
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 4_096))
+                        || row
+                            .year
+                            .as_ref()
+                            .is_some_and(|value| !valid_transfer_text(value, 64))
+                        || !valid_string_list(&row.authors, false)
+                        || !valid_string_list(&row.aliases, true)
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "resolved_edges" => {
+            let rows: Vec<CitationResolvedEdgeDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.edge_id, 4_096)
+                        || !valid_transfer_text(&row.reference_id, 4_096)
+                        || !valid_transfer_text(&row.source_id, 4_096)
+                        || !valid_transfer_text(&row.target_id, 4_096)
+                        || !valid_string_list(&row.roles, false)
+                        || !row.weight.is_finite()
+                        || row.weight <= 0.0
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "aggregate_edges" => {
+            let rows: Vec<CitationAggregateEdgeDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.source_id, 4_096)
+                        || !valid_transfer_text(&row.target_id, 4_096)
+                        || row.mention_count == 0
+                        || !valid_transfer_text(&row.primary_role, 4_096)
+                        || !valid_role_evidence(&row.aux_roles)
+                        || !valid_role_evidence(&row.role_evidence)
+                        || !valid_string_list(&row.source_refs, true)
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "source_ownership" | "incoming_groups" => {
+            let rows: Vec<CitationOwnershipDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.source_id, 4_096)
+                        || !valid_transfer_text(&row.edge_id, 4_096)
+                        || !valid_transfer_text(&row.reference_id, 4_096)
+                        || !valid_transfer_text(&row.target_id, 4_096)
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "light_metrics" => {
+            let rows: Vec<CitationLightMetricDto> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != expected_rows
+                || rows.iter().any(|row| {
+                    !valid_transfer_text(&row.node_id, 4_096) || row.ambiguous_outgoing_count != 0
+                })
+            {
+                return Err("invalid_request".into());
+            }
+        }
+        "content" => {
+            let rows: Vec<String> =
+                serde_json::from_value(rows).map_err(|_| "invalid_request".to_owned())?;
+            if rows.len() != 1 || expected_rows != 1 || rows[0].len() as u64 > MAX_PAGE_BYTES {
+                return Err("invalid_request".into());
+            }
+        }
+        _ => return Err("invalid_request".into()),
+    }
+    Ok(())
+}
+
+fn valid_string_list(values: &[String], unique: bool) -> bool {
+    if values.len() > 256
+        || values
+            .iter()
+            .any(|value| !valid_transfer_text(value, 4_096))
+    {
+        return false;
+    }
+    !unique || values.iter().collect::<HashSet<_>>().len() == values.len()
+}
+
+fn valid_role_evidence(values: &[CitationRoleEvidenceDto]) -> bool {
+    values.len() <= 256
+        && values
+            .iter()
+            .all(|value| valid_transfer_text(&value.role, 4_096) && value.count > 0)
+}
+
+fn validate_transfer_action_contract(action: &Value, content_only: bool) -> Result<(), String> {
+    let action: TransferActionDto =
+        serde_json::from_value(action.clone()).map_err(|_| "invalid_request".to_owned())?;
+    match action {
+        TransferActionDto::Begin {
+            idempotency_key,
+            manifest,
+        } => {
+            if !valid_transfer_text(&idempotency_key, 128) {
+                return Err("invalid_request".into());
+            }
+            validate_manifest_dto(&manifest, content_only)
+        }
+        TransferActionDto::PutInputPage { session_id, page } => {
+            if !valid_transfer_text(&session_id, 128) {
+                return Err("invalid_request".into());
+            }
+            validate_page_dto(page)?;
+            Ok(())
+        }
+        TransferActionDto::SealInput { session_id }
+        | TransferActionDto::Execute { session_id }
+        | TransferActionDto::Status { session_id }
+        | TransferActionDto::GetOutputManifest { session_id }
+        | TransferActionDto::Cancel { session_id } => {
+            if valid_transfer_text(&session_id, 128) {
+                Ok(())
+            } else {
+                Err("invalid_request".into())
+            }
+        }
+        TransferActionDto::GetOutputPage {
+            session_id,
+            kind,
+            page_index,
+        } => {
+            if !valid_transfer_text(&session_id, 128)
+                || !matches!(
+                    kind.as_str(),
+                    "library_nodes"
+                        | "references"
+                        | "nodes"
+                        | "resolved_edges"
+                        | "aggregate_edges"
+                        | "source_ownership"
+                        | "incoming_groups"
+                        | "light_metrics"
+                        | "content"
+                )
+                || page_index > 255
+            {
+                return Err("invalid_request".into());
+            }
+            Ok(())
+        }
+    }
 }
 
 impl ByteBudget {
@@ -232,6 +891,7 @@ impl NativeTransferOwner {
         action: Value,
         now_ms: u64,
     ) -> Result<TransferDispatch, String> {
+        validate_transfer_action_contract(&action, false)?;
         if self.stopping {
             return Err("transfer_stopping".to_owned());
         }
@@ -266,6 +926,7 @@ impl NativeTransferOwner {
     }
 
     pub(crate) fn handle_content(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
+        validate_transfer_action_contract(&action, true)?;
         let action_name = bounded_string(&action["action"], 64)?;
         if action_name == "execute" {
             return Err("invalid_request".to_owned());
@@ -645,7 +1306,12 @@ impl NativeTransferOwner {
     ) -> Result<Value, String> {
         let published =
             self.publish_content("production_client_result", capability, result, now_ms)?;
-        Ok(json!({"contentTransfer":{"sessionId":published.session_id}}))
+        Ok(json!({
+            "contentTransfer": {
+                "sessionId": published.session_id,
+                "rootSha256": published.root_sha256,
+            }
+        }))
     }
 
     pub(crate) fn publish_host_export_entries(
@@ -1570,6 +2236,44 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unknown_nested_transfer_fields_and_kind_row_mismatches() {
+        let root = temporary_root("strict-contract");
+        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let pages = [page(
+            "library_nodes",
+            json!([{"nodeId":"paper:A","authors":[],"aliases":[]}]),
+        )];
+        let mut manifest = input_manifest(&pages);
+        manifest["header"]["scope"]["ignored"] = json!(true);
+        assert_eq!(
+            owner
+                .handle(
+                    json!({"action":"begin","idempotencyKey":"unknown","manifest":manifest}),
+                    1,
+                )
+                .err()
+                .expect("nested unknown field"),
+            "invalid_request"
+        );
+
+        let mismatched = page(
+            "resolved_edges",
+            json!([{"nodeId":"paper:A","authors":[],"aliases":[]}]),
+        );
+        assert_eq!(
+            owner
+                .handle(
+                    json!({"action":"put_input_page","sessionId":"missing","page":mismatched}),
+                    2,
+                )
+                .err()
+                .expect("descriptor row mismatch"),
+            "invalid_request"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn publishes_large_client_results_as_hash_bound_output_pages() {
         let root = temporary_root("client-result");
         let mut owner = NativeTransferOwner::new(&root).expect("owner");
@@ -1581,6 +2285,9 @@ mod tests {
         let session_id = locator["contentTransfer"]["sessionId"]
             .as_str()
             .expect("session id");
+        let expected_root_sha256 = locator["contentTransfer"]["rootSha256"]
+            .as_str()
+            .expect("root sha256");
         let TransferDispatch::Response(manifest) = owner
             .handle(
                 json!({"action":"get_output_manifest","sessionId":session_id}),
@@ -1591,6 +2298,7 @@ mod tests {
             panic!("manifest response");
         };
         assert_eq!(manifest["header"]["target"], "production_client_result");
+        assert_eq!(manifest["rootSha256"], expected_root_sha256);
         assert_eq!(
             manifest["header"]["capability"],
             "client.readPaperArtifacts"

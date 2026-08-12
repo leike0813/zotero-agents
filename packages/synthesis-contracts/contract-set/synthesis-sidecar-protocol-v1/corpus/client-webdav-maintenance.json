@@ -1,0 +1,9 @@
+{
+  "schema": "synthesis-sidecar-protocol-corpus.v1",
+  "cases": [
+    { "id": "webdav-state-nested-positive", "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncResult", "valid": true, "value": { "schema_id": "synthesis.webdav_sync_state", "schema_version": "1.0.0", "queue_state": "idle", "paused": true, "adapter_configured": true, "base_url": "https://example.test", "remote_path": "synthesis", "diagnostics": [{ "code": "paused", "severity": "info", "message": "Paused", "details": { "retryable": false } }], "allowed_actions": ["resume"], "updated_at": "2026-08-12T00:00:00.000Z" } },
+    { "id": "maintenance-operation-nested-positive", "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult", "valid": true, "value": { "schema": "synthesis.maintenance_operation.v1", "operation_id": "op:1", "status": "running", "scope": { "kind": "papers", "paper_refs": ["1:ITEM1"] }, "processed_count": 1, "total_count": 2 } },
+    { "id": "webdav-diagnostic-open-negative", "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/PauseWebDavSyncResult", "valid": false, "value": { "schema_id": "synthesis.webdav_sync_state", "schema_version": "1.0.0", "queue_state": "idle", "paused": true, "adapter_configured": true, "base_url": "https://example.test", "remote_path": "synthesis", "diagnostics": [{ "code": "paused", "severity": "info", "message": "Paused", "details": { "secret": true } }], "allowed_actions": [], "updated_at": "2026-08-12T00:00:00.000Z" } },
+    { "id": "maintenance-scope-row-negative", "schemaRef": "schemas/client-webdav-maintenance.schema.json#/$defs/GetPublicMaintenanceOperationResult", "valid": false, "value": { "schema": "synthesis.maintenance_operation.v1", "operation_id": "op:1", "status": "running", "scope": { "kind": "papers", "paper_refs": [{}] } } }
+  ]
+}

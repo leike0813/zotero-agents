@@ -1,5 +1,6 @@
 use serde::de::DeserializeOwned;
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use synthesis_application::{
     TopicApplyRequest, TopicContextRequest, TopicContextView, TopicDeleteRequest,
     TopicDetailRequest, TopicDetailResult, TopicDiscoveryHintRequest, TopicFindRequest,
@@ -28,31 +29,8 @@ fn one<T: DeserializeOwned>(args: &[Value]) -> Result<T, String> {
     }
 }
 
-fn optional_one<T: DeserializeOwned + Default>(args: &[Value]) -> Result<T, String> {
-    match args {
-        [] => Ok(T::default()),
-        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request".into()),
-        _ => Err("invalid_request".into()),
-    }
-}
-
-fn one_object(args: &[Value]) -> Result<&Map<String, Value>, String> {
-    match args {
-        [Value::Object(value)] => Ok(value),
-        _ => Err("invalid_request".into()),
-    }
-}
-
 fn no_args(args: &[Value]) -> Result<(), String> {
     if args.is_empty() {
-        Ok(())
-    } else {
-        Err("invalid_request".into())
-    }
-}
-
-fn ensure_allowed(object: &Map<String, Value>, allowed: &[&str]) -> Result<(), String> {
-    if object.keys().all(|key| allowed.contains(&key.as_str())) {
         Ok(())
     } else {
         Err("invalid_request".into())
@@ -105,16 +83,6 @@ fn review_page_query(state: &Value) -> Result<ReviewPageQuery, String> {
         offset,
         limit,
     })
-}
-
-fn required_string(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
-    names
-        .iter()
-        .find_map(|name| object.get(*name).and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid_request".into())
 }
 
 fn topic_record_wire(record: TopicRecord) -> Value {
@@ -437,19 +405,19 @@ fn topic_detail_wire(result: TopicDetailResult) -> Value {
             let topic_section = artifact
                 .get("topic")
                 .cloned()
-                .unwrap_or_else(|| topic.topic_definition.clone());
+                .unwrap_or_else(|| json!(&topic.topic_definition));
             let source_papers = artifact
                 .get("source_papers")
                 .and_then(Value::as_array)
                 .cloned()
-                .or_else(|| {
+                .unwrap_or_else(|| {
                     topic
                         .resolved_paper_set
-                        .get("papers")
-                        .and_then(Value::as_array)
-                        .cloned()
-                })
-                .unwrap_or_default();
+                        .papers
+                        .iter()
+                        .map(|paper| json!(paper))
+                        .collect()
+                });
             let title = topic_section
                 .get("title")
                 .and_then(Value::as_str)
@@ -503,173 +471,165 @@ fn deleted_topic_record_wire(record: DeletedTopicArtifactRecord) -> Value {
     })
 }
 
-fn decode_find_request(args: &[Value]) -> Result<TopicFindRequest, String> {
-    let object = one_object(args)?;
-    ensure_allowed(
-        object,
-        &["paper_refs", "paperRefs", "paper_ref", "paperRef"],
-    )?;
-    let mut paper_refs = Vec::new();
-    for name in ["paper_refs", "paperRefs", "paper_ref", "paperRef"] {
-        match object.get(name) {
-            Some(Value::String(value)) => paper_refs.push(value.clone()),
-            Some(Value::Array(values)) => paper_refs.extend(
-                values
-                    .iter()
-                    .map(Value::as_str)
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| "invalid_request".to_owned())?
-                    .into_iter()
-                    .map(str::to_owned),
-            ),
-            Some(_) => return Err("invalid_request".into()),
-            None => {}
-        }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicFindWireRequest {
+    paper_refs: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TopicWorkflowFilterWire {
+    All,
+    Updatable,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TopicWorkflowFilterWireRequest {
+    filter: TopicWorkflowFilterWire,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TopicContextViewWire {
+    Digest,
+    Semantic,
+    Audit,
+    Full,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicContextWireRequest {
+    topic_id: String,
+    view: TopicContextViewWire,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TopicDiscoveryHintWireRequest {
+    hint_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ResolverTagWire {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    and: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    or: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    not: Option<Vec<String>>,
+}
+
+impl ResolverTagWire {
+    fn is_empty(&self) -> bool {
+        self.and.is_none() && self.or.is_none() && self.not.is_none()
     }
-    Ok(TopicFindRequest { paper_refs })
+
+    fn has_empty_value(&self) -> bool {
+        [&self.and, &self.or, &self.not].into_iter().any(|values| {
+            values.as_ref().is_some_and(|values| {
+                values.is_empty() || values.iter().any(|value| value.trim().is_empty())
+            })
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum TopicResolverCombineWire {
+    Union,
+    Intersection,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TopicResolverWireRequest {
+    paper_refs: Vec<String>,
+    collection_key: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<ResolverTagWire>,
+    combine: TopicResolverCombineWire,
+    cursor: usize,
+    limit: usize,
+}
+
+fn decode_find_request(args: &[Value]) -> Result<TopicFindRequest, String> {
+    let request = one::<TopicFindWireRequest>(args)?;
+    if request.paper_refs.is_empty()
+        || request
+            .paper_refs
+            .iter()
+            .any(|paper_ref| paper_ref.trim().is_empty())
+    {
+        return Err("invalid_request".into());
+    }
+    Ok(TopicFindRequest {
+        paper_refs: request.paper_refs,
+    })
 }
 
 fn decode_workflow_filter(args: &[Value]) -> Result<TopicWorkflowFilter, String> {
-    let object = match args {
-        [] => return Ok(TopicWorkflowFilter::All),
-        _ => one_object(args)?,
-    };
-    ensure_allowed(object, &["filter"])?;
-    match object
-        .get("filter")
-        .and_then(Value::as_str)
-        .unwrap_or("all")
-    {
-        "all" => Ok(TopicWorkflowFilter::All),
-        "updatable" => Ok(TopicWorkflowFilter::Updatable),
-        _ => Err("invalid_request".into()),
+    match one::<TopicWorkflowFilterWireRequest>(args)?.filter {
+        TopicWorkflowFilterWire::All => Ok(TopicWorkflowFilter::All),
+        TopicWorkflowFilterWire::Updatable => Ok(TopicWorkflowFilter::Updatable),
     }
 }
 
 fn decode_topic_context(args: &[Value]) -> Result<TopicContextRequest, String> {
-    let object = one_object(args)?;
-    ensure_allowed(object, &["topicId", "topic_id", "view"])?;
-    let view = match object.get("view").and_then(Value::as_str).unwrap_or("full") {
-        "digest" => TopicContextView::Digest,
-        "semantic" => TopicContextView::Semantic,
-        "audit" => TopicContextView::Audit,
-        "full" => TopicContextView::Full,
-        _ => return Err("invalid_request".into()),
+    let request = one::<TopicContextWireRequest>(args)?;
+    if request.topic_id.trim().is_empty() {
+        return Err("invalid_request".into());
+    }
+    let view = match request.view {
+        TopicContextViewWire::Digest => TopicContextView::Digest,
+        TopicContextViewWire::Semantic => TopicContextView::Semantic,
+        TopicContextViewWire::Audit => TopicContextView::Audit,
+        TopicContextViewWire::Full => TopicContextView::Full,
     };
     Ok(TopicContextRequest {
-        topic_id: required_string(object, &["topicId", "topic_id"])?,
+        topic_id: request.topic_id,
         view,
     })
 }
 
-fn resolver_strings(value: &Value, array_only: bool) -> Option<Vec<String>> {
-    let values = match value {
-        Value::String(value) if !array_only => vec![value.trim().to_owned()],
-        Value::Array(values) => values
-            .iter()
-            .map(|value| value.as_str().map(str::trim).map(str::to_owned))
-            .collect::<Option<Vec<_>>>()?,
-        _ => return None,
-    };
-    (!values.is_empty() && values.iter().all(|value| !value.is_empty())).then_some(values)
-}
-
-fn valid_tag_query(value: &Value) -> bool {
-    match value {
-        Value::String(_) | Value::Array(_) => resolver_strings(value, false).is_some(),
-        Value::Object(object) => {
-            !object.is_empty()
-                && object
-                    .keys()
-                    .all(|key| matches!(key.as_str(), "and" | "or" | "not"))
-                && object
-                    .values()
-                    .all(|value| resolver_strings(value, false).is_some())
-        }
-        _ => false,
-    }
-}
-
-fn page_number(value: Option<&Value>, default: usize, max: usize) -> Result<usize, String> {
-    let Some(value) = value else {
-        return Ok(default);
-    };
-    let number = match value {
-        Value::Number(value) => value.as_u64().and_then(|value| usize::try_from(value).ok()),
-        Value::String(value) => value.parse::<usize>().ok(),
-        _ => None,
-    }
-    .ok_or_else(|| "invalid_request".to_owned())?;
-    if number > max || (max != usize::MAX && number == 0) {
-        return Err("invalid_request".into());
-    }
-    Ok(number)
-}
-
 fn decode_resolver(args: &[Value]) -> Result<TopicResolverRequest, Vec<String>> {
-    let object = one_object(args).map_err(|_| vec!["resolver payload is invalid".into()])?;
-    let mut errors = Vec::new();
-    if object.keys().any(|key| {
-        !matches!(
-            key.as_str(),
-            "tag" | "collection_key" | "paper_refs" | "combine" | "limit" | "cursor"
-        )
-    }) {
-        errors.push("resolver payload contains unsupported fields".into());
-    }
-    if !["tag", "collection_key", "paper_refs"]
-        .iter()
-        .any(|key| object.contains_key(*key))
+    let request = one::<TopicResolverWireRequest>(args)
+        .map_err(|_| vec!["resolver payload is invalid".into()])?;
+    let tag_is_empty = request.tag.as_ref().is_none_or(ResolverTagWire::is_empty);
+    if (request.paper_refs.is_empty() && request.collection_key.is_empty() && tag_is_empty)
+        || request.limit == 0
+        || request.limit > 250
+        || request
+            .paper_refs
+            .iter()
+            .chain(request.collection_key.iter())
+            .any(|value| value.trim().is_empty())
+        || request
+            .tag
+            .as_ref()
+            .is_some_and(ResolverTagWire::has_empty_value)
     {
-        errors.push("resolver requires a selector".into());
+        return Err(vec!["resolver payload is invalid".into()]);
     }
-    if object
-        .get("tag")
-        .is_some_and(|value| !valid_tag_query(value))
-    {
-        errors.push("resolver tag is invalid".into());
-    }
-    let collection_keys = object
-        .get("collection_key")
-        .and_then(|value| resolver_strings(value, false))
-        .unwrap_or_default();
-    if object.contains_key("collection_key") && collection_keys.is_empty() {
-        errors.push("resolver collection_key is invalid".into());
-    }
-    let paper_refs = object
-        .get("paper_refs")
-        .and_then(|value| resolver_strings(value, true))
-        .unwrap_or_default();
-    if object.contains_key("paper_refs") && paper_refs.is_empty() {
-        errors.push("resolver paper_refs must be an array".into());
-    }
-    let combine = match object
-        .get("combine")
-        .and_then(Value::as_str)
-        .unwrap_or("union")
-    {
-        "union" => TopicResolverCombine::Union,
-        "intersection" => TopicResolverCombine::Intersection,
-        _ => {
-            errors.push("resolver combine is invalid".into());
-            TopicResolverCombine::Union
-        }
+    let combine = match request.combine {
+        TopicResolverCombineWire::Union => TopicResolverCombine::Union,
+        TopicResolverCombineWire::Intersection => TopicResolverCombine::Intersection,
     };
-    let cursor = page_number(object.get("cursor"), 0, usize::MAX)
-        .map_err(|_| vec!["resolver cursor is invalid".into()])?;
-    let limit = page_number(object.get("limit"), 100, 250)
-        .map_err(|_| vec!["resolver limit is invalid".into()])?;
-    if !errors.is_empty() {
-        return Err(errors);
-    }
+    let normalized =
+        serde_json::to_value(&request).map_err(|_| vec!["resolver payload is invalid".into()])?;
     Ok(TopicResolverRequest {
-        tag: object.get("tag").cloned(),
-        collection_keys,
-        paper_refs,
+        tag: request
+            .tag
+            .map(|tag| serde_json::to_value(tag).expect("resolver tag serializes")),
+        collection_keys: request.collection_key,
+        paper_refs: request.paper_refs,
         combine,
-        cursor,
-        limit,
-        normalized: Value::Object(object.clone()),
+        cursor: request.cursor,
+        limit: request.limit,
+        normalized,
     })
 }
 
@@ -942,7 +902,7 @@ macro_rules! register_production_client_handlers {
 
 register_production_client_handlers!(
     ("client.listTopics", |apps, args| {
-        apps.topics.list(optional_one(args)?).map(topic_list_wire)
+        apps.topics.list(one(args)?).map(topic_list_wire)
     }),
     ("client.findTopicsByPaperRef", |apps, args| {
         wire(apps.topics.find_by_paper_refs(decode_find_request(args)?)?)
@@ -987,10 +947,9 @@ register_production_client_handlers!(
         wire(apps.topics.resolve(apps.topic_library.as_ref(), request)?)
     }),
     ("client.getTopicReport", |apps, args| {
-        let object = one_object(args)?;
-        ensure_allowed(object, &["topicId", "topic_id"])?;
+        let request = one::<TopicDetailRequest>(args)?;
         wire(apps.topics.report(TopicReportRequest {
-            topic_id: required_string(object, &["topicId", "topic_id"])?,
+            topic_id: request.topic_id,
         })?)
     }),
     ("client.applyLiteratureDigestSidecar", |apps, args| {
@@ -1005,23 +964,27 @@ register_production_client_handlers!(
         wire(apps.topics.purge_deleted()?)
     }),
     ("client.rejectTopicDiscoveryHint", |apps, args| {
-        let object = one_object(args)?;
-        ensure_allowed(object, &["hintId"])?;
+        let request = one::<TopicDiscoveryHintWireRequest>(args)?;
+        if request.hint_id.trim().is_empty() {
+            return Err("invalid_request".into());
+        }
         wire(
             apps.topics
                 .update_discovery_hint(TopicDiscoveryHintRequest {
-                    hint_id: required_string(object, &["hintId"])?,
+                    hint_id: request.hint_id,
                     status: "rejected".into(),
                 })?,
         )
     }),
     ("client.restoreTopicDiscoveryHint", |apps, args| {
-        let object = one_object(args)?;
-        ensure_allowed(object, &["hintId"])?;
+        let request = one::<TopicDiscoveryHintWireRequest>(args)?;
+        if request.hint_id.trim().is_empty() {
+            return Err("invalid_request".into());
+        }
         wire(
             apps.topics
                 .update_discovery_hint(TopicDiscoveryHintRequest {
-                    hint_id: required_string(object, &["hintId"])?,
+                    hint_id: request.hint_id,
                     status: "open".into(),
                 })?,
         )
@@ -1065,12 +1028,24 @@ mod tests {
     #[test]
     fn invalid_resolver_is_rejected_before_a_library_port_exists() {
         let result = decode_resolver(&[json!({"topicId":"topic:invalid"})]);
-        assert_eq!(
-            result.expect_err("invalid"),
-            vec![
-                "resolver payload contains unsupported fields",
-                "resolver requires a selector"
-            ]
+        let errors = result.expect_err("invalid");
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("invalid"));
+    }
+
+    #[test]
+    fn topic_request_decoders_reject_aliases_and_missing_contract_fields() {
+        assert!(one::<TopicListRequest>(&[json!({})]).is_err());
+        assert!(decode_find_request(&[json!({"paperRef":"1:ITEM1"})]).is_err());
+        assert!(decode_workflow_filter(&[]).is_err());
+        assert!(decode_topic_context(&[json!({"topicId":"topic:1"})]).is_err());
+        assert!(decode_topic_context(&[json!({"topic_id":"topic:1","view":"full"}),]).is_err());
+        assert!(
+            decode_resolver(&[json!({
+                "paper_refs":["1:ITEM1"],
+                "collection_key":[]
+            })])
+            .is_err()
         );
     }
 }

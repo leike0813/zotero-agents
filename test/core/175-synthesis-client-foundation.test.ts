@@ -60,7 +60,11 @@ describe("Synthesis client foundation", function () {
           value: "topic-alpha",
           label: "Alpha",
           description: "Update",
-          meta: { kind: "synthesis.topic", topicId: "topic-alpha" },
+          meta: {
+            kind: "synthesis.topic",
+            topicId: "topic-alpha",
+            title: "Alpha",
+          },
         },
       ],
       diagnostics: [],
@@ -88,7 +92,7 @@ describe("Synthesis client foundation", function () {
     });
 
     try {
-      await client.topics.listWorkflowOptions();
+      await client.topics.listWorkflowOptions({ filter: "all" });
       assert.fail("expected the client call to reject");
     } catch (error) {
       assert.instanceOf(error, SynthesisClientError);
@@ -108,7 +112,7 @@ describe("Synthesis client foundation", function () {
     });
 
     try {
-      await client.topics.listWorkflowOptions();
+      await client.topics.listWorkflowOptions({ filter: "all" });
       assert.fail("expected the client call to reject");
     } catch (error) {
       assert.strictEqual(error, expected);
@@ -2862,6 +2866,7 @@ describe("Synthesis client foundation", function () {
           topicId: request.topicId,
           title: "Topic Alpha",
           source_papers: [],
+          diagnostics: [],
         };
       },
       async resolveTopicPaperDigest(request) {
@@ -2875,7 +2880,6 @@ describe("Synthesis client foundation", function () {
           current_hash: "new",
           source_changed: true,
           diagnostics: [],
-          optional_field: undefined,
         };
       },
     });
@@ -2907,13 +2911,18 @@ describe("Synthesis client foundation", function () {
         topicId: "topic-alpha",
         title: "Topic Alpha",
         source_papers: [],
+        diagnostics: [],
       },
     );
     assert.deepEqual(
       await client.workbench.readPaperDigest({
         topicId: "topic-alpha",
         paperRef: "1:ABCD1234",
-        digestRef: { note_key: "NOTE1234" },
+        digestRef: {
+          paperRef: "1:ABCD1234",
+          payloadHash: "sha256:digest",
+          noteKey: "NOTE1234",
+        },
         includeRepresentativeImage: true,
       }),
       {
@@ -2939,9 +2948,13 @@ describe("Synthesis client foundation", function () {
         operation: "paper-digest",
         args: [
           {
-            topicId: "topic-alpha",
+            topic_id: "topic-alpha",
             paper_ref: "1:ABCD1234",
-            digest_ref: { note_key: "NOTE1234" },
+            digest_ref: {
+              paper_ref: "1:ABCD1234",
+              payload_hash: "sha256:digest",
+              note_key: "NOTE1234",
+            },
             include_representative_image: true,
           },
         ],
@@ -3019,13 +3032,21 @@ describe("Synthesis client foundation", function () {
       toSynthesisWorkbenchPaperDigestReadRequest({
         topicId: " topic-alpha ",
         paper_ref: " 1:ABCD1234 ",
-        digestRef: { note_key: "NOTE1234" },
+        digestRef: {
+          paper_ref: "1:ABCD1234",
+          payload_hash: "sha256:digest",
+          note_key: "NOTE1234",
+        },
         include_representative_image: true,
       }),
       {
         topicId: "topic-alpha",
         paperRef: "1:ABCD1234",
-        digestRef: { note_key: "NOTE1234" },
+        digestRef: {
+          paperRef: "1:ABCD1234",
+          payloadHash: "sha256:digest",
+          noteKey: "NOTE1234",
+        },
         includeRepresentativeImage: true,
       },
     );
@@ -3114,18 +3135,120 @@ describe("Synthesis client foundation", function () {
         port,
         async (...args: unknown[]) => {
           calls.push({ port, args });
+          if (port === "resolveTopicPaperDigest") {
+            return {
+              ok: true,
+              status: "available",
+              paper_ref: "1:ABCD1234",
+              digest_markdown: "# Digest",
+              recorded_hash: "sha256:recorded",
+              current_hash: "sha256:current",
+              source_changed: true,
+              diagnostics: [],
+            };
+          }
+          if (port === "listTopics") {
+            return {
+              topics: [],
+              cursor: "",
+              next_cursor: "",
+              has_more: false,
+              returned: 0,
+              total: 0,
+              limit: 50,
+              diagnostics: {
+                count: 0,
+                total_count: 0,
+                source: "rust-topic-application",
+              },
+            };
+          }
+          if (port === "findTopicsByPaperRef") {
+            return {
+              ok: true,
+              status: "available",
+              paper_refs: ["1:ABCD1234"],
+              topics: [],
+              diagnostics: {
+                requested_count: 1,
+                matched_topic_count: 0,
+                unmatched_paper_refs: ["1:ABCD1234"],
+                source: "rust-topic-application",
+              },
+            };
+          }
+          if (port === "getTopicContext") {
+            return {
+              schema_id: "synthesis.topic_context",
+              schema_version: "2.0.0",
+              topic_id: "topic-alpha",
+              status: "not_found",
+              diagnostics: [],
+            };
+          }
+          if (port === "resolveResolver") {
+            return {
+              ok: true,
+              errors: [],
+              papers: [],
+              normalized_resolver: {
+                paper_refs: ["1:ABCD1234"],
+                collection_key: [],
+                combine: "union",
+                cursor: 0,
+                limit: 50,
+              },
+              cursor: "",
+              next_cursor: "",
+              has_more: false,
+              returned: 0,
+              total: 0,
+              limit: 50,
+              diagnostics: {
+                final_count: 0,
+                total_candidates: 0,
+                rejected: false,
+              },
+            };
+          }
           return { ok: true, port, nested: { value: "rebuilt" } };
         },
       ]),
     );
     const client: any = createInProcessSynthesisClient(ports as any);
     const request = { probe: "value", extension: { retained: true } };
+    const topicRequests = {
+      listTopics: { cursor: "", limit: 50 },
+      findTopicsByPaperRef: { paper_refs: ["1:ABCD1234"] },
+      getTopicContext: { topicId: "topic-alpha", view: "full" },
+      resolveResolver: {
+        paper_refs: ["1:ABCD1234"],
+        collection_key: [],
+        combine: "union",
+        cursor: 0,
+        limit: 50,
+      },
+      resolveTopicPaperDigest: {
+        topicId: "topic-alpha",
+        paperRef: "1:ABCD1234",
+        includeRepresentativeImage: false,
+      },
+    } as const;
     const delivery = { mode: "remote" as const };
     const invocations: Array<[string, () => Promise<unknown>]> = [
-      ["listTopics", () => client.topics.list(request)],
-      ["findTopicsByPaperRef", () => client.topics.findByPaperRef(request)],
-      ["getTopicContext", () => client.topics.getContext(request, delivery)],
-      ["resolveResolver", () => client.topics.resolveResolver(request)],
+      ["listTopics", () => client.topics.list(topicRequests.listTopics)],
+      [
+        "findTopicsByPaperRef",
+        () => client.topics.findByPaperRef(topicRequests.findTopicsByPaperRef),
+      ],
+      [
+        "getTopicContext",
+        () => client.topics.getContext(topicRequests.getTopicContext, delivery),
+      ],
+      [
+        "resolveResolver",
+        () => client.topics.resolveResolver(topicRequests.resolveResolver),
+      ],
       ["queryCitationGraphCluster", () => client.graph.queryCluster(request)],
       ["queryCitationGraph", () => client.graph.getOverview(request)],
       ["getCitationGraphSlice", () => client.graph.getSlice(request)],
@@ -3155,7 +3278,10 @@ describe("Synthesis client foundation", function () {
       ],
       [
         "resolveTopicPaperDigest",
-        () => client.artifacts.resolveTopicPaperDigest(request),
+        () =>
+          client.artifacts.resolveTopicPaperDigest(
+            topicRequests.resolveTopicPaperDigest,
+          ),
       ],
       ["queryConceptKb", () => client.concepts.query(request)],
       ["getSchemas", () => client.maintenance.getSchemas(request)],
@@ -3179,17 +3305,29 @@ describe("Synthesis client foundation", function () {
 
     for (const [port, invoke] of invocations) {
       const result = (await invoke()) as Record<string, unknown>;
-      assert.equal(result.port, port);
+      if (port === "resolveTopicPaperDigest") {
+        assert.equal(result.paper_ref, "1:ABCD1234");
+      } else if (port === "listTopics") {
+        assert.deepEqual(result.topics, []);
+      } else if (port === "findTopicsByPaperRef") {
+        assert.deepEqual(result.paper_refs, ["1:ABCD1234"]);
+      } else if (port === "getTopicContext") {
+        assert.equal(result.topic_id, "topic-alpha");
+      } else if (port === "resolveResolver") {
+        assert.deepEqual(result.papers, []);
+      } else {
+        assert.equal(result.port, port);
+      }
       assert.notStrictEqual(result, ports);
     }
     assert.deepEqual(
       calls.map((entry) => entry.port),
       portNames,
     );
-    assert.deepEqual(calls[2].args, [request, delivery]);
+    assert.deepEqual(calls[2].args, [topicRequests.getTopicContext, delivery]);
     assert.deepEqual(calls[15].args, [request, delivery]);
-    assert.deepEqual(calls[0].args[0], request);
-    assert.notStrictEqual(calls[0].args[0], request);
+    assert.deepEqual(calls[0].args[0], topicRequests.listTopics);
+    assert.notStrictEqual(calls[0].args[0], topicRequests.listTopics);
   });
 
   it("classifies Host Bridge client boundary failures", async function () {

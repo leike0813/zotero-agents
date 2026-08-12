@@ -1,5 +1,6 @@
 import {
   SynthesisClientError,
+  assertSynthesisExactFields,
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common";
@@ -140,6 +141,12 @@ function decodedBase64Bytes(value: string) {
 function rebuildUnavailable(
   json: SynthesisJsonObject,
 ): SynthesisHostRepresentativeImageUnavailableResult {
+  assertSynthesisExactFields(
+    json,
+    ["status", "diagnostics"],
+    ["attachmentKey", "alt", "caption", "sourceKind", "strategy"],
+    "representativeImageReadResult",
+  );
   const attachmentKey = optionalItemKey(json, "attachmentKey");
   const alt = optionalString(json, "alt", PRESENTATION_TEXT_MAX);
   const caption = optionalString(json, "caption", PRESENTATION_TEXT_MAX);
@@ -159,6 +166,21 @@ function rebuildUnavailable(
 function rebuildAvailable(
   json: SynthesisJsonObject,
 ): SynthesisHostRepresentativeImageAvailableResult {
+  assertSynthesisExactFields(
+    json,
+    [
+      "status",
+      "attachmentKey",
+      "mimeType",
+      "contentBase64",
+      "alt",
+      "caption",
+      "compressedBytes",
+      "diagnostics",
+    ],
+    ["width", "height", "sourceKind", "strategy"],
+    "representativeImageReadResult",
+  );
   const attachmentKey = itemKey(json.attachmentKey, "attachmentKey");
   const mimeType = requiredString(json.mimeType, "mimeType", 256).toLowerCase();
   if (!/^image\/[a-z0-9!#$&^_.+-]+$/.test(mimeType)) {
@@ -202,6 +224,12 @@ export function rebuildSynthesisHostRepresentativeImageReadRequest(
   value: unknown,
 ): SynthesisHostRepresentativeImageReadRequest {
   const json = toSynthesisJsonObject(value, "representativeImageReadRequest");
+  assertSynthesisExactFields(
+    json,
+    ["libraryId", "noteKey"],
+    [],
+    "representativeImageReadRequest",
+  );
   if (!Number.isSafeInteger(json.libraryId) || Number(json.libraryId) <= 0) {
     return invalidRequest("Representative image libraryId is invalid");
   }
@@ -216,6 +244,12 @@ export function rebuildSynthesisHostRepresentativeImageReadResult(
 ): SynthesisHostRepresentativeImageReadResult {
   const json = toSynthesisJsonObject(value, "representativeImageReadResult");
   if (json.status === "absent") {
+    assertSynthesisExactFields(
+      json,
+      ["status", "diagnostics"],
+      [],
+      "representativeImageReadResult",
+    );
     const diagnostics = rebuildDiagnostics(json.diagnostics, {
       allowEmpty: true,
     });

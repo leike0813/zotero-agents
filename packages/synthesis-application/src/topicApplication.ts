@@ -9,6 +9,16 @@ import type {
   SynthesisJsonObject,
   SynthesisJsonValue,
 } from "../../synthesis-contracts/src/common.js";
+import type {
+  SynthesisConceptCardsProposal,
+  SynthesisResolvedPaperSet,
+  SynthesisTopicDefinition,
+  SynthesisTopicDiscoveryProjection,
+  SynthesisTopicGraphProjection,
+  SynthesisTopicInterestMetadata,
+  SynthesisTopicRelationProposals,
+  SynthesisTopicResolver,
+} from "../../synthesis-contracts/src/topicDomain.js";
 import {
   SYNTHESIS_TOPIC_ARTIFACT_ASSEMBLY_VERSION,
   SYNTHESIS_TOPIC_ARTIFACT_VALIDATION_VERSION,
@@ -107,8 +117,8 @@ function parseJsonObject(text: string, location: string) {
   }
 }
 
-function parseStoredJson(text: string) {
-  return JSON.parse(text) as SynthesisJsonObject;
+function parseStoredJson<T>(text: string) {
+  return JSON.parse(text) as T;
 }
 
 function recordProjection(
@@ -128,17 +138,39 @@ function recordProjection(
     bundleHash: record.bundleHash,
     paperCount: record.paperCount,
     updatedAt: record.updatedAt ?? "",
-    topicDefinition: parseStoredJson(record.topicDefinitionJson),
-    topicResolver: parseStoredJson(record.topicResolverJson),
-    resolvedPaperSet: parseStoredJson(record.resolvedPaperSetJson),
-    projection: projection
-      ? {
-          topicGraph: parseStoredJson(projection.topicGraphJson),
-          concepts: parseStoredJson(projection.conceptsJson),
-          interestMetadata: parseStoredJson(projection.interestMetadataJson),
-          discovery: parseStoredJson(projection.discoveryJson),
-        }
-      : {},
+    topicDefinition: parseStoredJson<SynthesisTopicDefinition>(
+      record.topicDefinitionJson,
+    ),
+    topicResolver: parseStoredJson<SynthesisTopicResolver>(
+      record.topicResolverJson,
+    ),
+    resolvedPaperSet: parseStoredJson<SynthesisResolvedPaperSet>(
+      record.resolvedPaperSetJson,
+    ),
+    projection: {
+      ...(projection
+        ? {
+            topicGraph: parseStoredJson<SynthesisTopicGraphProjection>(
+              projection.topicGraphJson,
+            ),
+            concepts: parseStoredJson<SynthesisConceptCardsProposal>(
+              projection.conceptsJson,
+            ),
+            interestMetadata: parseStoredJson<SynthesisTopicInterestMetadata>(
+              projection.interestMetadataJson,
+            ),
+            discovery: parseStoredJson<SynthesisTopicDiscoveryProjection>(
+              projection.discoveryJson,
+            ),
+          }
+        : {}),
+      freshness: "unknown",
+      source_materials_status: "missing",
+      source_materials_percent: 0,
+      stale_reasons: [],
+      dirty_reasons: [],
+      missing_sections: [],
+    },
   };
 }
 
@@ -439,7 +471,7 @@ function failureResult(args: {
   status: SynthesisTopicApplicationApplyResult["status"];
   topicId: string;
   operationId: string;
-  mismatches?: SynthesisJsonObject[];
+  mismatches?: Array<{ name: string; base: string; current: string }>;
 }): SynthesisTopicApplicationApplyResult {
   return {
     ok: false,
@@ -602,7 +634,7 @@ export function createSynthesisTopicApplication(
             status: "conflict",
             topicId,
             operationId,
-            mismatches: decision.mismatches as unknown as SynthesisJsonObject[],
+            mismatches: decision.mismatches,
           });
         }
         updateOperation(operationId, "running", "assembly");
@@ -621,9 +653,7 @@ export function createSynthesisTopicApplication(
             topicId,
             operationId,
             mismatches:
-              patchFailure.status === "conflict"
-                ? (patchFailure.mismatches as unknown as SynthesisJsonObject[])
-                : [],
+              patchFailure.status === "conflict" ? patchFailure.mismatches : [],
           });
         }
         const timestamp = now();

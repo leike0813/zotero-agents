@@ -57,6 +57,13 @@ import type {
   SynthesisPaperArtifactsRequest,
   SynthesisTopicReportRequest,
 } from "../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisTopicContextRequest,
+  rebuildSynthesisTopicFindRequest,
+  rebuildSynthesisTopicListRequest,
+  rebuildSynthesisTopicResolverRequest,
+  rebuildSynthesisWorkbenchPaperDigestReadRequest,
+} from "../../packages/synthesis-contracts/src/index";
 import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import {
   getHostBridgeCapabilityContract,
@@ -1290,11 +1297,16 @@ function invokeSynthesisClientCapability(
 ) {
   switch (methodName) {
     case "listTopics":
-      return client.topics.list(input);
+      return client.topics.list(rebuildSynthesisTopicListRequest(input));
     case "findTopicsByPaperRef":
-      return client.topics.findByPaperRef(input);
+      return client.topics.findByPaperRef(
+        rebuildSynthesisTopicFindRequest(input),
+      );
     case "getTopicContext":
-      return client.topics.getContext(input, delivery);
+      return client.topics.getContext(
+        rebuildSynthesisTopicContextRequest(input),
+        delivery,
+      );
     case "getTopicReport":
       return client.topics.getTopicReport(topicReportRequest(input));
     case "getSchemas":
@@ -1306,7 +1318,9 @@ function invokeSynthesisClientCapability(
     case "getLibraryIndex":
       return client.libraryIndex.getPage(input);
     case "resolveResolver":
-      return client.topics.resolveResolver(input);
+      return client.topics.resolveResolver(
+        rebuildSynthesisTopicResolverRequest(input),
+      );
     case "getReferenceSidecarIndex":
       return client.references.getSidecarIndex(input);
     case "startReferenceSidecarRefresh":
@@ -1340,7 +1354,9 @@ function invokeSynthesisClientCapability(
     case "exportFilteredPaperArtifacts":
       return client.artifacts.exportFiltered(input, delivery);
     case "resolveTopicPaperDigest":
-      return client.artifacts.resolveTopicPaperDigest(input);
+      return client.artifacts.resolveTopicPaperDigest(
+        rebuildSynthesisWorkbenchPaperDigestReadRequest(input),
+      );
     case "getReviewInput":
       return client.workflowReview.getInput(input);
     case "getAttentionQueue":

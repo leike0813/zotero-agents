@@ -1,4 +1,5 @@
 use crate::runtime_production_ports::ProductionApplications;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use synthesis_application::citation_graph::{
@@ -22,6 +23,212 @@ const GRAPH_RESPONSE_BUDGET_BYTES: usize = 768 * 1024;
 const GRAPH_CURSOR_MAX_LENGTH: usize = 4096;
 const DEFAULT_TOPIC_SCOPE_LIMIT: usize = 50;
 const MAX_TOPIC_SCOPE_LIMIT: usize = 250;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum CursorValue {
+    Text(String),
+    Number(u64),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphWindowLimitsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    node_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edge_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hover_node_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hover_edge_limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphBasisDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_graph_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout_algorithm: Option<LayoutAlgorithmDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    topic_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LayoutAlgorithmDto {
+    Force,
+    Radial,
+    Components,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum GraphNodeKindDto {
+    LibraryPaper,
+    ExternalReference,
+    UnresolvedReference,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphFiltersDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    topic_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    node_kinds: Option<Vec<GraphNodeKindDto>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    roles: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    include_low_signal: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    search: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphQueryDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    window_cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    window: Option<GraphWindowLimitsDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    basis: Option<GraphBasisDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    filters: Option<GraphFiltersDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout_algorithm: Option<LayoutAlgorithmDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    node_cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    node_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edge_cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edge_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hover_node_cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hover_node_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hover_edge_cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hover_edge_limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    topic_scope_cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    topic_scope_limit: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum GraphDirectionDto {
+    Incoming,
+    Outgoing,
+    Both,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphSliceDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    start_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    paper_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    depth: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    direction: Option<GraphDirectionDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_nodes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_edges: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_graph_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query_signature: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    filters: Option<GraphFiltersDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout_algorithm: Option<LayoutAlgorithmDto>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphLayoutReadDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preset: Option<LayoutAlgorithmDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    algorithm: Option<LayoutAlgorithmDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    view_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    start_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    paper_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    node_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    paper_refs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    depth: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    direction: Option<GraphDirectionDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    include_low_signal: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role_filter: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_nodes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_edges: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    allow_truncated: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum MetricsSortDto {
+    Foundation,
+    Frontier,
+    Pagerank,
+    InDegree,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GraphMetricsDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cursor: Option<CursorValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sort_by: Option<MetricsSortDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    paper_refs: Option<Vec<String>>,
+}
+
+fn typed_request<T>(args: &[Value]) -> Result<Map<String, Value>, String>
+where
+    T: DeserializeOwned + Serialize + Default,
+{
+    let decoded = match args {
+        [] => T::default(),
+        [value] => serde_json::from_value(value.clone()).map_err(|_| "invalid_request")?,
+        _ => return Err("invalid_request".into()),
+    };
+    match serde_json::to_value(decoded).map_err(|_| "invalid_request")? {
+        Value::Object(object) => Ok(object),
+        _ => Err("invalid_request".into()),
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct GraphWindowCursor {
@@ -732,14 +939,6 @@ pub(crate) fn workbench_graph_surface(
     Ok(result)
 }
 
-fn object_arg(args: &[Value]) -> Result<Map<String, Value>, String> {
-    match args {
-        [] => Ok(Map::new()),
-        [Value::Object(value)] => Ok(value.clone()),
-        _ => Err("invalid_request".into()),
-    }
-}
-
 fn usize_field(request: &Map<String, Value>, names: &[&str], fallback: usize, max: usize) -> usize {
     names
         .iter()
@@ -1265,17 +1464,25 @@ pub(crate) fn dispatch(
     capability: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    let request = object_arg(args)?;
     match capability {
-        "client.queryCitationGraph" => bounded_overview(apps, &request),
+        "client.queryCitationGraph" => {
+            bounded_overview(apps, &typed_request::<GraphQueryDto>(args)?)
+        }
         "client.queryCitationGraphCluster" => {
+            let request = typed_request::<GraphQueryDto>(args)?;
             let mut result = bounded_overview(apps, &request)?;
             result["cluster"] = json!({"status":"ready","scope":"overview"});
             Ok(result)
         }
-        "client.getCitationGraphSlice" => bounded_slice(apps, &request),
-        "client.getCitationGraphLayout" => layout_result(apps, &request),
-        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => metrics(apps, &request),
+        "client.getCitationGraphSlice" => {
+            bounded_slice(apps, &typed_request::<GraphSliceDto>(args)?)
+        }
+        "client.getCitationGraphLayout" => {
+            layout_result(apps, &typed_request::<GraphLayoutReadDto>(args)?)
+        }
+        "client.getCitationGraphMetrics" | "client.rankLibraryPapers" => {
+            metrics(apps, &typed_request::<GraphMetricsDto>(args)?)
+        }
         _ => Err("unsupported_capability".into()),
     }
 }

@@ -1,7 +1,9 @@
 import {
   SynthesisClientError,
+  assertSynthesisExactFields,
+  rebuildSynthesisStructuredDiagnostic,
   toSynthesisJsonObject,
-  type SynthesisJsonObject,
+  type SynthesisStructuredDiagnostic,
 } from "./common.js";
 import {
   rebuildSynthesisHostItemRef,
@@ -23,7 +25,7 @@ export type SynthesisHostStagedTagBindingResolutionRequest = {
 export type SynthesisHostStagedTagBindingResolutionResult = {
   resolved: Array<{ itemId: number; ref: SynthesisHostItemRef }>;
   missingItemIds: number[];
-  diagnostics: SynthesisJsonObject[];
+  diagnostics: SynthesisStructuredDiagnostic[];
 };
 
 export interface SynthesisHostStagedTagBindingMigrationPort {
@@ -54,7 +56,7 @@ export type SynthesisHostTagEffectReceipt = {
   action: "ensure_present";
   status: "applied" | "already_satisfied" | "not_found" | "failed";
   occurredAt: string;
-  diagnostics: SynthesisJsonObject[];
+  diagnostics: SynthesisStructuredDiagnostic[];
 };
 
 export type SynthesisHostTagEffectBatchResult = {
@@ -97,7 +99,7 @@ function diagnostics(value: unknown, location: string) {
     return invalidRequest(`${location} is invalid`);
   }
   return value.map((entry, index) =>
-    toSynthesisJsonObject(entry, `${location}[${index}]`),
+    rebuildSynthesisStructuredDiagnostic(entry, `${location}[${index}]`),
   );
 }
 
@@ -106,6 +108,12 @@ export function rebuildSynthesisHostStagedTagBindingResolutionRequest(
 ): SynthesisHostStagedTagBindingResolutionRequest {
   const json = toSynthesisJsonObject(
     value,
+    "stagedTagBindingResolutionRequest",
+  );
+  assertSynthesisExactFields(
+    json,
+    ["libraryId", "itemIds"],
+    [],
     "stagedTagBindingResolutionRequest",
   );
   if (!Number.isSafeInteger(json.libraryId) || Number(json.libraryId) <= 0) {
@@ -136,11 +144,23 @@ export function rebuildSynthesisHostStagedTagBindingResolutionResult(
   const request =
     rebuildSynthesisHostStagedTagBindingResolutionRequest(requestValue);
   const json = toSynthesisJsonObject(value, "stagedTagBindingResolutionResult");
+  assertSynthesisExactFields(
+    json,
+    ["resolved", "missingItemIds", "diagnostics"],
+    [],
+    "stagedTagBindingResolutionResult",
+  );
   if (!Array.isArray(json.resolved) || !Array.isArray(json.missingItemIds)) {
     return invalidRequest("Staged Tag binding resolution result is invalid");
   }
   const resolved = json.resolved.map((entry, index) => {
     const record = toSynthesisJsonObject(entry, `resolved[${index}]`);
+    assertSynthesisExactFields(
+      record,
+      ["itemId", "ref"],
+      [],
+      `resolved[${index}]`,
+    );
     const itemId = positiveItemId(record.itemId, `resolved[${index}].itemId`);
     const ref = rebuildSynthesisHostItemRef(
       record.ref,
@@ -174,6 +194,20 @@ export function rebuildSynthesisHostStagedTagBindingResolutionResult(
 
 function rebuildEffect(value: unknown, index: number): SynthesisHostTagEffect {
   const json = toSynthesisJsonObject(value, `effects[${index}]`);
+  assertSynthesisExactFields(
+    json,
+    [
+      "effectId",
+      "action",
+      "target",
+      "tag",
+      "provenance",
+      "precondition",
+      "permission",
+    ],
+    [],
+    `effects[${index}]`,
+  );
   const effectId = requiredString(
     json.effectId,
     `effects[${index}].effectId`,
@@ -192,6 +226,24 @@ function rebuildEffect(value: unknown, index: number): SynthesisHostTagEffect {
   );
   const permission = toSynthesisJsonObject(
     json.permission,
+    `effects[${index}].permission`,
+  );
+  assertSynthesisExactFields(
+    provenance,
+    ["kind"],
+    [],
+    `effects[${index}].provenance`,
+  );
+  assertSynthesisExactFields(
+    precondition,
+    ["target"],
+    [],
+    `effects[${index}].precondition`,
+  );
+  assertSynthesisExactFields(
+    permission,
+    ["scope", "reason"],
+    [],
     `effects[${index}].permission`,
   );
   if (
@@ -223,6 +275,7 @@ export function rebuildSynthesisHostTagEffectBatchRequest(
   value: unknown,
 ): SynthesisHostTagEffectBatchRequest {
   const json = toSynthesisJsonObject(value, "tagEffectBatchRequest");
+  assertSynthesisExactFields(json, ["effects"], [], "tagEffectBatchRequest");
   if (
     !Array.isArray(json.effects) ||
     json.effects.length < 1 ||
@@ -243,6 +296,12 @@ function rebuildReceipt(
   index: number,
 ): SynthesisHostTagEffectReceipt {
   const json = toSynthesisJsonObject(value, `receipts[${index}]`);
+  assertSynthesisExactFields(
+    json,
+    ["effectId", "action", "status", "occurredAt", "diagnostics"],
+    [],
+    `receipts[${index}]`,
+  );
   const status = json.status;
   if (
     json.action !== "ensure_present" ||
@@ -283,6 +342,7 @@ export function rebuildSynthesisHostTagEffectBatchResult(
 ): SynthesisHostTagEffectBatchResult {
   const request = rebuildSynthesisHostTagEffectBatchRequest(requestValue);
   const json = toSynthesisJsonObject(value, "tagEffectBatchResult");
+  assertSynthesisExactFields(json, ["receipts"], [], "tagEffectBatchResult");
   if (
     !Array.isArray(json.receipts) ||
     json.receipts.length !== request.effects.length

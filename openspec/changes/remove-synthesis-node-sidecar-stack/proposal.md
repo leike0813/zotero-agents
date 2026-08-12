@@ -71,6 +71,10 @@ None.
 - Depends on `stabilize-synthesis-r9a-retirement-baseline`, every completed task
   and external parity/10k/25k gate in
   `restore-synthesis-rust-sidecar-main-parity`, and
-  `remove-synthesis-plugin-legacy-owner`; no release may occur between them.
+  `remove-synthesis-plugin-legacy-owner`. It also requires
+  `harden-synthesis-sidecar-recursive-dto-contracts` to be complete, so removal
+  cannot discard the executable oracle before all 119 capabilities and 15
+  worker operations have recursively closed language-neutral DTO evidence; no
+  release may occur between them.
   Regression-repair results remain candidate evidence until those gates are
   accepted for the same source identity.

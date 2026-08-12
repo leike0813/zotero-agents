@@ -31,6 +31,8 @@ function configuredDescription(overrides: Record<string, unknown> = {}) {
     connectionTest: {
       ok: true,
       tested_at: "2026-07-16T00:00:00.000Z",
+      config_status: "configured",
+      diagnostics: [],
     },
     diagnostics: [],
     ...overrides,
@@ -38,12 +40,9 @@ function configuredDescription(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Synthesis WebDAV runtime composition", function () {
-  it("canonically rebuilds WebDAV description and operation DTOs", function () {
+  it("canonically rebuilds exact WebDAV description and operation DTOs", function () {
     assert.deepEqual(
-      rebuildSynthesisHostWebDavSyncDescription({
-        ...configuredDescription(),
-        ignored: { safe: true },
-      }),
+      rebuildSynthesisHostWebDavSyncDescription(configuredDescription()),
       configuredDescription(),
     );
     assert.deepEqual(
@@ -56,7 +55,6 @@ describe("Synthesis WebDAV runtime composition", function () {
         remotePath: "zotero-agents",
         username: "",
         diagnostics: ["webdav_sync_not_configured"],
-        ignored: true,
       }),
       {
         status: "disabled",
@@ -72,7 +70,6 @@ describe("Synthesis WebDAV runtime composition", function () {
     assert.deepEqual(
       rebuildSynthesisHostWebDavSyncReadRequest({
         path: "snapshots/example/manifest.json",
-        ignored: true,
       }),
       { path: "snapshots/example/manifest.json" },
     );
@@ -82,7 +79,6 @@ describe("Synthesis WebDAV runtime composition", function () {
         text: "{}",
         etag: '"example"',
         diagnostics: [],
-        ignored: true,
       }),
       {
         status: "available",
@@ -96,7 +92,6 @@ describe("Synthesis WebDAV runtime composition", function () {
         path: "HEAD.json",
         text: "{}",
         ifMatch: '"old"',
-        ignored: true,
       }),
       { path: "HEAD.json", text: "{}", ifMatch: '"old"' },
     );
@@ -104,7 +99,6 @@ describe("Synthesis WebDAV runtime composition", function () {
       rebuildSynthesisHostWebDavSyncWriteResult({
         status: "conflict",
         diagnostics: ["webdav_sync_remote_changed_during_sync"],
-        ignored: true,
       }),
       {
         status: "conflict",
@@ -114,7 +108,6 @@ describe("Synthesis WebDAV runtime composition", function () {
     assert.deepEqual(
       rebuildSynthesisHostWebDavSyncEnsureCollectionRequest({
         path: "snapshots/example/bundles",
-        ignored: true,
       }),
       { path: "snapshots/example/bundles" },
     );
@@ -122,7 +115,6 @@ describe("Synthesis WebDAV runtime composition", function () {
       rebuildSynthesisHostWebDavSyncEnsureCollectionResult({
         status: "ready",
         diagnostics: [],
-        ignored: true,
       }),
       { status: "ready", diagnostics: [] },
     );
@@ -130,6 +122,16 @@ describe("Synthesis WebDAV runtime composition", function () {
 
   it("rejects non-JSON, unsafe paths, secret-bearing descriptions, and malformed results", function () {
     const invalid = [
+      () =>
+        rebuildSynthesisHostWebDavSyncDescription({
+          ...configuredDescription(),
+          ignored: true,
+        }),
+      () =>
+        rebuildSynthesisHostWebDavSyncReadRequest({
+          path: "HEAD.json",
+          ignored: true,
+        }),
       () => rebuildSynthesisHostWebDavSyncReadRequest({ path: "/absolute" }),
       () => rebuildSynthesisHostWebDavSyncReadRequest({ path: "a/../b" }),
       () => rebuildSynthesisHostWebDavSyncReadRequest({ path: "a\\b" }),

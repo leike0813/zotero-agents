@@ -1,4 +1,4 @@
-use crate::ports::RelatedItemsRepositoryPort;
+use crate::{HostEffectDiagnostic, ports::RelatedItemsRepositoryPort};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -46,7 +46,7 @@ pub struct RelatedItemsHostReceipt {
     pub action: String,
     pub status: String,
     pub occurred_at: String,
-    pub diagnostics: Vec<Value>,
+    pub diagnostics: Vec<HostEffectDiagnostic>,
 }
 
 pub trait RelatedItemsHostEffectPort: Send + Sync {
@@ -308,7 +308,14 @@ impl RelatedItemsApplication {
                 }
                 .into();
                 current.updated_at = receipt.occurred_at.clone();
-                current.diagnostics.extend(receipt.diagnostics);
+                current.diagnostics.extend(
+                    receipt
+                        .diagnostics
+                        .into_iter()
+                        .map(serde_json::to_value)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|_| "related_items_effect_invalid".to_owned())?,
+                );
                 match receipt.status.as_str() {
                     "applied" => {
                         current.external_write_at = receipt.occurred_at;
@@ -462,7 +469,6 @@ fn exact_receipts(plans: &[EffectPlan], receipts: &[RelatedItemsHostReceipt]) ->
             )
             && synthesis_protocol::unix_millis_from_utc_iso8601(&receipt.occurred_at).is_some()
             && receipt.diagnostics.len() <= 20
-            && receipt.diagnostics.iter().all(Value::is_object)
     })
 }
 

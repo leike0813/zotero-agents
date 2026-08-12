@@ -1,4 +1,4 @@
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use synthesis_application::tag_vocabulary::{
     TagSelectionRequest, TagStagedUpdateRequest, TagSuggestionStageRequest,
@@ -6,6 +6,41 @@ use synthesis_application::tag_vocabulary::{
 };
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::TagAuditRecord;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TagImportPreviewRequest {
+    payload: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TagImportApplyRequest {
+    payload: String,
+    action: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TagAuditReplaceRequest {
+    library_id: i64,
+    entries: Vec<TagAuditReplaceEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TagAuditReplaceEntry {
+    item_key: String,
+    compliant: bool,
+    non_compliant_tags: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TagAuditClearRequest {
+    library_id: i64,
+    item_key: String,
+}
 
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
@@ -122,31 +157,17 @@ fn save(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> 
 }
 
 fn validate(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    match args {
-        [] => wire(apps.tags.validate_public(None)?),
-        [_] => {
-            let request = one::<TagVocabularySaveRequest>(args)?;
-            wire(apps.tags.validate_public(Some(&request))?)
-        }
-        _ => Err("invalid_request".into()),
-    }
+    no_args(args)?;
+    wire(apps.tags.validate_public(None)?)
 }
 
 fn rebuild_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let expected = match args {
-        [] => apps
-            .tags
-            .inspect()?
-            .vocabulary_hash
-            .ok_or_else(|| "tag_vocabulary_not_initialized".to_owned())?,
-        [request] => request
-            .get("expectedVocabularyHash")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "invalid_request".to_owned())?
-            .to_owned(),
-        _ => return Err("invalid_request".into()),
-    };
+    no_args(args)?;
+    let expected = apps
+        .tags
+        .inspect()?
+        .vocabulary_hash
+        .ok_or_else(|| "tag_vocabulary_not_initialized".to_owned())?;
     let checkpoint = || promotion_checkpoint(apps);
     mutation(
         apps.tags
@@ -208,32 +229,16 @@ fn clear_staged(apps: &ProductionApplications, args: &[Value]) -> Result<Value, 
     wire(apps.tags.clear_public_staged()?)
 }
 
-fn import_payload(args: &[Value]) -> Result<(String, TagVocabularySaveRequest), String> {
-    let request = one::<Value>(args)?;
-    let payload = request
-        .get("payload")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "invalid_request".to_owned())?;
+fn decode_import_payload(payload: &str) -> Result<TagVocabularySaveRequest, String> {
     if payload.len() > 1_048_576 {
         return Err("invalid_request".into());
     }
-    let imported =
-        serde_json::from_str::<Value>(payload).map_err(|_| "invalid_request".to_owned())?;
-    let imported = imported
-        .as_object()
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let candidate = serde_json::from_value(json!({
-        "entries": imported.get("entries").or_else(|| imported.get("tags")).cloned().unwrap_or_else(|| json!([])),
-        "aliases": imported.get("aliases").cloned().unwrap_or_else(|| json!({})),
-        "abbrev": imported.get("abbrev").or_else(|| imported.get("abbrevs")).cloned().unwrap_or_else(|| json!({})),
-        "protocol": imported.get("protocol").cloned(),
-    }))
-    .map_err(|_| "invalid_request".to_owned())?;
-    Ok((payload.to_owned(), candidate))
+    serde_json::from_str(payload).map_err(|_| "invalid_request".to_owned())
 }
 
 fn preview_import(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let (payload, candidate) = import_payload(args)?;
+    let request = one::<TagImportPreviewRequest>(args)?;
+    let candidate = decode_import_payload(&request.payload)?;
     let mut preview = wire(apps.tags.preview_public_import(&candidate)?)?;
     preview
         .as_object_mut()
@@ -241,95 +246,57 @@ fn preview_import(apps: &ProductionApplications, args: &[Value]) -> Result<Value
         .insert(
             "previewDigest".into(),
             Value::String(canonical_json_hash(
-                &json!({"payload":payload,"candidate":candidate}),
+                &json!({"payload":request.payload,"candidate":candidate}),
             )?),
         );
     Ok(preview)
 }
 
 fn apply_import(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let (payload, candidate) = import_payload(args)?;
-    let request = one::<Value>(args)?;
-    let action = request
-        .get("action")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    if !matches!(action, "use-imported" | "merge-non-conflicting") {
+    let request = one::<TagImportApplyRequest>(args)?;
+    let candidate = decode_import_payload(&request.payload)?;
+    if !matches!(
+        request.action.as_str(),
+        "use-imported" | "merge-non-conflicting"
+    ) {
         return Err("invalid_request".into());
     }
-    let mut result = mutation(apps.tags.apply_public_import(&candidate, action)?)?;
+    let mut result = mutation(
+        apps.tags
+            .apply_public_import(&candidate, request.action.as_str())?,
+    )?;
     result.as_object_mut().expect("object").insert(
         "previewDigest".into(),
-        Value::String(canonical_json_hash(&json!({"payload":payload}))?),
+        Value::String(canonical_json_hash(&json!({"payload":request.payload}))?),
     );
     Ok(result)
 }
 
 fn replace_audits(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one::<Value>(args)?;
-    let object = request
-        .as_object()
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    if object
-        .keys()
-        .any(|key| key != "libraryId" && key != "entries")
-    {
+    let request = one::<TagAuditReplaceRequest>(args)?;
+    if request.library_id <= 0 || request.entries.len() > 10_000 {
         return Err("invalid_request".into());
     }
-    let library_id = object
-        .get("libraryId")
-        .and_then(Value::as_i64)
-        .filter(|value| *value > 0)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let entries = object
-        .get("entries")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let records = entries
-        .iter()
+    let records = request
+        .entries
+        .into_iter()
         .map(|entry| {
-            let entry = entry
-                .as_object()
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            if entry
-                .keys()
-                .any(|key| !matches!(key.as_str(), "itemKey" | "compliant" | "nonCompliantTags"))
-            {
-                return Err("invalid_request".into());
-            }
-            let item_key = entry
-                .get("itemKey")
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            let compliant = entry
-                .get("compliant")
-                .and_then(Value::as_bool)
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            let non_compliant_tags = entry
-                .get("nonCompliantTags")
-                .and_then(Value::as_array)
-                .ok_or_else(|| "invalid_request".to_owned())?;
-            if non_compliant_tags.len() > 10_000
-                || non_compliant_tags
-                    .iter()
-                    .any(|tag| tag.as_str().is_none_or(str::is_empty))
+            if entry.item_key.trim().is_empty()
+                || entry.non_compliant_tags.len() > 10_000
+                || entry.non_compliant_tags.iter().any(|tag| tag.is_empty())
             {
                 return Err("invalid_request".into());
             }
             Ok(TagAuditRecord {
-                library_id,
-                item_key: item_key.to_owned(),
-                needs_tag_regulation: i64::from(!compliant),
-                non_compliant_tags_json: serde_json::to_string(non_compliant_tags)
+                library_id: request.library_id,
+                item_key: entry.item_key,
+                needs_tag_regulation: i64::from(!entry.compliant),
+                non_compliant_tags_json: serde_json::to_string(&entry.non_compliant_tags)
                     .map_err(|_| "invalid_request".to_owned())?,
                 ..TagAuditRecord::default()
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    if records.len() > 10_000 {
-        return Err("invalid_request".into());
-    }
     if records
         .iter()
         .map(|record| (record.library_id, &record.item_key))
@@ -339,23 +306,17 @@ fn replace_audits(apps: &ProductionApplications, args: &[Value]) -> Result<Value
     {
         return Err("invalid_request".into());
     }
-    let audited = apps.tags.replace_audits(library_id, &records)?;
-    Ok(json!({"libraryId":library_id,"audited":audited}))
+    let audited = apps.tags.replace_audits(request.library_id, &records)?;
+    Ok(json!({"libraryId":request.library_id,"audited":audited}))
 }
 
 fn clear_audit(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
-    let request = one::<Value>(args)?;
-    let library_id = request
-        .get("libraryId")
-        .and_then(Value::as_i64)
-        .filter(|value| *value > 0)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let item_key = request
-        .get("itemKey")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    apps.tags.clear_audit(library_id, item_key)?;
+    let request = one::<TagAuditClearRequest>(args)?;
+    if request.library_id <= 0 || request.item_key.is_empty() {
+        return Err("invalid_request".into());
+    }
+    apps.tags
+        .clear_audit(request.library_id, &request.item_key)?;
     Ok(json!({"ok":true}))
 }
 

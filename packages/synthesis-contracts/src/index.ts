@@ -37,6 +37,8 @@ export * from "./tags";
 export * from "./tagVocabularyApplication";
 export * from "./tagVocabularyCore";
 export * from "./topics";
+export * from "./topicDomain";
+export * from "./protocolSchema";
 export * from "./topicApplication";
 export * from "./topicGraph";
 export * from "./topicGraphApplication";

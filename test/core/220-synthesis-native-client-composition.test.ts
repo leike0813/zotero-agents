@@ -289,15 +289,23 @@ describe("Synthesis native client composition", function () {
 
       const result =
         await composition.client.workflowApply.applyTopicSynthesisResult({
-          bundle: { topic_id: "large-language-models" },
+          bundle: {
+            kind: "topic_synthesis",
+            operation: "create",
+            language: "en",
+            topic_id: "large-language-models",
+            topic_definition: {
+              id: "large-language-models",
+              title: "Large Language Models",
+            },
+          },
           assets: [],
         });
 
       assert.equal(result.status, "invalid_request");
       const trace = readSynthesisSidecarTraceSnapshot().traces[0]!;
       const terminal = trace.events.find(
-        (event) =>
-          event.boundary === "operation" && event.phase === "terminal",
+        (event) => event.boundary === "operation" && event.phase === "terminal",
       )!;
       assert.equal(terminal.outcome, "failed");
       assert.equal(terminal.code, "semantic_non_success");
@@ -498,23 +506,64 @@ describe("Synthesis native client composition", function () {
             payload: args.payload,
             deadlineMs: args.deadlineMs,
           });
-          return args.rebuildResult({ topics: [] });
+          return args.rebuildResult(
+            args.capability === "client.listTopics"
+              ? {
+                  topics: [],
+                  cursor: "",
+                  next_cursor: "",
+                  has_more: false,
+                  returned: 0,
+                  total: 0,
+                  limit: 50,
+                  diagnostics: {
+                    count: 0,
+                    total_count: 0,
+                    source: "rust-topic-application",
+                  },
+                }
+              : {
+                  schema: "synthesis.maintenance_operation.v1",
+                  operation_id: "maintenance:scenario",
+                  status: "canceled",
+                },
+          );
         },
       },
     });
 
-    assert.deepEqual(await composition.client.topics.list(), { topics: [] });
+    assert.deepEqual(
+      await composition.client.topics.list({ cursor: "", limit: 50 }),
+      {
+        topics: [],
+        cursor: "",
+        next_cursor: "",
+        has_more: false,
+        returned: 0,
+        total: 0,
+        limit: 50,
+        diagnostics: {
+          count: 0,
+          total_count: 0,
+          source: "rust-topic-application",
+        },
+      },
+    );
     assert.deepEqual(
       await composition.client.maintenance.controlOperation({
         action: "cancel",
         operation_id: "maintenance:scenario",
       }),
-      { topics: [] },
+      {
+        schema: "synthesis.maintenance_operation.v1",
+        operation_id: "maintenance:scenario",
+        status: "canceled",
+      },
     );
     assert.deepEqual(calls, [
       {
         capability: "client.listTopics",
-        payload: { args: [{}] },
+        payload: { args: [{ cursor: "", limit: 50 }] },
         deadlineMs: 12_000,
       },
       {
@@ -549,7 +598,11 @@ describe("Synthesis native client composition", function () {
               args.capability as SynthesisSidecarProductionClientCapability,
             payload: args.payload,
           });
-          return args.rebuildResult({ status: "accepted" });
+          return args.rebuildResult({
+            schema: "synthesis.maintenance_operation.v1",
+            operation_id: `maintenance:${args.capability}`,
+            status: "pending",
+          });
         },
       },
     });
@@ -788,14 +841,28 @@ describe("Synthesis native client composition", function () {
           if (action === "cancel") {
             return args.rebuildResult({ canceled: true });
           }
-          return args.rebuildResult({ ok: true, status: "promoted" });
+          return args.rebuildResult({
+            ok: true,
+            status: "persisted",
+            topicId: "topic:large",
+            operationId: "topic-apply:large",
+            hashes: {},
+            mismatches: [],
+            warnings: [],
+          });
         },
       },
     });
 
     const largeText = "x".repeat(900_000);
     await composition.client.workflowApply.applyTopicSynthesisResult({
-      bundle: { topicId: "topic:large" },
+      bundle: {
+        kind: "topic_synthesis",
+        operation: "create",
+        language: "en",
+        topic_id: "topic:large",
+        topic_definition: { id: "topic:large", title: "Large Topic" },
+      },
       assets: [
         { id: "asset/0001", mediaType: "text/markdown", text: largeText },
       ],
@@ -818,7 +885,13 @@ describe("Synthesis native client composition", function () {
     assert.deepEqual(control.payload, {
       args: [
         {
-          bundle: { topicId: "topic:large" },
+          bundle: {
+            kind: "topic_synthesis",
+            operation: "create",
+            language: "en",
+            topic_id: "topic:large",
+            topic_definition: { id: "topic:large", title: "Large Topic" },
+          },
           assetTransfer: { sessionId: "native-transfer:1" },
         },
       ],
@@ -834,25 +907,44 @@ describe("Synthesis native client composition", function () {
           payload_type: "references-json",
           status: "available",
           payload: { references: [{ title: "Large reference" }] },
+          payload_types_seen: ["references-json"],
           diagnostics: [],
         },
       ],
       diagnostics: [],
       total: 1,
     };
-    const content = JSON.stringify(publicResult);
-    const rowsArtifact = canonicalizeSynthesisContractJsonArtifact([content]);
-    const page = {
-      descriptor: {
-        kind: "content",
-        pageIndex: 0,
-        rowCount: 1,
-        byteLength: rowsArtifact.byteLength,
-        sha256: rowsArtifact.sha256,
+    const reviewResult = {
+      reference: {
+        records: [],
+        cursor: "",
+        next_cursor: "",
+        has_more: false,
+        returned: 0,
+        limit: 25,
+        repository_basis_hash: `sha256:${"1".repeat(64)}`,
+        canonical_basis_hash: `sha256:${"2".repeat(64)}`,
       },
-      rows: [content],
+      concept: [],
+      topicGraph: [],
     };
-    const manifest = (capability: string) => {
+    const transferredResult = (capability: string) =>
+      capability === "client.getReviewInput" ? reviewResult : publicResult;
+    const transferPage = (content: string) => {
+      const artifact = canonicalizeSynthesisContractJsonArtifact([content]);
+      return {
+        descriptor: {
+          kind: "content" as const,
+          pageIndex: 0,
+          rowCount: 1,
+          byteLength: artifact.byteLength,
+          sha256: artifact.sha256,
+        },
+        rows: [content] as [string],
+      };
+    };
+    const manifest = (capability: string, content: string) => {
+      const page = transferPage(content);
       const body = {
         transferVersion: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_VERSION,
         encoding: SYNTHESIS_PRODUCTION_CONTENT_TRANSFER_ENCODING,
@@ -872,6 +964,7 @@ describe("Synthesis native client composition", function () {
     };
     const actions: string[] = [];
     let activeCapability = "";
+    let activeContent = "";
     const composition = createNativeSynthesisClientComposition({
       getReadyConnection: () => ({
         discovery: {
@@ -887,16 +980,23 @@ describe("Synthesis native client composition", function () {
           const action = (args.payload as { action?: string }).action;
           if (!action) {
             activeCapability = args.capability;
+            activeContent = JSON.stringify(transferredResult(activeCapability));
             return args.rebuildResult({
-              contentTransfer: { sessionId: "native-transfer:result" },
+              contentTransfer: {
+                sessionId: "native-transfer:result",
+                rootSha256: manifest(activeCapability, activeContent)
+                  .rootSha256,
+              },
             });
           }
           actions.push(action);
           if (action === "get_output_manifest") {
-            return args.rebuildResult(manifest(activeCapability));
+            return args.rebuildResult(
+              manifest(activeCapability, activeContent),
+            );
           }
           if (action === "get_output_page") {
-            return args.rebuildResult(page);
+            return args.rebuildResult(transferPage(activeContent));
           }
           return args.rebuildResult({ canceled: true });
         },
@@ -909,7 +1009,7 @@ describe("Synthesis native client composition", function () {
     assert.deepEqual(result, publicResult);
     assert.deepEqual(
       await composition.client.workflowReview.getInput({}),
-      publicResult,
+      reviewResult,
     );
     assert.deepEqual(actions, [
       "get_output_manifest",
@@ -938,7 +1038,7 @@ describe("Synthesis native client composition", function () {
     composition.invalidate();
     let failure: unknown;
     try {
-      await composition.client.topics.list();
+      await composition.client.topics.list({ cursor: "", limit: 50 });
     } catch (error) {
       failure = error;
     }
