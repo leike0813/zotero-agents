@@ -1,5 +1,5 @@
 use crate::runtime_worker_pool::{
-    PagedInputFrame, PagedInputSource, PagedOutputFrame, PagedOutputSink,
+    PagedInputFrame, PagedInputSource, PagedOutputCommit, PagedOutputFrame, PagedOutputSink,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -25,10 +25,10 @@ const CONTENT_CHUNK_TARGET_BYTES: usize = 416 * 1024;
 const IDLE_TTL_MS: u64 = 5 * 60 * 1000;
 const ABSOLUTE_TTL_MS: u64 = 30 * 60 * 1000;
 
-#[derive(Clone)]
 struct StagedPage {
     path: PathBuf,
     byte_length: u64,
+    _reservation: Option<ByteReservation>,
 }
 
 struct Session {
@@ -46,7 +46,9 @@ struct Session {
     last_failure: Option<Value>,
     output_manifest: Option<Value>,
     output_pages: BTreeMap<(String, u64), StagedPage>,
+    output_ownership: Option<Box<dyn Send>>,
     canceled: Arc<AtomicBool>,
+    cleanup_requested: bool,
 }
 
 pub(crate) struct NativeTransferOwner {
@@ -55,7 +57,7 @@ pub(crate) struct NativeTransferOwner {
     idempotency: HashMap<String, String>,
     next_id: u64,
     stopping: bool,
-    service_bytes: Arc<AtomicU64>,
+    service_bytes: Arc<ByteBudget>,
 }
 
 pub(crate) struct PublishedContentTransfer {
@@ -100,9 +102,67 @@ pub(crate) struct TransferOutputSink {
     header: Option<Map<String, Value>>,
     pages: Vec<(Descriptor, PathBuf)>,
     staged_bytes: u64,
-    reserved_bytes: u64,
-    service_bytes: Arc<AtomicU64>,
+    reservations: Vec<ByteReservation>,
+    service_bytes: Arc<ByteBudget>,
     committed: bool,
+}
+
+struct ByteBudget {
+    used: AtomicU64,
+}
+
+struct ByteReservation {
+    budget: Arc<ByteBudget>,
+    bytes: u64,
+}
+
+struct TransferOutputOwnership {
+    root: PathBuf,
+    _reservations: Vec<ByteReservation>,
+}
+
+impl ByteBudget {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            used: AtomicU64::new(0),
+        })
+    }
+
+    fn reserve(self: &Arc<Self>, bytes: u64) -> Result<ByteReservation, String> {
+        self.used
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current
+                    .checked_add(bytes)
+                    .filter(|next| *next <= MAX_SERVICE_BYTES)
+            })
+            .map_err(|_| "transfer_limit_exceeded".to_owned())?;
+        Ok(ByteReservation {
+            budget: Arc::clone(self),
+            bytes,
+        })
+    }
+
+    fn total(&self) -> u64 {
+        self.used.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for ByteReservation {
+    fn drop(&mut self) {
+        let released =
+            self.budget
+                .used
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                    current.checked_sub(self.bytes)
+                });
+        debug_assert!(released.is_ok(), "transfer byte ownership underflow");
+    }
+}
+
+impl Drop for TransferOutputOwnership {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
 }
 
 impl NativeTransferOwner {
@@ -118,41 +178,52 @@ impl NativeTransferOwner {
             idempotency: HashMap::new(),
             next_id: 1,
             stopping: false,
-            service_bytes: Arc::new(AtomicU64::new(0)),
+            service_bytes: ByteBudget::new(),
         })
     }
 
     pub(crate) fn snapshot(&self) -> Value {
+        let visible_sessions = self
+            .sessions
+            .values()
+            .filter(|session| !session.cleanup_requested)
+            .count();
         json!({
-            "state":if self.stopping {"stopping"} else if self.sessions.is_empty() {"idle"} else {"active"},
-            "sessions":self.sessions.len(),
+            "state":if self.stopping {"stopping"} else if visible_sessions == 0 {"idle"} else {"active"},
+            "sessions":visible_sessions,
             "stagedBytes":self.total_staged_bytes(),
         })
     }
 
     pub(crate) fn reap(&mut self, now_ms: u64) {
-        let expired: Vec<String> = self
+        let expired: Vec<(String, bool)> = self
             .sessions
             .values()
-            .filter(|session| {
-                now_ms.saturating_sub(session.last_activity_at_ms) >= IDLE_TTL_MS
-                    || now_ms.saturating_sub(session.created_at_ms) >= ABSOLUTE_TTL_MS
+            .filter_map(|session| {
+                let absolute = now_ms.saturating_sub(session.created_at_ms) >= ABSOLUTE_TTL_MS;
+                let idle = now_ms.saturating_sub(session.last_activity_at_ms) >= IDLE_TTL_MS;
+                (absolute || (idle && session.active_attempt.is_none()))
+                    .then(|| (session.id.clone(), absolute))
             })
-            .map(|session| session.id.clone())
             .collect();
-        for session_id in expired {
-            self.remove_session(&session_id);
+        for (session_id, _absolute) in expired {
+            self.request_cleanup(&session_id);
         }
     }
 
-    pub(crate) fn stop(&mut self) {
+    pub(crate) fn request_stop(&mut self) {
         self.stopping = true;
-        for session in self.sessions.values() {
-            session.canceled.store(true, Ordering::Release);
+        let session_ids = self.sessions.keys().cloned().collect::<Vec<_>>();
+        for session_id in session_ids {
+            self.request_cleanup(&session_id);
         }
-        self.sessions.clear();
-        self.idempotency.clear();
-        self.service_bytes.store(0, Ordering::Release);
+    }
+
+    pub(crate) fn finalize_stop(&mut self) {
+        let session_ids = self.sessions.keys().cloned().collect::<Vec<_>>();
+        for session_id in session_ids {
+            self.remove_session(&session_id);
+        }
         let _ = fs::remove_dir_all(&self.root);
     }
 
@@ -166,6 +237,15 @@ impl NativeTransferOwner {
         }
         self.reap(now_ms);
         let action_name = bounded_string(&action["action"], 64)?;
+        if action_name != "begin"
+            && action["sessionId"].as_str().is_some_and(|session_id| {
+                self.sessions
+                    .get(session_id)
+                    .is_some_and(|session| session.cleanup_requested)
+            })
+        {
+            return Err("transfer_not_found".into());
+        }
         match action_name {
             "begin" => self.begin(action, now_ms).map(TransferDispatch::Response),
             "put_input_page" => self
@@ -218,6 +298,7 @@ impl NativeTransferOwner {
     }
 
     pub(crate) fn reject_queued(&mut self, session_id: &str, attempt: u64, now_ms: u64) {
+        let mut cleanup = false;
         if let Some(session) = self.sessions.get_mut(session_id)
             && session.active_attempt == Some(attempt)
             && session.state == "queued"
@@ -227,6 +308,10 @@ impl NativeTransferOwner {
             session.state = "input_sealed";
             session.last_activity_at_ms = now_ms;
             let _ = fs::remove_dir_all(session.root.join(format!("attempt-{attempt}")));
+            cleanup = session.cleanup_requested;
+        }
+        if cleanup {
+            self.remove_session(session_id);
         }
     }
 
@@ -234,30 +319,35 @@ impl NativeTransferOwner {
         &mut self,
         session_id: &str,
         attempt: u64,
-        result: Result<Value, String>,
+        result: Result<PagedOutputCommit, String>,
         now_ms: u64,
     ) {
         let Some(session) = self.sessions.get_mut(session_id) else {
-            release_publication_result(&self.service_bytes, &result);
             return;
         };
         if session.active_attempt != Some(attempt) {
+            return;
+        }
+        if session.cleanup_requested {
+            self.remove_session(session_id);
             return;
         }
         session.active_attempt = None;
         session.last_activity_at_ms = now_ms;
         match result {
             Ok(publication) => {
+                let (publication, ownership) = publication.into_parts();
                 let parsed = parse_publication(&publication);
                 match parsed {
                     Ok((manifest, pages)) => {
                         session.output_manifest = Some(manifest);
                         session.output_pages = pages;
+                        session.output_ownership = ownership;
                         session.last_failure = None;
                         session.state = "completed";
                     }
                     Err(code) => {
-                        release_publication_value(&self.service_bytes, &publication);
+                        drop(ownership);
                         fail_attempt(session, code, now_ms);
                     }
                 }
@@ -274,6 +364,9 @@ impl NativeTransferOwner {
             .sessions
             .get(session_id)
             .ok_or_else(|| "transfer_not_found".to_owned())?;
+        if session.cleanup_requested {
+            return Err("transfer_not_found".into());
+        }
         if session.state != "input_sealed"
             || session.manifest["transferVersion"] != CONTENT_TRANSFER_VERSION
             || session.manifest["encoding"] != CONTENT_TRANSFER_ENCODING
@@ -382,7 +475,13 @@ impl NativeTransferOwner {
         if self.stopping {
             return Err("transfer_stopping".to_owned());
         }
-        if self.sessions.len() >= MAX_SESSIONS {
+        if self
+            .sessions
+            .values()
+            .filter(|session| !session.cleanup_requested)
+            .count()
+            >= MAX_SESSIONS
+        {
             return Err("transfer_busy".to_owned());
         }
         let valid_identity = match target {
@@ -406,7 +505,6 @@ impl NativeTransferOwner {
         self.next_id += 1;
         let output_root = session_root.join("output");
         secure_directory(&output_root)?;
-        let mut reserved_bytes = 0_u64;
         let published = (|| {
             let mut output_pages = BTreeMap::new();
             let mut output_descriptors = Vec::new();
@@ -417,8 +515,7 @@ impl NativeTransferOwner {
                 if canonical_rows.len() as u64 > MAX_PAGE_BYTES {
                     return Err("transfer_limit_exceeded".to_owned());
                 }
-                reserve_bytes(&self.service_bytes, canonical_rows.len() as u64)?;
-                reserved_bytes += canonical_rows.len() as u64;
+                let reservation = self.service_bytes.reserve(canonical_rows.len() as u64)?;
                 let descriptor = Descriptor {
                     kind: "content".into(),
                     page_index: page_index as u64,
@@ -443,6 +540,7 @@ impl NativeTransferOwner {
                     StagedPage {
                         path,
                         byte_length: descriptor.byte_length,
+                        _reservation: Some(reservation),
                     },
                 );
                 output_descriptors.push(descriptor_value(&descriptor));
@@ -482,8 +580,6 @@ impl NativeTransferOwner {
         let (output_manifest, output_pages) = match published {
             Ok(value) => value,
             Err(code) => {
-                self.service_bytes
-                    .fetch_sub(reserved_bytes, Ordering::AcqRel);
                 let _ = fs::remove_dir_all(&session_root);
                 return Err(code);
             }
@@ -530,7 +626,9 @@ impl NativeTransferOwner {
                 last_failure: None,
                 output_manifest: Some(output_manifest),
                 output_pages,
+                output_ownership: None,
                 canceled: Arc::new(AtomicBool::new(false)),
+                cleanup_requested: false,
             },
         );
         Ok(PublishedContentTransfer {
@@ -573,7 +671,13 @@ impl NativeTransferOwner {
             }
             return Ok(status(session));
         }
-        if self.sessions.len() >= MAX_SESSIONS {
+        if self
+            .sessions
+            .values()
+            .filter(|session| !session.cleanup_requested)
+            .count()
+            >= MAX_SESSIONS
+        {
             return Err("transfer_busy".to_owned());
         }
         let id = format!("native-transfer:{}", self.next_id);
@@ -601,7 +705,9 @@ impl NativeTransferOwner {
             last_failure: None,
             output_manifest: None,
             output_pages: BTreeMap::new(),
+            output_ownership: None,
             canceled: Arc::new(AtomicBool::new(false)),
+            cleanup_requested: false,
         };
         let result = status(&session);
         self.idempotency.insert(key, id.clone());
@@ -641,22 +747,20 @@ impl NativeTransferOwner {
             if session.staged_bytes.saturating_add(bytes) > MAX_DIRECTION_BYTES {
                 return Err("transfer_limit_exceeded".to_owned());
             }
-            reserve_bytes(&self.service_bytes, bytes)?;
+            let reservation = self.service_bytes.reserve(bytes)?;
             let path = session.root.join("input").join(page_filename(&kind, index));
-            if let Err(code) = atomic_write(
+            atomic_write(
                 &path,
                 canonical_json(&action["page"])
                     .map_err(|_| "invalid_request".to_owned())?
                     .as_bytes(),
-            ) {
-                self.service_bytes.fetch_sub(bytes, Ordering::AcqRel);
-                return Err(code);
-            }
+            )?;
             session.pages.insert(
                 identity,
                 StagedPage {
                     path,
                     byte_length: expected.byte_length,
+                    _reservation: Some(reservation),
                 },
             );
             session.staged_bytes += bytes;
@@ -776,7 +880,7 @@ impl NativeTransferOwner {
             header: None,
             pages: Vec::new(),
             staged_bytes: 0,
-            reserved_bytes: 0,
+            reservations: Vec::new(),
             service_bytes: Arc::clone(&self.service_bytes),
             committed: false,
         };
@@ -821,27 +925,32 @@ impl NativeTransferOwner {
         if !self.sessions.contains_key(&session_id) {
             return Err("transfer_not_found".to_owned());
         }
-        self.remove_session(&session_id);
+        self.request_cleanup(&session_id);
         Ok(json!({"canceled":true}))
+    }
+
+    fn request_cleanup(&mut self, session_id: &str) {
+        let Some(session) = self.sessions.get_mut(session_id) else {
+            return;
+        };
+        session.canceled.store(true, Ordering::Release);
+        session.cleanup_requested = true;
+        self.idempotency.remove(&session.idempotency_key);
+        if session.active_attempt.is_none() {
+            self.remove_session(session_id);
+        }
     }
 
     fn remove_session(&mut self, session_id: &str) {
         if let Some(session) = self.sessions.remove(session_id) {
             session.canceled.store(true, Ordering::Release);
             self.idempotency.remove(&session.idempotency_key);
-            let bytes = session.staged_bytes
-                + session
-                    .output_pages
-                    .values()
-                    .map(|page| page.byte_length)
-                    .sum::<u64>();
-            self.service_bytes.fetch_sub(bytes, Ordering::AcqRel);
             let _ = fs::remove_dir_all(session.root);
         }
     }
 
     fn total_staged_bytes(&self) -> u64 {
-        self.service_bytes.load(Ordering::Acquire)
+        self.service_bytes.total()
     }
 }
 
@@ -931,20 +1040,16 @@ impl PagedOutputSink for TransferOutputSink {
             "rows":rows,
         });
         let page_bytes = canonical_json(&page).map_err(|_| "worker_result_invalid".to_owned())?;
-        reserve_bytes(&self.service_bytes, canonical.len() as u64)?;
+        let reservation = self.service_bytes.reserve(canonical.len() as u64)?;
         let path = self.root.join(page_filename(&kind, frame.page_index));
-        if let Err(code) = atomic_write(&path, page_bytes.as_bytes()) {
-            self.service_bytes
-                .fetch_sub(canonical.len() as u64, Ordering::AcqRel);
-            return Err(code);
-        }
+        atomic_write(&path, page_bytes.as_bytes())?;
         self.staged_bytes += descriptor.byte_length;
-        self.reserved_bytes += descriptor.byte_length;
+        self.reservations.push(reservation);
         self.pages.push((descriptor, path));
         Ok(())
     }
 
-    fn commit(&mut self) -> Result<Value, String> {
+    fn commit(&mut self) -> Result<PagedOutputCommit, String> {
         let header = self
             .header
             .take()
@@ -974,26 +1079,36 @@ impl PagedOutputSink for TransferOutputSink {
                 .as_bytes(),
         )?;
         self.committed = true;
-        Ok(json!({
+        let publication = json!({
             "sessionId":self.session_id,
             "attempt":self.attempt,
             "attemptRoot":self.root.to_string_lossy(),
-            "stagedBytes":self.reserved_bytes,
             "manifest":manifest,
             "pages":self.pages.iter().map(|(descriptor, path)| json!({
                 "descriptor":descriptor_value(descriptor),
                 "path":path.to_string_lossy(),
             })).collect::<Vec<_>>(),
-        }))
+        });
+        Ok(PagedOutputCommit::with_ownership(
+            publication,
+            TransferOutputOwnership {
+                root: self.root.clone(),
+                _reservations: std::mem::take(&mut self.reservations),
+            },
+        ))
     }
 
     fn rollback(&mut self) {
         if !self.committed {
-            self.service_bytes
-                .fetch_sub(self.reserved_bytes, Ordering::AcqRel);
-            self.reserved_bytes = 0;
+            self.reservations.clear();
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+}
+
+impl Drop for TransferOutputSink {
+    fn drop(&mut self) {
+        self.rollback();
     }
 }
 
@@ -1012,6 +1127,7 @@ fn fail_attempt(session: &mut Session, code: &str, now_ms: u64) {
     session.state = "input_sealed";
     session.output_manifest = None;
     session.output_pages.clear();
+    session.output_ownership = None;
     session.last_failure = Some(json!({
         "code":code,
         "retryable":true,
@@ -1044,6 +1160,7 @@ fn parse_publication(publication: &Value) -> Result<(Value, PublishedPages), &'s
             StagedPage {
                 path,
                 byte_length: descriptor.byte_length,
+                _reservation: None,
             },
         );
     }
@@ -1312,35 +1429,6 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
             .map_err(|_| "transfer_unavailable".to_owned())?;
     }
     fs::rename(&temporary, path).map_err(|_| "transfer_unavailable".to_owned())
-}
-
-fn reserve_bytes(total: &AtomicU64, bytes: u64) -> Result<(), String> {
-    let mut current = total.load(Ordering::Acquire);
-    loop {
-        let next = current
-            .checked_add(bytes)
-            .filter(|value| *value <= MAX_SERVICE_BYTES)
-            .ok_or_else(|| "transfer_limit_exceeded".to_owned())?;
-        match total.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
-            Ok(_) => return Ok(()),
-            Err(actual) => current = actual,
-        }
-    }
-}
-
-fn release_publication_result(total: &AtomicU64, result: &Result<Value, String>) {
-    if let Ok(publication) = result {
-        release_publication_value(total, publication);
-    }
-}
-
-fn release_publication_value(total: &AtomicU64, publication: &Value) {
-    if let Some(bytes) = publication["stagedBytes"].as_u64() {
-        total.fetch_sub(bytes, Ordering::AcqRel);
-    }
-    if let Some(root) = publication["attemptRoot"].as_str() {
-        let _ = fs::remove_dir_all(root);
-    }
 }
 
 fn secure_directory(path: &Path) -> Result<(), String> {
@@ -1669,8 +1757,8 @@ mod tests {
             header: None,
             pages: Vec::new(),
             staged_bytes: 0,
-            reserved_bytes: 0,
-            service_bytes: Arc::new(AtomicU64::new(0)),
+            reservations: Vec::new(),
+            service_bytes: ByteBudget::new(),
             committed: false,
         };
         sink.begin(
@@ -1693,6 +1781,145 @@ mod tests {
         assert!(attempt_root.is_dir());
         sink.rollback();
         assert!(!attempt_root.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn active_attempts_are_hidden_before_cleanup_but_keep_files_until_finish() {
+        let root = temporary_root("active-cleanup");
+        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let pages = [
+            page(
+                "library_nodes",
+                json!([{"nodeId":"paper:A","title":"A","authors":[],"aliases":[]}]),
+            ),
+            page("references", json!([])),
+        ];
+        let TransferDispatch::Response(begun) = owner
+            .handle(
+                json!({
+                    "action":"begin",
+                    "idempotencyKey":"active-cleanup",
+                    "manifest":input_manifest(&pages),
+                }),
+                1,
+            )
+            .expect("begin")
+        else {
+            panic!("begin response");
+        };
+        let session_id = begun["sessionId"].as_str().expect("session id").to_owned();
+        for staged in pages {
+            owner
+                .handle(
+                    json!({"action":"put_input_page","sessionId":session_id,"page":staged}),
+                    2,
+                )
+                .expect("put page");
+        }
+        owner
+            .handle(json!({"action":"seal_input","sessionId":session_id}), 3)
+            .expect("seal");
+        let TransferDispatch::Execute(execution) = owner
+            .handle(json!({"action":"execute","sessionId":session_id}), 4)
+            .expect("execute")
+        else {
+            panic!("execute dispatch");
+        };
+        let TransferExecution {
+            source, mut sink, ..
+        } = *execution;
+        let session_root = owner.sessions[&session_id].root.clone();
+        let (_, attempt) = source.identity();
+
+        owner.reap(ABSOLUTE_TTL_MS + 5);
+        assert!(
+            session_root.is_dir(),
+            "active attempt files must stay pinned"
+        );
+        assert!(
+            owner
+                .handle(json!({"action":"status","sessionId":session_id}), 6)
+                .is_err(),
+            "expired active session must be hidden immediately",
+        );
+
+        sink.rollback();
+        owner.finish_attempt(&session_id, attempt, Err("worker_canceled".into()), 7);
+        assert!(!session_root.exists());
+        assert_eq!(owner.snapshot()["stagedBytes"], 0);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stop_and_late_output_rollback_release_each_byte_once() {
+        let root = temporary_root("stop-byte-ownership");
+        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let pages = [
+            page(
+                "library_nodes",
+                json!([{"nodeId":"paper:A","title":"A","authors":[],"aliases":[]}]),
+            ),
+            page("references", json!([])),
+        ];
+        let TransferDispatch::Response(begun) = owner
+            .handle(
+                json!({
+                    "action":"begin",
+                    "idempotencyKey":"stop-byte-ownership",
+                    "manifest":input_manifest(&pages),
+                }),
+                1,
+            )
+            .expect("begin")
+        else {
+            panic!("begin response");
+        };
+        let session_id = begun["sessionId"].as_str().expect("session id").to_owned();
+        for staged in pages {
+            owner
+                .handle(
+                    json!({"action":"put_input_page","sessionId":session_id,"page":staged}),
+                    2,
+                )
+                .expect("put page");
+        }
+        owner
+            .handle(json!({"action":"seal_input","sessionId":session_id}), 3)
+            .expect("seal");
+        let TransferDispatch::Execute(execution) = owner
+            .handle(json!({"action":"execute","sessionId":session_id}), 4)
+            .expect("execute")
+        else {
+            panic!("execute dispatch");
+        };
+        let TransferExecution {
+            source, mut sink, ..
+        } = *execution;
+        let (_, attempt) = source.identity();
+        sink.begin(
+            json!({
+                "contractVersion":"synthesis-citation-graph-build.v1",
+                "scope":{"kind":"full","sourceIds":[]},
+                "diagnostics":{},
+            })
+            .as_object()
+            .expect("header")
+            .clone(),
+        )
+        .expect("begin output");
+        sink.stage_page(PagedOutputFrame {
+            section: "nodes".into(),
+            page_index: 0,
+            rows: vec![json!({"nodeId":"paper:A"})],
+        })
+        .expect("stage output");
+        assert!(owner.total_staged_bytes() > 0);
+
+        owner.request_stop();
+        sink.rollback();
+        owner.finish_attempt(&session_id, attempt, Err("worker_canceled".into()), 5);
+        assert_eq!(owner.total_staged_bytes(), 0);
         let _ = fs::remove_dir_all(root);
     }
 }

@@ -37,11 +37,23 @@ The fixed autosync trigger set contains Topic apply/delete, Tag vocabulary save/
 
 Inline mutations share a five-second trailing debounce. Concurrent Reference refresh receipt workers hold a maintenance epoch open; the debounce begins only after every participating worker has finished, and successful mutations from the epoch publish once. A manual sync, pause, retry, or conflict-resolution command cancels any pending debounce before applying its own control action.
 
-Automatic retry is also disabled by default. When enabled, each manual or autosync trigger may retry transport failures after `1s`, `5s`, `30s`, and `120s`. Pause, disabled configuration, conflict, permanent validation failure, explicit control, or runtime shutdown prevents pending automatic work from publishing. Startup does not restore hidden retry timers.
+Automatic retry is also disabled by default. When enabled, each manual or
+autosync trigger may retry transport failures after `60s`, `5m`, `15m`, and
+`30m`. The retry scheduler waits for the full delay and uses an interruptible
+generation condition: pause, a superseding trigger, abort, or runtime shutdown
+wakes the wait immediately and prevents another Host operation. Disabled
+configuration, conflict, and permanent validation failure do not arm a retry.
+Startup does not restore hidden retry timers.
 
 ## Concurrency and Recovery
 
 `HEAD.json` is parsed before any snapshot asset and its updates use the observed ETag. If the remote pointer changes during a run, the run fails retryably rather than overwriting the newer pointer.
+
+Native WebDAV state owns one in-process transaction mutex around every complete
+load-normalize-patch-save transition. Sync work does not hold it across Host or
+durable-bundle I/O; terminalization reloads the latest state before applying
+its patch, so a concurrent pause remains authoritative. The file-backed state
+store separately serializes atomic `.pending`/`.previous` replacement.
 
 The first native production clock wrote decimal Unix milliseconds into its local WebDAV state and remote HEAD. On read, Rust recognizes only that exact historical encoding for native-owned state, last-run, retry-base, and HEAD timestamps, converts it to ISO-8601, and then applies the normal strict validator. Valid local state is saved atomically in canonical form. A remote HEAD is not rewritten merely for migration; the next successful ETag-guarded publication writes the canonical timestamp. Signed, fractional, overflowing, structurally invalid, or unknown timestamp forms still fail closed, as do invalid manifests, paths, hashes, schemas, persisted state, and malformed pointers.
 

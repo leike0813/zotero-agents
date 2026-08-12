@@ -64,10 +64,16 @@ application handler.
 Incomplete reads have a 500 ms idle deadline and a non-resetting 30 second
 total deadline; response writes have a two-second deadline. Shutdown closes the
 listener, interrupts every active socket, stops work admission, and drains HTTP
-handlers within the native 500 ms budget. A lifecycle shutdown response is
-flushed before the stopping signal is published, while parent-pipe EOF uses the
-same socket interruption and drain path. A handler that misses the drain bound
-cannot delay process termination or authorize closing state it still owns.
+handlers and composition-owned background tasks within the native 500 ms
+budget. Transfer attempts and public maintenance controllers register their
+thread handles and cancellation flags with that composition owner; completed
+threads are reaped during listener polling. Shutdown closes background
+admission, requests cancellation, and joins those tasks before deleting
+transfer staging or closing repository and canonical owners. If a task misses
+the deadline, shutdown reports the incomplete drain and leaves referenced
+storage open. A lifecycle shutdown response is flushed before the stopping
+signal is published, while parent-pipe EOF uses the same interruption and drain
+path.
 
 ## Storage startup
 

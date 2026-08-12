@@ -1,4 +1,5 @@
 mod runtime_artifact_library_debug;
+mod runtime_background_tasks;
 mod runtime_canonical_autosync;
 mod runtime_capabilities;
 mod runtime_citation_graph_commands;
@@ -23,6 +24,7 @@ mod runtime_tag_surface;
 mod runtime_topic_workbench_surface;
 mod runtime_transfer;
 mod runtime_webdav_maintenance_surface;
+mod runtime_webdav_runtime;
 mod runtime_worker;
 mod runtime_worker_pool;
 

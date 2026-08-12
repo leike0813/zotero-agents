@@ -6,6 +6,7 @@ use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::unix_millis_from_utc_iso8601;
 use synthesis_repository::{OperationQuery, OperationRecord};
 
+use crate::runtime_background_tasks::current_task_canceled;
 use crate::runtime_production_ports::ProductionApplications;
 
 pub(crate) const PUBLIC_MAINTENANCE_BASIS_KIND: &str = "public_maintenance_operation";
@@ -69,6 +70,9 @@ pub(crate) fn checkpoint_before_promotion_in_repository(
     operation_id: &str,
     now: &str,
 ) -> Result<(), String> {
+    if current_task_canceled() {
+        return Err("operation_canceled".into());
+    }
     let owner = repository.owner();
     let repository = owner
         .lock()

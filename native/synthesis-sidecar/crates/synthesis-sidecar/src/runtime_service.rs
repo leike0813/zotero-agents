@@ -11,6 +11,7 @@ use synthesis_sidecar::production_capabilities::{
 };
 use synthesis_sidecar::runtime_contract::{current_time_ms, read_native_launch_config};
 
+use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_capabilities::ServeState;
 use crate::runtime_diagnostics::configure_debug_events;
 use crate::runtime_lifecycle::RuntimeOwnership;
@@ -133,6 +134,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
     let canonical_port = applications.canonical.as_ref().clone();
     let stopping = Arc::new(AtomicBool::new(false));
     let transfer = NativeTransferOwner::new(&config.profile_runtime_root)?;
+    let background_tasks = BackgroundTaskOwner::new();
     let state = Arc::new(ServeState {
         service_instance_id: ownership.service_instance_id.clone(),
         profile: config.profile_id.clone(),
@@ -146,6 +148,7 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         stopping: Arc::clone(&stopping),
         compute_pool,
         transfer: Mutex::new(transfer),
+        background_tasks,
     });
     drop(canonical);
     let result = run_sidecar_listener(state);

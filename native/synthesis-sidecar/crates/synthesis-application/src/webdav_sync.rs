@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub const WEBDAV_RETRY_DELAYS_MS: [u64; 4] = [1_000, 5_000, 30_000, 120_000];
+pub const WEBDAV_RETRY_DELAYS_MS: [u64; 4] = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 const WEBDAV_STALE_SYNCING_MS: i64 = 5 * 60 * 1_000;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,6 +219,7 @@ pub struct WebDavSyncApplication {
     acknowledge_unbased_updates: bool,
     retry_delays: Vec<u64>,
     runtime: Mutex<RuntimeState>,
+    state_transaction: Mutex<()>,
     admission: SingleFlightAdmission,
 }
 
@@ -242,6 +243,7 @@ impl WebDavSyncApplication {
                 generation: 0,
                 aborted: false,
             }),
+            state_transaction: Mutex::new(()),
             admission: SingleFlightAdmission::new(),
         }
     }
@@ -253,6 +255,14 @@ impl WebDavSyncApplication {
     }
 
     pub fn load_webdav_sync_state(&self) -> Result<WebDavSyncState, String> {
+        let _transaction = self
+            .state_transaction
+            .lock()
+            .map_err(|_| "webdav_sync_unavailable".to_owned())?;
+        self.load_webdav_sync_state_unlocked()
+    }
+
+    fn load_webdav_sync_state_unlocked(&self) -> Result<WebDavSyncState, String> {
         let timestamp = (self.now)();
         let host = self.describe_host();
         let configured = host.status == "available" && host.config_status == "configured";
@@ -293,7 +303,7 @@ impl WebDavSyncApplication {
             state.diagnostics = vec![diagnostic("webdav_sync_stale_running_recovered", "warning")];
         }
         state.updated_at = timestamp;
-        self.save(state)
+        self.save_unlocked(state)
     }
 
     pub fn run_sync(&self) -> Result<WebDavSyncState, String> {
@@ -337,11 +347,12 @@ impl WebDavSyncApplication {
             if host.status != "available" || !host.auto_retry_enabled {
                 break;
             }
-            state.retry_attempt = index + 1;
-            state.next_retry_at =
-                synthesis_protocol::utc_iso8601_after_millis(&(self.now)(), delay)
-                    .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
-            state = self.save(state)?;
+            let next_retry_at = synthesis_protocol::utc_iso8601_after_millis(&(self.now)(), delay)
+                .ok_or_else(|| "webdav_sync_state_invalid".to_owned())?;
+            state = self.persist_patch(|state| {
+                state.retry_attempt = index + 1;
+                state.next_retry_at = next_retry_at;
+            })?;
             if !self.scheduler.wait(delay, generation)? || self.generation()? != generation {
                 break;
             }
@@ -751,7 +762,7 @@ impl WebDavSyncApplication {
         })
     }
 
-    fn save(&self, mut state: WebDavSyncState) -> Result<WebDavSyncState, String> {
+    fn save_unlocked(&self, mut state: WebDavSyncState) -> Result<WebDavSyncState, String> {
         state.allowed_actions = allowed_actions(&state);
         state.conflict_actions = conflict_actions(&state);
         validate_state(&state)?;
@@ -763,10 +774,14 @@ impl WebDavSyncApplication {
         &self,
         patch: impl FnOnce(&mut WebDavSyncState),
     ) -> Result<WebDavSyncState, String> {
-        let mut state = self.load_webdav_sync_state()?;
+        let _transaction = self
+            .state_transaction
+            .lock()
+            .map_err(|_| "webdav_sync_unavailable".to_owned())?;
+        let mut state = self.load_webdav_sync_state_unlocked()?;
         patch(&mut state);
         state.updated_at = (self.now)();
-        self.save(state)
+        self.save_unlocked(state)
     }
 
     fn next_generation(&self) -> Result<u64, String> {
@@ -1042,6 +1057,8 @@ fn admission_code(error: AdmissionError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Condvar;
+    use std::thread;
 
     #[derive(Default)]
     struct MemoryState(Mutex<Option<WebDavSyncState>>);
@@ -1222,6 +1239,55 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RacingStateStore {
+        state: Mutex<Option<WebDavSyncState>>,
+        terminal_loaded: (Mutex<bool>, Condvar),
+        release_terminal: (Mutex<bool>, Condvar),
+    }
+
+    impl RacingStateStore {
+        fn wait_for_terminal_load(&self) {
+            let (ready, changed) = &self.terminal_loaded;
+            let mut ready = ready.lock().expect("terminal ready");
+            while !*ready {
+                ready = changed.wait(ready).expect("terminal ready wait");
+            }
+        }
+
+        fn release_terminal(&self) {
+            let (released, changed) = &self.release_terminal;
+            *released.lock().expect("terminal release") = true;
+            changed.notify_all();
+        }
+    }
+
+    impl WebDavStateStorePort for RacingStateStore {
+        fn load(&self) -> Result<Option<WebDavSyncState>, String> {
+            let snapshot = self.state.lock().expect("state").clone();
+            if thread::current().name() == Some("webdav-sync-race")
+                && snapshot
+                    .as_ref()
+                    .is_some_and(|state| state.queue_state == "syncing")
+            {
+                let (ready, changed) = &self.terminal_loaded;
+                *ready.lock().expect("terminal ready") = true;
+                changed.notify_all();
+                let (released, changed) = &self.release_terminal;
+                let mut released = released.lock().expect("terminal release");
+                while !*released {
+                    released = changed.wait(released).expect("terminal release wait");
+                }
+            }
+            Ok(snapshot)
+        }
+
+        fn save(&self, state: &WebDavSyncState) -> Result<(), String> {
+            *self.state.lock().expect("state") = Some(state.clone());
+            Ok(())
+        }
+    }
+
     #[test]
     fn empty_remote_publishes_and_reopens_idle_state() {
         let state = Arc::new(MemoryState::default());
@@ -1285,6 +1351,51 @@ mod tests {
         application.abort().expect("abort");
 
         assert_eq!(*scheduler.0.lock().expect("cancellations"), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn pause_wins_over_a_sync_terminal_using_an_older_state_snapshot() {
+        let state = Arc::new(RacingStateStore::default());
+        let application = Arc::new(WebDavSyncApplication::new(
+            Arc::new(Host),
+            state.clone(),
+            Arc::new(Scheduler),
+            Arc::new(Durable),
+            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
+        ));
+        let sync_application = Arc::clone(&application);
+        let sync = thread::Builder::new()
+            .name("webdav-sync-race".into())
+            .spawn(move || sync_application.run_sync())
+            .expect("spawn sync");
+
+        state.wait_for_terminal_load();
+        let pause_application = Arc::clone(&application);
+        let pause = thread::spawn(move || pause_application.pause_webdav_sync());
+        thread::sleep(Duration::from_millis(10));
+        state.release_terminal();
+        let paused = pause.join().expect("join pause").expect("pause");
+        assert!(paused.paused);
+        sync.join().expect("join sync").expect("sync terminal");
+
+        let persisted = state
+            .state
+            .lock()
+            .expect("state")
+            .clone()
+            .expect("persisted");
+        assert!(
+            persisted.paused,
+            "a stale sync snapshot must not erase pause"
+        );
+    }
+
+    #[test]
+    fn production_retry_schedule_matches_the_durable_contract() {
+        assert_eq!(
+            WEBDAV_RETRY_DELAYS_MS,
+            [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000]
+        );
     }
 
     #[test]

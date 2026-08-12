@@ -94,8 +94,11 @@ fn reap_finished_handlers(handlers: &mut Vec<JoinHandle<()>>, handler_panicked: 
     }
 }
 
-fn drain_handlers(handlers: &mut Vec<JoinHandle<()>>, handler_panicked: &mut bool) -> usize {
-    let deadline = Instant::now() + HTTP_HANDLER_DRAIN_TIMEOUT;
+fn drain_handlers_until(
+    handlers: &mut Vec<JoinHandle<()>>,
+    handler_panicked: &mut bool,
+    deadline: Instant,
+) -> usize {
     loop {
         reap_finished_handlers(handlers, handler_panicked);
         if handlers.is_empty() || Instant::now() >= deadline {
@@ -156,6 +159,13 @@ pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String>
     let mut next_transfer_reap_ms = current_time_ms()?.saturating_add(30_000);
     while !state.stopping.load(Ordering::Acquire) {
         reap_finished_handlers(&mut handlers, &mut handler_panicked);
+        let background = state.background_tasks.reap_finished();
+        if background.panicked > 0 {
+            emit_debug(|| {
+                NativeDiagnosticEvent::new("process", "background-task-panicked", "failed")
+                    .warning_count(background.panicked)
+            });
+        }
         let now_ms = current_time_ms()?;
         if now_ms >= next_transfer_reap_ms {
             if let Ok(mut transfer) = state.transfer.lock() {
@@ -208,15 +218,35 @@ pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String>
     connections.interrupt_all();
 
     let mut cleanup_errors = Vec::new();
+    let cleanup_deadline = Instant::now() + HTTP_HANDLER_DRAIN_TIMEOUT;
+    state.background_tasks.stop_admission();
     if let Err(error) = state.applications.canonical_autosync.shutdown() {
         cleanup_errors.push(error);
     }
     state.compute_pool.stop();
     match state.transfer.lock() {
-        Ok(mut transfer) => transfer.stop(),
+        Ok(mut transfer) => transfer.request_stop(),
         Err(_) => cleanup_errors.push("transfer_owner_unavailable".to_owned()),
     }
-    let pending_handlers = drain_handlers(&mut handlers, &mut handler_panicked);
+    let background = state
+        .background_tasks
+        .stop_and_drain_until(cleanup_deadline);
+    if background.panicked > 0 {
+        cleanup_errors.push(format!("background_task_panicked:{}", background.panicked));
+    }
+    if background.remaining > 0 {
+        cleanup_errors.push(format!(
+            "background_task_drain_timeout:{}",
+            background.remaining
+        ));
+    } else {
+        match state.transfer.lock() {
+            Ok(mut transfer) => transfer.finalize_stop(),
+            Err(_) => cleanup_errors.push("transfer_owner_unavailable".to_owned()),
+        }
+    }
+    let pending_handlers =
+        drain_handlers_until(&mut handlers, &mut handler_panicked, cleanup_deadline);
     if handler_panicked {
         cleanup_errors.push("http_handler_panicked".to_owned());
     }
@@ -224,38 +254,47 @@ pub(crate) fn run_sidecar_listener(state: Arc<ServeState>) -> Result<(), String>
         cleanup_errors.push(format!("http_handler_drain_timeout:{pending_handlers}"));
     }
     drop(handlers);
-    if let Err(error) = state.applications.webdav.shutdown(Duration::from_secs(10)) {
+    if let Err(error) = state
+        .applications
+        .webdav
+        .shutdown(cleanup_deadline.saturating_duration_since(Instant::now()))
+    {
         cleanup_errors.push(error);
     }
-    match Arc::try_unwrap(state) {
-        Ok(state) => {
-            let repository = Arc::clone(&state.repository);
-            let canonical = state.canonical.owner();
-            drop(state);
-            match Arc::try_unwrap(canonical) {
-                Ok(canonical) => match canonical.into_inner() {
-                    Ok(canonical) => {
-                        if let Err(error) = canonical.close() {
-                            cleanup_errors.push(error);
+    let can_close_storage = background.remaining == 0 && pending_handlers == 0;
+    if can_close_storage {
+        match Arc::try_unwrap(state) {
+            Ok(state) => {
+                let repository = Arc::clone(&state.repository);
+                let canonical = state.canonical.owner();
+                drop(state);
+                match Arc::try_unwrap(canonical) {
+                    Ok(canonical) => match canonical.into_inner() {
+                        Ok(canonical) => {
+                            if let Err(error) = canonical.close() {
+                                cleanup_errors.push(error);
+                            }
                         }
-                    }
-                    Err(_) => cleanup_errors.push("canonical_store_unavailable".to_owned()),
-                },
-                Err(_) => cleanup_errors.push("canonical_store_owner_leaked".to_owned()),
-            }
-            match Arc::try_unwrap(repository) {
-                Ok(repository) => match repository.into_inner() {
-                    Ok(repository) => {
-                        if let Err(error) = repository.close() {
-                            cleanup_errors.push(error);
+                        Err(_) => cleanup_errors.push("canonical_store_unavailable".to_owned()),
+                    },
+                    Err(_) => cleanup_errors.push("canonical_store_owner_leaked".to_owned()),
+                }
+                match Arc::try_unwrap(repository) {
+                    Ok(repository) => match repository.into_inner() {
+                        Ok(repository) => {
+                            if let Err(error) = repository.close() {
+                                cleanup_errors.push(error);
+                            }
                         }
-                    }
-                    Err(_) => cleanup_errors.push("repository_unavailable".to_owned()),
-                },
-                Err(_) => cleanup_errors.push("repository_owner_leaked".to_owned()),
+                        Err(_) => cleanup_errors.push("repository_unavailable".to_owned()),
+                    },
+                    Err(_) => cleanup_errors.push("repository_owner_leaked".to_owned()),
+                }
             }
+            Err(_) => cleanup_errors.push("service_owner_leaked".to_owned()),
         }
-        Err(_) => cleanup_errors.push("service_owner_leaked".to_owned()),
+    } else {
+        drop(state);
     }
     if cleanup_errors.is_empty() {
         Ok(())

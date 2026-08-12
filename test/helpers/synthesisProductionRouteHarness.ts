@@ -133,12 +133,19 @@ export function startSynthesisProductionRouteSidecar(configPath: string) {
 export async function stopSynthesisProductionRouteSidecar(
   child: ChildProcessWithoutNullStreams,
 ) {
-  if (child.exitCode !== null) return;
+  const startedAt = performance.now();
+  if (child.exitCode !== null) {
+    return { exitCode: child.exitCode, elapsedMs: 0 };
+  }
   const exited = new Promise<void>((resolve) =>
     child.once("exit", () => resolve()),
   );
   child.stdin.end();
   await exited;
+  return {
+    exitCode: child.exitCode,
+    elapsedMs: performance.now() - startedAt,
+  };
 }
 
 export async function callSynthesisProductionRoute(
@@ -472,6 +479,7 @@ export async function startSynthesisProductionRouteHarness(args: {
     rpcClient,
   });
   let stopped = false;
+  let processStopped = false;
   return {
     root,
     port,
@@ -484,6 +492,14 @@ export async function startSynthesisProductionRouteHarness(args: {
     },
     rss() {
       return readProcessPeakRss(sidecar.child.pid);
+    },
+    async stopProcess() {
+      if (processStopped) {
+        return { exitCode: sidecar.child.exitCode, elapsedMs: 0 };
+      }
+      processStopped = true;
+      await composition.dispose();
+      return stopSynthesisProductionRouteSidecar(sidecar.child);
     },
     async call(
       capability: string,
@@ -506,8 +522,11 @@ export async function startSynthesisProductionRouteHarness(args: {
     async stop() {
       if (stopped) return;
       stopped = true;
-      await composition.dispose();
-      await stopSynthesisProductionRouteSidecar(sidecar.child);
+      if (!processStopped) {
+        processStopped = true;
+        await composition.dispose();
+        await stopSynthesisProductionRouteSidecar(sidecar.child);
+      }
       await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
       if (ownedRoot) fs.rmSync(root, { recursive: true, force: true });
     },

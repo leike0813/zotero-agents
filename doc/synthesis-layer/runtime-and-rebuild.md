@@ -107,7 +107,11 @@ source-slice promotion recapture the same basis before replacing rows. Large
 builds use authenticated canonical transfer pages and atomic attempt output;
 the worker has no repository, canonical-file, Host, or staging-path authority.
 Superseded, malformed, canceled, or oversized attempts preserve the last-good
-graph.
+graph. Input pages, output sinks, and adopted publications carry typed byte
+reservations; moving ownership does not change the aggregate count, and
+dropping the final owner releases it once. Idle reaping skips active attempts.
+Absolute expiry, explicit cancel, and shutdown hide and cancel an active
+session first, then remove its files only after the attempt returns.
 
 Workbench Citation Graph reads are repository-backed windows. The first Graph
 surface response contains at most 200 ranked primary nodes, 400 primary edges,

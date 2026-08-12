@@ -125,10 +125,39 @@ pub(crate) struct PagedOutputFrame {
     pub rows: Vec<Value>,
 }
 
+pub(crate) struct PagedOutputCommit {
+    value: Value,
+    ownership: Option<Box<dyn Send>>,
+}
+
+impl PagedOutputCommit {
+    fn from_value(value: Value) -> Self {
+        Self {
+            value,
+            ownership: None,
+        }
+    }
+
+    pub(crate) fn with_ownership(value: Value, ownership: impl Send + 'static) -> Self {
+        Self {
+            value,
+            ownership: Some(Box::new(ownership)),
+        }
+    }
+
+    fn into_value(self) -> Value {
+        self.value
+    }
+
+    pub(crate) fn into_parts(self) -> (Value, Option<Box<dyn Send>>) {
+        (self.value, self.ownership)
+    }
+}
+
 pub(crate) trait PagedOutputSink {
     fn begin(&mut self, header: Map<String, Value>) -> Result<(), String>;
     fn stage_page(&mut self, frame: PagedOutputFrame) -> Result<(), String>;
-    fn commit(&mut self) -> Result<Value, String>;
+    fn commit(&mut self) -> Result<PagedOutputCommit, String>;
     fn rollback(&mut self);
 }
 
@@ -263,7 +292,7 @@ impl PagedOutputSink for InMemoryPagedOutput {
         Ok(())
     }
 
-    fn commit(&mut self) -> Result<Value, String> {
+    fn commit(&mut self) -> Result<PagedOutputCommit, String> {
         let spec = deterministic_operation_spec(self.operation).ok_or("worker_result_invalid")?;
         if !self.started || self.section_index + 1 != spec.output_sections.len() {
             return Err("worker_result_invalid".into());
@@ -282,7 +311,7 @@ impl PagedOutputSink for InMemoryPagedOutput {
         let result = Value::Object(result);
         split_paged_result(self.operation, result.clone())
             .map_err(|_| "worker_result_invalid".to_owned())?;
-        Ok(result)
+        Ok(PagedOutputCommit::from_value(result))
     }
 
     fn rollback(&mut self) {
@@ -680,7 +709,9 @@ impl NativeComputePool {
         if deterministic_operation(operation.protocol_name()) {
             let mut source = InMemoryPagedInput::new(operation.protocol_name(), request)?;
             let mut sink = InMemoryPagedOutput::new(operation.protocol_name())?;
-            return self.run_paged(operation, &mut source, &mut sink, &AtomicBool::new(false));
+            return self
+                .run_paged(operation, &mut source, &mut sink, &AtomicBool::new(false))
+                .map(PagedOutputCommit::into_value);
         }
         let accepted_request = request.clone();
         let task_id = self.task_id();
@@ -721,7 +752,7 @@ impl NativeComputePool {
         source: &mut dyn PagedInputSource,
         sink: &mut dyn PagedOutputSink,
         canceled: &AtomicBool,
-    ) -> Result<Value, String> {
+    ) -> Result<PagedOutputCommit, String> {
         let observation_started = Instant::now();
         let task_id = self.task_id();
         let operation_name = operation.protocol_name();

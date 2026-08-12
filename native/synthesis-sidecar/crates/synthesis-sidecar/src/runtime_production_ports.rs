@@ -1,11 +1,9 @@
-use crate::runtime_file_system::sync_directory;
 use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
     TopicLibraryQueryAdapter,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -35,8 +33,7 @@ use synthesis_application::topic_graph::{
     TopicGraphComputePort, TopicGraphIndexOutput, TopicGraphMaterializedTopic,
 };
 use synthesis_application::webdav_sync::{
-    WebDavHostDescription, WebDavHostPort, WebDavReadResult, WebDavRetrySchedulerPort,
-    WebDavStateStorePort, WebDavSyncState, WebDavWriteResult,
+    WebDavHostDescription, WebDavHostPort, WebDavReadResult, WebDavWriteResult,
 };
 use synthesis_application::{
     CanonicalStorePort, CitationGraphApplication, ConceptKbApplication,
@@ -68,6 +65,7 @@ use crate::runtime_reference_canonical::{
     ReferenceHostPort,
 };
 use crate::runtime_reverse_host::call_reverse_host;
+use crate::runtime_webdav_runtime::{FileWebDavStateStore, InterruptibleWebDavRetryScheduler};
 use crate::runtime_worker_pool::NativeComputePool;
 
 pub(crate) struct ProductionApplications {
@@ -249,10 +247,8 @@ pub(crate) fn build_production_applications(
     );
     let webdav = Arc::new(WebDavSyncApplication::new(
         host.clone(),
-        Arc::new(FileWebDavStateStore {
-            path: webdav_state_path,
-        }),
-        Arc::new(BoundedWebDavRetryScheduler::default()),
+        Arc::new(FileWebDavStateStore::new(webdav_state_path)),
+        Arc::new(InterruptibleWebDavRetryScheduler::default()),
         Arc::new(durable),
         Arc::new(utc_now_iso8601),
     ));
@@ -2113,96 +2109,6 @@ impl WebDavHostPort for ReverseHostApplicationPort {
     }
 }
 
-struct FileWebDavStateStore {
-    path: PathBuf,
-}
-
-impl FileWebDavStateStore {
-    fn backup_path(&self) -> PathBuf {
-        self.path.with_extension("json.previous")
-    }
-
-    fn temporary_path(&self) -> PathBuf {
-        self.path.with_extension("json.pending")
-    }
-}
-
-impl WebDavStateStorePort for FileWebDavStateStore {
-    fn load(&self) -> Result<Option<WebDavSyncState>, String> {
-        let path = if self.path.exists() {
-            &self.path
-        } else {
-            let backup = self.backup_path();
-            if !backup.exists() {
-                return Ok(None);
-            }
-            return serde_json::from_slice(
-                &fs::read(backup).map_err(|_| "webdav_state_unavailable".to_owned())?,
-            )
-            .map(Some)
-            .map_err(|_| "webdav_sync_state_invalid".to_owned());
-        };
-        serde_json::from_slice(&fs::read(path).map_err(|_| "webdav_state_unavailable".to_owned())?)
-            .map(Some)
-            .map_err(|_| "webdav_sync_state_invalid".to_owned())
-    }
-
-    fn save(&self, state: &WebDavSyncState) -> Result<(), String> {
-        let parent = self
-            .path
-            .parent()
-            .ok_or_else(|| "webdav_state_unavailable".to_owned())?;
-        fs::create_dir_all(parent).map_err(|_| "webdav_state_unavailable".to_owned())?;
-        let pending = self.temporary_path();
-        let bytes =
-            serde_json::to_vec(state).map_err(|_| "webdav_sync_state_invalid".to_owned())?;
-        fs::write(&pending, bytes).map_err(|_| "webdav_state_unavailable".to_owned())?;
-        OpenOptions::new()
-            .write(true)
-            .open(&pending)
-            .and_then(|file| file.sync_all())
-            .map_err(|_| "webdav_state_unavailable".to_owned())?;
-        let backup = self.backup_path();
-        if self.path.exists() {
-            if backup.exists() {
-                fs::remove_file(&backup).map_err(|_| "webdav_state_unavailable".to_owned())?;
-            }
-            fs::rename(&self.path, &backup).map_err(|_| "webdav_state_unavailable".to_owned())?;
-        }
-        if let Err(error) = fs::rename(&pending, &self.path) {
-            if backup.exists() && !self.path.exists() {
-                let _ = fs::rename(&backup, &self.path);
-            }
-            return Err(format!("webdav_state_unavailable:{error}"));
-        }
-        sync_directory(parent).map_err(|_| "webdav_state_unavailable".to_owned())?;
-        if backup.exists() {
-            fs::remove_file(backup).map_err(|_| "webdav_state_unavailable".to_owned())?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct BoundedWebDavRetryScheduler {
-    canceled_generation: std::sync::atomic::AtomicU64,
-}
-
-impl WebDavRetrySchedulerPort for BoundedWebDavRetryScheduler {
-    fn wait(&self, delay_ms: u64, generation: u64) -> Result<bool, String> {
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms.min(1_000)));
-        Ok(self
-            .canceled_generation
-            .load(std::sync::atomic::Ordering::Acquire)
-            != generation)
-    }
-
-    fn cancel(&self, generation: u64) {
-        self.canceled_generation
-            .store(generation, std::sync::atomic::Ordering::Release);
-    }
-}
-
 struct NativeStructuredArtifactPort {
     compute: Arc<NativeComputePool>,
 }
@@ -2351,31 +2257,6 @@ mod tests {
                 .count(),
             CITATION_GRAPH_COMPUTE_TEXT_MAX_UTF16
         );
-    }
-
-    #[test]
-    fn webdav_state_survives_store_reopen() {
-        let root = std::env::temp_dir().join(format!(
-            "synthesis-webdav-state-{}-{}",
-            std::process::id(),
-            utc_now_iso8601()
-        ));
-        let path = root.join("native-webdav-state.json");
-        let state = WebDavSyncState {
-            schema_id: "synthesis.webdav_sync_state".into(),
-            schema_version: "1".into(),
-            queue_state: "paused".into(),
-            ..WebDavSyncState::default()
-        };
-        FileWebDavStateStore { path: path.clone() }
-            .save(&state)
-            .expect("persist state");
-        let reopened = FileWebDavStateStore { path }
-            .load()
-            .expect("reopen state")
-            .expect("stored state");
-        assert_eq!(reopened.queue_state, "paused");
-        std::fs::remove_dir_all(root).expect("remove test state");
     }
 
     #[test]

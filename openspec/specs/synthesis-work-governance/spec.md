@@ -21,6 +21,16 @@ Synthesis operation records SHALL NOT support owner-worker claiming, queue drain
 - **THEN** it SHALL store progress and return a continuation status
 - **AND** continuation SHALL require an explicit caller action or operation-specific controlled loop, not a global queue drain.
 
+### Requirement: Public maintenance controllers SHALL have composition lifecycle ownership
+
+Every accepted public maintenance controller SHALL be registered with the current native composition before its thread starts. Shutdown SHALL close controller admission, request cancellation, and drain registered controllers before storage close. Cancellation observed before promotion SHALL publish one durable canceled terminal and no later promotion.
+
+#### Scenario: Shutdown races accepted maintenance work
+
+- **WHEN** shutdown begins after a maintenance receipt is accepted but before promotion
+- **THEN** the registered controller SHALL observe cancellation at its promotion boundary
+- **AND** its receipt SHALL converge to one canceled or already-established terminal without a later unreported commit.
+
 ### Requirement: Public maintenance request replay SHALL reuse the first durable operation
 
 The native runtime SHALL derive public maintenance operation identity from the stable request ID, capability, and canonical argument basis without using acceptance time. Only the request that first creates that identity SHALL start work or publish maintenance lifecycle events; an identical replay SHALL return the existing durable receipt in its current state.

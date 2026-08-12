@@ -459,3 +459,48 @@ Synthesis Rust production client route
 本阶段没有处理 transfer session 在 executing/publishing 期间的 pinning 与 byte ownership、maintenance worker 的统一 drain、WebDAV state CAS/互斥及 pause/retry/stop 时序、四个 application parity gate、性能 fixture、full core suite、Related Items 既有 echo 失败、automatic retry schedule 的代码/规格漂移或 Zotero 7/9 desktop smoke。整个 premerge 因此仍不能判定为通过。
 
 本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed、触发发布或运行 Gitee 同步。上述流程仍需在后续任务中单独授权。
+
+## 第五阶段修复复验：transfer 与 WebDAV 并发所有权
+
+本节记录 OpenSpec change `harden-synthesis-transfer-webdav-concurrency` 的实现与复验。固定实现基线为 `58ac5ddbd813c7198e794f242b502e298870b9aa`；最终工作区补丁身份（不含本审计文件，tracked binary diff 加按路径排序的 untracked 文件内容哈希）为 `sha256:3dbe91ab37a1cf56b973cb9bf86c4c401c1259a7f880bae462ab40cb53426983`。本阶段只关闭 transfer session pinning、字节所有权、composition-owned background drain、WebDAV 状态事务与 retry/stop 时序，不改变其它审计项。
+
+### Transfer 与后台任务所有权
+
+native composition 新增统一 background-task owner。Transfer attempt、首次 public maintenance controller 与显式 resume controller 都在启动前登记 JoinHandle 和 cancellation flag；listener 正常轮询时回收已完成任务。Shutdown 共用既有 500 ms deadline：关闭 background admission，停止 canonical autosync 并 abort WebDAV，停止 compute admission，逻辑取消 transfer session，随后 drain background task 与 HTTP handler。只有所有引用 transfer、repository、canonical 的工作完成后，才删除 transfer root 并关闭存储 owner；超时会返回稳定的 `background_task_drain_timeout:<count>`，不会在仍有引用时强行 close。
+
+Transfer cleanup 分成逻辑撤销和物理回收。Idle reaper 不再移除 queued/executing/publishing session；absolute expiry、显式 cancel 与 shutdown 会立即隐藏 session、撤销 idempotency 并设置 cancellation，文件直到 active attempt 返回后才删除。输入 page、output sink 和已采用 publication 的 staged bytes 都由 RAII reservation 持有；commit 通过 typed `PagedOutputCommit` 移交 ownership，不再从 JSON `stagedBytes` 反推回收量，也不存在 stop 清零后晚到 rollback 再减一次的路径。
+
+### WebDAV 状态与 retry
+
+`WebDavSyncApplication` 用一把 transaction mutex 串行化完整的 load-normalize-patch-save 转换。Sync 不在 Host I/O 期间持锁，终态持久化会重新载入最新状态再应用 patch，因此并发 pause 不会被旧 sync snapshot 擦除。文件 store 另行串行化 `.pending` / `.previous` 原子替换，避免同一进程内保存竞争。
+
+生产 retry scheduler 改为 generation watermark 加 condition variable。`wait(delay, generation)` 只有在完整 delay 结束且 generation 未取消时才返回 true；pause、superseding trigger、abort 和 shutdown 会唤醒等待并阻止下一次 Host 调用。代码、主 OpenSpec 和运行时文档已统一为 `60s / 5m / 15m / 30m`，不再截断为一秒。
+
+### TDD 与真实进程证据
+
+实现前的定向失败证据如下：active attempt 在 reap 时被提前删除；stop 后的晚到 output rollback 令 `stagedBytes` 下溢为 `18446744073709551594`；sync terminal 会覆盖并发 pause；生产 retry 常量仍为 `1s / 5s / 30s / 120s`；真实进程在 WebDAV retry wait 中 shutdown 返回 `canonical_store_owner_leaked,repository_owner_leaked`。这些用例在实现后全部转绿。
+
+source-fresh 真实进程回归为 **2 passing**。一条在首个 WebDAV retry wait 中停机，证明等待立即取消、只发生一次 `webdav.read_text`、进程在 500 ms 内以 exit code 0 结束；另一条上传 8,000 个 Citation Graph node、受理 transfer execution 后立即停机，证明 attempt drain 后才移除 session root，且进程同样在 500 ms shutdown budget 内正常结束。
+
+### 第五阶段验证结果
+
+| 验证 | 结果 | 本阶段证据 |
+|---|---:|---|
+| Rust format | PASS | 固定 nightly 的 workspace `fmt --check` |
+| Rust Clippy | PASS | workspace/all-targets，`-D warnings` |
+| Rust workspace tests | PASS | 254 passed，0 failed；sidecar binary 83 passed |
+| Rust workspace build | PASS | locked workspace build |
+| transfer + WebDAV shutdown route | PASS | 2 passing，真实 source-fresh sidecar 进程 |
+| service boundary | PASS | 113 public methods，无 contract violation 或 unauthorized retirement |
+| TypeScript contracts | PASS | synthesis-contracts package typecheck |
+| cross-language contracts | PASS | 6 schema / 115 definitions / 14 positive / 15 negative |
+| production capabilities | PASS | 96 capability / 96 operation，fingerprint `f6841847f743b3a63bf7731f7bab32b869e9f7b75647b739f3dceed33fe68523` 未变化 |
+| WebDAV/Maintenance surface parity | PASS | 10 operations |
+| OpenSpec strict | PASS | change 与 353 项 main specs 严格校验；delta 已同步并归档至 `2026-08-12-harden-synthesis-transfer-webdav-concurrency` |
+| Prettier / diff check | PASS | 变更 TypeScript、Markdown、OpenSpec 与 whitespace gate 通过 |
+
+### 剩余阻断与范围
+
+本阶段没有处理四个 application differential parity gate、production-route performance fixture、full Node core suite 的既有加载问题、Related Items echo 既有失败或 Zotero 7/9 desktop smoke。因而这里确认的是第五阶段列出的 transfer/WebDAV 并发缺口已经关闭，不能据此把整个 premerge 审计改判为通过。
+
+本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed、触发发布或运行 Gitee 同步。上述流程仍需后续任务单独授权。

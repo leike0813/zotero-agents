@@ -11,6 +11,10 @@ import {
   toSynthesisJsonObject,
 } from "../../packages/synthesis-contracts/src";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
+import {
+  buildSynthesisCitationGraphBuildTransferManifest,
+  buildSynthesisCitationGraphBuildTransferPage,
+} from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
 import { buildSynthesisUiSnapshot } from "../../src/modules/synthesis/uiModel";
 import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 import { createSynthesisSidecarRpcClient } from "../../src/modules/synthesisSidecarRpcClient";
@@ -1425,6 +1429,128 @@ describe("Synthesis Rust production client route", function () {
     } finally {
       await harness.stop();
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("interrupts a public WebDAV retry wait and drains its maintenance controller on shutdown", async function () {
+    let firstReadObserved: () => void = () => undefined;
+    const firstRead = new Promise<void>((resolve) => {
+      firstReadObserved = resolve;
+    });
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "webdav-retry-shutdown-drain",
+      hostFixture: {
+        handle({ capability }) {
+          if (capability === "webdav.describe") {
+            return {
+              status: "available",
+              configStatus: "configured",
+              autoSyncEnabled: false,
+              autoRetryEnabled: true,
+              baseUrl: "https://webdav.invalid",
+              remotePath: "zotero-agents",
+              username: "",
+              credentialUpdatedAt: "",
+              connectionTest: null,
+              diagnostics: [],
+            };
+          }
+          if (capability === "webdav.read_text") {
+            firstReadObserved();
+            return { status: "unavailable", diagnostics: ["fixture_retry"] };
+          }
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    try {
+      const accepted = await harness.client.sync.webDav.runNow();
+      assert.equal(accepted.status, "pending");
+      await firstRead;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const stopped = await harness.stopProcess();
+      assert.equal(stopped.exitCode, 0, harness.stderr());
+      assert.isBelow(stopped.elapsedMs, 500, harness.stderr());
+      assert.notInclude(harness.stderr(), "service_owner_leaked");
+      assert.equal(
+        harness.recorder.hostCalls.filter(
+          (entry) => entry.capability === "webdav.read_text",
+        ).length,
+        1,
+      );
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("drains an admitted transfer attempt before removing its session files", async function () {
+    const id = "active-transfer-shutdown-drain";
+    const harness = await startSynthesisProductionRouteHarness({ id });
+    const pages = [
+      buildSynthesisCitationGraphBuildTransferPage(
+        "library_nodes",
+        0,
+        Array.from({ length: 8_000 }, (_, index) => ({
+          nodeId: `paper:${index}`,
+          title: `Shutdown drain fixture ${index} ${"x".repeat(80)}`,
+          authors: [],
+          aliases: [],
+        })),
+      ),
+      buildSynthesisCitationGraphBuildTransferPage("references", 0, []),
+    ];
+    const manifest = buildSynthesisCitationGraphBuildTransferManifest({
+      direction: "input",
+      header: {
+        contractVersion: "synthesis-citation-graph-build.v1",
+        scope: { kind: "full", sourceIds: [] },
+        rolePriority: [],
+      },
+      pages: pages.map((page) => page.descriptor),
+    });
+    try {
+      const begun = (await harness.call(
+        "compute.citation_graph_build_transfer",
+        {
+          action: "begin",
+          idempotencyKey: "active-transfer-shutdown-drain",
+          manifest,
+        },
+      )) as { sessionId: string };
+      for (const page of pages) {
+        await harness.call("compute.citation_graph_build_transfer", {
+          action: "put_input_page",
+          sessionId: begun.sessionId,
+          page,
+        });
+      }
+      await harness.call("compute.citation_graph_build_transfer", {
+        action: "seal_input",
+        sessionId: begun.sessionId,
+      });
+      const execution = (await harness.call(
+        "compute.citation_graph_build_transfer",
+        { action: "execute", sessionId: begun.sessionId },
+      )) as { state: string };
+      assert.equal(execution.state, "queued");
+
+      const stopped = await harness.stopProcess();
+      assert.equal(stopped.exitCode, 0, harness.stderr());
+      assert.isBelow(stopped.elapsedMs, 500, harness.stderr());
+      assert.isFalse(
+        fs.existsSync(
+          path.join(
+            harness.root,
+            "runtime",
+            "sessions",
+            id,
+            "citation-graph-transfer",
+          ),
+        ),
+      );
+    } finally {
+      await harness.stop();
     }
   });
 
