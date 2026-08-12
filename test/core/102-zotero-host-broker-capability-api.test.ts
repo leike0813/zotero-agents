@@ -16,7 +16,11 @@ import {
   setZoteroLibraryPageQueryAdapterForTests,
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
-import { getDefaultSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "../../src/modules/synthesisClient/defaultClient";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -169,10 +173,12 @@ describe("zotero host broker capability api", function () {
     );
   });
 
-  afterEach(function () {
+  afterEach(async function () {
     resetZoteroLibraryPageQueryAdapterForTests();
     resetWorkflowHostApiForTests();
     resetZoteroMcpServerForTests();
+    setDefaultSynthesisClientCompositionFactoryForTests(null);
+    await resetDefaultSynthesisClientForTests();
   });
 
   it("exposes v10 broker domains without removing legacy APIs", async function () {
@@ -321,7 +327,28 @@ describe("zotero host broker capability api", function () {
   });
 
   it("transitions builtin workflow status instances idempotently by stable key", async function () {
-    await getDefaultSynthesisService().initializeBuiltinTagPolicy();
+    setDefaultSynthesisClientCompositionFactoryForTests(() =>
+      createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 9134,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "status-policy-test",
+          },
+          clientToken: "client-token",
+        }),
+        rpcClient: {
+          async call(args) {
+            assert.equal(
+              args.capability,
+              "client.isBuiltinTagPolicyInitialized",
+            );
+            return args.rebuildResult(true);
+          },
+        },
+      }),
+    );
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Status Transition");
 

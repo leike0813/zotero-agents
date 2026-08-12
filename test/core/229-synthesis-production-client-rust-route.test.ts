@@ -434,6 +434,79 @@ describe("Synthesis Rust production client route", function () {
     });
   });
 
+  it("projects the strict Workbench Index registry through native composition", async function () {
+    this.timeout(60_000);
+    const dataset = createSyntheticSynthesisProductionRouteDataset("2k");
+    const harness = await startSynthesisProductionRouteHarness({
+      id: "strict-workbench-index-registry",
+      hostFixture: {
+        handle({ capability, payload }) {
+          if (capability === "library.items.list_page") {
+            return dataset.listItemsPage(payload);
+          }
+          if (capability === "library.artifacts.scan_page") {
+            return dataset.scanArtifactsPage(payload);
+          }
+          if (capability === "library.artifacts.read") {
+            return dataset.readArtifact(payload);
+          }
+          if (capability === "webdav.describe") return { configured: false };
+          return { status: "unavailable", diagnostics: [] };
+        },
+      },
+    });
+    try {
+      const accepted =
+        await harness.client.references.refreshReferenceSidecarNow();
+      const receipt = await waitForSynthesisProductionRouteReceipt({
+        operationId: accepted.operation_id,
+        getOperation: (operationId) =>
+          harness.client.maintenance.getOperation({
+            operation_id: operationId,
+          }),
+      });
+      assert.equal(receipt.status, "completed");
+      const projection = await harness.client.workbench.readSurface({
+        surface: "index",
+        state: {
+          registry: {
+            scope: "library",
+            expandedSourceRefs: ["1:SYN0000001"],
+          },
+        },
+      });
+      const registry = projection.registry as {
+        cacheStatus: { status: string };
+        rows: Array<Record<string, unknown>>;
+      };
+      assert.sameMembers(Object.keys(registry), ["rows", "cacheStatus"]);
+      assert.equal(registry.cacheStatus.status, "ready");
+      assert.isNotEmpty(registry.rows);
+      assert.sameMembers(Object.keys(registry.rows[0]), [
+        "paper_ref",
+        "library_id",
+        "item_key",
+        "title",
+        "year",
+        "metadata_hash",
+        "updated_at",
+        "artifactCoverage",
+        "missing_artifacts",
+        "reference_count",
+        "unbound_reference_count",
+        "references",
+      ]);
+      assert.equal(registry.rows[0].paper_ref, "1:SYN0000001");
+      assert.match(
+        String(registry.rows[0].metadata_hash),
+        /^sha256:[a-f0-9]{64}$/,
+      );
+      assert.isArray(registry.rows[0].references);
+    } finally {
+      await harness.stop();
+    }
+  });
+
   it("repairs a legacy canonical redirect cycle before loading the Workbench Index", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
     const root = fs.mkdtempSync(
@@ -677,7 +750,36 @@ describe("Synthesis Rust production client route", function () {
       const observed: string[] = [];
       for (const entry of cases) {
         const before = captureDurableState(root);
-        const response = await call(port, entry.operation, entry.request);
+        const currentRequest = {
+          "case:topic-empty-page": { args: [{ cursor: "", limit: 50 }] },
+          "case:topic-find-missing-paper": {
+            args: [{ paper_refs: ["1:MISSING1"] }],
+          },
+          "case:resolver-empty-match": {
+            args: [
+              {
+                paper_refs: ["1:MISSING1"],
+                collection_key: [],
+                combine: "union",
+                cursor: 0,
+                limit: 25,
+              },
+            ],
+          },
+          "case:topic-paper-digest-unavailable": {
+            args: [
+              {
+                paper_ref: "1:MISSING1",
+                include_representative_image: false,
+              },
+            ],
+          },
+        }[entry.id];
+        const response = await call(
+          port,
+          entry.operation,
+          currentRequest ?? entry.request,
+        );
         assert.equal(response.status, 200, entry.id);
         assert.isAbove(response.metrics.requestBytes, 0, entry.id);
         assert.isAbove(response.metrics.responseBytes, 0, entry.id);
@@ -1260,6 +1362,11 @@ describe("Synthesis Rust production client route", function () {
       },
     });
     try {
+      const seeded =
+        await harness.client.workflowApply.applyTopicSynthesisResult(
+          topicApplyRequest("topic:scenario"),
+        );
+      assert.equal(seeded.status, "persisted");
       const observed = await executeSynthesisProductionRouteScenarios(harness);
       assert.lengthOf(observed, 96);
       assert.equal(
@@ -2138,11 +2245,7 @@ describe("Synthesis Rust production client route", function () {
         "client.applyConceptReviewAction",
         { args: [{ reviewId: "review:missing", action: "reject" }] },
       );
-      assert.equal(missingConceptReview.status, 200);
-      assert.equal(
-        missingConceptReview.body.data.diagnostic?.code,
-        "concept_review_item_missing",
-      );
+      assert.equal(missingConceptReview.status, 503);
 
       const missingReferenceReview = await call(
         port,
@@ -2160,22 +2263,14 @@ describe("Synthesis Rust production client route", function () {
         "client.acceptTopicGraphRelation",
         { args: [{ edgeId: "edge:missing" }] },
       );
-      assert.equal(missingTopicGraphEdge.status, 200);
-      assert.equal(
-        missingTopicGraphEdge.body.data.diagnostic?.code,
-        "topic_graph_edge_missing",
-      );
+      assert.equal(missingTopicGraphEdge.status, 503);
 
       const missingTopicGraphReview = await call(
         port,
         "client.applyTopicGraphReviewAction",
         { args: [{ reviewId: "review:missing", action: "reject" }] },
       );
-      assert.equal(missingTopicGraphReview.status, 200);
-      assert.equal(
-        missingTopicGraphReview.body.data.diagnostic?.code,
-        "topic_graph_review_missing",
-      );
+      assert.equal(missingTopicGraphReview.status, 503);
 
       reverseHostCalls.length = 0;
       const deleted = await call(port, "client.deleteTopicArtifact", {
@@ -2759,13 +2854,13 @@ describe("Synthesis Rust production client route", function () {
         },
       );
       assert.equal(indexReviewSurface.status, 200);
-      assert.deepEqual(
-        indexReviewSurface.body.data.registry.matchProposals.map(
-          (proposal: Record<string, unknown>) => proposal.proposal_id,
-        ),
-        referenceReviewSurface.body.data.registry.matchProposals.map(
-          (proposal: Record<string, unknown>) => proposal.proposal_id,
-        ),
+      assert.notProperty(
+        indexReviewSurface.body.data.registry,
+        "matchProposals",
+      );
+      assert.notProperty(
+        indexReviewSurface.body.data.registry,
+        "cleanupProposals",
       );
 
       const chrome = await call(
@@ -2802,8 +2897,8 @@ describe("Synthesis Rust production client route", function () {
       );
       assert.lengthOf(workbenchIndex.body.data.registry.rows, 3);
       assert.deepInclude(workbenchIndex.body.data.registry.rows[0], {
-        libraryId: 1,
-        itemKey: "HOSTREF1",
+        library_id: 1,
+        item_key: "HOSTREF1",
         paper_ref: "1:HOSTREF1",
         artifactCoverage: "partial",
         reference_count: 1,
@@ -2813,9 +2908,9 @@ describe("Synthesis Rust production client route", function () {
         workbenchIndex.body.data.registry.rows[0].missing_artifacts,
         ["digest", "citation_analysis", "literature_score"],
       );
-      assert.deepEqual(
-        workbenchIndex.body.data.registry.rows[0].references,
-        [],
+      assert.notProperty(
+        workbenchIndex.body.data.registry.rows[0],
+        "references",
       );
       assert.lengthOf(workbenchIndex.body.data.registry.rows[2].references, 1);
       assert.equal(
@@ -3303,11 +3398,34 @@ describe("Synthesis Rust production client route", function () {
       path.join(os.tmpdir(), "zs-rust-digest-route-"),
     );
     const reverseHost = http.createServer((request, response) => {
-      request.resume();
+      let requestBody = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        requestBody += chunk;
+      });
       request.on("end", () => {
+        const call = JSON.parse(requestBody) as {
+          capability: string;
+          payload: { paperRefs?: string[] };
+        };
+        const result =
+          call.capability === "library.items.get_by_ref"
+            ? {
+                items: (call.payload.paperRefs || []).map((paperRef) => ({
+                  paperRef,
+                  libraryId: 1,
+                  itemKey: "TARGET01",
+                  itemType: "journalArticle",
+                  title: "Target",
+                  year: "2025",
+                  citekey: "target2025",
+                })),
+                missingPaperRefs: [],
+              }
+            : { configured: false };
         const body = JSON.stringify({
           ok: true,
-          result: { configured: false },
+          result,
         });
         response.writeHead(200, {
           "content-type": "application/json",
@@ -3369,12 +3487,8 @@ describe("Synthesis Rust production client route", function () {
       literatureMatchingMetadata: { key_terms: ["Large request"] },
       matchedReferences: [
         {
-          libraryId: 1,
-          itemKey: "TARGET01",
-          paperRef: "1:TARGET01",
-          title: "Target",
-          year: "2025",
-          citekey: "target2025",
+          library_id: 1,
+          item_key: "TARGET01",
         },
       ],
     };
@@ -3482,7 +3596,7 @@ describe("Synthesis Rust production client route", function () {
                   effectId: effect.effectId,
                   action: effect.action,
                   status: "applied",
-                  occurredAt: "2026-08-12T00:00:01.000Z",
+                  occurredAt: new Date().toISOString(),
                   diagnostics: [],
                 }),
               ),
@@ -3492,7 +3606,7 @@ describe("Synthesis Rust production client route", function () {
         },
       },
     });
-    const apply = (targets: string[], hash: string) =>
+    const apply = (targets: string[], revision: string) =>
       harness.client.workflowApply.applyLiteratureDigestSidecar({
         libraryId: 1,
         itemKey: "SOURCE01",
@@ -3511,30 +3625,32 @@ describe("Synthesis Rust production client route", function () {
         citekey: "source2026",
         dateAdded: "2026-08-12",
         references: {
-          payloadHash: hash,
+          payloadHash: `sha256:${crypto
+            .createHash("sha256")
+            .update(`${revision}:references`)
+            .digest("hex")}`,
           references: targets.map((target) => ({
             title: target,
-            citekey: target.toLowerCase(),
+            year: "2026",
           })),
         },
         citationAnalysis: {
-          payloadHash: `${hash}:citation`,
+          payloadHash: `sha256:${crypto
+            .createHash("sha256")
+            .update(`${revision}:citation`)
+            .digest("hex")}`,
           citations: targets.map((_, index) => ({
             reference_index: index,
             role: "background",
           })),
         },
         matchedReferences: targets.map((target) => ({
-          libraryId: 1,
-          itemKey: target,
-          paperRef: `1:${target}`,
-          title: target,
-          year: "2026",
-          citekey: target.toLowerCase(),
+          library_id: 1,
+          item_key: target,
         })),
       });
     try {
-      await apply(["TARGET01"], "sha256:related-items-v1");
+      await apply(["TARGET01"], "related-items-v1");
       const rebuild = await harness.client.graph.rebuildCitationGraphCacheNow();
       const rebuilt = await waitForMaintenanceOperation(
         harness.port,
@@ -3543,7 +3659,7 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(rebuilt.status, "completed", JSON.stringify(rebuilt));
       assert.deepEqual(effectPayloads, []);
 
-      await apply(["TARGET01", "TARGET02"], "sha256:related-items-v2");
+      await apply(["TARGET01", "TARGET02"], "related-items-v2");
       const refresh =
         await harness.client.graph.refreshCitationGraphCacheIncrementalNow();
       const refreshed = await waitForMaintenanceOperation(
@@ -4087,7 +4203,9 @@ describe("Synthesis Rust production client route", function () {
     const { port } = await first.listening;
     let firstStopped = false;
     try {
-      const topics = await call(port, "client.listTopics", { args: [{}] });
+      const topics = await call(port, "client.listTopics", {
+        args: [{ cursor: "", limit: 50 }],
+      });
       assert.equal(topics.status, 200);
       assert.deepEqual(topics.body.data.topics, []);
 
@@ -4136,7 +4254,7 @@ describe("Synthesis Rust production client route", function () {
         const restartedTopics = await call(
           restartListening.port,
           "client.listTopics",
-          { args: [{}] },
+          { args: [{ cursor: "", limit: 50 }] },
         );
         assert.equal(restartedTopics.status, 200);
         assert.deepEqual(restartedTopics.body.data.topics, []);

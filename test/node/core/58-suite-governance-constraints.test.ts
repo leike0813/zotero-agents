@@ -273,28 +273,21 @@ describe("suite governance constraints", function () {
 
   it("Risk: MR-02 keeps CI gate entries mapped to explicit pr/release targets", function () {
     const scripts = getScripts();
-    const gateSource = readFileSync(
-      join(process.cwd(), "scripts", "run-ci-gate.ts"),
-      "utf8",
-    );
 
     assert.match(scripts["test:gate:pr"] || "", /run-ci-gate\.ts\s+pr/i);
     assert.match(
       scripts["test:gate:release"] || "",
       /run-ci-gate\.ts\s+release/i,
     );
-    const contentGate = gateSource.indexOf('"check:host-bridge-content"');
-    const suiteGate = gateSource.indexOf("runNpmScript(suiteCommand)");
-    assert.isAtLeast(
-      contentGate,
-      0,
-      "PR and release CI gates must reject stale Host Bridge derivatives",
-    );
-    assert.isBelow(
-      contentGate,
-      suiteGate,
-      "Host Bridge derivative validation must run before the test suite",
-    );
+    for (const gate of ["pr", "release"] as const) {
+      const stages = getCiGateStages(gate).map((stage) => stage.script);
+      assert.include(stages, "check:host-bridge-content");
+      assert.isBelow(
+        stages.indexOf("check:host-bridge-content"),
+        stages.indexOf(gate === "release" ? "test:full" : "test:lite"),
+        "Host Bridge derivative validation must run before the test suite",
+      );
+    }
   });
 
   it("Risk: the Synthesis Stage 1 milestone inventory stays complete and fail-closed", function () {

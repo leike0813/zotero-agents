@@ -29,9 +29,15 @@ import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
 import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
 import { resetSynthesisSidecarRuntimeSupervisorForTests } from "./synthesisSidecarRuntimeSupervisor";
+import {
+  resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
+} from "./synthesisClient/defaultClient";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 
 type CleanupDeps = {
+  setDefaultSynthesisClientCompositionFactoryForTests: () => void;
+  resetDefaultSynthesisClientForTests: () => void | Promise<void>;
   stopSkillRunnerModelCacheAutoRefresh: () => void;
   stopSkillRunnerBackendReachabilityCoordinator: () => void;
   resetManagedLocalRuntimeLoopsForTests: () => void;
@@ -63,6 +69,9 @@ type CleanupDeps = {
 };
 
 const defaultCleanupDeps: CleanupDeps = {
+  setDefaultSynthesisClientCompositionFactoryForTests: () =>
+    setDefaultSynthesisClientCompositionFactoryForTests(null),
+  resetDefaultSynthesisClientForTests,
   stopSkillRunnerModelCacheAutoRefresh,
   stopSkillRunnerBackendReachabilityCoordinator,
   resetManagedLocalRuntimeLoopsForTests,
@@ -108,6 +117,8 @@ export function setBackgroundRuntimeCleanupDepsForTests(
 }
 
 export async function cleanupBackgroundRuntimeForZoteroTests() {
+  cleanupDeps.setDefaultSynthesisClientCompositionFactoryForTests();
+  await Promise.resolve(cleanupDeps.resetDefaultSynthesisClientForTests());
   await Promise.resolve(
     cleanupDeps.resetSynthesisSidecarRuntimeSupervisorForTests(),
   );

@@ -330,7 +330,7 @@ describe("Synthesis sidecar compute wire capacity", function () {
           algorithm: request.algorithm,
           layoutEngine: "components-rust",
           layoutVersion: 2,
-          params: {},
+          params: { component_gap: 320, node_gap: 48, golden_angle: 2.4 },
           nodes: [],
         };
       },
@@ -464,12 +464,12 @@ describe("Synthesis sidecar compute wire capacity", function () {
           algorithm: request.algorithm,
           layoutEngine: "components-rust",
           layoutVersion: 2,
-          params: {
-            padding: "x".repeat(
-              SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
-            ),
-          },
-          nodes: [],
+          params: { component_gap: 320, node_gap: 48, golden_angle: 2.4 },
+          nodes: Array.from({ length: 20_000 }, (_, index) => ({
+            nodeId: `node:${index}:${"x".repeat(490)}`,
+            x: index,
+            y: index,
+          })),
         };
       },
       runCitationGraphMetrics: unexpectedMetricsCompute,

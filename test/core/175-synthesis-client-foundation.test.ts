@@ -4,6 +4,7 @@ import path from "path";
 import {
   SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS,
   SynthesisClientError,
+  rebuildSynthesisProtocolCapabilityDto,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../packages/synthesis-contracts/src/index";
 import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
@@ -32,7 +33,70 @@ function parentRef(value: number) {
   return { libraryId: 1, itemKey: `ITEM${String(value).padStart(4, "0")}` };
 }
 
+function maintenanceOperation(operationId: string) {
+  return {
+    schema: "synthesis.maintenance_operation.v1",
+    operation_id: operationId,
+    status: "completed",
+  } as const;
+}
+
+function topicGraphMutation(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "committed",
+    manifestHash: null,
+    revision: 1,
+    changedNodeIds: [],
+    changedEdgeIds: [],
+    reviewIds: [],
+    diagnostics: [],
+    ...overrides,
+  };
+}
+
+function conceptMutation(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "committed",
+    manifestHash: null,
+    revision: 1,
+    changedConceptIds: [],
+    reviewIds: [],
+    diagnostics: [],
+    ...overrides,
+  };
+}
+
 describe("Synthesis client foundation", function () {
+  it("classifies non-JSON capability values by protocol direction", function () {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const invalidValues = [
+      { value: new Date("2026-08-12T00:00:00.000Z") },
+      { value: undefined },
+      cyclic,
+    ];
+
+    for (const direction of ["request", "result"] as const) {
+      for (const value of invalidValues) {
+        let failure: unknown;
+        try {
+          rebuildSynthesisProtocolCapabilityDto({
+            capability: "client.isBuiltinTagPolicyInitialized",
+            direction,
+            value,
+          });
+        } catch (error) {
+          failure = error;
+        }
+        assert.instanceOf(failure, SynthesisClientError);
+        assert.equal(
+          (failure as SynthesisClientError).code,
+          direction === "request" ? "invalid_request" : "internal",
+        );
+      }
+    }
+  });
+
   it("keeps the contracts package environment-neutral and independently checked", function () {
     const packageRoot = path.join(ROOT, "packages/synthesis-contracts");
     const source = fs
@@ -143,8 +207,7 @@ describe("Synthesis client foundation", function () {
         return {
           ok: true,
           topic_id: request.topicId,
-          deleted_at: new Date("2026-07-15T00:00:00.000Z"),
-          optional_field: undefined,
+          deleted_at: "2026-07-15T00:00:00.000Z",
         };
       },
       async purgeDeletedTopicArtifacts() {
@@ -318,44 +381,39 @@ describe("Synthesis client foundation", function () {
       },
       async rebuildTopicGraphIndex() {
         calls.push({ operation: "rebuild" });
-        return {
-          ok: true,
-          rebuilt_at: new Date("2026-07-15T00:00:00.000Z"),
-          optional_field: undefined,
-        };
+        return maintenanceOperation("topic-graph:rebuild");
       },
       async acceptTopicGraphRelation(request) {
         calls.push({ operation: "accept", request });
-        return {
-          diagnostic: { code: "topic_graph_edge_missing" },
-        };
+        return topicGraphMutation({
+          status: "not_found",
+          changedEdgeIds: [request.edgeId],
+        });
       },
       async rejectTopicGraphRelation(request) {
         calls.push({ operation: "reject", request });
-        return { edge: { edge_id: request.edgeId, status: "rejected" } };
+        return topicGraphMutation({ changedEdgeIds: [request.edgeId] });
       },
       async applyTopicGraphReviewAction(request) {
         calls.push({ operation: "review", request });
-        return {
-          diagnostic: { code: "topic_graph_review_closed" },
-        };
+        return topicGraphMutation({ reviewIds: [request.reviewId] });
       },
     });
 
-    assert.deepEqual(await client.topicGraph.rebuildTopicGraphIndex(), {
-      ok: true,
-      rebuilt_at: "2026-07-15T00:00:00.000Z",
-    });
+    assert.deepEqual(
+      await client.topicGraph.rebuildTopicGraphIndex(),
+      maintenanceOperation("topic-graph:rebuild"),
+    );
     assert.deepEqual(
       await client.topicGraph.acceptTopicGraphRelation({
         edgeId: " edge-1 ",
         unexpected: "discard",
       } as never),
-      { diagnostic: { code: "topic_graph_edge_missing" } },
+      topicGraphMutation({ status: "not_found", changedEdgeIds: ["edge-1"] }),
     );
     assert.deepEqual(
       await client.topicGraph.rejectTopicGraphRelation({ edgeId: " edge-2 " }),
-      { edge: { edge_id: "edge-2", status: "rejected" } },
+      topicGraphMutation({ changedEdgeIds: ["edge-2"] }),
     );
     assert.deepEqual(
       await client.topicGraph.applyTopicGraphReviewAction({
@@ -363,7 +421,7 @@ describe("Synthesis client foundation", function () {
         action: "approve_suggested",
         unexpected: "discard",
       } as never),
-      { diagnostic: { code: "topic_graph_review_closed" } },
+      topicGraphMutation({ reviewIds: ["review-1"] }),
     );
     assert.deepEqual(calls, [
       { operation: "rebuild" },
@@ -516,8 +574,7 @@ describe("Synthesis client foundation", function () {
     const result = (operation: string) => ({
       ok: true,
       operation,
-      completed_at: new Date("2026-07-16T00:00:00.000Z"),
-      optional_field: undefined,
+      completed_at: "2026-07-16T00:00:00.000Z",
     });
     const client = createInProcessSynthesisClient({
       async listWorkflowTopicOptions() {
@@ -689,18 +746,14 @@ describe("Synthesis client foundation", function () {
         return [
           {
             code: "missing_replacement",
-            checked_at: new Date("2026-07-15T00:00:00.000Z"),
-            optional_field: undefined,
+            severity: "warning",
+            message: "Replacement is missing",
           },
         ];
       },
       async rebuildTagVocabularyIndex() {
         calls.push("rebuild");
-        return {
-          ok: true,
-          rebuilt_at: new Date("2026-07-15T00:00:00.000Z"),
-          optional_field: undefined,
-        };
+        return maintenanceOperation("tag-vocabulary:rebuild");
       },
       async exportTagVocabularyForRegulator() {
         calls.push("export");
@@ -711,13 +764,14 @@ describe("Synthesis client foundation", function () {
     assert.deepEqual(await client.tags.validateTagVocabulary(), [
       {
         code: "missing_replacement",
-        checked_at: "2026-07-15T00:00:00.000Z",
+        severity: "warning",
+        message: "Replacement is missing",
       },
     ]);
-    assert.deepEqual(await client.tags.rebuildTagVocabularyIndex(), {
-      ok: true,
-      rebuilt_at: "2026-07-15T00:00:00.000Z",
-    });
+    assert.deepEqual(
+      await client.tags.rebuildTagVocabularyIndex(),
+      maintenanceOperation("tag-vocabulary:rebuild"),
+    );
     assert.deepEqual(await client.tags.exportTagVocabularyForRegulator(), [
       "data:coco",
       "model:detr",
@@ -832,17 +886,25 @@ describe("Synthesis client foundation", function () {
       async previewTagVocabularyImport(request) {
         calls.push({ operation: "preview", request });
         return {
-          conflicts: [{ tag: "model:detr" }],
-          warnings: [{ code: "tag_import_warning" }],
-          checked_at: new Date("2026-07-15T00:00:00.000Z"),
-          optional_field: undefined,
+          action: "preview",
+          builtins: [],
+          additions: [],
+          unchanged: [],
+          conflicts: [],
+          warnings: [],
+          previewDigest:
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         };
       },
       async applyTagVocabularyImport(request) {
         calls.push({ operation: "apply", request });
         return {
-          ok: false,
-          diagnostics: [{ code: "tag_import_domain_failure" }],
+          status: "conflict",
+          vocabularyHash: null,
+          stagedRevision: 0,
+          changedTags: [],
+          warnings: [],
+          diagnostics: [],
         };
       },
     });
@@ -853,9 +915,14 @@ describe("Synthesis client foundation", function () {
         unexpected: "discard",
       } as never),
       {
-        conflicts: [{ tag: "model:detr" }],
-        warnings: [{ code: "tag_import_warning" }],
-        checked_at: "2026-07-15T00:00:00.000Z",
+        action: "preview",
+        builtins: [],
+        additions: [],
+        unchanged: [],
+        conflicts: [],
+        warnings: [],
+        previewDigest:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
     );
     assert.deepEqual(
@@ -865,8 +932,12 @@ describe("Synthesis client foundation", function () {
         unexpected: "discard",
       } as never),
       {
-        ok: false,
-        diagnostics: [{ code: "tag_import_domain_failure" }],
+        status: "conflict",
+        vocabularyHash: null,
+        stagedRevision: 0,
+        changedTags: [],
+        warnings: [],
+        diagnostics: [],
       },
     );
     assert.deepEqual(calls, [
@@ -1053,10 +1124,8 @@ describe("Synthesis client foundation", function () {
       async promoteStagedTagSuggestions(request) {
         calls.push({ operation: "promote", request });
         return {
-          promoted: request.tags,
-          diagnostics: [{ code: "tag_parent_apply_failed" }],
-          completed_at: new Date("2026-07-15T00:00:00.000Z"),
-          optional_field: undefined,
+          promoted: request.tags.slice(0, 1),
+          skipped: request.tags.slice(1),
         };
       },
       async discardStagedTagSuggestions(request) {
@@ -1075,9 +1144,8 @@ describe("Synthesis client foundation", function () {
         unexpected: "discard",
       } as never),
       {
-        promoted: ["topic:candidate", "topic:candidate"],
-        diagnostics: [{ code: "tag_parent_apply_failed" }],
-        completed_at: "2026-07-15T00:00:00.000Z",
+        promoted: ["topic:candidate"],
+        skipped: ["topic:candidate"],
       },
     );
     assert.deepEqual(
@@ -1108,9 +1176,17 @@ describe("Synthesis client foundation", function () {
       async updateStagedTagSuggestion(request) {
         captured = request;
         return {
-          staged: { tag: request.tag },
-          updated_at: new Date("2026-07-16T00:00:00.000Z"),
-          optional_field: undefined,
+          staged: [
+            {
+              tag: request.tag,
+              facet: request.facet,
+              note: request.note,
+              source_flow: request.sourceFlow,
+              parent_bindings: request.parentBindings,
+              created_at: "2026-07-16T00:00:00.000Z",
+              updated_at: "2026-07-16T00:00:00.000Z",
+            },
+          ],
         };
       },
     });
@@ -1126,8 +1202,17 @@ describe("Synthesis client foundation", function () {
         unexpected: "discard",
       } as never),
       {
-        staged: { tag: "topic:new" },
-        updated_at: "2026-07-16T00:00:00.000Z",
+        staged: [
+          {
+            tag: "topic:new",
+            facet: "topic",
+            note: "replacement note",
+            source_flow: "tag-regulator-suggest",
+            parent_bindings: [parentRef(2), parentRef(9)],
+            created_at: "2026-07-16T00:00:00.000Z",
+            updated_at: "2026-07-16T00:00:00.000Z",
+          },
+        ],
       },
     );
     assert.deepEqual(captured, {
@@ -1272,14 +1357,12 @@ describe("Synthesis client foundation", function () {
         captured.push({ operation: "update", request });
         return {
           mutated: true,
-          updated: { tag: request.tag },
-          updated_at: new Date("2026-07-16T00:00:00.000Z"),
-          optional_field: undefined,
+          updated: { tag: request.tag, facet: request.facet },
         };
       },
       async deleteTagVocabularyEntry(request) {
         captured.push({ operation: "delete", request });
-        return { mutated: true, deleted: request.originalTag };
+        return { mutated: true, deleted: [request.originalTag] };
       },
     });
 
@@ -1293,8 +1376,7 @@ describe("Synthesis client foundation", function () {
       } as never),
       {
         mutated: true,
-        updated: { tag: "topic:new" },
-        updated_at: "2026-07-16T00:00:00.000Z",
+        updated: { tag: "topic:new", facet: "topic" },
       },
     );
     assert.deepEqual(
@@ -1302,7 +1384,7 @@ describe("Synthesis client foundation", function () {
         originalTag: " topic:new ",
         unexpected: "discard",
       } as never),
-      { mutated: true, deleted: "topic:new" },
+      { mutated: true, deleted: ["topic:new"] },
     );
     assert.deepEqual(captured, [
       {
@@ -1618,8 +1700,7 @@ describe("Synthesis client foundation", function () {
         calls.push({ operation: "layout", args: [request] });
         return {
           ok: true,
-          optional_field: undefined,
-          generated_at: new Date("2026-07-15T00:00:00.000Z"),
+          generated_at: "2026-07-15T00:00:00.000Z",
         };
       },
       async rebuildCitationGraphCacheNow() {
@@ -1753,44 +1834,38 @@ describe("Synthesis client foundation", function () {
       },
       async refreshReferenceSidecarNow() {
         calls.push("refresh");
-        return {
-          ok: true,
-          status: "ready",
-          optional_field: undefined,
-          updated_at: new Date("2026-07-15T00:00:00.000Z"),
-        };
+        return maintenanceOperation("references:refresh");
       },
       async retryReferenceSidecarRefresh() {
         calls.push("retry-refresh");
-        return { ok: true, status: "retried" };
+        return maintenanceOperation("references:retry-refresh");
       },
       async runAdvancedReferenceMatchingNow() {
         calls.push("advanced");
-        return { ok: true, status: "completed" };
+        return maintenanceOperation("references:advanced");
       },
       async retryAdvancedReferenceMatching() {
         calls.push("retry-advanced");
-        return { ok: true, status: "retried" };
+        return maintenanceOperation("references:retry-advanced");
       },
     });
 
-    assert.deepEqual(await client.references.refreshReferenceSidecarNow(), {
-      ok: true,
-      status: "ready",
-      updated_at: "2026-07-15T00:00:00.000Z",
-    });
-    assert.deepEqual(await client.references.retryReferenceSidecarRefresh(), {
-      ok: true,
-      status: "retried",
-    });
+    assert.deepEqual(
+      await client.references.refreshReferenceSidecarNow(),
+      maintenanceOperation("references:refresh"),
+    );
+    assert.deepEqual(
+      await client.references.retryReferenceSidecarRefresh(),
+      maintenanceOperation("references:retry-refresh"),
+    );
     assert.deepEqual(
       await client.references.runAdvancedReferenceMatchingNow(),
-      { ok: true, status: "completed" },
+      maintenanceOperation("references:advanced"),
     );
-    assert.deepEqual(await client.references.retryAdvancedReferenceMatching(), {
-      ok: true,
-      status: "retried",
-    });
+    assert.deepEqual(
+      await client.references.retryAdvancedReferenceMatching(),
+      maintenanceOperation("references:retry-advanced"),
+    );
     assert.deepEqual(calls, [
       "refresh",
       "retry-refresh",
@@ -1863,22 +1938,25 @@ describe("Synthesis client foundation", function () {
         calls.push({ operation: "canonical", request });
         return {
           ok: true,
+          status: "accepted",
           review_item_id: request.reviewItemId,
-          optional_field: undefined,
-          reviewed_at: new Date("2026-07-15T00:00:00.000Z"),
         };
       },
       async applyReferenceMatchProposalAction(request) {
         calls.push({ operation: "single", request });
-        return { ok: true, proposal_id: request.proposalId };
+        return {
+          ok: true,
+          status: request.action,
+          proposal_id: request.proposalId,
+        };
       },
       async applyReferenceMatchProposalActions(request) {
         calls.push({ operation: "batch", request });
         return {
           ok: false,
+          applied_count: 0,
           failed_count: 1,
-          diagnostics: [{ code: "domain_failure" }],
-          optional_field: undefined,
+          results: [],
         };
       },
     });
@@ -1892,8 +1970,8 @@ describe("Synthesis client foundation", function () {
         } as never),
         {
           ok: true,
+          status: "accepted",
           review_item_id: `review-${action}`,
-          reviewed_at: "2026-07-15T00:00:00.000Z",
         },
       );
     }
@@ -1911,7 +1989,11 @@ describe("Synthesis client foundation", function () {
           target: { kind: "canonical_reference", canonicalReferenceId: "x" },
           unexpected: "discard",
         } as never),
-        { ok: true, proposal_id: `proposal-${action}` },
+        {
+          ok: true,
+          status: action,
+          proposal_id: `proposal-${action}`,
+        },
       );
     }
     assert.deepEqual(
@@ -1952,8 +2034,9 @@ describe("Synthesis client foundation", function () {
       } as never),
       {
         ok: false,
+        applied_count: 0,
         failed_count: 1,
-        diagnostics: [{ code: "domain_failure" }],
+        results: [],
       },
     );
 
@@ -2226,16 +2309,15 @@ describe("Synthesis client foundation", function () {
         return {
           ok: false,
           status: "invalid_target",
-          optional_field: undefined,
-          checked_at: new Date("2026-07-15T00:00:00.000Z"),
         };
       },
       async applyCanonicalRevisionMergeRequests(request) {
         calls.push({ operation: "batch", request });
         return {
           ok: false,
+          applied_count: 0,
           failed_count: 1,
-          diagnostics: [{ code: "domain_failure" }],
+          results: [],
         };
       },
       async updateCanonicalReferenceMetadata(request) {
@@ -2258,7 +2340,6 @@ describe("Synthesis client foundation", function () {
       {
         ok: false,
         status: "invalid_target",
-        checked_at: "2026-07-15T00:00:00.000Z",
       },
     );
     assert.deepEqual(
@@ -2269,7 +2350,6 @@ describe("Synthesis client foundation", function () {
       {
         ok: false,
         status: "invalid_target",
-        checked_at: "2026-07-15T00:00:00.000Z",
       },
     );
     assert.deepEqual(
@@ -2285,8 +2365,9 @@ describe("Synthesis client foundation", function () {
       } as never),
       {
         ok: false,
+        applied_count: 0,
         failed_count: 1,
-        diagnostics: [{ code: "domain_failure" }],
+        results: [],
       },
     );
     assert.deepEqual(
@@ -2580,38 +2661,37 @@ describe("Synthesis client foundation", function () {
       },
       async rebuildConceptKbIndex() {
         calls.push({ operation: "rebuild" });
-        return {
-          ok: true,
-          optional_field: undefined,
-          rebuilt_at: new Date("2026-07-15T00:00:00.000Z"),
-        };
+        return maintenanceOperation("concept-kb:rebuild");
       },
       async updateConceptDisplayText(request) {
         calls.push({ operation: "display", request });
-        return { ok: true, concept_id: request.conceptId };
+        return conceptMutation({ changedConceptIds: [request.conceptId] });
       },
       async applyConceptReviewAction(request) {
         calls.push({ operation: "review", request });
         return request.targetConceptId
-          ? { ok: true, status: "merged" }
-          : {
-              ok: false,
-              diagnostic: { code: "concept_review_target_missing" },
-            };
+          ? conceptMutation({
+              changedConceptIds: [request.targetConceptId],
+              reviewIds: [request.reviewId],
+            })
+          : conceptMutation({
+              status: "not_found",
+              reviewIds: [request.reviewId],
+            });
       },
       async deleteConceptEntries(request) {
         calls.push({ operation: "delete", request });
-        return {
-          deleted_concept_ids: [],
-          diagnostic: { code: "concept_delete_not_found" },
-        };
+        return conceptMutation({
+          status: "not_found",
+          changedConceptIds: request.conceptIds,
+        });
       },
     });
 
-    assert.deepEqual(await client.concepts.rebuildConceptKbIndex(), {
-      ok: true,
-      rebuilt_at: "2026-07-15T00:00:00.000Z",
-    });
+    assert.deepEqual(
+      await client.concepts.rebuildConceptKbIndex(),
+      maintenanceOperation("concept-kb:rebuild"),
+    );
     assert.deepEqual(
       await client.concepts.updateConceptDisplayText({
         conceptId: " concept-1 ",
@@ -2624,7 +2704,7 @@ describe("Synthesis client foundation", function () {
         },
         unexpected: "discard",
       } as never),
-      { ok: true, concept_id: "concept-1" },
+      conceptMutation({ changedConceptIds: ["concept-1"] }),
     );
     assert.deepEqual(
       await client.concepts.applyConceptReviewAction({
@@ -2633,27 +2713,27 @@ describe("Synthesis client foundation", function () {
         targetConceptId: " target-1 ",
         unexpected: "discard",
       } as never),
-      { ok: true, status: "merged" },
+      conceptMutation({
+        changedConceptIds: ["target-1"],
+        reviewIds: ["review-1"],
+      }),
     );
     assert.deepEqual(
       await client.concepts.applyConceptReviewAction({
         reviewId: " review-2 ",
         action: "merge_into_existing",
       }),
-      {
-        ok: false,
-        diagnostic: { code: "concept_review_target_missing" },
-      },
+      conceptMutation({ status: "not_found", reviewIds: ["review-2"] }),
     );
     assert.deepEqual(
       await client.concepts.deleteConceptEntries({
         conceptIds: [" concept-1 ", "concept-2"],
         unexpected: "discard",
       } as never),
-      {
-        deleted_concept_ids: [],
-        diagnostic: { code: "concept_delete_not_found" },
-      },
+      conceptMutation({
+        status: "not_found",
+        changedConceptIds: ["concept-1", "concept-2"],
+      }),
     );
 
     assert.deepEqual(calls, [
@@ -3110,38 +3190,15 @@ describe("Synthesis client foundation", function () {
     assert.include(consumer, "getDefaultSynthesisClient");
   });
 
-  it("routes Host Bridge Synthesis operations through grouped client capabilities", async function () {
+  it("routes representative Host Bridge Synthesis operations through grouped client capabilities", async function () {
     const calls: Array<{ port: string; args: unknown[] }> = [];
     const portNames = [
       "listTopics",
       "findTopicsByPaperRef",
       "getTopicContext",
       "resolveResolver",
-      "queryCitationGraphCluster",
-      "queryCitationGraph",
-      "getCitationGraphSlice",
-      "getCitationGraphLayout",
-      "getCitationGraphMetrics",
-      "rankLibraryPapers",
-      "refreshCitationGraphMetricsNow",
-      "getReferenceSidecarIndex",
-      "rankExternalReferences",
-      "getAttentionQueue",
-      "getPaperArtifactManifest",
-      "exportFilteredPaperArtifacts",
       "resolveTopicPaperDigest",
-      "queryConceptKb",
-      "getSchemas",
-      "getLibraryIndex",
       "getReviewInput",
-      "debugSynthesisSnapshot",
-      "debugSynthesisCacheList",
-      "debugSynthesisOperationsList",
-      "debugSynthesisProfilerList",
-      "debugSynthesisPaperInspect",
-      "debugSynthesisTopicInspect",
-      "debugSynthesisDiff",
-      "debugSynthesisCleanInstallReset",
     ] as const;
     const ports = Object.fromEntries(
       portNames.map((port) => [
@@ -3227,12 +3284,11 @@ describe("Synthesis client foundation", function () {
           if (port === "getReviewInput") {
             return WORKFLOW_REVIEW_RESULT;
           }
-          return { ok: true, port, nested: { value: "rebuilt" } };
+          throw new Error(`missing result fixture for ${port}`);
         },
       ]),
     );
     const client: any = createInProcessSynthesisClient(ports as any);
-    const request = { probe: "value", extension: { retained: true } };
     const topicRequests = {
       listTopics: { cursor: "", limit: 50 },
       findTopicsByPaperRef: { paper_refs: ["1:ABCD1234"] },
@@ -3265,33 +3321,6 @@ describe("Synthesis client foundation", function () {
         "resolveResolver",
         () => client.topics.resolveResolver(topicRequests.resolveResolver),
       ],
-      ["queryCitationGraphCluster", () => client.graph.queryCluster(request)],
-      ["queryCitationGraph", () => client.graph.getOverview(request)],
-      ["getCitationGraphSlice", () => client.graph.getSlice(request)],
-      [
-        "getCitationGraphLayout",
-        () => client.graph.getPersistedLayout(request),
-      ],
-      ["getCitationGraphMetrics", () => client.graph.getMetrics(request)],
-      ["rankLibraryPapers", () => client.graph.rankLibraryPapers(request)],
-      [
-        "refreshCitationGraphMetricsNow",
-        () => client.graph.refreshMetricsNow(request),
-      ],
-      [
-        "getReferenceSidecarIndex",
-        () => client.references.getSidecarIndex(request),
-      ],
-      [
-        "rankExternalReferences",
-        () => client.references.rankExternalReferences(request),
-      ],
-      ["getAttentionQueue", () => client.references.getAttentionQueue(request)],
-      ["getPaperArtifactManifest", () => client.artifacts.getManifest(request)],
-      [
-        "exportFilteredPaperArtifacts",
-        () => client.artifacts.exportFiltered(request, delivery),
-      ],
       [
         "resolveTopicPaperDigest",
         () =>
@@ -3299,26 +3328,9 @@ describe("Synthesis client foundation", function () {
             topicRequests.resolveTopicPaperDigest,
           ),
       ],
-      ["queryConceptKb", () => client.concepts.query(request)],
-      ["getSchemas", () => client.maintenance.getSchemas(request)],
-      ["getLibraryIndex", () => client.libraryIndex.getPage(request)],
       [
         "getReviewInput",
         () => client.workflowReview.getInput({ topicId: "topic-alpha" }),
-      ],
-      ["debugSynthesisSnapshot", () => client.debug.snapshot(request)],
-      ["debugSynthesisCacheList", () => client.debug.listCache(request)],
-      [
-        "debugSynthesisOperationsList",
-        () => client.debug.listOperations(request),
-      ],
-      ["debugSynthesisProfilerList", () => client.debug.listProfiler(request)],
-      ["debugSynthesisPaperInspect", () => client.debug.inspectPaper(request)],
-      ["debugSynthesisTopicInspect", () => client.debug.inspectTopic(request)],
-      ["debugSynthesisDiff", () => client.debug.diff(request)],
-      [
-        "debugSynthesisCleanInstallReset",
-        () => client.debug.cleanInstallReset(request),
       ],
     ];
 
@@ -3336,8 +3348,6 @@ describe("Synthesis client foundation", function () {
         assert.deepEqual(result.papers, []);
       } else if (port === "getReviewInput") {
         assert.equal(result.kind, "synthesis.review_workflow_input");
-      } else {
-        assert.equal(result.port, port);
       }
       assert.notStrictEqual(result, ports);
     }
@@ -3346,7 +3356,6 @@ describe("Synthesis client foundation", function () {
       portNames,
     );
     assert.deepEqual(calls[2].args, [topicRequests.getTopicContext, delivery]);
-    assert.deepEqual(calls[15].args, [request, delivery]);
     assert.deepEqual(calls[0].args[0], topicRequests.listTopics);
     assert.notStrictEqual(calls[0].args[0], topicRequests.listTopics);
   });

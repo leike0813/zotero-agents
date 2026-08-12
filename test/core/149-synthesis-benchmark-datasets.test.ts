@@ -55,25 +55,97 @@ describe("Synthesis benchmark datasets", function () {
 
   it("generates production-route setup DTOs instead of SQLite seed rows", function () {
     const dataset = createSyntheticSynthesisProductionRouteDataset("10k");
+    const materializedAssets = new Map(
+      dataset.topicApplyRequest.assets.map((asset) => [asset.id, asset]),
+    );
+    const analysisManifest = JSON.parse(
+      String(materializedAssets.get("asset/manifest")?.text || "{}"),
+    ) as {
+      sidecars?: Record<string, { path?: string }>;
+    };
     const resolver = dataset.topicApplyRequest.assets.find(
       ({ id }) => id === "asset/resolver",
     );
     const resolverValue = JSON.parse(String(resolver?.text || "{}")) as {
+      resolver?: {
+        paper_refs?: string[];
+        collection_key?: string[];
+        combine?: string;
+      };
       resolved_paper_set?: { papers?: unknown[] };
     };
-    const staged = dataset.tagSuggestionRequest(7, 3) as {
-      expectedStagedRevision: number;
-      entries: Array<{ tag: string; parentBindingsJson: string }>;
+    const staged = dataset.tagSuggestionRequest(7) as {
+      entries: Array<{
+        tag: string;
+        source_flow?: string;
+        parent_bindings?: unknown[];
+      }>;
     };
     const items = dataset.listItemsPage({ limit: 100 }).items;
+    const filteredArtifactRequest = {
+      limit: items.length,
+      paperRefs: items.map(({ paperRef }) => paperRef),
+      artifactTypes: [
+        "digest",
+        "references",
+        "citation_analysis",
+        "literature_score",
+      ] as Array<
+        "digest" | "references" | "citation_analysis" | "literature_score"
+      >,
+    };
+    const filteredArtifactPage = dataset.scanArtifactsPage(
+      filteredArtifactRequest,
+    );
     const availableArtifacts = dataset
       .scanArtifactsPage({ limit: 10_000 })
       .artifacts.filter(({ status }) => status === "available");
 
+    const sidecarLocators = Object.values(analysisManifest.sidecars || {}).map(
+      ({ path }) => String(path || ""),
+    );
+    assert.isNotEmpty(sidecarLocators);
+    for (const locator of sidecarLocators) {
+      const asset = materializedAssets.get(locator);
+      assert.isOk(asset, `${locator} should be materialized`);
+      assert.equal(asset?.mediaType, "application/json");
+      const payload = JSON.parse(String(asset?.text || "null"));
+      assert.isObject(payload);
+      assert.isFalse(Array.isArray(payload));
+    }
+    assert.deepEqual(resolverValue.resolver?.paper_refs, ["1:SYN0000001"]);
+    assert.deepEqual(resolverValue.resolver?.collection_key, []);
+    assert.equal(resolverValue.resolver?.combine, "union");
     assert.lengthOf(resolverValue.resolved_paper_set?.papers || [], 10_000);
-    assert.equal(staged.expectedStagedRevision, 3);
+    assert.notProperty(staged, "expectedStagedRevision");
     assert.equal(staged.entries[0].tag, "topic:production-route-effect-10k-7");
-    assert.lengthOf(JSON.parse(staged.entries[0].parentBindingsJson), 250);
+    assert.equal(staged.entries[0].source_flow, "production-route-performance");
+    assert.lengthOf(staged.entries[0].parent_bindings || [], 250);
+    assert.equal(filteredArtifactPage.returned, items.length);
+    assert.isFalse(filteredArtifactPage.hasMore);
+    assert.lengthOf(filteredArtifactPage.artifacts, items.length * 3);
+    assert.isTrue(
+      filteredArtifactPage.artifacts.every(({ paperRef }) =>
+        items.some((item) => item.paperRef === paperRef),
+      ),
+    );
+    assert.notInclude(
+      filteredArtifactPage.artifacts.map(({ artifactType }) => artifactType),
+      "literature_score",
+    );
+    assert.deepInclude(items[0], {
+      paperRef: "1:SYN0000001",
+      date: "2018",
+      creators: ["Synthetic Author 0"],
+      tags: ["topic:retrieval", "topic:agents"],
+      collections: ["collection:01"],
+      doi: "10.7777/zs.synthetic.000001",
+      arxiv: "",
+      isbn: "",
+      url: "",
+      citekey: "synthetic00001",
+      dateAdded: "2026-05-01T00:00:00.000Z",
+    });
     assert.isTrue(
       items.every(({ metadataHash }) =>
         /^sha256:[a-f0-9]{64}$/.test(metadataHash),

@@ -25,6 +25,11 @@ import {
   readRuntimeTextFile,
   runtimePathExists,
 } from "../../src/modules/runtimePersistence";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-tag-vocabulary-"));
@@ -48,6 +53,16 @@ function customEntries<T extends { source?: string }>(entries: T[]) {
 const builtinTags = Object.values(getBuiltinStatusPolicy());
 
 describe("Synthesis tag vocabulary", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
+  afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
+  });
+
   it("counts Zotero tag usage from current user library top-level non-trashed items", async function () {
     const libraryId = Zotero.Libraries.userLibraryID;
     const countedTag = "usage:test-top-level";

@@ -51,15 +51,13 @@ function availableResult(overrides: Record<string, unknown> = {}) {
           "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         createdAt: "2026-07-16T00:00:00.000Z",
         expiresAt: "2026-07-16T00:30:00.000Z",
-        owner: { capability: "topics.get_context", ignored: true },
-        localPath: "/secret/export.zip",
+        owner: { capability: "topics.get_context" },
       },
-      downloadCommand: "malicious command",
-      unpackHint: "malicious hint",
-      ignored: true,
+      downloadCommand:
+        "zotero-bridge file download file-example-123 --output topic-context-example.zip",
+      unpackHint: "unzip topic-context-example.zip -d .",
     },
     diagnostics: [],
-    ignored: true,
     ...overrides,
   };
 }
@@ -79,17 +77,7 @@ describe("Synthesis Host export delivery port", function () {
   });
 
   it("canonically rebuilds strict requests and available results", function () {
-    const rebuiltRequest = rebuildSynthesisHostExportDeliveryRequest({
-      ...request(),
-      ignored: { nested: true },
-      entries: [
-        {
-          path: "runtime/payloads/topic-context.semantic.json",
-          text: '{"ok":true}\n',
-          ignored: true,
-        },
-      ],
-    });
+    const rebuiltRequest = rebuildSynthesisHostExportDeliveryRequest(request());
     assert.deepEqual(rebuiltRequest, request());
 
     const rebuiltResult =
@@ -117,13 +105,21 @@ describe("Synthesis Host export delivery port", function () {
       },
       diagnostics: [],
     });
-    assert.notInclude(JSON.stringify(rebuiltResult), "/secret");
-    assert.notInclude(JSON.stringify(rebuiltResult), "malicious");
   });
 
   it("rejects unsafe, duplicate, non-JSON, and oversized requests", function () {
     const invalidRequests = [
       request({ capability: "debug.synthesis.worker.run" }),
+      request({ ignored: true }),
+      request({
+        entries: [
+          {
+            path: "runtime/payloads/topic-context.semantic.json",
+            text: '{"ok":true}\n',
+            ignored: true,
+          },
+        ],
+      }),
       request({ displayName: "../escape.zip" }),
       request({ entries: [{ path: "/absolute.json", text: "x" }] }),
       request({ entries: [{ path: "a/../b.json", text: "x" }] }),
@@ -158,6 +154,13 @@ describe("Synthesis Host export delivery port", function () {
 
   it("rejects malformed results and bounds unavailable diagnostics", function () {
     const invalidResults = [
+      availableResult({ ignored: true }),
+      availableResult({
+        delivery: {
+          ...(availableResult().delivery as Record<string, unknown>),
+          ignored: true,
+        },
+      }),
       availableResult({ capability: "paper_artifacts.export_filtered" }),
       availableResult({
         delivery: {

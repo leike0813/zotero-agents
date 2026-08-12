@@ -2,11 +2,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use synthesis_application::concept_kb::{
-    ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptReviewAction, ConceptReviewRequest,
+    ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptMutationResult,
+    ConceptMutationStatus, ConceptReviewAction, ConceptReviewRequest,
 };
 use synthesis_application::topic_graph::{
-    TopicGraphMutationStatus, TopicGraphRelationDecisionRequest, TopicGraphRelationStatus,
-    TopicGraphReviewAction, TopicGraphReviewRequest,
+    TopicGraphMutationResult, TopicGraphMutationStatus, TopicGraphRelationDecisionRequest,
+    TopicGraphRelationStatus, TopicGraphReviewAction, TopicGraphReviewRequest,
 };
 
 use crate::runtime_production_ports::ProductionApplications;
@@ -41,7 +42,7 @@ register_production_client_handlers!(
         no_args(args)?;
         let basis = concept_basis(apps)?;
         let checkpoint = || promotion_checkpoint(apps);
-        wire(
+        concept_mutation_wire(
             apps.concepts
                 .rebuild_index_with_checkpoint(&basis, &checkpoint),
         )
@@ -53,7 +54,7 @@ register_production_client_handlers!(
         no_args(args)?;
         let basis = topic_graph_basis(apps)?;
         let checkpoint = || promotion_checkpoint(apps);
-        wire(
+        topic_graph_mutation_wire(
             apps.topic_graph
                 .rebuild_index_with_checkpoint(&basis, &checkpoint),
         )
@@ -94,6 +95,71 @@ fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
+}
+
+fn concept_mutation_wire(result: ConceptMutationResult) -> Result<Value, String> {
+    let status = match result.status {
+        ConceptMutationStatus::ReviewItemClosed => return Err("concept_review_item_closed".into()),
+        ConceptMutationStatus::ReviewTargetMissing => {
+            return Err("concept_review_target_missing".into());
+        }
+        ConceptMutationStatus::RepairRequired => return Err("repair_required".into()),
+        ConceptMutationStatus::Committed => "committed",
+        ConceptMutationStatus::Unchanged => "unchanged",
+        ConceptMutationStatus::NotFound => return Err("not_found".into()),
+        ConceptMutationStatus::BasisMismatch => "basis_mismatch",
+        ConceptMutationStatus::ConceptKbBusy => "concept_kb_busy",
+        ConceptMutationStatus::InvalidRequest => "invalid_request",
+        ConceptMutationStatus::WorkerFailed => "worker_failed",
+        ConceptMutationStatus::Stopping => "stopping",
+    };
+    let mut diagnostics = result
+        .warnings
+        .into_iter()
+        .map(|code| json!({ "code": code, "severity": "warning" }))
+        .collect::<Vec<_>>();
+    if let Some(diagnostic) = result.diagnostic {
+        diagnostics.push(json!({ "code": diagnostic.code, "severity": "error" }));
+    }
+    Ok(json!({
+        "status": status,
+        "manifestHash": result.manifest_hash,
+        "revision": result.revision,
+        "changedConceptIds": result.changed_concept_ids,
+        "reviewIds": result.review_ids,
+        "diagnostics": diagnostics,
+    }))
+}
+
+fn topic_graph_mutation_wire(result: TopicGraphMutationResult) -> Result<Value, String> {
+    let status = match result.status {
+        TopicGraphMutationStatus::RepairRequired => return Err("repair_required".into()),
+        TopicGraphMutationStatus::Committed => "committed",
+        TopicGraphMutationStatus::Unchanged => "unchanged",
+        TopicGraphMutationStatus::NotFound => return Err("not_found".into()),
+        TopicGraphMutationStatus::BasisMismatch => "basis_mismatch",
+        TopicGraphMutationStatus::TopicGraphBusy => "topic_graph_busy",
+        TopicGraphMutationStatus::InvalidRequest => "invalid_request",
+        TopicGraphMutationStatus::WorkerFailed => "worker_failed",
+        TopicGraphMutationStatus::Stopping => "stopping",
+    };
+    let mut diagnostics = result
+        .warnings
+        .into_iter()
+        .map(|code| json!({ "code": code, "severity": "warning" }))
+        .collect::<Vec<_>>();
+    if let Some(diagnostic) = result.diagnostic {
+        diagnostics.push(json!({ "code": diagnostic.code, "severity": "error" }));
+    }
+    Ok(json!({
+        "status": status,
+        "manifestHash": result.manifest_hash,
+        "revision": result.revision,
+        "changedNodeIds": result.changed_node_ids,
+        "changedEdgeIds": result.changed_edge_ids,
+        "reviewIds": result.review_ids,
+        "diagnostics": diagnostics,
+    }))
 }
 
 fn one_request<T: for<'de> Deserialize<'de>>(args: &[Value]) -> Result<T, String> {
@@ -301,7 +367,7 @@ fn update_display_text(apps: &ProductionApplications, args: &[Value]) -> Result<
             .transpose()
             .map(|value| value.unwrap_or_else(|| fallback.to_owned()))
     };
-    wire(
+    concept_mutation_wire(
         apps.concepts
             .update_display_text(&ConceptDisplayUpdateRequest {
                 expected_manifest_hash: concept_basis(apps)?,
@@ -330,7 +396,7 @@ fn review_concept(apps: &ProductionApplications, args: &[Value]) -> Result<Value
     if (matches!(action, ConceptReviewAction::Merge)) != target.is_some() {
         return Err("invalid_request".into());
     }
-    wire(apps.concepts.review(&ConceptReviewRequest {
+    concept_mutation_wire(apps.concepts.review(&ConceptReviewRequest {
         expected_manifest_hash: concept_basis(apps)?,
         review_id: bounded_text(&request.review_id)?,
         action,
@@ -348,7 +414,7 @@ fn delete_concepts(apps: &ProductionApplications, args: &[Value]) -> Result<Valu
     if ids.is_empty() || ids.len() > MAX_QUERY_LABELS {
         return Err("invalid_request".into());
     }
-    wire(apps.concepts.delete_concepts(&ConceptDeleteRequest {
+    concept_mutation_wire(apps.concepts.delete_concepts(&ConceptDeleteRequest {
         expected_manifest_hash: concept_basis(apps)?,
         concept_ids: ids.into_iter().collect(),
     }))
@@ -385,7 +451,7 @@ fn decide_relation(
                 .push(format!("topic_discovery_projection_failed:{error}"));
         }
     }
-    wire(result)
+    topic_graph_mutation_wire(result)
 }
 
 fn review_topic_graph(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
@@ -394,7 +460,7 @@ fn review_topic_graph(apps: &ProductionApplications, args: &[Value]) -> Result<V
         TopicGraphReviewWireAction::ApproveSuggested => TopicGraphReviewAction::ApproveSuggested,
         TopicGraphReviewWireAction::Reject => TopicGraphReviewAction::Reject,
     };
-    wire(apps.topic_graph.review(&TopicGraphReviewRequest {
+    topic_graph_mutation_wire(apps.topic_graph.review(&TopicGraphReviewRequest {
         expected_manifest_hash: topic_graph_basis(apps)?,
         review_id: bounded_text(&request.review_id)?,
         action,

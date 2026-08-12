@@ -241,7 +241,8 @@ describe("Synthesis sidecar cache hard cut", function () {
       sourceRefs: ["1:AAA"],
     });
     assert.equal(registry.rows[0]?.paper_ref, "1:AAA");
-    assert.equal(registry.rows[0]?.artifactCoverage, "complete");
+    assert.equal(registry.rows[0]?.artifactCoverage, "partial");
+    assert.notInclude(registry.rows[0]?.missing_artifacts || [], "digest");
   });
 
   it("treats unchanged literature-analysis reruns as sidecar governance no-ops", async function () {
@@ -499,7 +500,7 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.notInclude(row?.missing_artifacts || [], "references");
   });
 
-  it("keeps sidecar artifact diagnostics and locators consistent with cached artifact status", async function () {
+  it("projects cached artifact availability through the current Index DTO", async function () {
     const root = await makeRuntimeRoot();
     const repository = createSynthesisRepository({ runtimeRoot: root });
     const { service } = makeService({
@@ -566,10 +567,11 @@ describe("Synthesis sidecar cache hard cut", function () {
     const index = await service.getReferenceSidecarIndex({ limit: 1 });
     const row = index.rows[0];
 
-    assert.equal(row?.artifactCoverage, "complete");
-    assert.deepEqual(row?.diagnostics || [], []);
-    assert.equal(row?.artifacts.digest.note_key, "NDIGEST");
-    assert.equal(row?.artifacts.references.note_title, "References");
+    assert.equal(row?.artifactCoverage, "partial");
+    assert.deepEqual(row?.missing_artifacts, ["literature_score"]);
+    assert.match(row?.metadata_hash || "", /^sha256:/);
+    assert.match(index.diagnostics.repository_basis_hash, /^sha256:/);
+    assert.match(index.diagnostics.canonical_basis_hash, /^sha256:/);
   });
 
   it("skips deterministic invalid references during sidecar ingestion [inv.reference.quality_gate_before_identity]", async function () {

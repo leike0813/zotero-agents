@@ -144,17 +144,30 @@ describe("Synthesis tab UI model", function () {
       assert.equal(error.details?.status, status);
     }
 
-    for (const legacySuccess of [
+    for (const statuslessResult of [
       { processed: 1, completed: 1, failed: 0 },
-      { ok: true, status: "completed" },
-      { ok: true, status: "bootstrapped" },
-      { ok: true, status: "skipped" },
-      { ok: true, status: "superseded" },
     ]) {
-      assert.strictEqual(
-        classifySynthesisWorkbenchGraphMutationResult(legacySuccess),
-        legacySuccess,
+      assert.equal(
+        captureError(() =>
+          classifySynthesisWorkbenchGraphMutationResult(statuslessResult),
+        ).code,
+        "internal",
       );
+    }
+    for (const unsupportedStatus of [
+      "completed",
+      "bootstrapped",
+      "skipped",
+      "superseded",
+    ]) {
+      const error = captureError(() =>
+        classifySynthesisWorkbenchGraphMutationResult({
+          ok: true,
+          status: unsupportedStatus,
+        }),
+      );
+      assert.equal(error.code, "internal");
+      assert.equal(error.details?.status, unsupportedStatus);
     }
     assert.equal(
       captureError(() =>

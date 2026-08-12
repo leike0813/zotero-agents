@@ -767,6 +767,7 @@ async function applySynthesisOutputBoundary(
   if (capabilityName === "topics.get_review_input") {
     const object = asObject(result);
     const topic = asObject(object.topic);
+    const registryRows = asObject(object.registry_artifact_coverage).rows;
     const file = await registerBoundedOutputFile({
       capability: capabilityName,
       displayName: `synthesis-review-input-${String(topic.topic_id || input.topicId || input.topic_id || "topic")}.json`,
@@ -779,9 +780,7 @@ async function applySynthesisOutputBoundary(
         title: topic.title,
       },
       summary: {
-        registryRows: Array.isArray(object.registry_rows)
-          ? object.registry_rows.length
-          : 0,
+        registryRows: Array.isArray(registryRows) ? registryRows.length : 0,
         graphNodes: Array.isArray(asObject(object.citation_graph_slice).nodes)
           ? (asObject(object.citation_graph_slice).nodes as unknown[]).length
           : 0,

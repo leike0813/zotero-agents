@@ -5,12 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { createSynthesisWebDavSyncApplication } from "../packages/synthesis-application/src/webDavSyncApplication.js";
 import { canonicalizeSynthesisContractJson } from "../packages/synthesis-contracts/src/canonicalJson.js";
+import type { SynthesisHostWebDavSyncPort } from "../packages/synthesis-contracts/src/webDavSyncPort.js";
 import { createSynthesisSidecarDebugMaintenanceApplication } from "../apps/synthesis-service/src/debugMaintenanceApplicationNode.js";
 import { createSynthesisSidecarDurableBundleApplication } from "../apps/synthesis-service/src/durableBundleApplicationNode.js";
 import { openSynthesisSidecarIsolatedRepository } from "../apps/synthesis-service/src/isolatedRepository.js";
 import { createSynthesisSidecarKnowledgeCheckpointApplication } from "../apps/synthesis-service/src/knowledgeCheckpointApplicationNode.js";
 import { openSynthesisNodeSqliteAdapter } from "../apps/synthesis-service/src/repositoryNodeSqlite.js";
 import { openSynthesisSidecarTopicCanonicalStore } from "../apps/synthesis-service/src/topicCanonicalStoreNode.js";
+import { normalizeSynthesisApplicationParityTableRows } from "./synthesis-application-parity-policy.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const corpusPath = path.join(
@@ -169,54 +171,55 @@ function createFileHost(remoteRoot: string) {
           .update(fs.readFileSync(absolute))
           .digest("hex")}`
       : "";
+  const port: SynthesisHostWebDavSyncPort = {
+    async describe() {
+      return {
+        status: "available",
+        configStatus: "configured",
+        autoSyncEnabled: false,
+        autoRetryEnabled: false,
+        baseUrl: "https://parity.invalid",
+        remotePath: "synthesis",
+        username: "fixture",
+        diagnostics: [],
+      };
+    },
+    async readText({ path: relative }: { path: string }) {
+      const absolute = resolve(relative);
+      if (!fs.existsSync(absolute))
+        return { status: "missing", diagnostics: [] };
+      return {
+        status: "available",
+        text: fs.readFileSync(absolute, "utf8"),
+        etag: etag(absolute),
+        diagnostics: [],
+      };
+    },
+    async ensureCollection({ path: relative }: { path: string }) {
+      fs.mkdirSync(resolve(relative), { recursive: true });
+      return { status: "ready", diagnostics: [] };
+    },
+    async writeText({
+      path: relative,
+      text,
+      ifMatch,
+    }: {
+      path: string;
+      text: string;
+      ifMatch?: string;
+    }) {
+      const absolute = resolve(relative);
+      if (ifMatch && etag(absolute) !== ifMatch)
+        return { status: "conflict", diagnostics: [] };
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, text, "utf8");
+      writes.push(relative);
+      return { status: "written", etag: etag(absolute), diagnostics: [] };
+    },
+  };
   return {
     writes,
-    port: {
-      async describe() {
-        return {
-          status: "available",
-          configStatus: "configured",
-          autoSyncEnabled: false,
-          autoRetryEnabled: false,
-          baseUrl: "https://parity.invalid",
-          remotePath: "synthesis",
-          username: "fixture",
-          diagnostics: [],
-        };
-      },
-      async readText({ path: relative }: { path: string }) {
-        const absolute = resolve(relative);
-        if (!fs.existsSync(absolute))
-          return { status: "missing", etag: "", diagnostics: [] };
-        return {
-          status: "read",
-          text: fs.readFileSync(absolute, "utf8"),
-          etag: etag(absolute),
-          diagnostics: [],
-        };
-      },
-      async ensureCollection({ path: relative }: { path: string }) {
-        fs.mkdirSync(resolve(relative), { recursive: true });
-        return { status: "ready", diagnostics: [] };
-      },
-      async writeText({
-        path: relative,
-        text,
-        ifMatch,
-      }: {
-        path: string;
-        text: string;
-        ifMatch?: string;
-      }) {
-        const absolute = resolve(relative);
-        if (ifMatch && etag(absolute) !== ifMatch)
-          return { status: "conflict", diagnostics: [] };
-        fs.mkdirSync(path.dirname(absolute), { recursive: true });
-        fs.writeFileSync(absolute, text, "utf8");
-        writes.push(relative);
-        return { status: "written", etag: etag(absolute), diagnostics: [] };
-      },
-    },
+    port,
   };
 }
 
@@ -324,7 +327,7 @@ async function runNodeOracle(
     now: () => corpus.clock,
     retryDelaysMs: [0, 0, 0, 0],
     stateStore,
-    hostPort: host.port as never,
+    hostPort: host.port,
     durable,
   });
   const webdavResult = await webdav.triggerWebDavSync();
@@ -486,6 +489,17 @@ function stableTableRows(table: string, rows: Array<Record<string, unknown>>) {
   );
 }
 
+function stableParityTableRows(
+  role: "node" | "rust",
+  table: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  return stableTableRows(
+    table,
+    normalizeSynthesisApplicationParityTableRows(role, table, rows),
+  );
+}
+
 function compareReports(
   corpus: Corpus,
   node: ParityReport,
@@ -551,15 +565,29 @@ function compareReports(
       `table_inventory_mismatch:${nodeTables.length}:${rustTables.length}`,
     );
   for (const table of nodeTables) {
-    const nodeRows = stableTableRows(table, node.tables[table] ?? []);
-    const rustRows = stableTableRows(table, rust.tables[table] ?? []);
+    const nodeRows = stableParityTableRows(
+      "node",
+      table,
+      node.tables[table] ?? [],
+    );
+    const rustRows = stableParityTableRows(
+      "rust",
+      table,
+      rust.tables[table] ?? [],
+    );
     if (!equal(nodeRows, rustRows)) errors.push(`table_mismatch:${table}`);
     if (
-      !equal(stableTableRows(table, node.reopen.tables[table] ?? []), nodeRows)
+      !equal(
+        stableParityTableRows("node", table, node.reopen.tables[table] ?? []),
+        nodeRows,
+      )
     )
       errors.push(`node_reopen_mismatch:${table}`);
     if (
-      !equal(stableTableRows(table, rust.reopen.tables[table] ?? []), rustRows)
+      !equal(
+        stableParityTableRows("rust", table, rust.reopen.tables[table] ?? []),
+        rustRows,
+      )
     )
       errors.push(`rust_reopen_mismatch:${table}`);
   }

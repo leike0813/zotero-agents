@@ -14,6 +14,7 @@ import { createSynthesisSidecarComputeWorkerPool } from "../apps/synthesis-servi
 import { openSynthesisSidecarIsolatedRepository } from "../apps/synthesis-service/src/isolatedRepository.js";
 import { createSynthesisSidecarReferenceMatchingReviewApplication } from "../apps/synthesis-service/src/referenceMatchingReviewApplicationNode.js";
 import { openSynthesisNodeSqliteAdapter } from "../apps/synthesis-service/src/repositoryNodeSqlite.js";
+import { normalizeSynthesisApplicationParityTableRows } from "./synthesis-application-parity-policy.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const corpusPath = path.join(
@@ -723,8 +724,16 @@ function compareReports(
     "synt_reference_source",
   ]);
   for (const table of nodeTables) {
-    const nodeRows = node.tables[table];
-    const rustRows = rust.tables[table];
+    const nodeRows = normalizeSynthesisApplicationParityTableRows(
+      "node",
+      table,
+      node.tables[table] ?? [],
+    );
+    const rustRows = normalizeSynthesisApplicationParityTableRows(
+      "rust",
+      table,
+      rust.tables[table] ?? [],
+    );
     if (!Array.isArray(nodeRows) || !Array.isArray(rustRows)) {
       errors.push(`table_invalid:${table}`);
       continue;

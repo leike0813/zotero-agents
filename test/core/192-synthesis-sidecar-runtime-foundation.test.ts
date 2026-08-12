@@ -707,6 +707,24 @@ describe("Synthesis sidecar runtime foundation", function () {
     services.push(service);
     const suppliedBadToken = "bad-token-that-must-never-be-logged";
 
+    const malformedUnauthenticated = await fetch(
+      `${service.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${suppliedBadToken}`,
+          "content-type": "application/json",
+        },
+        body: "{",
+      },
+    );
+    assert.equal(malformedUnauthenticated.status, 401);
+    assert.equal(
+      ((await malformedUnauthenticated.json()) as { error: { code: string } })
+        .error.code,
+      "unauthorized",
+    );
+
     const badAuth = await call(service, suppliedBadToken, handshakeRequest());
     assert.equal(badAuth.status, 401);
 
@@ -723,6 +741,38 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.equal(
       (wrongShutdownToken.body.error as Record<string, unknown>).code,
       "lifecycle_forbidden",
+    );
+    const invalidShutdownPayload = await call(
+      service,
+      CLIENT_TOKEN,
+      handshakeRequest({
+        requestId: "request:wrong-shutdown-invalid-payload",
+        capability: "system.shutdown",
+        payload: { unexpected: true },
+      }),
+    );
+    assert.equal(invalidShutdownPayload.status, 403);
+    assert.equal(
+      (invalidShutdownPayload.body.error as Record<string, unknown>).code,
+      "lifecycle_forbidden",
+    );
+    const lifecycleOnClientCapability = await call(
+      service,
+      LIFECYCLE_TOKEN,
+      handshakeRequest({
+        requestId: "request:lifecycle-client-capability",
+        capability: "workbench.chrome.read",
+        payload: { unexpected: true },
+      }),
+    );
+    assert.equal(
+      lifecycleOnClientCapability.status,
+      401,
+      JSON.stringify(lifecycleOnClientCapability.body),
+    );
+    assert.equal(
+      (lifecycleOnClientCapability.body.error as Record<string, unknown>).code,
+      "unauthorized",
     );
     assert.equal(
       (await fetch(`${service.baseUrl}${SYNTHESIS_SIDECAR_HEALTH_PATH}`))

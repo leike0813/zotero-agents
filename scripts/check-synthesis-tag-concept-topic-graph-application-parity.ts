@@ -16,6 +16,7 @@ import {
 } from "../packages/synthesis-engine/src/index.js";
 import { openSynthesisSidecarIsolatedRepository } from "../apps/synthesis-service/src/isolatedRepository.js";
 import { openSynthesisNodeSqliteAdapter } from "../apps/synthesis-service/src/repositoryNodeSqlite.js";
+import { normalizeSynthesisApplicationParityTableRows } from "./synthesis-application-parity-policy.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const corpusPath = path.join(
@@ -598,6 +599,17 @@ function stableTableRows(table: string, rows: Array<Record<string, unknown>>) {
   }
 }
 
+function stableParityTableRows(
+  role: "node" | "rust",
+  table: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  return stableTableRows(
+    table,
+    normalizeSynthesisApplicationParityTableRows(role, table, rows),
+  );
+}
+
 function compareReports(
   corpus: Corpus,
   node: ParityReport,
@@ -662,18 +674,32 @@ function compareReports(
       `table_inventory_mismatch:${nodeTables.length}:${rustTables.length}`,
     );
   for (const table of nodeTables) {
-    const nodeRows = stableTableRows(table, node.tables[table] ?? []);
-    const rustRows = stableTableRows(table, rust.tables[table] ?? []);
+    const nodeRows = stableParityTableRows(
+      "node",
+      table,
+      node.tables[table] ?? [],
+    );
+    const rustRows = stableParityTableRows(
+      "rust",
+      table,
+      rust.tables[table] ?? [],
+    );
     if (!equal(nodeRows, rustRows))
       errors.push(
         `table_mismatch:${table}:${canonicalizeSynthesisContractJson(nodeRows)}:${canonicalizeSynthesisContractJson(rustRows)}`,
       );
     if (
-      !equal(stableTableRows(table, node.reopen.tables[table] ?? []), nodeRows)
+      !equal(
+        stableParityTableRows("node", table, node.reopen.tables[table] ?? []),
+        nodeRows,
+      )
     )
       errors.push(`node_reopen_mismatch:${table}`);
     if (
-      !equal(stableTableRows(table, rust.reopen.tables[table] ?? []), rustRows)
+      !equal(
+        stableParityTableRows("rust", table, rust.reopen.tables[table] ?? []),
+        rustRows,
+      )
     )
       errors.push(`rust_reopen_mismatch:${table}`);
   }

@@ -146,9 +146,13 @@
       "type": "object", "additionalProperties": false, "required": ["fileId", "sourceKind", "displayName", "contentType", "size", "sha256", "createdAt", "expiresAt", "owner"],
       "properties": { "fileId": { "$ref": "#/$defs/NonEmptyString" }, "sourceKind": { "const": "bridge-export" }, "displayName": { "$ref": "#/$defs/NonEmptyString" }, "contentType": { "const": "application/zip" }, "size": { "$ref": "common.schema.json#/$defs/safeNonNegativeInteger" }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "createdAt": { "$ref": "#/$defs/NonEmptyString" }, "expiresAt": { "$ref": "#/$defs/NonEmptyString" }, "owner": { "type": "object", "additionalProperties": false, "required": ["capability"], "properties": { "capability": { "enum": ["topics.get_context", "paper_artifacts.export_filtered"] } } } }
     },
+    "DeliveryProjection": {
+      "type": "object", "additionalProperties": false, "required": ["mode", "bundle", "downloadCommand", "unpackHint"],
+      "properties": { "mode": { "const": "bridge-download" }, "bundle": { "$ref": "#/$defs/DeliveryDescriptor" }, "downloadCommand": { "$ref": "#/$defs/NonEmptyString" }, "unpackHint": { "$ref": "#/$defs/NonEmptyString" } }
+    },
     "DeliveryExportPublishArchiveResult": {
       "oneOf": [
-        { "type": "object", "additionalProperties": false, "required": ["status", "capability", "delivery", "diagnostics"], "properties": { "status": { "const": "available" }, "capability": { "enum": ["topics.get_context", "paper_artifacts.export_filtered"] }, "delivery": { "type": "object", "additionalProperties": false, "required": ["mode", "bundle", "downloadCommand", "unpackHint"], "properties": { "mode": { "const": "bridge-download" }, "bundle": { "$ref": "#/$defs/DeliveryDescriptor" }, "downloadCommand": { "$ref": "#/$defs/NonEmptyString" }, "unpackHint": { "$ref": "#/$defs/NonEmptyString" } } }, "diagnostics": { "$ref": "#/$defs/TextDiagnostics" } } },
+        { "type": "object", "additionalProperties": false, "required": ["status", "capability", "delivery", "diagnostics"], "properties": { "status": { "const": "available" }, "capability": { "enum": ["topics.get_context", "paper_artifacts.export_filtered"] }, "delivery": { "$ref": "#/$defs/DeliveryProjection" }, "diagnostics": { "$ref": "#/$defs/TextDiagnostics" } } },
         { "type": "object", "additionalProperties": false, "required": ["status", "capability", "diagnostics"], "properties": { "status": { "const": "unavailable" }, "capability": { "enum": ["topics.get_context", "paper_artifacts.export_filtered"] }, "diagnostics": { "$ref": "#/$defs/TextDiagnostics" } } }
       ]
     },

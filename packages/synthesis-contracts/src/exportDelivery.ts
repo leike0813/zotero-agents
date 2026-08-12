@@ -344,6 +344,16 @@ function rebuildDescriptor(
   };
 }
 
+export function buildSynthesisHostExportDeliveryHints(bundle: {
+  fileId: string;
+  displayName: string;
+}) {
+  return {
+    downloadCommand: `zotero-bridge file download ${bundle.fileId} --output ${bundle.displayName}`,
+    unpackHint: `unzip ${bundle.displayName} -d .`,
+  };
+}
+
 export function rebuildSynthesisHostExportDeliveryRequest(
   value: unknown,
 ): SynthesisHostExportDeliveryRequest {
@@ -520,8 +530,7 @@ export function rebuildSynthesisHostExportDeliveryResult(
     delivery: {
       mode: "bridge-download",
       bundle,
-      downloadCommand: `zotero-bridge file download ${bundle.fileId} --output ${bundle.displayName}`,
-      unpackHint: `unzip ${bundle.displayName} -d .`,
+      ...buildSynthesisHostExportDeliveryHints(bundle),
     },
     diagnostics: rebuildDiagnostics(json.diagnostics, true),
   };

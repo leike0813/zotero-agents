@@ -659,9 +659,9 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
     assert.equal(registry.total, 2);
     const alphaRow = registry.rows.find((row) => row.item_key === alpha.key);
-    assert.equal(alphaRow?.artifacts.digest.status, "available");
-    assert.equal(alphaRow?.artifacts.references.status, "available");
-    assert.equal(alphaRow?.artifacts.citation_analysis.status, "available");
+    assert.match(alphaRow?.metadata_hash || "", /^sha256:/);
+    assert.equal(alphaRow?.artifactCoverage, "partial");
+    assert.deepEqual(alphaRow?.missing_artifacts, ["literature_score"]);
   });
 
   it("resolves topic resolvers, reads paper artifacts, and derives citation graph from Zotero notes", async function () {
@@ -855,7 +855,11 @@ describe("Synthesis Layer MVP real-data closure", function () {
       topicId: "topic-alpha",
     });
     const mcpResponse: any = await handleZoteroMcpRequestForTests(
-      mcpRequest(1, "reference_index.get"),
+      mcpRequest(1, "reference_index.get", {
+        sourceRefs: [paperRef],
+        cursor: "",
+        limit: 25,
+      }),
       {
         resolveSynthesisClient: () =>
           createInProcessSynthesisClient(

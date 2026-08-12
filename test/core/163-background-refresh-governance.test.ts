@@ -1153,8 +1153,8 @@ describe("background refresh governance", function () {
       "utf8",
     );
     assert.notInclude(source, "setInterval(");
-    assert.include(source, 'owner: "synthesis-sidecar-supervisor"');
-    assert.include(source, "DEFAULT_LEASE_INTERVAL_MS = 30_000");
+    assert.include(source, "healthTimer = setTimer(async () => {");
+    assert.include(source, "scheduleHealth(current);");
     assert.include(source, "DEFAULT_HEALTH_INTERVAL_MS = 60_000");
     for (const forbidden of [
       "listWorkflow",

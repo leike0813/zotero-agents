@@ -730,8 +730,101 @@ mod dispatch_integration_tests {
         READY_PRODUCTION_CLIENT_CAPABILITIES, production_client_capabilities,
     };
 
+    use crate::runtime_host_collection::{
+        HostItemCollectionPort, ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+    };
     use crate::runtime_production_ports::{ProductionApplications, build_production_applications};
+    use crate::runtime_reference_canonical::{
+        ReferenceHostArtifactRead, ReferenceHostArtifactsPage, ReferenceHostPort,
+    };
     use crate::runtime_worker_pool::NativeComputePool;
+
+    struct LiteratureDigestHost;
+
+    impl LiteratureDigestHost {
+        fn item(item_key: &str) -> ReferenceHostItem {
+            ReferenceHostItem {
+                paper_ref: format!("1:{item_key}"),
+                library_id: 1,
+                item_key: item_key.into(),
+                item_type: "journalArticle".into(),
+                title: "Matched paper".into(),
+                year: "2024".into(),
+                date: "2024".into(),
+                creators: vec!["Matched Author".into()],
+                tags: Vec::new(),
+                collections: Vec::new(),
+                doi: String::new(),
+                arxiv: String::new(),
+                isbn: String::new(),
+                url: String::new(),
+                citekey: String::new(),
+                date_added: "2024-01-01".into(),
+                updated_at: "2024-01-01".into(),
+                metadata_hash: format!("sha256:{}", "a".repeat(64)),
+            }
+        }
+    }
+
+    impl HostItemCollectionPort for LiteratureDigestHost {
+        fn list_items_page(
+            &self,
+            cursor: &str,
+            limit: usize,
+        ) -> Result<ReferenceHostItemsPage, String> {
+            if !cursor.is_empty() || limit == 0 {
+                return Err("reverse_host_result_invalid".into());
+            }
+            Ok(ReferenceHostItemsPage {
+                items: Vec::new(),
+                cursor: String::new(),
+                next_cursor: String::new(),
+                snapshot_revision: "literature-digest-host:1".into(),
+                has_more: false,
+                returned: 0,
+                limit,
+            })
+        }
+
+        fn get_items_by_ref(
+            &self,
+            paper_refs: &[String],
+        ) -> Result<ReferenceHostItemsByRef, String> {
+            let mut items = Vec::new();
+            let mut missing_paper_refs = Vec::new();
+            for paper_ref in paper_refs {
+                match paper_ref.as_str() {
+                    "1:BBBB2222" => items.push(Self::item("BBBB2222")),
+                    "1:CCCC3333" => items.push(Self::item("CCCC3333")),
+                    _ => missing_paper_refs.push(paper_ref.clone()),
+                }
+            }
+            Ok(ReferenceHostItemsByRef {
+                items,
+                missing_paper_refs,
+            })
+        }
+    }
+
+    impl ReferenceHostPort for LiteratureDigestHost {
+        fn scan_artifacts_page(
+            &self,
+            _cursor: &str,
+            _limit: usize,
+            _paper_refs: &[String],
+            _artifact_types: &[&str],
+        ) -> Result<ReferenceHostArtifactsPage, String> {
+            Err("reverse_host_unavailable".into())
+        }
+
+        fn read_artifact(
+            &self,
+            _locator: &str,
+            _expected_hash: &str,
+        ) -> Result<ReferenceHostArtifactRead, String> {
+            Err("reverse_host_unavailable".into())
+        }
+    }
 
     fn test_root() -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -761,7 +854,7 @@ mod dispatch_integration_tests {
             },
         )
         .expect("canonical");
-        build_production_applications(
+        let mut applications = build_production_applications(
             Arc::new(synthesis_application::RepositoryPort::new(Arc::new(
                 Mutex::new(repository),
             ))),
@@ -771,7 +864,13 @@ mod dispatch_integration_tests {
             "service".into(),
             root.join("webdav-state.json"),
         )
-        .expect("applications")
+        .expect("applications");
+        let host = Arc::new(LiteratureDigestHost);
+        applications
+            .reference_canonical
+            .replace_host_for_tests(host.clone());
+        applications.host_items = host;
+        applications
     }
 
     fn literature_digest_request() -> Value {
@@ -821,12 +920,8 @@ mod dispatch_integration_tests {
                 "exclude_terms":["Legacy"]
             },
             "matchedReferences":[{
-                "libraryId":1,
-                "itemKey":"BBBB2222",
-                "paperRef":"1:BBBB2222",
-                "title":"Matched paper",
-                "year":"2024",
-                "citekey":"matched2024"
+                "library_id":1,
+                "item_key":"BBBB2222"
             }]
         })
     }
@@ -1127,8 +1222,8 @@ mod dispatch_integration_tests {
 
         let mut ambiguous = request.clone();
         ambiguous["matchedReferences"] = json!([
-            {"libraryId":1,"itemKey":"BBBB2222","paperRef":"1:BBBB2222","title":"Matched paper","year":"2024"},
-            {"libraryId":1,"itemKey":"CCCC3333","paperRef":"1:CCCC3333","title":"Matched paper","year":"2024"}
+            {"library_id":1,"item_key":"BBBB2222"},
+            {"library_id":1,"item_key":"CCCC3333"}
         ]);
         apply_literature_digest(&apps, ambiguous).expect("ambiguous title-year apply");
         let repository = owner.lock().expect("repository");

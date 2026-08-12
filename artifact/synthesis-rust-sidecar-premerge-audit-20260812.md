@@ -520,3 +520,23 @@ source-fresh 真实进程回归为 **2 passing**。一条在首个 WebDAV retry 
 最终门禁结果：TypeScript contracts、service 与根 typecheck 通过；production roster、cross-language、worker-transfer、native runtime 与七个 surface parity gate 通过；Rust format、workspace/all-targets Clippy、locked workspace build 与 257 项 workspace tests 全部通过；固定基线 Workflow Review 真实进程回归 1 passing；OpenSpec strict、scoped Prettier 与 whitespace gate 通过。四个 application differential 中此前已记录的 Node oracle drift 仍作为辅助诊断保留，没有被 allowlist，也没有驱动 DTO 或业务行为变更。
 
 这项 change 的完成不授权删除 Node oracle 或 plugin legacy owner；相关 removal change 仍需按各自范围单独执行。本次没有提交、切换分支、执行 sidecar prebuild、创建 release、推进 feed、触发发布或运行 Gitee 同步。
+
+## 第六阶段最终修复复验：合入证据链
+
+本节记录独立 OpenSpec change `repair-synthesis-premerge-evidence-chain` 的最终复验。业务行为仍固定到 `main@e210997a11e0054a3cb4ae0656e5cfb96102a09c`；本轮执行起点为 `bd25af9b05d2649f9f8a58dc21f578d3a1af5d49`，开始时工作树干净。实现、测试、规格和脚本的未提交补丁身份（不含本审计文件，tracked binary diff 加按路径排序的 untracked 文件内容哈希）为 `sha256:e1e3c666aba5ef3990a57a6dd2ec52263a4ac6569fc00d13eaedca2df2ab1cf6`。
+
+四个 application differential 已恢复为可执行的 source-fresh 合入证据。typed、Citation/Reference、Tag/Concept/Topic Graph、Checkpoint/Bundle/WebDAV/Debug 四个直接门禁分别比较 53 张持久化表，均返回 `ok: true`、`errors: []`；既有 cross-language wrapper 为 5 passing。唯一差异政策是精确的 Rust redirect-graph schema marker，它由四个检查器共享同一事实源，不接受其它表、字段或值的放宽。Topic oracle 的 readiness、freshness、空 patch 继承和批量 Reference read 已与固定主线对齐；restart reconciliation 在 Rust driver 中显式执行；WebDAV fixture 使用当前递归 reverse-Host DTO。
+
+生产性能证据也已恢复。合成 fixture 由同一 payload map 生成 manifest locator 与实际 JSON asset，测试会逐个解析 locator 并确认对象内容。完整 2k/10k/25k production-route gate 返回 `passed=true`、`failures=[]`。10k Reference refresh 的 p50 为 `2423.158 ms`、p95 为 `2464.379 ms`，低于 `2500 ms` 预算；SQL query/write 保持 `122/715`，Host 调用为 `500`，item/artifact/read 分别为 `100/300/100`。Reference FullSweep 快路径只在同一运行内 snapshot identity 已验证、无删除且完整投影结果等价时生效；删除或未验证状态仍走完整投影。对应 Rust 回归同时比较最终投影与 durable state，未用放宽预算换取通过。
+
+完整 Node core suite 已连续按无 grep、无 exclude、无新增 skip 的正式入口复跑三次。最终一次为 `3483 passing / 16 pending`，exit code 0。修复覆盖了旧 service loader、严格 request/result 错误分类、bearer/lifecycle 优先级、Host Bridge 与 MCP fixture、Workbench/Workflow/sidecar runtime DTO、共享 runtime cleanup、UI DOM identity 行为检查，以及 production TraceContext marker 的精确 release allowance。pending 数量来自既有测试条件，本轮没有增加兼容默认值或 suite-order 依赖。
+
+最终合同与运行时门禁结果如下：
+
+- contracts、repository、application、service、service boundary、production capabilities 和 runtime diagnostics 全部通过；service boundary 仍为 113 个 public methods。
+- cross-language registry 为 18 schemas / 813 definitions / 41 positive / 41 negative，119 个 protocol capability、15 个 worker operation、未授权 generic escape 0；指纹为 `sha256:3061d99eb4c1d73dd5529d0bc9f10eafc49285e3af5d3330bb770151db0c9284`。
+- production roster 仍为 96/96，没有新增或删除 operation/capability；release diagnostics exclusive bytes 为 0，production marker allowance 仅包含 `observation.v2`。
+- Stage 1 sidecar suite 全部分片通过。Rust 固定 nightly 的 format、workspace/all-targets Clippy `-D warnings`、locked workspace tests 与 build 全部通过；workspace 共 261 tests，0 failed，其中 sidecar binary 88 passed。
+- 根 TypeScript 与 sidebar TypeScript 配置均通过。变更 TypeScript、JavaScript、Markdown、YAML 的 scoped Prettier 通过；三个 protocol registry JSON 延续既有紧凑格式，固定起点文件本身即不满足全文件 Prettier，因此未制造与本次语义无关的整文件格式 churn。`git diff --check` 与 OpenSpec strict validation 通过。
+
+至此，原审计中四个 application parity gate、production-route performance fixture、full Node core suite 与 Related Items route 回归均已有绿色 source-fresh 证据。剩余边界是 Zotero 7 与 Zotero 9 desktop smoke；它需要真实桌面运行环境，未被自动化 sidecar/Node 门禁替代。因此本轮没有把 desktop smoke 记为通过，也没有执行提交、切换分支、sidecar prebuild、release、feed 推进、发布或 Gitee 同步。

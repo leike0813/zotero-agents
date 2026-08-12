@@ -280,14 +280,32 @@ describe("Synthesis lifecycle client consumers", function () {
                       {
                         value: "topic-1",
                         label: "Topic 1",
-                        description: "",
+                        description: "Semantic scope",
+                        meta: {
+                          kind: "synthesis.topic",
+                          topicId: "topic-1",
+                          title: "Topic 1",
+                        },
                       },
                     ],
                     diagnostics: [],
                   }
                 : args.capability === "client.getTopicReport"
-                  ? { topicId: "topic-1", status: "ready" }
-                  : { topicId: "topic-1", status: "ready" };
+                  ? {
+                      ok: true,
+                      status: "available",
+                      topic_id: "topic-1",
+                      format: "markdown",
+                      markdown: "# Topic 1",
+                      diagnostics: [],
+                    }
+                  : {
+                      schema_id: "synthesis.topic_context",
+                      schema_version: "2.0.0",
+                      topic_id: "topic-1",
+                      status: "not_found",
+                      diagnostics: [],
+                    };
             return args.rebuildResult(data);
           },
         },
@@ -298,8 +316,12 @@ describe("Synthesis lifecycle client consumers", function () {
       notifyChanged() {},
     });
     assert.deepEqual(await workflow.getTopicReport({ topicId: "topic-1" }), {
-      topicId: "topic-1",
-      status: "ready",
+      ok: true,
+      status: "available",
+      topic_id: "topic-1",
+      format: "markdown",
+      markdown: "# Topic 1",
+      diagnostics: [],
     });
     assert.lengthOf(
       (
@@ -320,7 +342,7 @@ describe("Synthesis lifecycle client consumers", function () {
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({
         capability: "topics.get_context",
-        input: { topicId: "topic-1" },
+        input: { topicId: "topic-1", view: "full" },
       }),
     });
     assert.include(bridgeRaw, '"status":"ok"');
@@ -331,10 +353,10 @@ describe("Synthesis lifecycle client consumers", function () {
       method: "tools/call",
       params: {
         name: "topics.get_context",
-        arguments: { topicId: "topic-1" },
+        arguments: { topicId: "topic-1", view: "full" },
       },
     })) as any;
-    assert.equal(mcp.result.structuredContent.data.topicId, "topic-1");
+    assert.equal(mcp.result.structuredContent.data.topic_id, "topic-1");
     assert.deepEqual(
       [...new Set(calls.map((call) => call.serviceInstanceId))],
       ["native-production-1"],

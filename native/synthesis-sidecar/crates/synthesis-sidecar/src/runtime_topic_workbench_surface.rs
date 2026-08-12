@@ -1138,41 +1138,10 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 
     fn index(&self, state: &Value) -> Result<Value, String> {
-        let mut projection = self
+        let projection = self
             .apps
             .reference_canonical
             .workbench_index(state, self.apps.library_id())?;
-        let review = self.apps.reference_canonical.workbench_review(
-            &json!({
-                "reviews":{
-                    "status":"open",
-                    "kind":"all",
-                    "confidence":"all",
-                    "search":"",
-                    "limit":25,
-                },
-            }),
-            self.apps.library_id(),
-        )?;
-        let registry = projection
-            .get_mut("registry")
-            .and_then(Value::as_object_mut)
-            .ok_or_else(|| "production_projection_invalid".to_owned())?;
-        let review_registry = review
-            .get("registry")
-            .and_then(Value::as_object)
-            .ok_or_else(|| "production_projection_invalid".to_owned())?;
-        for field in [
-            "cleanupProposals",
-            "matchProposals",
-            "matchTargetCandidates",
-            "canonicalRows",
-            "reviewPage",
-        ] {
-            if let Some(value) = review_registry.get(field) {
-                registry.insert(field.into(), value.clone());
-            }
-        }
         self.attach_review_summary(projection)
     }
 

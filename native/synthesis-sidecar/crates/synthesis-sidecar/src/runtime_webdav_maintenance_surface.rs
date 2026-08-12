@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
+use synthesis_application::webdav_sync::WebDavSyncState;
 use synthesis_repository::OperationRecord;
 use synthesis_sidecar::production_capabilities::ProductionClientSemanticSuccess;
 
@@ -35,7 +36,7 @@ register_production_client_handlers!(
         no_args(args)?;
         apps.canonical_autosync.cancel_pending();
         let checkpoint = || promotion_checkpoint(apps);
-        wire(
+        webdav_sync_wire(
             apps.webdav
                 .trigger_webdav_sync_with_checkpoint(&checkpoint)?,
         )
@@ -43,17 +44,17 @@ register_production_client_handlers!(
     ("client.pauseWebDavSync", |apps, args| {
         no_args(args)?;
         apps.canonical_autosync.cancel_pending();
-        wire(apps.webdav.pause_webdav_sync()?)
+        webdav_sync_wire(apps.webdav.pause_webdav_sync()?)
     }),
     ("client.resumeWebDavSync", |apps, args| {
         no_args(args)?;
-        wire(apps.webdav.resume_webdav_sync()?)
+        webdav_sync_wire(apps.webdav.resume_webdav_sync()?)
     }),
     ("client.retryWebDavSync", |apps, args| {
         no_args(args)?;
         apps.canonical_autosync.cancel_pending();
         let checkpoint = || promotion_checkpoint(apps);
-        wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
+        webdav_sync_wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
     }),
     ("client.resolveWebDavSyncConflict", resolve_conflict),
     ("client.getPublicMaintenanceOperation", public_maintenance),
@@ -121,6 +122,36 @@ fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
 }
 
+fn webdav_sync_wire(state: WebDavSyncState) -> Result<Value, String> {
+    let mut value = wire(state)?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?;
+    for field in ["connection_test", "progress", "last_run", "conflict_report"] {
+        if object.get(field).is_some_and(Value::is_null) {
+            object.remove(field);
+        }
+    }
+    if let Some(last_run) = object.get_mut("last_run").and_then(Value::as_object_mut) {
+        for field in ["snapshot_id", "manifest_hash"] {
+            if last_run.get(field).and_then(Value::as_str) == Some("") {
+                last_run.remove(field);
+            }
+        }
+    }
+    if let Some(report) = object
+        .get_mut("conflict_report")
+        .and_then(Value::as_object_mut)
+    {
+        report.insert(
+            "schema_id".into(),
+            json!("synthesis.webdav_sync_conflict_report"),
+        );
+        report.insert("schema_version".into(), json!("1.0.0"));
+    }
+    Ok(value)
+}
+
 fn no_args(args: &[Value]) -> Result<(), String> {
     if args.is_empty() {
         Ok(())
@@ -143,7 +174,7 @@ fn resolve_conflict(apps: &ProductionApplications, args: &[Value]) -> Result<Val
         ResolveConflictWireAction::ClearAfterManualEdit => "clear_after_manual_edit",
     };
     apps.canonical_autosync.cancel_pending();
-    wire(apps.webdav.resolve_webdav_sync_conflict(action)?)
+    webdav_sync_wire(apps.webdav.resolve_webdav_sync_conflict(action)?)
 }
 
 fn public_maintenance(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
@@ -515,7 +546,7 @@ fn reconcile_startup(apps: &ProductionApplications, args: &[Value]) -> Result<Va
     // Loading the durable state is the restart reconciliation boundary. The
     // application recovers a persisted syncing state to retryable rather than
     // recreating process-memory defaults.
-    let webdav = apps.webdav.load_webdav_sync_state()?;
+    let webdav = webdav_sync_wire(apps.webdav.load_webdav_sync_state()?)?;
     let maintenance = apps.workbench.read()?.maintenance;
     Ok(json!({ "status": "ready", "webdav": webdav, "maintenance": maintenance }))
 }

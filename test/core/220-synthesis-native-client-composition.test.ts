@@ -576,6 +576,47 @@ describe("Synthesis native client composition", function () {
     ]);
   });
 
+  it("keeps Host delivery context out of the Topic context wire arguments", async function () {
+    const calls: Array<{ capability: string; payload: unknown }> = [];
+    const composition = createNativeSynthesisClientComposition({
+      getReadyConnection: () => ({
+        discovery: {
+          host: "127.0.0.1",
+          port: 1234,
+          profileId: "1".repeat(64),
+          serviceInstanceId: "service-1",
+        },
+        clientToken: "token",
+      }),
+      rpcClient: {
+        async call(args) {
+          calls.push({ capability: args.capability, payload: args.payload });
+          return args.rebuildResult({
+            schema_id: "synthesis.topic_context",
+            schema_version: "2.0.0",
+            topic_id: "topic:delivery",
+            status: "not_found",
+            diagnostics: [],
+          });
+        },
+      },
+    });
+
+    await composition.client.topics.getContext(
+      { topicId: "topic:delivery", view: "full" },
+      { mode: "remote" },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        capability: "client.getTopicContext",
+        payload: {
+          args: [{ topicId: "topic:delivery", view: "full" }],
+        },
+      },
+    ]);
+  });
+
   it("sends only the six public Citation Graph command DTOs", async function () {
     const calls: Array<{
       capability: SynthesisSidecarProductionClientCapability;

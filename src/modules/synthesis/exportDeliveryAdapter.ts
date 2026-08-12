@@ -1,4 +1,5 @@
 import {
+  buildSynthesisHostExportDeliveryHints,
   rebuildSynthesisHostExportDeliveryRequest,
   rebuildSynthesisHostExportDeliveryResult,
   type SynthesisHostExportDeliveryPort,
@@ -92,6 +93,7 @@ export function createSynthesisHostExportDeliveryPort(
           delivery: {
             mode: "bridge-download",
             bundle: descriptor,
+            ...buildSynthesisHostExportDeliveryHints(descriptor),
           },
           diagnostics: [],
         });

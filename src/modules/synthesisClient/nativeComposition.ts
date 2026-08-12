@@ -308,7 +308,9 @@ function createNativePort(args: {
                       )?.controlledAssets || [],
                   },
                 ]
-              : [...methodArgs];
+              : property === "getTopicContext"
+                ? methodArgs.slice(0, 1)
+                : [...methodArgs];
           while (
             normalizedArgs.length > 0 &&
             normalizedArgs[normalizedArgs.length - 1] === undefined

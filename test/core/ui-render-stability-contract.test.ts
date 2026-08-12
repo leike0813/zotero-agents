@@ -28,10 +28,12 @@ describe("UI render stability contract", function () {
       'data.type === "synthesis:init" || data.type === "synthesis:snapshot"',
     );
     assert.isAtLeast(messageHandlerStart, 0);
-    const messageHandler = source.slice(
+    const nextMessageBranch = source.indexOf(
+      'data.type === "synthesis:artifact"',
       messageHandlerStart,
-      messageHandlerStart + 900,
     );
+    assert.isAbove(nextMessageBranch, messageHandlerStart);
+    const messageHandler = source.slice(messageHandlerStart, nextMessageBranch);
 
     assert.include(source, "function snapshotChromeSignature");
     assert.include(source, "function snapshotContentSignature");

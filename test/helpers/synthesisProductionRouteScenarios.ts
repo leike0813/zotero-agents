@@ -39,7 +39,6 @@ type OperationManifest = {
 
 export type SynthesisProductionRouteScenario = {
   operation: SynthesisSidecarProductionClientCapability;
-  prelude?: (client: SynthesisClient) => Promise<void>;
   invoke: (client: SynthesisClient) => Promise<unknown>;
   assertSemantic: (outcome: SynthesisProductionRouteScenarioOutcome) => void;
 };
@@ -534,7 +533,6 @@ export async function executeSynthesisProductionRouteScenarios(
     outcome: SynthesisProductionRouteScenarioOutcome;
   }> = [];
   for (const scenario of scenarios) {
-    await scenario.prelude?.(harness.client);
     const wireOffset = harness.recorder.wire.length;
     const hostOffset = harness.recorder.hostCalls.length;
     const observationOffset = harness.observations().length;

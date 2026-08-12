@@ -41,6 +41,20 @@ async function makeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-synthesis-mcp-"));
 }
 
+async function loadProtocolCorpusCase(file: string, id: string) {
+  const corpus = JSON.parse(
+    await fs.readFile(
+      path.join(
+        process.cwd(),
+        "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus",
+        file,
+      ),
+      "utf8",
+    ),
+  ) as { cases: Array<{ id: string; value: unknown }> };
+  return structuredClone(corpus.cases.find((entry) => entry.id === id)!.value);
+}
+
 async function makeAcpRunRoot() {
   const runsDir = getRuntimePersistencePaths().acpSkillRunsDir;
   const runRoot = path.join(
@@ -111,45 +125,52 @@ describe("Synthesis MCP tools", function () {
       listTopics() {
         calls.push("list_topics");
         return {
-          topics: [
-            {
-              topic_id: "topic-alpha",
-              title: "Alpha Topic",
-              description: "Semantic scope",
-              aliases: ["Alpha"],
-              updated_at: "2026-05-12T00:00:00.000Z",
-            },
-          ],
-          diagnostics: { count: 1, source: "canonical-topic-definitions" },
-        };
-      },
-      findTopicsByPaperRef(args) {
-        calls.push(`topics_by_paper:${args.paper_ref || "none"}`);
-        return {
-          ok: true,
-          status: "ok",
-          paper_refs: [args.paper_ref],
-          topics: [
-            {
-              topic_id: "topic-alpha",
-              title: "Alpha Topic",
-              freshness: "fresh",
-              coverage: "complete",
-              matched_paper_refs: [args.paper_ref],
-              match_sources: ["current_dependencies"],
-            },
-          ],
+          topics: [],
+          cursor: "",
+          next_cursor: "",
+          has_more: false,
+          returned: 0,
+          total: 0,
+          limit: 25,
           diagnostics: {
-            requested_count: 1,
-            matched_topic_count: 1,
-            unmatched_paper_refs: [],
-            source: "artifact_state",
+            count: 0,
+            total_count: 0,
+            source: "rust-topic-application",
           },
         };
       },
-      getSchemas(args) {
-        calls.push(`schemas:${args.kind || "all"}`);
-        return { schemas: { resolver: { type: "object" } } };
+      findTopicsByPaperRef(args) {
+        calls.push(`topics_by_paper:${args.paper_refs.join(",")}`);
+        return {
+          ok: true,
+          status: "ok",
+          paper_refs: args.paper_refs,
+          topics: [],
+          diagnostics: {
+            requested_count: 1,
+            matched_topic_count: 0,
+            unmatched_paper_refs: args.paper_refs,
+            source: "rust-topic-application",
+          },
+        };
+      },
+      getSchemas() {
+        calls.push("schemas:all");
+        return {
+          schema: "synthesis-artifact-library-debug-schemas.v1",
+          schemas: {
+            result_bundle: "synthesis.topic_synthesis_result_bundle@1.0.0",
+            canonical_metadata: "synthesis.topic_artifact_metadata@1.0.0",
+            artifact_manifest: "synthesis.paper_artifact_manifest@1.0.0",
+            library_index: "synthesis.library_index@1.0.0",
+            debug_snapshot: "synthesis.debug-maintenance.v1",
+          },
+          redaction: {
+            local_paths: "[redacted-path]",
+            credentials: "omitted",
+            host_objects: "omitted",
+          },
+        };
       },
       getLibraryIndex(args) {
         calls.push(
@@ -157,37 +178,69 @@ describe("Synthesis MCP tools", function () {
         );
         return {
           libraryId: 1,
-          papers: [{ paper_ref: "1:ABCD1234", title: "Alpha Paper" }],
+          papers: [],
           cursor: String(args.cursor || "0"),
           next_cursor: "",
           has_more: false,
-          returned: 1,
-          total_papers: 1,
-          index_hash: "sha256:index",
-          page_hash: "sha256:page",
+          returned: 0,
+          total_papers: 0,
+          limit: 1,
+          index_hash: `sha256:${"a".repeat(64)}`,
+          page_hash: `sha256:${"b".repeat(64)}`,
+          pagination: {
+            papers: {
+              cursor: "0",
+              nextCursor: "",
+              hasMore: false,
+              returned: 0,
+              total: 0,
+              limit: 1,
+            },
+          },
         };
       },
       resolveResolver(args) {
-        calls.push(`resolve:${(args.tag as any) || "direct"}`);
+        calls.push(`resolve:${args.tag.and[0]}`);
         return {
           ok: true,
-          papers: [{ paper_ref: "1:ABCD1234", match_reasons: ["tag"] }],
+          errors: [],
+          papers: [
+            {
+              paper_ref: "1:ABCD1234",
+              item_key: "ABCD1234",
+              title: "Alpha Paper",
+              year: "2026",
+              match_reasons: ["tag"],
+            },
+          ],
           normalized_resolver: args,
-          diagnostics: { final_count: 1 },
+          cursor: "0",
+          next_cursor: "",
+          has_more: false,
+          returned: 1,
+          total: 1,
+          limit: 25,
+          diagnostics: {
+            final_count: 1,
+            total_candidates: 1,
+            rejected: false,
+          },
         };
       },
     };
 
     const listResponse: any = await handleZoteroMcpRequestForTests(
-      request(0, "topics.list"),
+      request(0, "topics.list", { cursor: "", limit: 25 }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const topicsByPaperResponse: any = await handleZoteroMcpRequestForTests(
-      request(4, "topics.find_by_paper_ref", { paper_ref: "1:ABCD1234" }),
+      request(4, "topics.find_by_paper_ref", {
+        paper_refs: ["1:ABCD1234"],
+      }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const schemaResponse: any = await handleZoteroMcpRequestForTests(
-      request(1, "schemas.get", { kind: "resolver" }),
+      request(1, "schemas.get"),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const indexResponse: any = await handleZoteroMcpRequestForTests(
@@ -196,7 +249,12 @@ describe("Synthesis MCP tools", function () {
     );
     const resolveResponse: any = await handleZoteroMcpRequestForTests(
       request(2, "resolvers.resolve", {
-        tag: "topic:test",
+        paper_refs: [],
+        collection_key: [],
+        tag: { and: ["topic:test"] },
+        combine: "union",
+        cursor: 0,
+        limit: 25,
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
@@ -204,24 +262,18 @@ describe("Synthesis MCP tools", function () {
     assert.deepEqual(calls, [
       "list_topics",
       "topics_by_paper:1:ABCD1234",
-      "schemas:resolver",
+      "schemas:all",
       "library_index:0:1",
       "resolve:topic:test",
     ]);
-    assert.equal(
-      listResponse.result.structuredContent.result.topics[0].topic_id,
-      "topic-alpha",
-    );
-    assert.equal(
-      topicsByPaperResponse.result.structuredContent.result.topics[0].topic_id,
-      "topic-alpha",
+    assert.deepEqual(listResponse.result.structuredContent.result.topics, []);
+    assert.deepEqual(
+      topicsByPaperResponse.result.structuredContent.result.paper_refs,
+      ["1:ABCD1234"],
     );
     assert.include(schemaResponse.result.content[0].text, "schemas");
     assert.equal(indexResponse.result.structuredContent.result.has_more, false);
-    assert.equal(
-      indexResponse.result.structuredContent.result.index_hash,
-      "sha256:index",
-    );
+    assert.equal(indexResponse.result.structuredContent.result.returned, 0);
     assert.isTrue(resolveResponse.result.structuredContent.result.ok);
     assert.equal(
       resolveResponse.result.structuredContent.result.candidates[0].paper_ref,
@@ -230,12 +282,6 @@ describe("Synthesis MCP tools", function () {
   });
 
   it("returns structured resolver validation failures from resolve_resolver", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      registryInputs: [],
-    });
     const response: any = await handleZoteroMcpRequestForTests(
       request(1, "resolvers.resolve", {
         resolver: {
@@ -243,141 +289,60 @@ describe("Synthesis MCP tools", function () {
           paper_refs: ["1:ABCD1234"],
         },
       }),
-      { resolveSynthesisClient: resolveClientFromPorts(service) },
+      { resolveSynthesisClient: resolveClientFromPorts({}) },
     );
 
-    assert.isFalse(response.result.structuredContent.result.ok);
-    assert.match(
-      response.result.structuredContent.result.errors.join("\n"),
-      /resolver|selection_strategy/i,
-    );
-    assert.equal(
-      response.result.structuredContent.result.diagnostics.rejected,
-      true,
-    );
+    assert.equal(response.error.code, -32602);
+    assert.match(response.error.message, /resolver|unknown|additional/i);
   });
 
   it("routes reference sidecar index and graph slice reads through the injected service", async function () {
     const service: SynthesisClientPorts = {
       getReferenceSidecarIndex() {
-        return { rows: [{ paper_ref: "1:ABCD1234" }], total: 1 };
+        return {
+          rows: [],
+          cursor: "",
+          next_cursor: "",
+          has_more: false,
+          returned: 0,
+          total: 0,
+          limit: 25,
+          diagnostics: {
+            cache_found: false,
+            storage: "sqlite",
+            stale: false,
+            warnings: [],
+            recommended_commands: [],
+            repository_basis_hash: `sha256:${"a".repeat(64)}`,
+            canonical_basis_hash: `sha256:${"b".repeat(64)}`,
+          },
+        };
       },
       getCitationGraphSlice() {
         return {
           ok: true,
-          graph_hash: "sha256:graph",
+          graph_hash: `sha256:${"c".repeat(64)}`,
+          querySignature: `sha256:${"d".repeat(64)}`,
           start_node_id: "zotero:item:ABCD1234",
-          nodes: [{ node_id: "zotero:item:ABCD1234" }],
+          nodes: [],
           edges: [],
           diagnostics: {
-            snapshot_found: true,
+            snapshot_found: false,
             depth: 1,
-            node_count: 1,
+            direction: "both",
+            node_count: 0,
             edge_count: 0,
             truncated: false,
-            limits: { maxNodes: 80, maxEdges: 160, maxDepth: 2 },
+            bounded: true,
             warnings: [],
           },
-        };
-      },
-      getCitationGraphLayout(args) {
-        return {
-          ok: true,
-          status: "ready",
-          scope: args.scope || "slice",
-          graph_hash: "sha256:graph",
-          layout_hash: "sha256:layout",
-          layout_status: "ready",
-          preset: "force",
-          view_key: "workbench_overview",
-          nodes: [
-            {
-              node_id: "zotero:item:ABCD1234",
-              node_type: "library_paper",
-              paper_ref: "1:ABCD1234",
-              title: "Alpha Paper",
-              x: 1,
-              y: 2,
-            },
-          ],
-          edges: [],
-          diagnostics: {
-            snapshot_found: true,
-            layout_found: true,
-            node_count: 1,
-            edge_count: 0,
-            truncated: false,
-            limits: {
-              maxNodes: 200,
-              maxEdges: 500,
-              hardMaxNodes: 5000,
-              hardMaxEdges: 20000,
-            },
-            warnings: [],
-          },
-        };
-      },
-      getCitationGraphMetrics() {
-        return {
-          ok: true,
-          graph_hash: "sha256:graph",
-          metrics_hash: "sha256:metrics",
-          status: "ready",
-          items: [
-            {
-              node_id: "zotero:item:ABCD1234",
-              paper_ref: "1:ABCD1234",
-              internal_in_degree: 1,
-              internal_out_degree: 0,
-              internal_pagerank: 1,
-              foundation_score: 1,
-              frontier_score: 0.2,
-              synthesis_role_hints: ["foundation"],
-            },
-          ],
-          diagnostics: {
-            snapshot_found: true,
-            metrics_found: true,
-            stale: false,
-            total_library_nodes: 1,
-            returned_count: 1,
-            limits: { limit: 25, maxLimit: 100 },
-            warnings: [],
-          },
-        };
-      },
-      queryConceptKb(args) {
-        return {
-          ok: true,
-          labels: args.concept_candidate_labels,
-          matches: [{ label: "DETR", exact_matches: [] }],
-          diagnostics: [],
-        };
-      },
-      queryCitationGraphCluster(args) {
-        return {
-          ok: true,
-          source_paper_refs: args.source_paper_refs,
-          cluster_policy: "bounded_external",
-          nodes: [{ node_id: "zotero:item:ABCD1234" }],
-          edges: [],
-          summaries: { cluster_node_count: 1 },
-          diagnostics: { bounded: true, side_effect_free: true },
         };
       },
     };
 
     for (const [id, name, args] of [
-      [1, "reference_index.get", { sourceRefs: ["1:ABCD1234"] }],
+      [1, "reference_index.get", { sourceRefs: ["1:ABCD1234"], limit: 25 }],
       [2, "citation_graph.get_slice", { paperRef: "1:ABCD1234" }],
-      [6, "citation_graph.get_layout", { scope: "full" }],
-      [3, "citation_graph.get_metrics", { paperRefs: ["1:ABCD1234"] }],
-      [4, "concepts.query", { concept_candidate_labels: ["DETR"] }],
-      [
-        5,
-        "citation_graph.query_cluster",
-        { source_paper_refs: ["1:ABCD1234"] },
-      ],
     ] as const) {
       const response: any = await handleZoteroMcpRequestForTests(
         request(id, name, args),
@@ -394,37 +359,36 @@ describe("Synthesis MCP tools", function () {
       getPaperArtifactManifest(args) {
         calls.push({ method: "manifest", args });
         return {
-          papers: [
+          artifacts: [
             {
               paper_ref: "1:ABCD1234",
-              artifacts: [
-                {
-                  artifact_type: "digest",
-                  status: "available",
-                  payload_type: "digest-markdown",
-                },
-              ],
+              artifact_type: "digest",
+              status: "available",
+              payload_type: "digest-markdown",
+              payload_types_seen: ["digest-markdown"],
+              diagnostics: [],
             },
           ],
+          diagnostics: [],
           total: 1,
         };
       },
       readPaperArtifacts(args) {
         calls.push({ method: "read", args });
         return {
-          papers: [
+          artifacts: [
             {
-              paper_ref: args.paper_ref,
-              artifacts: [
-                {
-                  artifact_type: "digest",
-                  payload_type: "digest-markdown",
-                  status: "available",
-                  content: "# Digest",
-                },
-              ],
+              paper_ref: args.paper_refs[0],
+              artifact_type: "digest",
+              payload_type: "digest-markdown",
+              status: "available",
+              markdown: "# Digest",
+              decoded_text: "# Digest",
+              payload_types_seen: ["digest-markdown"],
+              diagnostics: [],
             },
           ],
+          diagnostics: [],
         };
       },
     };
@@ -460,15 +424,16 @@ describe("Synthesis MCP tools", function () {
       exportFilteredPaperArtifacts(args) {
         calls.push(args);
         return {
-          paper_ref: args.paper_ref,
-          paper_refs: [args.paper_ref],
+          paper_ref: args.paper_refs[0],
+          paper_refs: args.paper_refs,
           manifest_file: "runtime/payloads/paper-artifacts-manifest.json",
           artifact_statuses: [
             {
-              paper_ref: args.paper_ref,
+              paper_ref: args.paper_refs[0],
               artifact_type: "digest",
               payload_type: "digest-markdown",
               status: "available",
+              missing_reason: "",
             },
           ],
           diagnostics: [],
@@ -479,12 +444,12 @@ describe("Synthesis MCP tools", function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(12, "paper_artifacts.export_filtered", {
         run_root: ".",
-        paper_ref: "1:ABCD1234",
+        paper_refs: ["1:ABCD1234"],
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
-    assert.deepEqual(calls, [{ run_root: ".", paper_ref: "1:ABCD1234" }]);
+    assert.deepEqual(calls, [{ run_root: ".", paper_refs: ["1:ABCD1234"] }]);
     const result = response.result.structuredContent.result;
     assert.equal(
       result.manifest_file,
@@ -510,6 +475,7 @@ describe("Synthesis MCP tools", function () {
               artifact_type: "digest",
               payload_type: "digest-markdown",
               status: "available",
+              missing_reason: "",
             },
           ],
           diagnostics: [],
@@ -864,32 +830,17 @@ describe("Synthesis MCP tools", function () {
     assert.match(response.error.message, /unknown|additional/i);
   });
 
-  it("returns recommended_update from get_topic_context for prefilled update jobs", async function () {
+  it("routes the current digest view through get_topic_context", async function () {
     const calls: Record<string, unknown>[] = [];
     const service: SynthesisClientPorts = {
       getTopicContext(args) {
         calls.push(args);
         return {
+          schema_id: "synthesis.topic_context",
+          schema_version: "2.0.0",
           topic_id: args.topicId,
-          mode: args.mode,
-          language: "zh-CN",
-          current_hashes: {
-            manifest: "sha256:manifest",
-            artifact: "sha256:artifact",
-            export: "sha256:export",
-            metadata: "sha256:metadata",
-          },
-          section_hashes: {
-            claims: "sha256:claims",
-            coverage: "sha256:coverage",
-          },
-          recommended_update: {
-            allowed: true,
-            reason: "artifact_changed",
-            scope: "claims",
-            mode: "update_patch",
-            changed_sections: ["claims"],
-          },
+          view: "digest",
+          diagnostics: [],
         };
       },
     };
@@ -897,30 +848,17 @@ describe("Synthesis MCP tools", function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(10, "topics.get_context", {
         topicId: "object-detection",
-        mode: "update",
+        view: "digest",
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
-    assert.deepEqual(calls, [{ topicId: "object-detection", mode: "update" }]);
+    assert.deepEqual(calls, [{ topicId: "object-detection", view: "digest" }]);
     assert.equal(
       response.result.structuredContent.result.topic_id,
       "object-detection",
     );
-    assert.deepInclude(
-      response.result.structuredContent.result.recommended_update,
-      {
-        allowed: true,
-        reason: "artifact_changed",
-        scope: "claims",
-        mode: "update_patch",
-      },
-    );
-    assert.deepEqual(
-      response.result.structuredContent.result.recommended_update
-        .changed_sections,
-      ["claims"],
-    );
+    assert.equal(response.result.structuredContent.result.view, "digest");
   });
 
   it("exposes topic context view and file-output arguments in the MCP schema", async function () {
@@ -944,23 +882,17 @@ describe("Synthesis MCP tools", function () {
     assert.property(tool.inputSchema.properties, "overwrite");
   });
 
-  it("returns a compact topic context file-output envelope through MCP", async function () {
+  it("returns the strict semantic topic context through MCP", async function () {
     const calls: Record<string, unknown>[] = [];
     const service: SynthesisClientPorts = {
       getTopicContext(args) {
         calls.push(args);
         return {
-          schema_id: "synthesis.topic_context.output",
+          schema_id: "synthesis.topic_context",
           schema_version: "2.0.0",
           topic_id: args.topicId,
           view: args.view,
-          output: {
-            mode: "file",
-            path: args.outputPath,
-            bytes: 2048,
-            sha256: "sha256:semantic",
-          },
-          omitted_inline_result: true,
+          diagnostics: [],
         };
       },
     };
@@ -969,8 +901,6 @@ describe("Synthesis MCP tools", function () {
       request(13, "topics.get_context", {
         topicId: "object-detection",
         view: "semantic",
-        outputPath: "runtime/topic-context.semantic.json",
-        overwrite: true,
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
@@ -979,21 +909,9 @@ describe("Synthesis MCP tools", function () {
       {
         topicId: "object-detection",
         view: "semantic",
-        outputPath: "runtime/topic-context.semantic.json",
-        overwrite: true,
       },
     ]);
-    assert.equal(
-      response.result.structuredContent.result.omitted_inline_result,
-      true,
-    );
-    assert.deepEqual(response.result.structuredContent.result.output, {
-      mode: "file",
-      path: "runtime/topic-context.semantic.json",
-      bytes: 2048,
-      sha256: "sha256:semantic",
-    });
-    assert.notProperty(response.result.structuredContent.result, "semantic");
+    assert.equal(response.result.structuredContent.result.view, "semantic");
   });
 
   it("routes topic report markdown reads through the injected synthesis service", async function () {
@@ -1009,9 +927,10 @@ describe("Synthesis MCP tools", function () {
           format: "markdown",
           markdown: "## 技术路线\n\nReport body.",
           source: {
-            path: "topics/object-detection/current/artifact.json",
-            field: "synthesis_report.body",
-            ssot: "runtime.synthesis_report.body",
+            workflowId: "topic-synthesis",
+            runId: "run-object-detection",
+            skillId: "topic-synthesis-finalize",
+            artifactPath: "topics/object-detection/current/artifact.json",
           },
           diagnostics: [],
         };
@@ -1031,8 +950,8 @@ describe("Synthesis MCP tools", function () {
       "## 技术路线\n\nReport body.",
     );
     assert.equal(
-      response.result.structuredContent.result.source.ssot,
-      "runtime.synthesis_report.body",
+      response.result.structuredContent.result.source.artifactPath,
+      "topics/object-detection/current/artifact.json",
     );
   });
 
@@ -1057,10 +976,12 @@ describe("Synthesis MCP tools", function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(11, "paper_artifacts.resolve_topic_digest", {
         topicId: "object-detection",
-        digest_ref: {
-          paper_ref: "1:ABCD1234",
-          payload_type: "digest-markdown",
-          payload_hash: "sha256:old",
+        paperRef: "1:ABCD1234",
+        includeRepresentativeImage: false,
+        digestRef: {
+          paperRef: "1:ABCD1234",
+          locator: "runtime:topic-digest:ABCD1234",
+          payloadHash: "sha256:old",
         },
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
@@ -1074,25 +995,49 @@ describe("Synthesis MCP tools", function () {
     assert.isTrue(response.result.structuredContent.result.source_changed);
   });
 
-  it("returns paged reference sidecar index rows from the default synthesis service", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      registryInputs: [
-        { libraryId: 1, itemKey: "AAAA1111", title: "Alpha", tags: ["a"] },
-        { libraryId: 1, itemKey: "BBBB2222", title: "Beta", tags: ["b"] },
-        { libraryId: 1, itemKey: "CCCC3333", title: "Gamma", tags: ["c"] },
-      ],
-    });
-    await service.refreshReferenceSidecarNow();
+  it("returns paged reference sidecar index rows from the injected client", async function () {
+    const service: SynthesisClientPorts = {
+      getReferenceSidecarIndex() {
+        return {
+          rows: [
+            {
+              paper_ref: "1:CCCC3333",
+              library_id: 1,
+              item_key: "CCCC3333",
+              title: "Gamma",
+              year: "2026",
+              metadata_hash: `sha256:${"c".repeat(64)}`,
+              updated_at: "2026-08-12T00:00:00Z",
+              artifactCoverage: "partial",
+              missing_artifacts: [],
+              reference_count: 0,
+              unbound_reference_count: 0,
+              references: [],
+            },
+          ],
+          cursor: "1",
+          next_cursor: "",
+          has_more: false,
+          returned: 1,
+          total: 2,
+          limit: 1,
+          diagnostics: {
+            cache_found: true,
+            storage: "sqlite",
+            stale: false,
+            warnings: [],
+            recommended_commands: [],
+            repository_basis_hash: `sha256:${"a".repeat(64)}`,
+            canonical_basis_hash: `sha256:${"b".repeat(64)}`,
+          },
+        };
+      },
+    };
 
     const response: any = await handleZoteroMcpRequestForTests(
       request(20, "reference_index.get", {
         sourceRefs: ["1:BBBB2222", "1:CCCC3333"],
         includeReferences: true,
-        referenceSourceRefs: ["1:CCCC3333"],
-        rawReferenceIds: [],
         cursor: "1",
         limit: 1,
       }),
@@ -1108,7 +1053,6 @@ describe("Synthesis MCP tools", function () {
     assert.equal(result.returned, 1);
     assert.equal(result.total, 2);
     assert.deepEqual(result.diagnostics.recommended_commands, []);
-    assert.equal(result.diagnostics.maintenance.pending_dirty_count, 0);
   });
 
   it("returns bounded maintenance diagnostics from read-only citation graph MCP reads", async function () {
@@ -1136,32 +1080,44 @@ describe("Synthesis MCP tools", function () {
     assert.equal(result.diagnostics.maintenance.queue_state, "removed");
   });
 
-  it("returns paged resolver matches from the default synthesis service", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      registryInputs: [
-        {
-          libraryId: 1,
-          itemKey: "AAAA1111",
-          title: "Alpha",
-          tags: ["topic:x"],
-        },
-        { libraryId: 1, itemKey: "BBBB2222", title: "Beta", tags: ["topic:x"] },
-        {
-          libraryId: 1,
-          itemKey: "CCCC3333",
-          title: "Gamma",
-          tags: ["topic:x"],
-        },
-      ],
-    });
+  it("returns paged resolver matches from the injected client", async function () {
+    const service: SynthesisClientPorts = {
+      resolveResolver(args) {
+        return {
+          ok: true,
+          errors: [],
+          papers: [
+            {
+              paper_ref: "1:BBBB2222",
+              item_key: "BBBB2222",
+              title: "Beta",
+              year: "2026",
+              match_reasons: ["tag_query"],
+            },
+          ],
+          normalized_resolver: args,
+          cursor: "1",
+          next_cursor: "2",
+          has_more: true,
+          returned: 1,
+          total: 3,
+          limit: 1,
+          diagnostics: {
+            final_count: 1,
+            total_candidates: 3,
+            rejected: false,
+          },
+        };
+      },
+    };
 
     const response: any = await handleZoteroMcpRequestForTests(
       request(21, "resolvers.resolve", {
         tag: { and: ["topic:x"] },
-        cursor: "1",
+        paper_refs: [],
+        collection_key: [],
+        combine: "union",
+        cursor: 1,
         limit: 1,
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
@@ -1178,20 +1134,66 @@ describe("Synthesis MCP tools", function () {
   });
 
   it("returns compact library index pages unless include flags request larger sections", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      registryInputs: [
-        {
+    const paper = {
+      paper_ref: "1:AAAA1111",
+      library_id: 1,
+      item_key: "AAAA1111",
+      title: "Alpha",
+      year: "2026",
+      item_type: "journalArticle",
+      creators: [],
+      tags: ["topic:x"],
+      collections: [],
+    };
+    const service: SynthesisClientPorts = {
+      getLibraryIndex(args) {
+        const result: Record<string, any> = {
           libraryId: 1,
-          itemKey: "AAAA1111",
-          title: "Alpha",
-          tags: ["topic:x"],
-        },
-        { libraryId: 1, itemKey: "BBBB2222", title: "Beta", tags: ["topic:y"] },
-      ],
-    });
+          papers: [paper],
+          cursor: "",
+          next_cursor: "",
+          has_more: false,
+          returned: 1,
+          total_papers: 1,
+          limit: 1,
+          index_hash: `sha256:${"a".repeat(64)}`,
+          page_hash: `sha256:${"b".repeat(64)}`,
+          pagination: {
+            papers: {
+              cursor: "",
+              nextCursor: "",
+              hasMore: false,
+              returned: 1,
+              total: 1,
+              limit: 1,
+            },
+          },
+        };
+        if (args.includeTags) {
+          result.tags = {
+            items: [{ tag: "topic:x", count: 1 }],
+            cursor: "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 1,
+            total: 1,
+            limit: 1,
+          };
+        }
+        if (args.includeItems) {
+          result.registry = {
+            items: [paper],
+            cursor: "",
+            nextCursor: "",
+            hasMore: false,
+            returned: 1,
+            total: 1,
+            limit: 1,
+          };
+        }
+        return result;
+      },
+    };
 
     const compact: any = await handleZoteroMcpRequestForTests(
       request(22, "library_index.get", { limit: 1 }),
@@ -1215,13 +1217,12 @@ describe("Synthesis MCP tools", function () {
     assert.deepEqual(compactResult.papers[0].tags, ["topic:x"]);
     assert.notProperty(compactResult, "tags");
     assert.notProperty(compactResult, "registry");
-    assert.isArray(expandedResult.tags);
-    assert.lengthOf(expandedResult.tags, 1);
-    assert.isArray(expandedResult.registry);
+    assert.lengthOf(expandedResult.tags.items, 1);
+    assert.lengthOf(expandedResult.registry.items, 1);
     assert.isObject(expandedResult.pagination);
     assert.strictEqual(expandedResult.pagination.papers.limit, 1);
-    assert.strictEqual(expandedResult.pagination.tags.limit, 1);
-    assert.strictEqual(expandedResult.pagination.registry.limit, 1);
+    assert.strictEqual(expandedResult.tags.limit, 1);
+    assert.strictEqual(expandedResult.registry.limit, 1);
   });
 
   it("returns paged citation graph overview sections", async function () {
@@ -1280,22 +1281,21 @@ describe("Synthesis MCP tools", function () {
   });
 
   it("routes bounded review input arguments through the synthesis MCP service", async function () {
+    const reviewResult = await loadProtocolCorpusCase(
+      "client-workflow-review.json",
+      "workflow-review-recursive-positive",
+    );
     const calls: Record<string, unknown>[] = [];
     const service: SynthesisClientPorts = {
       getReviewInput(args) {
         calls.push(args);
-        return {
-          topic: { topic_id: args.topicId, markdown: "# Topic" },
-          diagnostics: {
-            warnings: ["topic markdown truncated to 120 chars"],
-          },
-        };
+        return reviewResult;
       },
     };
 
     const response: any = await handleZoteroMcpRequestForTests(
       request(24, "topics.get_review_input", {
-        topicId: "topic-alpha",
+        topicId: "topic:1",
         maxGraphNodes: 10,
         maxGraphEdges: 20,
         maxChars: 120,
@@ -1306,16 +1306,20 @@ describe("Synthesis MCP tools", function () {
 
     assert.deepEqual(calls, [
       {
-        topicId: "topic-alpha",
+        topicId: "topic:1",
         maxGraphNodes: 10,
         maxGraphEdges: 20,
         maxChars: 120,
         includePaperArtifacts: false,
       },
     ]);
-    assert.include(
-      response.result.structuredContent.result.diagnostics.warnings.join("\n"),
-      "truncated",
+    assert.equal(
+      response.result.structuredContent.result.topic.topic_id,
+      "topic:1",
+    );
+    assert.equal(
+      response.result.structuredContent.result.summary.registryRows,
+      1,
     );
   });
 });

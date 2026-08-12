@@ -2,6 +2,92 @@
   "schema": "synthesis-sidecar-protocol-corpus.v1",
   "cases": [
     {
+      "id": "workbench-index-registry-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "valid": true,
+      "value": {
+        "rows": [],
+        "cacheStatus": {
+          "cache_key": "reference-sidecar:library",
+          "status": "missing",
+          "source_hash": "",
+          "basis_hash": "",
+          "refreshed_at": "",
+          "updated_at": "",
+          "diagnostics": [],
+          "allowed_actions": ["refreshReferenceSidecarNow"]
+        }
+      }
+    },
+    {
+      "id": "workbench-review-registry-positive",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "valid": true,
+      "value": {
+        "rows": [],
+        "cleanupProposals": [],
+        "matchProposals": [],
+        "matchTargetCandidates": [],
+        "canonicalRows": [],
+        "cacheStatus": {
+          "cache_key": "reference-sidecar:library",
+          "status": "ready",
+          "source_hash": "sha256:source",
+          "basis_hash": "sha256:basis",
+          "refreshed_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z",
+          "diagnostics": [],
+          "allowed_actions": ["refreshReferenceSidecarNow"]
+        },
+        "reviewPage": {
+          "cursor": "0",
+          "next_cursor": "",
+          "has_more": false,
+          "limit": 25,
+          "match_total": 0,
+          "cleanup_total": 0
+        }
+      }
+    },
+    {
+      "id": "workbench-index-registry-review-field-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "valid": false,
+      "value": {
+        "rows": [],
+        "matchProposals": [],
+        "cacheStatus": {
+          "cache_key": "reference-sidecar:library",
+          "status": "missing",
+          "source_hash": "",
+          "basis_hash": "",
+          "refreshed_at": "",
+          "updated_at": "",
+          "diagnostics": [],
+          "allowed_actions": []
+        }
+      }
+    },
+    {
+      "id": "workbench-registry-unknown-field-negative",
+      "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/WorkbenchRegistry",
+      "valid": false,
+      "value": {
+        "rows": [],
+        "cacheStatus": {
+          "cache_key": "reference-sidecar:library",
+          "status": "missing",
+          "source_hash": "",
+          "basis_hash": "",
+          "refreshed_at": "",
+          "updated_at": "",
+          "diagnostics": [],
+          "allowed_actions": []
+        },
+        "legacyStatus": "ready"
+      }
+    },
+    {
       "id": "topic-resolver-nested-positive",
       "schemaRef": "schemas/client-topic-workbench.schema.json#/$defs/ResolveResolverRequest",
       "valid": true,

@@ -1284,7 +1284,14 @@ export function createSynthesisRepositoryFoundationStore(options: {
               operationId: operation.operationId,
               status: "canceled",
               phase: "service_restart",
+              phaseLabel: "Service restarted",
               message: "Interrupted by sidecar service restart.",
+              diagnosticsJson: JSON.stringify([
+                {
+                  code: "synthesis_operation_stale_after_restart",
+                  severity: "warning",
+                },
+              ]),
             },
             now,
           );

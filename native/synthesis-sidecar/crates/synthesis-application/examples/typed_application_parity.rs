@@ -17,8 +17,8 @@ use synthesis_canonical_store::{
     canonical_topic_path_id,
 };
 use synthesis_repository::{
-    CacheBasisRecord, DeletedTopicArtifactRecord, OperationRecord, Repository, RepositoryIdentity,
-    TopicApplicationProjectionRecord, TopicApplicationStateRecord,
+    CacheBasisRecord, DeletedTopicArtifactRecord, OperationQuery, OperationRecord, Repository,
+    RepositoryIdentity, TopicApplicationProjectionRecord, TopicApplicationStateRecord,
 };
 
 #[derive(Deserialize)]
@@ -157,6 +157,52 @@ impl StructuredArtifactPort for FixtureEngine {
 
 struct DrainEngine {
     gate: Arc<(Mutex<(bool, bool)>, Condvar)>,
+}
+
+fn reconcile_reopened_operations(
+    repository: &Arc<Mutex<Repository>>,
+    now: &str,
+) -> Result<(), String> {
+    const PAGE_LIMIT: usize = 1_000;
+    let mut start_after_operation_id = None;
+    loop {
+        let rows = repository
+            .lock()
+            .map_err(|_| "parity_repository_lock_failed".to_owned())?
+            .list_operations(&OperationQuery {
+                statuses: vec!["running".into()],
+                include_completed: true,
+                order_by_operation_id: true,
+                start_after_operation_id: start_after_operation_id.clone(),
+                limit: PAGE_LIMIT,
+                ..OperationQuery::default()
+            })?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let page_len = rows.len();
+        start_after_operation_id = rows.last().map(|row| row.operation_id.clone());
+        let owner = repository
+            .lock()
+            .map_err(|_| "parity_repository_lock_failed".to_owned())?;
+        for mut row in rows {
+            row.status = "canceled".into();
+            row.phase = "service_restart".into();
+            row.phase_label = "Service restarted".into();
+            row.message = "Interrupted by sidecar service restart.".into();
+            row.diagnostics_json = serde_json::to_string(&vec![json!({
+                "code":"synthesis_operation_stale_after_restart",
+                "severity":"warning",
+            })])
+            .map_err(|_| "parity_restart_diagnostic_invalid".to_owned())?;
+            row.completed_at = now.into();
+            row.updated_at = now.into();
+            owner.finish_operation_if_nonterminal(&row)?;
+        }
+        if page_len < PAGE_LIMIT {
+            return Ok(());
+        }
+    }
 }
 
 impl StructuredArtifactPort for DrainEngine {
@@ -616,6 +662,7 @@ fn run_drain(
         },
         &corpus.clock,
     )?));
+    reconcile_reopened_operations(&reopened_repository, &corpus.clock)?;
     let reopened_canonical = Arc::new(Mutex::new(CanonicalStore::open(
         &drain_root,
         CanonicalIdentity {
@@ -722,6 +769,7 @@ fn run_fault(
         },
         &corpus.clock,
     )?));
+    reconcile_reopened_operations(&reopened_repository, &corpus.clock)?;
     let reopened_canonical = Arc::new(Mutex::new(CanonicalStore::open(
         &fault_root,
         CanonicalIdentity {
@@ -952,6 +1000,7 @@ fn main() -> Result<(), String> {
         },
         &corpus.clock,
     )?));
+    reconcile_reopened_operations(&reopened_repository, &corpus.clock)?;
     let reopened_canonical = Arc::new(Mutex::new(CanonicalStore::open(
         &main_root,
         CanonicalIdentity {

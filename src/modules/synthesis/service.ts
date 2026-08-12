@@ -56,6 +56,8 @@ import {
   type SynthesisHostReadPort,
   type SynthesisHostRepresentativeImageReadPort,
   type SynthesisHostWebDavSyncPort,
+  type SynthesisReferenceIndexResult,
+  type SynthesisReferenceIndexRow,
   type SynthesisWorkflowTopicOption,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -19165,13 +19167,58 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       includeReferences ||
       referenceSourceRefs.length > 0 ||
       rawReferenceIds.length > 0;
-    const rows = shouldLoadReferenceFacts
+    const projectedRows: RegistryUiRow[] = shouldLoadReferenceFacts
       ? await registryRowsWithReferenceFactsToUi(pageRows, {
           includeReferences,
           referenceSourceRefs,
           rawReferenceIds,
         })
-      : pageRows;
+      : registryRowsToUi(pageRows);
+    const projectedByPaperRef = new Map(
+      projectedRows.map((row) => [row.paper_ref, row] as const),
+    );
+    const rows: SynthesisReferenceIndexRow[] = pageRows.map((row) => {
+      const projected = projectedByPaperRef.get(row.paper_ref);
+      const references = projected?.references?.map((reference) => ({
+        reference_instance_id: reference.reference_instance_id,
+        reference_index: reference.reference_index,
+        title: reference.title,
+        ...(reference.year ? { year: reference.year } : {}),
+        ...(reference.raw_reference
+          ? { raw_reference: reference.raw_reference }
+          : {}),
+        ...(reference.confidence ? { confidence: reference.confidence } : {}),
+        ...(reference.target_literature_item_id
+          ? {
+              target_literature_item_id: reference.target_literature_item_id,
+            }
+          : {}),
+        ...(reference.target_title
+          ? { target_title: reference.target_title }
+          : {}),
+        ...(reference.target_paper_ref
+          ? { target_paper_ref: reference.target_paper_ref }
+          : {}),
+        target_binding: reference.target_binding,
+        ...(reference.binding_status
+          ? { binding_status: reference.binding_status }
+          : {}),
+      }));
+      return {
+        paper_ref: row.paper_ref,
+        library_id: row.library_id,
+        item_key: row.item_key,
+        title: row.title,
+        year: row.year,
+        metadata_hash: row.facets.metadata.hash,
+        updated_at: cleanString(row.facets.metadata.updated_at),
+        artifactCoverage: row.artifactCoverage,
+        missing_artifacts: projected?.missing_artifacts || [],
+        reference_count: projected?.reference_count || 0,
+        unbound_reference_count: projected?.unbound_reference_count || 0,
+        ...(references ? { references } : {}),
+      };
+    });
     const nextCursor = page.cursor + rows.length;
     const cacheMissing = allRows.length === 0;
     const readHintsForCall: SynthesisReadHint[] = [];
@@ -19191,7 +19238,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         }),
       );
     }
-    return {
+    const boundedBasis = allRows.map((row) => ({
+      paper_ref: row.paper_ref,
+      metadata_hash: row.facets.metadata.hash,
+      artifact_hash: row.facets.artifact.hash,
+      reference_hash: row.facets.reference.hash,
+    }));
+    const result: SynthesisReferenceIndexResult = {
       rows,
       cursor: String(page.cursor),
       next_cursor: nextCursor < allRows.length ? String(nextCursor) : "",
@@ -19209,12 +19262,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         ],
         recommended_commands:
           cacheMissing || cacheStale ? ["refreshReferenceSidecarNow"] : [],
-        maintenance: readMaintenanceForDto(
-          cacheMissing || cacheStale ? ["refreshReferenceSidecarNow"] : [],
-        ),
-        read_hints: readHintsForCall,
+        repository_basis_hash: hashCanonicalJson({ rows: boundedBasis }),
+        canonical_basis_hash: hashCanonicalJson({
+          references: rows.flatMap((row) => row.references || []),
+        }),
       },
     };
+    return result;
   }
 
   async function getCitationGraphSlice(

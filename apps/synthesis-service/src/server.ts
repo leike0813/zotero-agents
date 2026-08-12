@@ -617,27 +617,29 @@ export async function startSynthesisSidecarServer(
         });
       }
       const requestBody = await readRequestBody(request);
+      const token = bearerToken(request);
+      if (
+        !token ||
+        (!tokensEqual(token, config.clientToken) &&
+          !tokensEqual(token, config.lifecycleToken))
+      ) {
+        throw new SidecarRuntimeError({
+          status: 401,
+          code: "unauthorized",
+          message: "Synthesis sidecar authorization was rejected.",
+        });
+      }
       const call = parseCallRequest(requestBody);
       requestId = call.requestId;
-      const token = bearerToken(request);
       if (call.capability === "system.shutdown") {
-        if (!token) {
-          throw new SidecarRuntimeError({
-            status: 401,
-            code: "unauthorized",
-            message: "Lifecycle authorization is required.",
-          });
-        }
         if (!tokensEqual(token, config.lifecycleToken)) {
           throw new SidecarRuntimeError({
-            status: tokensEqual(token, config.clientToken) ? 403 : 401,
-            code: tokensEqual(token, config.clientToken)
-              ? "lifecycle_forbidden"
-              : "unauthorized",
+            status: 403,
+            code: "lifecycle_forbidden",
             message: "Lifecycle authorization was rejected.",
           });
         }
-      } else if (!token || !tokensEqual(token, config.clientToken)) {
+      } else if (!tokensEqual(token, config.clientToken)) {
         throw new SidecarRuntimeError({
           status: 401,
           code: "unauthorized",
@@ -800,9 +802,23 @@ export async function startSynthesisSidecarServer(
             const request = rebuildSynthesisTopicCanonicalInspectRequest(
               call.payload,
             );
-            result = rebuildSynthesisTopicCanonicalInspectResult(
+            const inspected = rebuildSynthesisTopicCanonicalInspectResult(
               canonicalStore.inspect(request),
             );
+            result = {
+              status: inspected.status,
+              topicId: inspected.topicId,
+              pathId: inspected.pathId,
+              manifestHash: inspected.manifestHash,
+              artifactHash: inspected.artifactHash,
+              metadataHash: inspected.metadataHash,
+              sections: inspected.sections.map((section) => ({
+                filename: section.fileName,
+                sha256: section.sha256,
+                bytes: section.byteLength,
+              })),
+              diagnostics: inspected.diagnostics,
+            };
           } catch {
             throw new SidecarRuntimeError({
               status: 400,

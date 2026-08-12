@@ -28,6 +28,19 @@ const WORKFLOW_METHODS = [
   "stageTagSuggestions",
 ].sort();
 
+function topicApplyBundle(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: "topic_synthesis",
+    operation: "create",
+    language: "en",
+    topic_definition: {
+      id: "topic-a",
+      title: "Topic A",
+    },
+    ...overrides,
+  };
+}
+
 function fakeClient(calls: string[]): SynthesisClient {
   const record = (name: string) => async (request?: unknown) => {
     calls.push(name);
@@ -97,7 +110,7 @@ describe("Synthesis workflow client migration", function () {
     });
 
     assert.deepEqual(Object.keys(api).sort(), WORKFLOW_METHODS);
-    await api.applyTopicSynthesisResult({ operation: "create" });
+    await api.applyTopicSynthesisResult(topicApplyBundle());
     await api.getTopicReport({ topicId: "topic-a" });
     await api.readPaperArtifacts({ paper_refs: ["1:AAAA1111"] });
     await api.loadTagVocabulary();
@@ -206,14 +219,14 @@ describe("Synthesis workflow client migration", function () {
       "result/resolver.json": JSON.stringify({ resolved_paper_set: {} }),
     };
     const request = await materializeTopicApplyRequest(
-      {
+      topicApplyBundle({
         operation: "update_full",
         topic_id: "topic-a",
         artifact_manifest_path: "result/manifest.json",
         artifact_metadata: {
           analysis_source_path: "result/analysis.json",
         },
-      },
+      }),
       {
         bundleReader: {
           readText(filePath) {
@@ -240,11 +253,11 @@ describe("Synthesis workflow client migration", function () {
 
   it("consumes ACP absolute paths without crossing them into the client request", async function () {
     const request = await materializeTopicApplyRequest(
-      {
+      topicApplyBundle({
         operation: "update_patch",
         topic_id: "topic-a",
         analysis_manifest_path: "/workspace/result/analysis.json",
-      },
+      }),
       {
         resultContext: {
           async resolveArtifact({ rawPath }) {
@@ -275,7 +288,7 @@ describe("Synthesis workflow client migration", function () {
       "result/sidecars/topic-interest.json": JSON.stringify({ score: 1 }),
     };
     const request = await materializeTopicApplyRequest(
-      { analysis_manifest_path: "result/analysis.json" },
+      topicApplyBundle({ analysis_manifest_path: "result/analysis.json" }),
       { bundleReader: { readText: (filePath) => files[filePath] || "" } },
     );
     const manifest = JSON.parse(request.assets[0]?.text || "{}") as {
@@ -372,12 +385,17 @@ describe("Synthesis workflow client migration", function () {
         capturedBundle = bundle;
         return {
           ok: true,
-          text: await context?.bundleReader.readText("asset/0001"),
+          status: "persisted",
+          topicId: "topic-a",
+          operationId: await context?.bundleReader.readText("asset/0001"),
+          hashes: {},
+          mismatches: [],
+          warnings: [],
         };
       },
     });
     const result = await client.workflowApply.applyTopicSynthesisResult({
-      bundle: { analysis_manifest_path: "asset/0001" },
+      bundle: topicApplyBundle({ analysis_manifest_path: "asset/0001" }),
       assets: [
         {
           id: "asset/0001",
@@ -388,9 +406,13 @@ describe("Synthesis workflow client migration", function () {
     });
 
     assert.deepEqual(capturedBundle, {
+      kind: "topic_synthesis",
+      operation: "create",
+      language: "en",
+      topic_definition: { id: "topic-a", title: "Topic A" },
       analysis_manifest_path: "asset/0001",
     });
-    assert.equal(result.text, '{"ok":true}');
+    assert.equal(result.operationId, '{"ok":true}');
   });
 
   it("removes workflow modules from the full-service dependency boundary", function () {

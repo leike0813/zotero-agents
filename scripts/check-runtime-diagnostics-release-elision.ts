@@ -5,6 +5,7 @@ import { runtimeDiagnosticsSideEffectsPlugin } from "./runtime-diagnostics-esbui
 import {
   forbiddenProductionRuntimeMarkers,
   forbiddenRuntimeMarkers,
+  productionRuntimeContractMarkers,
   runtimeDiagnosticsExclusiveModules,
   runtimeDiagnosticsFeatureGroups,
   runtimeDiagnosticsStaticAllowanceMarkers,
@@ -180,6 +181,16 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
       `release bundle retained runtime diagnostic markers: ${retainedProductionMarkers.join(",")}`,
     );
   }
+  const retainedProductionContractMarkers =
+    productionRuntimeContractMarkers.filter((marker) =>
+      releaseOutput.includes(marker),
+    );
+  if (
+    retainedProductionContractMarkers.length !==
+    productionRuntimeContractMarkers.length
+  ) {
+    throw new Error("release bundle omitted a production protocol marker");
+  }
   const sourceDisabledBytes = {
     profiler: assertAbsent("profiler", profilerDisabled),
     recorder: assertAbsent("recorder", recorderDisabled),
@@ -256,6 +267,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     debugBytes,
     sourceDisabledBytes,
     retainedStaticMarkers,
+    retainedProductionContractMarkers,
     dashboardMarkers,
     releaseReplayOutputEqual:
       outputText(release) === outputText(releaseReplayDisabled),

@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import {
   isSynthesisSidecarComputeCapability,
-  rebuildSynthesisSidecarCallRequest,
+  rebuildSynthesisSidecarCallEnvelope,
   SYNTHESIS_SIDECAR_LIMITS,
   type SynthesisSidecarCallRequest,
   type SynthesisSidecarErrorDetails,
@@ -316,7 +316,7 @@ export function parseCallRequest(
     }
   }
   try {
-    return rebuildSynthesisSidecarCallRequest(parsed);
+    return rebuildSynthesisSidecarCallEnvelope(parsed);
   } catch (error) {
     if (error instanceof SynthesisClientError) {
       requestError({

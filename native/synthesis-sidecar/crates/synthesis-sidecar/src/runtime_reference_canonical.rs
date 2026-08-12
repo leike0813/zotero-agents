@@ -104,7 +104,6 @@ struct ReferenceIndexFactRow {
     references: Vec<ReferenceIndexFactReference>,
     reference_count: usize,
     unbound_reference_count: usize,
-    rating_score: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -308,6 +307,11 @@ impl ReferenceCanonicalApplication {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_host_for_tests(&mut self, host: Arc<dyn ReferenceHostPort>) {
+        self.host = host;
+    }
+
     pub(crate) fn apply_literature_digest(
         &self,
         request: LiteratureDigestApplyRequest,
@@ -368,7 +372,8 @@ impl ReferenceCanonicalApplication {
             )?,
         ];
         let item = literature_refresh_item(&request);
-        let binding_candidates = literature_binding_candidates(request.matched_references.as_ref());
+        let binding_candidates =
+            literature_binding_candidates(self.host.as_ref(), request.matched_references.as_ref())?;
         let prepared = self.refresh.prepare_literature_apply(
             ReferenceRefreshPrepareRequest {
                 expected_reference_hash: self.refresh.inspect()?.reference_hash,
@@ -657,39 +662,13 @@ impl ReferenceCanonicalApplication {
             .map(|row| {
                 let include_references =
                     scope == "referenced" || expanded_source_refs.contains(&row.item.paper_ref);
-                let references = if include_references {
-                    row.references
-                        .iter()
-                        .map(workbench_reference_row)
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
-                json!({
-                    "libraryId":row.item.library_id,
-                    "itemKey":row.item.item_key,
-                    "paper_ref":row.item.paper_ref,
-                    "title":row.item.title,
-                    "year":row.item.year,
-                    "artifactCoverage":row.artifact_coverage,
-                    "missing_artifacts":row.missing_artifacts,
-                    "ratingScore":row.rating_score,
-                    "index_scope":scope,
-                    "literature_item_id":row.item.paper_ref,
-                    "reference_count":row.reference_count,
-                    "unbound_reference_count":row.unbound_reference_count,
-                    "referenced_by_count":0,
-                    "references":references,
-                    "needsTagRegulation":false,
-                })
+                workbench_index_row(row, include_references)
             })
             .collect::<Vec<_>>();
+        let cache_status = self.reference_cache_status()?;
         Ok(json!({
             "libraryId":library_id,
-            "registry":{
-                "rows":rows,
-                "cacheStatus":self.reference_cache_status()?,
-            },
+            "registry":{"rows":rows,"cacheStatus":cache_status},
         }))
     }
 
@@ -2301,16 +2280,12 @@ impl ReferenceCanonicalApplication {
                     .iter()
                     .filter(|reference| reference.binding.is_none())
                     .count();
-                let rating_score = host_artifact_by_key
-                    .get(&(item.paper_ref.clone(), "literature_score".into()))
-                    .and_then(|artifact| literature_rating_score(artifact));
                 ReferenceIndexFactRow {
                     item,
                     artifact_coverage,
                     missing_artifacts,
                     reference_count: references.len(),
                     unbound_reference_count,
-                    rating_score,
                     references,
                 }
             })
@@ -2884,62 +2859,61 @@ fn literature_refresh_item(request: &LiteratureDigestApplyRequest) -> ReferenceR
     }
 }
 
-fn literature_binding_candidates(value: Option<&Value>) -> Vec<ReferenceRefreshItem> {
-    let mut candidates = value
+fn literature_binding_candidates(
+    host: &dyn HostItemCollectionPort,
+    value: Option<&Value>,
+) -> Result<Vec<ReferenceRefreshItem>, String> {
+    let paper_refs = value
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|value| {
             let object = value.as_object()?;
             let library_id = object
-                .get("libraryId")
-                .or_else(|| object.get("library_id"))
+                .get("library_id")
                 .and_then(Value::as_i64)
-                .filter(|value| *value >= 0)?;
-            let item_key = object
-                .get("itemKey")
-                .or_else(|| object.get("item_key"))
-                .and_then(Value::as_str)?
-                .trim();
+                .filter(|value| *value > 0)?;
+            let item_key = object.get("item_key").and_then(Value::as_str)?.trim();
             if item_key.is_empty() {
                 return None;
             }
-            let paper_ref = object
-                .get("paperRef")
-                .or_else(|| object.get("paper_ref"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("{library_id}:{item_key}"));
-            let citekey = object
-                .get("citekey")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_owned();
-            Some(ReferenceRefreshItem {
-                paper_ref,
-                library_id,
-                item_key: item_key.into(),
-                title: object
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .trim()
-                    .into(),
-                year: object
-                    .get("year")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .trim()
-                    .into(),
-                metadata: BTreeMap::from([("citekey".into(), Value::String(citekey))]),
-            })
+            Some(format!("{library_id}:{item_key}"))
         })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
+    let mut candidates = Vec::new();
+    for requested in paper_refs.chunks(HOST_PAGE_LIMIT) {
+        let page = host.get_items_by_ref(requested)?;
+        let requested = requested.iter().map(String::as_str).collect::<HashSet<_>>();
+        let mut accounted = HashSet::new();
+        for item in page.items {
+            if !requested.contains(item.paper_ref.as_str())
+                || !accounted.insert(item.paper_ref.clone())
+                || item.paper_ref != format!("{}:{}", item.library_id, item.item_key)
+            {
+                return Err("reverse_host_result_invalid".into());
+            }
+            candidates.push(ReferenceRefreshItem {
+                paper_ref: item.paper_ref,
+                library_id: item.library_id,
+                item_key: item.item_key,
+                title: item.title,
+                year: item.year,
+                metadata: BTreeMap::from([("citekey".into(), Value::String(item.citekey))]),
+            });
+        }
+        for missing in page.missing_paper_refs {
+            if !requested.contains(missing.as_str()) || !accounted.insert(missing) {
+                return Err("reverse_host_result_invalid".into());
+            }
+        }
+        if accounted.len() != requested.len() {
+            return Err("reverse_host_result_invalid".into());
+        }
+    }
     candidates.sort_by(|left, right| left.paper_ref.cmp(&right.paper_ref));
-    candidates
+    Ok(candidates)
 }
 
 fn normalize_literature_terms(value: Option<&Value>, limit: usize) -> Vec<String> {
@@ -3036,6 +3010,27 @@ fn workbench_reference_row(reference: &ReferenceIndexFactReference) -> Value {
         "target_binding":if reference.binding.is_some() { "library" } else { "none" },
         "binding_status":reference.binding.as_ref().map(|binding|binding.status.as_str()).unwrap_or("unbound"),
     })
+}
+
+fn workbench_index_row(row: &ReferenceIndexFactRow, include_references: bool) -> Value {
+    let mut result = json!({
+        "paper_ref":row.item.paper_ref,
+        "library_id":row.item.library_id,
+        "item_key":row.item.item_key,
+        "title":row.item.title,
+        "year":row.item.year,
+        "metadata_hash":row.item.metadata_hash,
+        "updated_at":row.item.updated_at,
+        "artifactCoverage":row.artifact_coverage,
+        "missing_artifacts":row.missing_artifacts,
+        "reference_count":row.reference_count,
+        "unbound_reference_count":row.unbound_reference_count,
+    });
+    if include_references {
+        result["references"] =
+            Value::Array(row.references.iter().map(workbench_reference_row).collect());
+    }
+    result
 }
 
 fn json_string_list(value: &str) -> Vec<String> {
@@ -3715,6 +3710,10 @@ mod tests {
         fail_reads: Arc<AtomicBool>,
         fail_locator: Arc<Mutex<Option<String>>>,
         read_locators: Arc<Mutex<Vec<String>>>,
+        completed_read_locators: Arc<Mutex<Vec<String>>>,
+        active_reads: Arc<AtomicUsize>,
+        max_active_reads: Arc<AtomicUsize>,
+        stagger_reads: Arc<AtomicBool>,
         include_second: Arc<AtomicBool>,
         large_estimates: Arc<AtomicBool>,
     }
@@ -3727,6 +3726,10 @@ mod tests {
                 fail_reads: Arc::new(AtomicBool::new(false)),
                 fail_locator: Arc::new(Mutex::new(None)),
                 read_locators: Arc::new(Mutex::new(Vec::new())),
+                completed_read_locators: Arc::new(Mutex::new(Vec::new())),
+                active_reads: Arc::new(AtomicUsize::new(0)),
+                max_active_reads: Arc::new(AtomicUsize::new(0)),
+                stagger_reads: Arc::new(AtomicBool::new(false)),
                 include_second: Arc::new(AtomicBool::new(true)),
                 large_estimates: Arc::new(AtomicBool::new(false)),
             }
@@ -3751,7 +3754,7 @@ mod tests {
                 citekey: String::new(),
                 date_added: "1".into(),
                 updated_at: "1".into(),
-                metadata_hash: format!("sha256:{item_key}"),
+                metadata_hash: format!("sha256:{}", "a".repeat(64)),
             }
         }
     }
@@ -3898,6 +3901,20 @@ mod tests {
             self.read_locators
                 .lock()
                 .expect("read locator log")
+                .push(locator.into());
+            let active_reads = self.active_reads.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active_reads
+                .fetch_max(active_reads, Ordering::SeqCst);
+            if self.stagger_reads.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(match locator {
+                    "reference:a" => 30,
+                    _ => 10,
+                }));
+            }
+            self.active_reads.fetch_sub(1, Ordering::SeqCst);
+            self.completed_read_locators
+                .lock()
+                .expect("completed read locator log")
                 .push(locator.into());
             if self.fail_locator.lock().expect("failed locator").as_deref() == Some(locator) {
                 return Err("reverse_host_response_body_truncated".into());
@@ -4050,6 +4067,91 @@ mod tests {
             updated_at: "1".into(),
             ..CanonicalReferenceRecord::default()
         }
+    }
+
+    #[test]
+    fn workbench_index_projects_the_strict_registry_contract() {
+        let root = test_root("workbench-index-contract");
+        let host = Arc::new(FakeHost::new());
+        let app = application(&root, host, Arc::new(AtomicBool::new(false)));
+        app.refresh_now().expect("reference refresh");
+
+        let projection = app
+            .workbench_index(
+                &json!({
+                    "registry":{
+                        "scope":"library",
+                        "expandedSourceRefs":["1:AAAA1111"],
+                    },
+                }),
+                1,
+            )
+            .expect("workbench index");
+        let registry = projection["registry"].as_object().expect("registry");
+        assert_eq!(
+            registry.keys().cloned().collect::<BTreeSet<_>>(),
+            BTreeSet::from(["cacheStatus".into(), "rows".into()])
+        );
+        assert_eq!(registry["cacheStatus"]["status"], "ready");
+        let rows = registry["rows"].as_array().expect("registry rows");
+        assert_eq!(rows.len(), 2);
+        let first = rows[0].as_object().expect("registry row");
+        assert_eq!(
+            first.keys().cloned().collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                "artifactCoverage".into(),
+                "item_key".into(),
+                "library_id".into(),
+                "metadata_hash".into(),
+                "missing_artifacts".into(),
+                "paper_ref".into(),
+                "reference_count".into(),
+                "references".into(),
+                "title".into(),
+                "unbound_reference_count".into(),
+                "updated_at".into(),
+                "year".into(),
+            ]),
+        );
+        assert_eq!(first["paper_ref"], "1:AAAA1111");
+        assert_eq!(first["library_id"], 1);
+        assert_eq!(first["item_key"], "AAAA1111");
+        assert_eq!(first["metadata_hash"], format!("sha256:{}", "a".repeat(64)));
+        assert_eq!(first["updated_at"], "1");
+        assert_eq!(first["references"].as_array().expect("references").len(), 1);
+    }
+
+    #[test]
+    fn refresh_reads_two_artifacts_concurrently_and_preserves_source_order() {
+        let root = test_root("refresh-read-concurrency");
+        let host = Arc::new(FakeHost::new());
+        host.stagger_reads.store(true, Ordering::Relaxed);
+        let app = application(&root, host.clone(), Arc::new(AtomicBool::new(false)));
+
+        let refreshed = app.refresh_now().expect("reference refresh");
+        assert_eq!(refreshed["status"], "promoted");
+        assert_eq!(host.max_active_reads.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            *host
+                .completed_read_locators
+                .lock()
+                .expect("completed read locators"),
+            vec!["reference:b", "reference:a"],
+            "the faster second read should finish first",
+        );
+
+        let index = app
+            .sidecar_index(&ReferenceIndexRequest {
+                include_references: Some(true),
+                ..ReferenceIndexRequest::default()
+            })
+            .expect("reference index");
+        let rows = index["rows"].as_array().expect("reference rows");
+        assert_eq!(rows[0]["paper_ref"], "1:AAAA1111");
+        assert_eq!(rows[0]["references"][0]["parsedTitle"], "External A");
+        assert_eq!(rows[1]["paper_ref"], "1:BBBB2222");
+        assert_eq!(rows[1]["references"][0]["parsedTitle"], "External B");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

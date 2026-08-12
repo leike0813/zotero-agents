@@ -18,6 +18,7 @@ import type {
 import { openSynthesisSidecarIsolatedRepository } from "../apps/synthesis-service/src/isolatedRepository.js";
 import { openSynthesisNodeSqliteAdapter } from "../apps/synthesis-service/src/repositoryNodeSqlite.js";
 import { openSynthesisSidecarTopicCanonicalStore } from "../apps/synthesis-service/src/topicCanonicalStoreNode.js";
+import { normalizeSynthesisApplicationParityObservable } from "./synthesis-application-parity-policy.js";
 
 const CORPUS_PATH = path.resolve(
   import.meta.dirname,
@@ -731,9 +732,9 @@ async function runNodeOracle(
   };
 }
 
-function comparable(report: ParityReport) {
+function comparable(report: ParityReport, role: "node" | "rust") {
   const { sourceFingerprint: _sourceFingerprint, ...observable } = report;
-  return observable;
+  return normalizeSynthesisApplicationParityObservable(role, observable);
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -1070,8 +1071,8 @@ export async function checkSynthesisTypedApplicationParity(
       errors.push("typed_application_expected_observable_missing");
     }
     if (
-      canonicalizeSynthesisContractJson(comparable(node)) !==
-      canonicalizeSynthesisContractJson(comparable(rust))
+      canonicalizeSynthesisContractJson(comparable(node, "node")) !==
+      canonicalizeSynthesisContractJson(comparable(rust, "rust"))
     ) {
       const reportRoot = path.join(temporaryRoot, "reports");
       fs.mkdirSync(reportRoot, { recursive: true });

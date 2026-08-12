@@ -787,7 +787,7 @@ function requireBoundedString(
   return value;
 }
 
-export function rebuildSynthesisSidecarCallRequest(
+export function rebuildSynthesisSidecarCallEnvelope(
   value: unknown,
 ): SynthesisSidecarCallRequest {
   const json = toSynthesisJsonObject(value, "sidecarCallRequest");
@@ -817,15 +817,6 @@ export function rebuildSynthesisSidecarCallRequest(
     "capability",
     SYNTHESIS_SIDECAR_LIMITS.capabilityLength,
   );
-  if (!isSynthesisSidecarCapability(capability)) {
-    throw new SynthesisClientError(
-      "invalid_request",
-      "capability is unavailable",
-      {
-        capability,
-      },
-    );
-  }
   return {
     protocol: requireBoundedString(json.protocol, "protocol", 64),
     requestId: requireBoundedString(
@@ -839,14 +830,24 @@ export function rebuildSynthesisSidecarCallRequest(
       SYNTHESIS_SIDECAR_LIMITS.profileIdLength,
     ),
     capability,
-    payload: rebuildSynthesisProtocolCapabilityDto({
-      capability,
-      direction: "request",
-      value: json.payload,
-    }),
+    payload: toSynthesisJsonObject(json.payload, "sidecarCallRequest.payload"),
     ...(json.trace === undefined
       ? {}
       : { trace: rebuildSynthesisSidecarTraceContext(json.trace) }),
+  } as SynthesisSidecarCallRequest;
+}
+
+export function rebuildSynthesisSidecarCallRequest(
+  value: unknown,
+): SynthesisSidecarCallRequest {
+  const envelope = rebuildSynthesisSidecarCallEnvelope(value);
+  return {
+    ...envelope,
+    payload: rebuildSynthesisProtocolCapabilityDto({
+      capability: envelope.capability,
+      direction: "request",
+      value: envelope.payload,
+    }),
   } as SynthesisSidecarCallRequest;
 }
 

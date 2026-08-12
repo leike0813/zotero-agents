@@ -512,7 +512,21 @@ fn read_artifacts_for_request(
     apps: &ProductionApplications,
     request: Value,
 ) -> Result<Value, String> {
-    let mut artifacts = scan_descriptors(apps, &request)?
+    let descriptors = scan_descriptors(apps, &request)?;
+    if let Some(requested) = request.get("paper_refs").and_then(Value::as_array) {
+        let returned = descriptors
+            .iter()
+            .filter_map(|descriptor| descriptor.get("paperRef").and_then(Value::as_str))
+            .collect::<HashSet<_>>();
+        if requested
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|paper_ref| !returned.contains(paper_ref))
+        {
+            return Err("paper_artifacts_not_found".into());
+        }
+    }
+    let mut artifacts = descriptors
         .iter()
         .map(|descriptor| artifact_from_descriptor(apps, descriptor, true))
         .collect::<Result<Vec<_>, _>>()?;
@@ -958,7 +972,12 @@ fn prepare_export(
     if paper_refs.is_empty() {
         return Err("invalid_request".into());
     }
-    let read = read_artifacts(apps, std::slice::from_ref(&request))?;
+    let mut artifact_read_request =
+        Map::from_iter([("paper_refs".to_owned(), json!(paper_refs.clone()))]);
+    if let Some(artifact_types) = request.get("artifact_types") {
+        artifact_read_request.insert("artifact_types".to_owned(), artifact_types.clone());
+    }
+    let read = read_artifacts(apps, &[Value::Object(artifact_read_request)])?;
     let artifacts = read
         .get("artifacts")
         .and_then(Value::as_array)

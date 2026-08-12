@@ -18,6 +18,10 @@ import { checkSynthesisTagConceptTopicGraphApplicationParity } from "../../scrip
 import { checkSynthesisCheckpointBundleWebDavDebugApplicationParity } from "../../scripts/check-synthesis-checkpoint-bundle-webdav-debug-application-parity";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/check-synthesis-service-boundary";
+import {
+  normalizeSynthesisApplicationParityObservable,
+  normalizeSynthesisApplicationParityTableRows,
+} from "../../scripts/synthesis-application-parity-policy";
 
 function canonicalErrorCode(action: () => unknown) {
   try {
@@ -43,12 +47,12 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-sidecar-protocol-registry.v1",
     );
     assert.equal(result.schemaCount, 18);
-    assert.equal(result.definitionCount, 799);
-    assert.equal(result.positiveCaseCount, 39);
-    assert.equal(result.negativeCaseCount, 39);
+    assert.equal(result.protocolCapabilityCount, 119);
+    assert.equal(result.workerOperationCount, 15);
+    assert.equal(result.unauthorizedGenericEscapeCount, 0);
     assert.equal(
       result.fingerprint,
-      "sha256:2aca59a9a8c196c69a8b0d8e8be19c5a907dbbb55f6e77dd58291673c378a1ec",
+      "sha256:3061d99eb4c1d73dd5529d0bc9f10eafc49285e3af5d3330bb770151db0c9284",
     );
   });
 
@@ -154,6 +158,57 @@ describe("Synthesis cross-language sidecar contract", function () {
   it("owns the repository schema version without a reverse dependency", function () {
     assert.equal(CONTRACT_SCHEMA_VERSION, REPOSITORY_SCHEMA_VERSION);
     assert.deepEqual(findSynthesisContractBoundaryViolations(), []);
+  });
+
+  it("normalizes only the exact Rust redirect-graph schema marker", function () {
+    const exact = {
+      key: "reference_redirect_graph_schema_version",
+      value: "synthesis-reference-redirect-graph.v1",
+    };
+    const wrongValue = {
+      key: "reference_redirect_graph_schema_version",
+      value: "synthesis-reference-redirect-graph.v999",
+    };
+    const unrelated = {
+      key: "repository_foundation_schema_version",
+      value: "synthesis-repository-foundation.v2",
+    };
+    const rows = [exact, wrongValue, unrelated];
+
+    assert.deepEqual(
+      normalizeSynthesisApplicationParityTableRows(
+        "rust",
+        "synt_schema_meta",
+        rows,
+      ),
+      [wrongValue, unrelated],
+    );
+    assert.deepEqual(
+      normalizeSynthesisApplicationParityTableRows(
+        "node",
+        "synt_schema_meta",
+        rows,
+      ),
+      rows,
+    );
+    assert.deepEqual(
+      normalizeSynthesisApplicationParityTableRows(
+        "rust",
+        "synt_operation",
+        rows,
+      ),
+      rows,
+    );
+    assert.deepEqual(
+      normalizeSynthesisApplicationParityObservable("rust", {
+        tables: { synt_schema_meta: rows },
+        nested: { synt_schema_meta: [exact, unrelated] },
+      }),
+      {
+        tables: { synt_schema_meta: [wrongValue, unrelated] },
+        nested: { synt_schema_meta: [unrelated] },
+      },
+    );
   });
 
   it("shares the complete durable foundation corpus with the Node oracle and Rust candidate", function () {

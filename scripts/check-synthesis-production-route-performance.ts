@@ -141,7 +141,7 @@ async function invokeOperation(args: {
     case "index":
       return client.workbench.readSurface({
         surface: "index",
-        state: { registry: { scope: "library" } },
+        state: { registry: { scope: "library", expandedSourceRefs: [] } },
       });
     case "graph-slice":
       return client.graph.getSlice({
@@ -302,20 +302,17 @@ async function stageTagEffectWorkload(args: {
   harness: SynthesisProductionRouteHarness;
   dataset: SyntheticSynthesisProductionRouteDataset;
   ordinal: number;
-  expectedStagedRevision: number;
 }) {
-  const request = args.dataset.tagSuggestionRequest(
-    args.ordinal,
-    args.expectedStagedRevision,
-  );
+  const request = args.dataset.tagSuggestionRequest(args.ordinal);
   const staged = await args.harness.client.tags.stageTagSuggestions(request);
-  if (staged.status !== "committed") {
-    throw new Error(`tag_stage_failed:${staged.status}`);
+  const stagedEntry = staged.staged.find(
+    ({ tag }) => tag === request.entries[0]?.tag,
+  );
+  if (!stagedEntry) {
+    throw new Error("tag_stage_failed:missing_entry");
   }
-  const entries = request.entries as Array<{ tag: string }>;
   return {
-    tag: entries[0].tag,
-    stagedRevision: Number(staged.stagedRevision),
+    tag: stagedEntry.tag,
   };
 }
 
@@ -716,20 +713,12 @@ export async function runSynthesisProductionRoutePerformanceDataset(
         continue;
       }
       referenceRevision += 1;
-      let tagStagedRevision =
-        operation === "tag-effects"
-          ? Number(
-              (await harness.client.tags.loadTagVocabulary()).stagedRevision ||
-                0,
-            )
-          : 0;
       const warmupTag =
         operation === "tag-effects"
           ? await stageTagEffectWorkload({
               harness,
               dataset,
               ordinal: -1,
-              expectedStagedRevision: tagStagedRevision,
             })
           : undefined;
       await collectSample({
@@ -738,7 +727,6 @@ export async function runSynthesisProductionRoutePerformanceDataset(
         tagEffects: dataset.tagEffects,
         stagedTag: warmupTag?.tag,
       });
-      if (warmupTag) tagStagedRevision = warmupTag.stagedRevision + 1;
       const samples: SynthesisProductionRoutePerformanceSample[] = [];
       for (let index = 0; index < FORMAL_SAMPLE_COUNT; index += 1) {
         referenceRevision += 1;
@@ -748,7 +736,6 @@ export async function runSynthesisProductionRoutePerformanceDataset(
                 harness,
                 dataset,
                 ordinal: index,
-                expectedStagedRevision: tagStagedRevision,
               })
             : undefined;
         samples.push(
@@ -759,7 +746,6 @@ export async function runSynthesisProductionRoutePerformanceDataset(
             stagedTag: stagedTag?.tag,
           }),
         );
-        if (stagedTag) tagStagedRevision = stagedTag.stagedRevision + 1;
       }
       operations.push(
         summarizeSynthesisProductionRouteOperation(name, operation, samples),

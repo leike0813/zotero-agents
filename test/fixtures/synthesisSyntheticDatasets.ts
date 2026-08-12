@@ -6,6 +6,7 @@ import type {
   SynthesisCitationLightMetricsRecord,
   SynthesisCitationNodeRecord,
 } from "../../src/modules/synthesis/repository";
+import type { SynthesisTagSuggestionStageRequest } from "../../packages/synthesis-contracts/src/tags";
 import type { SynthesisTopicApplyRequest } from "../../packages/synthesis-contracts/src/workflow";
 
 export type SyntheticSynthesisBenchmarkDatasetName = "2k" | "10k" | "25k";
@@ -24,6 +25,16 @@ export type SyntheticSynthesisProductionRouteItem = {
   itemType: "journalArticle";
   title: string;
   year: string;
+  date: string;
+  creators: string[];
+  tags: string[];
+  collections: string[];
+  doi: string;
+  arxiv: string;
+  isbn: string;
+  url: string;
+  citekey: string;
+  dateAdded: string;
   metadataHash: string;
 };
 
@@ -52,10 +63,7 @@ export type SyntheticSynthesisProductionRouteDataset = {
     tags: string[];
   }>;
   topicApplyRequest: SynthesisTopicApplyRequest;
-  tagSuggestionRequest(
-    ordinal: number,
-    expectedStagedRevision: number,
-  ): Record<string, unknown>;
+  tagSuggestionRequest(ordinal: number): SynthesisTagSuggestionStageRequest;
   listItemsPage(request: {
     cursor?: string;
     limit?: number;
@@ -71,6 +79,10 @@ export type SyntheticSynthesisProductionRouteDataset = {
   scanArtifactsPage(request: {
     cursor?: string;
     limit?: number;
+    paperRefs?: string[];
+    artifactTypes?: Array<
+      "digest" | "references" | "citation_analysis" | "literature_score"
+    >;
   }): {
     artifacts: SyntheticSynthesisProductionRouteArtifact[];
     cursor: string;
@@ -514,6 +526,28 @@ function syntheticTopicApplyRequest(args: {
     source_artifacts: [],
     diagnostics: { warnings: [] },
   };
+  const sidecarValues: Record<string, Record<string, unknown>> = {
+    topic_interest_metadata: {
+      schema: "topic_interest_metadata.v1",
+      topic_id: topicId,
+      include_terms: ["production route"],
+    },
+    concept_cards_proposal: {
+      schema_id: "synthesis.concept_cards_proposal",
+      schema_version: "1.0.0",
+      cards: [],
+    },
+    topic_graph_relation_proposals: {
+      schema_id: "synthesis.topic_graph_relation_proposals",
+      schema_version: "1.0.0",
+      proposals: [],
+    },
+    prospective_topic_relation_proposals: {
+      schema_id: "synthesis.prospective_topic_relation_proposals",
+      schema_version: "1.0.0",
+      proposals: [],
+    },
+  };
   return {
     bundle: {
       kind: "topic_synthesis",
@@ -547,12 +581,7 @@ function syntheticTopicApplyRequest(args: {
             ]),
           ),
           sidecars: Object.fromEntries(
-            [
-              "topic_interest_metadata",
-              "concept_cards_proposal",
-              "topic_graph_relation_proposals",
-              "prospective_topic_relation_proposals",
-            ].map((name) => [
+            Object.keys(sidecarValues).map((name) => [
               name,
               {
                 path: `asset/sidecar/${name}`,
@@ -568,11 +597,20 @@ function syntheticTopicApplyRequest(args: {
         mediaType: "application/json" as const,
         text: JSON.stringify(value),
       })),
+      ...Object.entries(sidecarValues).map(([name, value]) => ({
+        id: `asset/sidecar/${name}`,
+        mediaType: "application/json" as const,
+        text: JSON.stringify(value),
+      })),
       {
         id: "asset/resolver",
         mediaType: "application/json",
         text: JSON.stringify({
-          resolver: { query: `synthetic production route ${args.name}` },
+          resolver: {
+            paper_refs: [sourcePaperRef],
+            collection_key: [],
+            combine: "union",
+          },
           resolved_paper_set: {
             papers: args.paperRefs.map((paperRef) => ({ paper_ref: paperRef })),
           },
@@ -600,8 +638,24 @@ export function createSyntheticSynthesisProductionRouteDataset(
     itemType: "journalArticle" as const,
     title: paperTitle(index),
     year: paperYear(index),
+    date: paperYear(index),
+    creators: [`Synthetic Author ${index % 97}`],
+    tags: [
+      TOPIC_TAGS[index % TOPIC_TAGS.length],
+      TOPIC_TAGS[(index + 3) % TOPIC_TAGS.length],
+    ],
+    collections: [`collection:${padded((index % 20) + 1, 2)}`],
+    doi: paperDoi(index),
+    arxiv: "",
+    isbn: "",
+    url: "",
+    citekey: `synthetic${padded(index + 1, 5)}`,
+    dateAdded: `2026-05-${padded((index % 27) + 1, 2)}T00:00:00.000Z`,
     metadataHash: fixtureHash("metadata", index),
   }));
+  const itemIndexByPaperRef = new Map(
+    items.map((item, index) => [item.paperRef, index]),
+  );
   const artifacts = items.flatMap((item, index) =>
     ([
       ["digest", "digest-markdown"],
@@ -641,25 +695,19 @@ export function createSyntheticSynthesisProductionRouteDataset(
       name,
       paperRefs: items.map((item) => item.paperRef),
     }),
-    tagSuggestionRequest(ordinal, expectedStagedRevision) {
-      const timestamp = "2026-08-02T00:00:00.000Z";
+    tagSuggestionRequest(ordinal) {
       const tag = `topic:production-route-effect-${name}-${ordinal}`;
       return {
-        expectedStagedRevision,
         entries: [
           {
             tag,
             facet: "topic",
             note: "governed production-route batch fixture",
-            sourceFlow: "production-route-performance",
-            parentBindingsJson: JSON.stringify(
-              tagEffects.map(({ libraryId, itemKey }) => ({
-                libraryId,
-                itemKey,
-              })),
-            ),
-            createdAt: timestamp,
-            updatedAt: timestamp,
+            source_flow: "production-route-performance",
+            parent_bindings: tagEffects.map(({ libraryId, itemKey }) => ({
+              libraryId,
+              itemKey,
+            })),
           },
         ],
       };
@@ -684,15 +732,53 @@ export function createSyntheticSynthesisProductionRouteDataset(
       const cursor = request.cursor || "";
       const offset = pageOffset(cursor);
       const limit = boundedPageLimit(request.limit);
-      const page = artifacts.slice(offset, offset + limit);
-      const nextOffset = offset + page.length;
+      const selectedIndexes = request.paperRefs?.length
+        ? Array.from(new Set(request.paperRefs)).flatMap((paperRef) => {
+            const index = itemIndexByPaperRef.get(paperRef);
+            return index === undefined ? [] : [index];
+          })
+        : undefined;
+      const requestedArtifactTypes = request.artifactTypes?.length
+        ? new Set(request.artifactTypes)
+        : undefined;
+      if (!selectedIndexes) {
+        const selectedArtifacts = requestedArtifactTypes
+          ? artifacts.filter(({ artifactType }) =>
+              requestedArtifactTypes.has(artifactType),
+            )
+          : artifacts;
+        const page = selectedArtifacts.slice(offset, offset + limit);
+        const nextOffset = offset + page.length;
+        return {
+          artifacts: page,
+          cursor,
+          nextCursor:
+            nextOffset < selectedArtifacts.length
+              ? `offset:${nextOffset}`
+              : "",
+          hasMore: nextOffset < selectedArtifacts.length,
+          returned: page.length,
+          limit,
+          snapshotRevision,
+        };
+      }
+      const sourceCount = selectedIndexes.length;
+      const pageIndexes = selectedIndexes.slice(offset, offset + limit);
+      const page = pageIndexes.flatMap((index) =>
+        artifacts
+          .slice(index * 3, index * 3 + 3)
+          .filter(
+            ({ artifactType }) =>
+              !requestedArtifactTypes || requestedArtifactTypes.has(artifactType),
+          ),
+      );
+      const nextOffset = offset + pageIndexes.length;
       return {
         artifacts: page,
         cursor,
-        nextCursor:
-          nextOffset < artifacts.length ? `offset:${nextOffset}` : "",
-        hasMore: nextOffset < artifacts.length,
-        returned: page.length,
+        nextCursor: nextOffset < sourceCount ? `offset:${nextOffset}` : "",
+        hasMore: nextOffset < sourceCount,
+        returned: pageIndexes.length,
         limit,
         snapshotRevision,
       };

@@ -54,6 +54,12 @@ export type SynthesisTopicApplicationRecord = {
   topicResolver: SynthesisTopicResolver;
   resolvedPaperSet: SynthesisResolvedPaperSet;
   projection: SynthesisTopicProjection;
+  freshness: SynthesisTopicProjection["freshness"];
+  sourceMaterialsStatus: SynthesisTopicProjection["source_materials_status"];
+  sourceMaterialsPercent: number;
+  staleReasons: string[];
+  dirtyReasons: string[];
+  missingSections: string[];
 };
 
 export type SynthesisTopicApplicationListResult = {

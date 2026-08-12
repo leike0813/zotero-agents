@@ -22,6 +22,7 @@ import observabilitySchema from "../contract-set/synthesis-sidecar-protocol-v1/s
 import {
   SynthesisClientError,
   toSynthesisJsonValue,
+  type SynthesisJsonObject,
   type SynthesisJsonValue,
 } from "./common.js";
 
@@ -86,6 +87,29 @@ function protocolAjv() {
   return ajv;
 }
 
+function rebuildProtocolJsonValue(args: {
+  value: unknown;
+  location: string;
+  direction: "request" | "result";
+  details?: SynthesisJsonObject;
+}) {
+  try {
+    return toSynthesisJsonValue(args.value, args.location);
+  } catch (error) {
+    if (
+      args.direction === "request" ||
+      !(error instanceof SynthesisClientError)
+    ) {
+      throw error;
+    }
+    throw new SynthesisClientError(
+      "internal",
+      "Synthesis protocol result is not JSON-safe",
+      { ...args.details, location: args.location },
+    );
+  }
+}
+
 export function rebuildSynthesisProtocolDto<T>(args: {
   schemaId: string;
   definition: string;
@@ -103,7 +127,11 @@ export function rebuildSynthesisProtocolDto<T>(args: {
       },
     );
   }
-  const value: SynthesisJsonValue = toSynthesisJsonValue(args.value, location);
+  const value: SynthesisJsonValue = rebuildProtocolJsonValue({
+    value: args.value,
+    location,
+    direction: args.direction,
+  });
   let validate = validators.get(location);
   if (!validate) {
     validate = protocolAjv().getSchema(location);
@@ -165,10 +193,12 @@ export function rebuildSynthesisProtocolCapabilityDto<T>(args: {
       ? contract.requestSchemaRef
       : contract.resultSchemaRef,
   );
-  const value: SynthesisJsonValue = toSynthesisJsonValue(
-    args.value,
-    `$.${args.capability}.${args.direction}`,
-  );
+  const value: SynthesisJsonValue = rebuildProtocolJsonValue({
+    value: args.value,
+    location: `$.${args.capability}.${args.direction}`,
+    direction: args.direction,
+    details: { capability: args.capability },
+  });
   let validate = validators.get(location);
   if (!validate) {
     validate = protocolAjv().getSchema(location);

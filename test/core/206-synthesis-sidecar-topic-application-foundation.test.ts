@@ -283,6 +283,73 @@ describe("Synthesis sidecar Topic application foundation", function () {
     owner.repository.close();
   });
 
+  it("reads reference artifacts once for a bounded Topic page", async function () {
+    const runtimeRoot = root();
+    const owner = owners(runtimeRoot);
+    const referenceReads: string[][] = [];
+    const referenceArtifacts = [
+      "digest",
+      "references",
+      "citation_analysis",
+    ].map((artifactType, index) => ({
+      paperRef: "1:AAAA",
+      artifactType: artifactType as
+        | "digest"
+        | "references"
+        | "citation_analysis",
+      payloadType: "application/json",
+      status: "available",
+      locator: `artifacts/${artifactType}.json`,
+      payloadHash: `sha256:${String(index + 1).repeat(64)}`,
+      diagnosticsJson: "[]",
+      updatedAt: "2026-07-17T12:00:00.000Z",
+    }));
+    const repository = {
+      ...owner.repository.store,
+      listReferenceArtifacts(sourceRefs?: string[]) {
+        referenceReads.push([...(sourceRefs ?? [])]);
+        return referenceArtifacts.filter(
+          (artifact) => !sourceRefs || sourceRefs.includes(artifact.paperRef),
+        );
+      },
+    };
+    const application = createSynthesisTopicApplication({
+      canonicalStore: owner.canonicalStore,
+      repository,
+      engine,
+      now: () => "2026-07-17T12:00:00.000Z",
+    });
+    assert.equal(
+      (await application.apply(createRequest("topic-first"))).status,
+      "persisted",
+    );
+    assert.equal(
+      (await application.apply(createRequest("topic-second"))).status,
+      "persisted",
+    );
+
+    referenceReads.length = 0;
+    const fresh = application.list({ limit: 2 });
+    assert.equal(fresh.returned, 2);
+    assert.include(fresh.topics[0], {
+      freshness: "fresh",
+      sourceMaterialsStatus: "complete",
+      sourceMaterialsPercent: 100,
+    });
+    assert.deepEqual(referenceReads, [["1:AAAA"]]);
+
+    referenceArtifacts[0]!.payloadHash = `sha256:${"9".repeat(64)}`;
+    referenceReads.length = 0;
+    const stale = application.list({ limit: 2 });
+    assert.equal(stale.topics[0]?.freshness, "stale");
+    assert.deepEqual(stale.topics[0]?.staleReasons, [
+      "topic_dependencies_changed",
+    ]);
+    assert.deepEqual(referenceReads, [["1:AAAA"]]);
+    owner.canonicalStore.close();
+    owner.repository.close();
+  });
+
   it("applies a structured section patch over a complete current snapshot", async function () {
     const runtimeRoot = root();
     const owner = owners(runtimeRoot);
@@ -335,12 +402,72 @@ describe("Synthesis sidecar Topic application foundation", function () {
     const detail = application.detail({ topicId: "topic-alpha" });
     assert.equal(detail.status, "ready");
     if (detail.status === "ready") {
+      assert.deepEqual(detail.topic.topicDefinition, {
+        id: "topic-alpha",
+        title: "Alpha Topic",
+        definition: "A bounded Topic",
+      });
+      assert.deepEqual(detail.topic.topicResolver, { query: "alpha" });
+      assert.deepEqual(detail.topic.resolvedPaperSet, {
+        papers: [{ paper_ref: "1:AAAA" }],
+      });
+      assert.include(detail.topic, {
+        freshness: "fresh",
+        sourceMaterialsStatus: "missing",
+        sourceMaterialsPercent: 0,
+      });
+      assert.deepEqual(detail.topic.staleReasons, []);
+      assert.deepEqual(detail.topic.dirtyReasons, []);
+      assert.deepEqual(detail.topic.missingSections, [
+        "1:AAAA:digest",
+        "1:AAAA:references",
+        "1:AAAA:citation_analysis",
+      ]);
+      assert.deepInclude(detail.topic.projection.discovery, {
+        source_paper_refs: ["1:AAAA"],
+      });
+      assert.deepInclude(detail.topic.projection.discovery?.readiness, {
+        baseline_initialized_at: "2026-07-17T12:00:00.000Z",
+        last_scanned_at: "2026-07-17T12:00:00.000Z",
+      });
+      assert.equal(
+        detail.topic.projection.discovery?.readiness?.baseline_input_hash,
+        detail.topic.projection.discovery?.readiness?.current_input_hash,
+      );
       assert.deepEqual(detail.snapshot.sections.claims, [
         { id: "claim:two", text: "Two" },
       ]);
     }
     owner.canonicalStore.close();
     owner.repository.close();
+
+    const reopenedOwner = owners(runtimeRoot);
+    const reopenedApplication = createSynthesisTopicApplication({
+      canonicalStore: reopenedOwner.canonicalStore,
+      repository: reopenedOwner.repository.store,
+      engine,
+      now: () => "2026-07-17T12:01:00.000Z",
+    });
+    const reopened = reopenedApplication.detail({ topicId: "topic-alpha" });
+    assert.equal(reopened.status, "ready");
+    if (reopened.status === "ready") {
+      assert.deepEqual(reopened.topic.topicDefinition, {
+        id: "topic-alpha",
+        title: "Alpha Topic",
+        definition: "A bounded Topic",
+      });
+      assert.include(reopened.topic, {
+        freshness: "fresh",
+        sourceMaterialsStatus: "missing",
+        sourceMaterialsPercent: 0,
+      });
+      assert.equal(
+        reopened.topic.projection.discovery?.readiness?.baseline_input_hash,
+        reopened.topic.projection.discovery?.readiness?.current_input_hash,
+      );
+    }
+    reopenedOwner.canonicalStore.close();
+    reopenedOwner.repository.close();
   });
 
   it("fails closed when the canonical owner requires repair", async function () {

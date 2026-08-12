@@ -216,6 +216,13 @@ export type SynthesisArtifactDeliveryDescriptor = {
   };
 };
 
+export type SynthesisArtifactDeliveryProjection = {
+  mode: "bridge-download";
+  bundle: SynthesisArtifactDeliveryDescriptor;
+  downloadCommand: string;
+  unpackHint: string;
+};
+
 export type SynthesisArtifactQueryResult = SynthesisPaperArtifactsResult;
 
 export type SynthesisArtifactExportResult = {
@@ -230,7 +237,7 @@ export type SynthesisArtifactExportResult = {
     missing_reason: string;
   }>;
   diagnostics: string[];
-  delivery?: SynthesisArtifactDeliveryDescriptor;
+  delivery?: SynthesisArtifactDeliveryProjection;
 };
 
 type SynthesisArtifactCapabilityResultMap = {

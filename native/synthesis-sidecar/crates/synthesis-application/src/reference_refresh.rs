@@ -184,6 +184,8 @@ struct RefreshState {
     active: bool,
     preparation: Option<Preparation>,
     projection_snapshot: Option<ReferenceProjectionSnapshot>,
+    // True only after this application persisted and mirrored a projection in the current run.
+    projection_snapshot_verified: bool,
     explicit_run: bool,
 }
 
@@ -293,6 +295,7 @@ impl ReferenceRefreshApplication {
                 active: false,
                 preparation: None,
                 projection_snapshot: None,
+                projection_snapshot_verified: false,
                 explicit_run: false,
             }),
             drained: Condvar::new(),
@@ -325,6 +328,7 @@ impl ReferenceRefreshApplication {
         state.active = false;
         self.drained.notify_all();
         state.projection_snapshot = Some(snapshot?);
+        state.projection_snapshot_verified = false;
         state.explicit_run = true;
         Ok(ReferenceRefreshRun { application: self })
     }
@@ -790,6 +794,62 @@ impl ReferenceRefreshApplication {
         preparation: &Preparation,
         payloads: &[ReferenceRefreshPayload],
     ) -> Result<ReferenceProjectionReplacement, String> {
+        if let Some(projection) = self.project_verified_identity_full_sweep(preparation) {
+            return Ok(projection);
+        }
+        self.project_complete(preparation, payloads)
+    }
+
+    fn project_verified_identity_full_sweep(
+        &self,
+        preparation: &Preparation,
+    ) -> Option<ReferenceProjectionReplacement> {
+        let state = self.state.lock().ok()?;
+        if !state.projection_snapshot_verified
+            || preparation.request.force
+            || !preparation.request.items.is_empty()
+            || !preparation.request.artifacts.is_empty()
+            || !preparation.reads.is_empty()
+            || !preparation.replace_source_refs.is_empty()
+            || !preparation.affected_source_refs.is_empty()
+            || !preparation.binding_candidates.is_empty()
+        {
+            return None;
+        }
+        let ReferenceRefreshScope::FullSweep { source_refs } = &preparation.request.scope else {
+            return None;
+        };
+        let snapshot_state = preparation.snapshot.state.as_ref()?;
+        if preparation.request.expected_reference_hash.as_deref()
+            != Some(snapshot_state.reference_hash.as_str())
+            || !snapshot_covers_sources(&preparation.snapshot, source_refs)
+        {
+            return None;
+        }
+        Some(ReferenceProjectionReplacement {
+            expected_reference_hash: preparation.request.expected_reference_hash.clone(),
+            reference_hash: snapshot_state.reference_hash.clone(),
+            input_hash: preparation.input_hash.clone(),
+            scope: ReferenceProjectionScope::Full,
+            source_refs: source_refs.clone(),
+            replace_reference_source_refs: Vec::new(),
+            remove_binding_ids: Vec::new(),
+            sources: Vec::new(),
+            artifacts: Vec::new(),
+            raw_references: Vec::new(),
+            canonicals: Vec::new(),
+            bindings: Vec::new(),
+            reviews: Vec::new(),
+            graph_facts_changed: false,
+            now: (self.now)(),
+        })
+    }
+
+    fn project_complete(
+        &self,
+        preparation: &Preparation,
+        payloads: &[ReferenceRefreshPayload],
+    ) -> Result<ReferenceProjectionReplacement, String> {
         let now = (self.now)();
         let payload_by_locator = payloads
             .iter()
@@ -1236,10 +1296,12 @@ impl ReferenceRefreshApplication {
             }
         }
         let snapshot = self.repository.load_projection_snapshot()?;
-        self.state
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| "reference_refresh_unavailable".to_owned())?
-            .projection_snapshot = Some(snapshot.clone());
+            .map_err(|_| "reference_refresh_unavailable".to_owned())?;
+        state.projection_snapshot = Some(snapshot.clone());
+        state.projection_snapshot_verified = false;
         Ok(snapshot)
     }
 
@@ -1281,6 +1343,30 @@ impl ReferenceRefreshApplication {
         let Some(snapshot) = state.projection_snapshot.as_mut() else {
             return;
         };
+        let identity_full_sweep = replacement.scope == ReferenceProjectionScope::Full
+            && replacement.replace_reference_source_refs.is_empty()
+            && replacement.remove_binding_ids.is_empty()
+            && replacement.sources.is_empty()
+            && replacement.artifacts.is_empty()
+            && replacement.raw_references.is_empty()
+            && replacement.canonicals.is_empty()
+            && replacement.bindings.is_empty()
+            && replacement.reviews.is_empty()
+            && !replacement.graph_facts_changed
+            && snapshot_covers_sources(snapshot, &replacement.source_refs)
+            && snapshot.state.as_ref().is_some_and(|current| {
+                replacement.expected_reference_hash.as_deref()
+                    == Some(current.reference_hash.as_str())
+                    && replacement.reference_hash == current.reference_hash
+            });
+        if identity_full_sweep {
+            if let Some(current) = snapshot.state.as_mut() {
+                current.input_hash = replacement.input_hash.clone();
+                current.updated_at = replacement.now.clone();
+            }
+            state.projection_snapshot_verified = true;
+            return;
+        }
         if replacement.scope == ReferenceProjectionScope::Full {
             let retained = replacement.source_refs.iter().collect::<HashSet<_>>();
             snapshot
@@ -1371,12 +1457,14 @@ impl ReferenceRefreshApplication {
                 && current.is_none_or(|state| state.related_items_ready),
             updated_at: replacement.now.clone(),
         });
+        state.projection_snapshot_verified = true;
     }
 
     fn end_run(&self) {
         let preparation = self.state.lock().ok().and_then(|mut state| {
             state.explicit_run = false;
             state.projection_snapshot = None;
+            state.projection_snapshot_verified = false;
             state.preparation.take()
         });
         if let Some(preparation) = preparation {
@@ -1614,6 +1702,19 @@ fn artifact_record_changed(
             || current.diagnostics_json
                 != serde_json::to_string(&next.diagnostics).unwrap_or_else(|_| "[]".into())
     })
+}
+
+fn snapshot_covers_sources(snapshot: &ReferenceProjectionSnapshot, source_refs: &[String]) -> bool {
+    source_refs.len() == snapshot.sources.len()
+        && source_refs
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>()
+            == snapshot
+                .sources
+                .iter()
+                .map(|source| source.paper_ref.as_str())
+                .collect::<HashSet<_>>()
 }
 
 fn changed_source_refs_for_snapshot(
@@ -2111,6 +2212,175 @@ mod tests {
         }
         assert_eq!(snapshot_loads.load(Ordering::Relaxed), 1);
         assert_eq!(run.inspect().expect("final run state").source_count, 2);
+        drop(run);
+        drop(application);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn verified_identity_full_sweep_matches_complete_projection_and_durable_state() {
+        let root = root();
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-identity-sweep".into(),
+                data_root_id: "data-identity-sweep".into(),
+            },
+        )
+        .expect("open repository");
+        let application = ReferenceRefreshApplication::with_factories(
+            Arc::new(RepositoryPort::new(Arc::new(Mutex::new(repository)))),
+            Arc::new(|| "2026-08-03T00:00:00.000Z".into()),
+            Arc::new(|| "refresh:identity-sweep".into()),
+        );
+        let run = application.begin_run().expect("begin run");
+        let prepared = run.prepare_refresh(source_request(
+            "1:A",
+            "A",
+            run.inspect().expect("run state").reference_hash,
+        ));
+        assert_eq!(
+            run.apply_refresh(ReferenceRefreshApplyRequest {
+                preparation_id: prepared.preparation_id.clone().expect("preparation"),
+                payloads: payloads(&prepared),
+            })
+            .status,
+            ReferenceRefreshStatus::Promoted,
+        );
+        let reference_hash = run.inspect().expect("run state").reference_hash;
+        let sweep = run.prepare_refresh(ReferenceRefreshPrepareRequest {
+            expected_reference_hash: reference_hash.clone(),
+            force: false,
+            scope: ReferenceRefreshScope::FullSweep {
+                source_refs: vec!["1:A".into()],
+            },
+            items: Vec::new(),
+            artifacts: Vec::new(),
+        });
+        let preparation = application
+            .state
+            .lock()
+            .expect("refresh state")
+            .preparation
+            .clone()
+            .expect("sweep preparation");
+        let complete = application
+            .project_complete(&preparation, &[])
+            .expect("complete projection");
+        let optimized = application
+            .project_verified_identity_full_sweep(&preparation)
+            .expect("verified identity projection");
+        assert_eq!(optimized, complete);
+
+        assert_eq!(
+            run.apply_refresh(ReferenceRefreshApplyRequest {
+                preparation_id: sweep.preparation_id.expect("sweep preparation"),
+                payloads: Vec::new(),
+            })
+            .status,
+            ReferenceRefreshStatus::Promoted,
+        );
+        let inspection = run.inspect().expect("sweep state");
+        assert_eq!(inspection.reference_hash, reference_hash);
+        assert_eq!(inspection.input_hash, Some(optimized.input_hash.clone()));
+        drop(run);
+        drop(application);
+
+        let repository = Repository::open(
+            &root,
+            RepositoryIdentity {
+                profile_id: "profile-identity-sweep".into(),
+                data_root_id: "data-identity-sweep".into(),
+            },
+        )
+        .expect("reopen repository");
+        let snapshot = repository
+            .load_reference_projection_snapshot()
+            .expect("durable snapshot");
+        assert_eq!(snapshot.sources.len(), 1);
+        assert_eq!(snapshot.artifacts.len(), 4);
+        assert_eq!(snapshot.raw_references.len(), 1);
+        assert_eq!(
+            snapshot.state.expect("durable state").reference_hash,
+            optimized.reference_hash,
+        );
+        let receipt = repository
+            .get_operation(&preparation.operation_id)
+            .expect("read receipt")
+            .expect("sweep receipt");
+        assert_eq!(receipt.status, "succeeded");
+        assert_eq!(receipt.phase, "completed");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn identity_full_sweep_optimization_requires_verified_snapshot_without_deletions() {
+        let (application, root) = application();
+        let run = application.begin_run().expect("begin run");
+        let unverified = run.prepare_refresh(ReferenceRefreshPrepareRequest {
+            expected_reference_hash: None,
+            force: false,
+            scope: ReferenceRefreshScope::FullSweep {
+                source_refs: Vec::new(),
+            },
+            items: Vec::new(),
+            artifacts: Vec::new(),
+        });
+        let preparation = application
+            .state
+            .lock()
+            .expect("refresh state")
+            .preparation
+            .clone()
+            .expect("unverified preparation");
+        assert!(
+            application
+                .project_verified_identity_full_sweep(&preparation)
+                .is_none()
+        );
+        run.discard_preparation(
+            unverified
+                .preparation_id
+                .as_deref()
+                .expect("unverified preparation id"),
+        );
+
+        let prepared = run.prepare_refresh(source_request("1:A", "A", None));
+        assert_eq!(
+            run.apply_refresh(ReferenceRefreshApplyRequest {
+                preparation_id: prepared.preparation_id.clone().expect("preparation"),
+                payloads: payloads(&prepared),
+            })
+            .status,
+            ReferenceRefreshStatus::Promoted,
+        );
+        let deleting = run.prepare_refresh(ReferenceRefreshPrepareRequest {
+            expected_reference_hash: run.inspect().expect("run state").reference_hash,
+            force: false,
+            scope: ReferenceRefreshScope::FullSweep {
+                source_refs: Vec::new(),
+            },
+            items: Vec::new(),
+            artifacts: Vec::new(),
+        });
+        let preparation = application
+            .state
+            .lock()
+            .expect("refresh state")
+            .preparation
+            .clone()
+            .expect("deleting preparation");
+        assert!(
+            application
+                .project_verified_identity_full_sweep(&preparation)
+                .is_none()
+        );
+        run.discard_preparation(
+            deleting
+                .preparation_id
+                .as_deref()
+                .expect("deleting preparation id"),
+        );
         drop(run);
         drop(application);
         let _ = std::fs::remove_dir_all(root);

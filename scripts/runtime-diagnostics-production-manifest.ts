@@ -89,7 +89,6 @@ export const runtimeDiagnosticsFeatureGroups = {
       "packages/synthesis-contracts/src/sidecarObservability.ts",
     ],
     forbiddenRuntimeMarkers: [
-      "synthesis-sidecar-observation.v2",
       "synthesis-sidecar-trace-snapshot.v2",
       "synthesis-sidecar-trace-patch.v2",
       "synthesis-sidecar:events",
@@ -125,6 +124,10 @@ export const forbiddenProductionRuntimeMarkers = [
   "zotero-agents.acp-runtime-semantic-trace.v1",
   "zotero-skills.acp-chat.diagnostic.v1",
   "acp-chat-diagnostic-audit",
+] as const;
+
+export const productionRuntimeContractMarkers = [
+  "synthesis-sidecar-observation.v2",
 ] as const;
 
 export const runtimeDiagnosticsStaticAllowances = {

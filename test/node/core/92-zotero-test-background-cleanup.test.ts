@@ -23,6 +23,12 @@ describe("zotero test background cleanup harness", function () {
     };
 
     setBackgroundRuntimeCleanupDepsForTests({
+      setDefaultSynthesisClientCompositionFactoryForTests: mark(
+        "setDefaultSynthesisClientCompositionFactoryForTests",
+      ),
+      resetDefaultSynthesisClientForTests: mark(
+        "resetDefaultSynthesisClientForTests",
+      ),
       resetSkillRunnerRunDialogForTests: async () => {
         calls.push("resetSkillRunnerRunDialogForTests");
       },
@@ -86,6 +92,8 @@ describe("zotero test background cleanup harness", function () {
     await cleanupBackgroundRuntimeForZoteroTests();
 
     assert.deepEqual(calls, [
+      "setDefaultSynthesisClientCompositionFactoryForTests",
+      "resetDefaultSynthesisClientForTests",
       "resetSkillRunnerRunDialogForTests",
       "resetTaskManagerDialogRuntimeForTests",
       "resetSkillRunnerTaskReconcilerForTests",
@@ -121,6 +129,8 @@ describe("zotero test background cleanup harness", function () {
     });
 
     setBackgroundRuntimeCleanupDepsForTests({
+      setDefaultSynthesisClientCompositionFactoryForTests() {},
+      async resetDefaultSynthesisClientForTests() {},
       resetSkillRunnerRunDialogForTests: async () => {
         calls.push("resetSkillRunnerRunDialogForTests");
       },
@@ -138,7 +148,7 @@ describe("zotero test background cleanup harness", function () {
     });
 
     const cleanupPromise = cleanupBackgroundRuntimeForZoteroTests();
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       if (calls.includes("resetSkillRunnerTaskReconcilerForTests:start")) {
         break;
       }

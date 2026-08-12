@@ -16,6 +16,7 @@ import type {
   SynthesisTopicDiscoveryProjection,
   SynthesisTopicGraphProjection,
   SynthesisTopicInterestMetadata,
+  SynthesisTopicProjection,
   SynthesisTopicRelationProposals,
   SynthesisTopicResolver,
 } from "../../synthesis-contracts/src/topicDomain.js";
@@ -36,6 +37,7 @@ import type {
   SynthesisOperationStatusUpdate,
   SynthesisTopicApplicationProjectionRecord,
   SynthesisTopicApplicationStateRecord,
+  SynthesisReferenceArtifactRecord,
 } from "../../synthesis-repository/src/index.js";
 import {
   canonicalSynthesisTopicPathId,
@@ -71,6 +73,9 @@ export type SynthesisTopicApplicationRepository = {
   updateOperationStatus(
     args: SynthesisOperationStatusUpdate,
   ): SynthesisOperationRecord | null;
+  listReferenceArtifacts(
+    sourceRefs?: string[],
+  ): SynthesisReferenceArtifactRecord[];
 };
 
 export type SynthesisTopicApplication = {
@@ -98,6 +103,12 @@ type Options = {
 
 const cleanString = (value: unknown) => String(value ?? "").trim();
 
+const TOPIC_SOURCE_ARTIFACT_TYPES = [
+  "digest",
+  "references",
+  "citation_analysis",
+] as const;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -121,10 +132,169 @@ function parseStoredJson<T>(text: string) {
   return JSON.parse(text) as T;
 }
 
+function resolvedPaperRefs(resolvedPaperSet: SynthesisResolvedPaperSet) {
+  return [
+    ...new Set(
+      resolvedPaperSet.papers
+        .map((paper) => cleanString(paper.paper_ref))
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+function topicDependencySnapshot(
+  paperRefs: string[],
+  artifacts: SynthesisReferenceArtifactRecord[],
+) {
+  const refs = [...new Set(paperRefs.map(cleanString).filter(Boolean))].sort();
+  const byKey = new Map(
+    artifacts
+      .filter(
+        (artifact) =>
+          refs.includes(artifact.paperRef) &&
+          TOPIC_SOURCE_ARTIFACT_TYPES.includes(
+            artifact.artifactType as (typeof TOPIC_SOURCE_ARTIFACT_TYPES)[number],
+          ),
+      )
+      .map((artifact) => [
+        `${artifact.paperRef}\n${artifact.artifactType}`,
+        artifact,
+      ]),
+  );
+  const paperArtifacts: Record<
+    string,
+    Record<string, { status: string; hash: string }>
+  > = {};
+  const missingArtifacts: string[] = [];
+  for (const paperRef of refs) {
+    const dependencies: Record<string, { status: string; hash: string }> = {};
+    for (const artifactType of TOPIC_SOURCE_ARTIFACT_TYPES) {
+      const artifact = byKey.get(`${paperRef}\n${artifactType}`);
+      const dependency = {
+        status: artifact?.status ?? "missing",
+        hash: artifact?.payloadHash ?? "",
+      };
+      if (dependency.status !== "available") {
+        missingArtifacts.push(`${paperRef}:${artifactType}`);
+      }
+      dependencies[artifactType] = dependency;
+    }
+    paperArtifacts[paperRef] = dependencies;
+  }
+  return {
+    paper_refs: refs,
+    paper_artifacts: paperArtifacts,
+    missing_artifacts: missingArtifacts,
+  };
+}
+
+function sourceMaterialsStatus(
+  snapshot: ReturnType<typeof topicDependencySnapshot>,
+): SynthesisTopicApplicationRecord["sourceMaterialsStatus"] {
+  if (!snapshot.paper_refs.length) return "missing";
+  const total = snapshot.paper_refs.length * TOPIC_SOURCE_ARTIFACT_TYPES.length;
+  if (!snapshot.missing_artifacts.length) return "complete";
+  return snapshot.missing_artifacts.length >= total ? "missing" : "partial";
+}
+
+function sourceMaterialsPercent(
+  snapshot: ReturnType<typeof topicDependencySnapshot>,
+) {
+  if (!snapshot.paper_refs.length) return 0;
+  const incompleteRefs = new Set(
+    snapshot.missing_artifacts.map((entry) =>
+      entry.slice(0, entry.lastIndexOf(":")),
+    ),
+  );
+  const complete = snapshot.paper_refs.filter(
+    (paperRef) => !incompleteRefs.has(paperRef),
+  ).length;
+  return Math.floor((complete * 100) / snapshot.paper_refs.length);
+}
+
+function storedTopicReadiness(projection: SynthesisTopicProjection) {
+  return projection.discovery?.readiness;
+}
+
+function topicReadinessView(
+  record: SynthesisTopicApplicationStateRecord,
+  projection: SynthesisTopicProjection,
+  artifacts: SynthesisReferenceArtifactRecord[],
+) {
+  const paperRefs = resolvedPaperRefs(
+    parseStoredJson<SynthesisResolvedPaperSet>(record.resolvedPaperSetJson),
+  );
+  const stored = storedTopicReadiness(projection);
+  const current = artifacts.length
+    ? topicDependencySnapshot(paperRefs, artifacts)
+    : (stored?.current_dependencies ??
+      stored?.baseline_dependencies ??
+      topicDependencySnapshot(paperRefs, artifacts));
+  const currentHash = hashSynthesisEngineCanonicalJson(current);
+  const status = sourceMaterialsStatus(current);
+  const percent = sourceMaterialsPercent(current);
+  const staleReasons: string[] = [];
+  const dirtyReasons: string[] = [];
+  let freshness: SynthesisTopicApplicationRecord["freshness"];
+  if (stored?.baseline_input_hash) {
+    if (stored.baseline_input_hash === currentHash) {
+      freshness = "fresh";
+    } else {
+      freshness = "stale";
+      staleReasons.push("topic_dependencies_changed");
+    }
+  } else if (status === "complete") {
+    freshness = "fresh";
+  } else {
+    freshness = "dirty";
+    dirtyReasons.push("readiness_baseline_missing");
+  }
+  return {
+    freshness,
+    sourceMaterialsStatus: status,
+    sourceMaterialsPercent: percent,
+    staleReasons,
+    dirtyReasons,
+    missingSections: [...current.missing_artifacts],
+  };
+}
+
+function projectionValue(
+  projection?: SynthesisTopicApplicationProjectionRecord | null,
+): SynthesisTopicProjection {
+  return {
+    ...(projection
+      ? {
+          topicGraph: parseStoredJson<SynthesisTopicGraphProjection>(
+            projection.topicGraphJson,
+          ),
+          concepts: parseStoredJson<SynthesisConceptCardsProposal>(
+            projection.conceptsJson,
+          ),
+          interestMetadata: parseStoredJson<SynthesisTopicInterestMetadata>(
+            projection.interestMetadataJson,
+          ),
+          discovery: parseStoredJson<SynthesisTopicDiscoveryProjection>(
+            projection.discoveryJson,
+          ),
+        }
+      : {}),
+    freshness: "unknown",
+    source_materials_status: "missing",
+    source_materials_percent: 0,
+    stale_reasons: [],
+    dirty_reasons: [],
+    missing_sections: [],
+  };
+}
+
 function recordProjection(
   record: SynthesisTopicApplicationStateRecord,
   projection?: SynthesisTopicApplicationProjectionRecord | null,
+  artifacts: SynthesisReferenceArtifactRecord[] = [],
 ): SynthesisTopicApplicationRecord {
+  const projected = projectionValue(projection);
+  const readiness = topicReadinessView(record, projected, artifacts);
   return {
     topicId: record.topicId,
     pathId: record.pathId,
@@ -148,29 +318,15 @@ function recordProjection(
       record.resolvedPaperSetJson,
     ),
     projection: {
-      ...(projection
-        ? {
-            topicGraph: parseStoredJson<SynthesisTopicGraphProjection>(
-              projection.topicGraphJson,
-            ),
-            concepts: parseStoredJson<SynthesisConceptCardsProposal>(
-              projection.conceptsJson,
-            ),
-            interestMetadata: parseStoredJson<SynthesisTopicInterestMetadata>(
-              projection.interestMetadataJson,
-            ),
-            discovery: parseStoredJson<SynthesisTopicDiscoveryProjection>(
-              projection.discoveryJson,
-            ),
-          }
-        : {}),
-      freshness: "unknown",
-      source_materials_status: "missing",
-      source_materials_percent: 0,
-      stale_reasons: [],
-      dirty_reasons: [],
-      missing_sections: [],
+      ...projected,
+      freshness: readiness.freshness,
+      source_materials_status: readiness.sourceMaterialsStatus,
+      source_materials_percent: readiness.sourceMaterialsPercent,
+      stale_reasons: readiness.staleReasons,
+      dirty_reasons: readiness.dirtyReasons,
+      missing_sections: readiness.missingSections,
     },
+    ...readiness,
   };
 }
 
@@ -185,11 +341,22 @@ function projectList(
     limit: normalized.limit,
   });
   const next = offset + page.rows.length;
+  const paperRefs = [
+    ...new Set(
+      page.rows.flatMap((row) =>
+        resolvedPaperRefs(
+          parseStoredJson<SynthesisResolvedPaperSet>(row.resolvedPaperSetJson),
+        ),
+      ),
+    ),
+  ].sort();
+  const artifacts = listReferenceArtifacts(repository, paperRefs);
   return {
     topics: page.rows.map((row) =>
       recordProjection(
         row,
         repository.getTopicApplicationProjection(row.topicId),
+        artifacts,
       ),
     ),
     cursor: normalized.cursor,
@@ -222,6 +389,60 @@ function paperCount(artifact: SynthesisTopicJsonObject) {
   return Array.isArray(artifact.source_papers)
     ? artifact.source_papers.length
     : 0;
+}
+
+function sourcePaperRefs(artifact: SynthesisTopicJsonObject) {
+  return Array.isArray(artifact.source_papers)
+    ? artifact.source_papers
+        .filter((paper): paper is { [key: string]: SynthesisTopicJsonValue } =>
+          isObject(paper),
+        )
+        .map((paper) => cleanString(paper.paper_ref))
+        .filter(Boolean)
+    : [];
+}
+
+function topicArtifactDependencyRecords(
+  artifact: SynthesisTopicJsonObject,
+): SynthesisReferenceArtifactRecord[] {
+  if (!Array.isArray(artifact.source_artifacts)) return [];
+  return artifact.source_artifacts.flatMap((entry) => {
+    if (!isObject(entry)) return [];
+    const paperRef = cleanString(entry.paper_ref);
+    const artifactType = cleanString(entry.artifact_type);
+    if (
+      !paperRef ||
+      !TOPIC_SOURCE_ARTIFACT_TYPES.includes(
+        artifactType as (typeof TOPIC_SOURCE_ARTIFACT_TYPES)[number],
+      )
+    ) {
+      return [];
+    }
+    return [
+      {
+        paperRef,
+        artifactType:
+          artifactType as SynthesisReferenceArtifactRecord["artifactType"],
+        payloadType: cleanString(entry.payload_type),
+        status: cleanString(entry.status) || "missing",
+        locator: cleanString(entry.path),
+        payloadHash: cleanString(entry.hash),
+        diagnosticsJson: "[]",
+        updatedAt: cleanString(entry.updated_at),
+      },
+    ];
+  });
+}
+
+function listReferenceArtifacts(
+  repository: SynthesisTopicApplicationRepository,
+  paperRefs: string[],
+) {
+  try {
+    return repository.listReferenceArtifacts(paperRefs);
+  } catch {
+    return [];
+  }
 }
 
 function assetReader(
@@ -533,6 +754,14 @@ export function createSynthesisTopicApplication(
         topic: recordProjection(
           state,
           options.repository.getTopicApplicationProjection(request.topicId),
+          listReferenceArtifacts(
+            options.repository,
+            resolvedPaperRefs(
+              parseStoredJson<SynthesisResolvedPaperSet>(
+                state.resolvedPaperSetJson,
+              ),
+            ),
+          ),
         ),
         snapshot: current.snapshot,
       };
@@ -606,14 +835,21 @@ export function createSynthesisTopicApplication(
             operationId,
           });
         }
+        const inheritedState =
+          bundle.operation === "update_patch"
+            ? options.repository.getTopicApplicationState(topicId)
+            : null;
         const resolver =
           prepared.resolver ??
           (() => {
-            const state = options.repository.getTopicApplicationState(topicId);
-            if (!state) throw new Error("current Topic resolver is missing");
+            if (!inheritedState) {
+              throw new Error("current Topic resolver is missing");
+            }
             return {
-              topicResolver: parseStoredJson(state.topicResolverJson),
-              resolvedPaperSet: parseStoredJson(state.resolvedPaperSetJson),
+              topicResolver: parseStoredJson(inheritedState.topicResolverJson),
+              resolvedPaperSet: parseStoredJson(
+                inheritedState.resolvedPaperSetJson,
+              ),
             };
           })();
         const currentHashes =
@@ -717,6 +953,25 @@ export function createSynthesisTopicApplication(
         const warnings: string[] = [];
         try {
           updateOperation(operationId, "running", "projection");
+          const artifactTopic = isObject(snapshot.artifact.topic)
+            ? snapshot.artifact.topic
+            : null;
+          const topicDefinition = Object.keys(bundle.topic_definition).length
+            ? bundle.topic_definition
+            : artifactTopic && cleanString(artifactTopic.id)
+              ? artifactTopic
+              : inheritedState
+                ? parseStoredJson<SynthesisTopicDefinition>(
+                    inheritedState.topicDefinitionJson,
+                  )
+                : {
+                    id: topicId,
+                    title: titleFromDefinition(
+                      bundle.topic_definition,
+                      topicId,
+                    ),
+                    definition: definitionText(bundle.topic_definition),
+                  };
           const state: SynthesisTopicApplicationStateRecord = {
             topicId,
             pathId: snapshot.pathId,
@@ -729,9 +984,8 @@ export function createSynthesisTopicApplication(
             metadataHash: committedHashes.metadataHash,
             bundleHash: hashSynthesisEngineCanonicalJson(request.bundle),
             paperCount: paperCount(snapshot.artifact),
-            topicDefinitionJson: canonicalizeSynthesisEngineJson(
-              bundle.topic_definition,
-            ),
+            topicDefinitionJson:
+              canonicalizeSynthesisEngineJson(topicDefinition),
             topicResolverJson: canonicalizeSynthesisEngineJson(
               resolver.topicResolver,
             ),
@@ -741,6 +995,27 @@ export function createSynthesisTopicApplication(
             createdAt,
             updatedAt: timestamp,
           };
+          const paperRefs = sourcePaperRefs(snapshot.artifact);
+          const dependencyRecords = new Map(
+            topicArtifactDependencyRecords(snapshot.artifact).map((record) => [
+              `${record.paperRef}\n${record.artifactType}`,
+              record,
+            ]),
+          );
+          for (const record of listReferenceArtifacts(
+            options.repository,
+            paperRefs,
+          )) {
+            dependencyRecords.set(
+              `${record.paperRef}\n${record.artifactType}`,
+              record,
+            );
+          }
+          const dependencySnapshot = topicDependencySnapshot(paperRefs, [
+            ...dependencyRecords.values(),
+          ]);
+          const dependencyHash =
+            hashSynthesisEngineCanonicalJson(dependencySnapshot);
           options.repository.upsertTopicApplicationState(state);
           options.repository.upsertTopicApplicationProjection({
             topicId,
@@ -758,17 +1033,15 @@ export function createSynthesisTopicApplication(
               prepared.interest,
             ),
             discoveryJson: canonicalizeSynthesisEngineJson({
-              source_paper_refs: Array.isArray(snapshot.artifact.source_papers)
-                ? snapshot.artifact.source_papers
-                    .filter(
-                      (
-                        paper,
-                      ): paper is { [key: string]: SynthesisTopicJsonValue } =>
-                        isObject(paper),
-                    )
-                    .map((paper) => cleanString(paper.paper_ref))
-                    .filter(Boolean)
-                : [],
+              source_paper_refs: paperRefs,
+              readiness: {
+                baseline_input_hash: dependencyHash,
+                baseline_dependencies: dependencySnapshot,
+                current_input_hash: dependencyHash,
+                current_dependencies: dependencySnapshot,
+                baseline_initialized_at: timestamp,
+                last_scanned_at: timestamp,
+              },
             }),
             updatedAt: timestamp,
           });

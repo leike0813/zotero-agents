@@ -46,47 +46,39 @@ describe("Synthesis review input MCP tool", function () {
     assert.include(names, "topics.get_review_input");
     assert.notInclude(names, "synthesis.write_review_input");
 
+    const reviewCorpus = JSON.parse(
+      await fs.readFile(
+        "packages/synthesis-contracts/contract-set/synthesis-sidecar-protocol-v1/corpus/client-workflow-review.json",
+        "utf8",
+      ),
+    ) as { cases: Array<{ id: string; value: unknown }> };
+    const reviewResult = structuredClone(
+      reviewCorpus.cases.find(
+        (entry) => entry.id === "workflow-review-recursive-positive",
+      )!.value,
+    );
     const calls: unknown[] = [];
     const service: SynthesisClientPorts = {
       getReviewInput(args) {
         calls.push(args);
-        return {
-          kind: "synthesis.review_workflow_input",
-          topic: { topic_id: args.topicId },
-          registry_rows: [{ paper_ref: "1:ABCD1234" }],
-          citation_graph_slice: {
-            nodes: [{ node_id: "zotero:item:ABCD1234" }],
-            edges: [],
-          },
-          structured_topic: {
-            claims: [{ id: "claim-1" }],
-            timeline_events: {
-              summary: { text: "Event summary." },
-              events: [{ id: "event-1" }],
-            },
-            paper_evidence: [{ id: "ev-a" }],
-            external_literature_analysis: { summary: "External context." },
-            coverage: { status: "partial" },
-            future_directions: [],
-          },
-        };
+        return reviewResult;
       },
     };
     const response: any = await handleZoteroMcpRequestForTests(
       request(2, "topics.get_review_input", {
-        topicId: "topic-alpha",
+        topicId: "topic:1",
         maxGraphNodes: 120,
       }),
       { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
-    assert.deepEqual(calls, [{ topicId: "topic-alpha", maxGraphNodes: 120 }]);
+    assert.deepEqual(calls, [{ topicId: "topic:1", maxGraphNodes: 120 }]);
     assert.equal(
       response.result.structuredContent.tool,
       "topics.get_review_input",
     );
     const result = response.result.structuredContent.result;
-    assert.deepInclude(result.topic, { topic_id: "topic-alpha" });
+    assert.deepInclude(result.topic, { topic_id: "topic:1" });
     assert.deepEqual(result.summary, {
       registryRows: 1,
       graphNodes: 1,
@@ -103,10 +95,7 @@ describe("Synthesis review input MCP tool", function () {
       await fs.readFile(downloaded.source.path, "utf8"),
     );
     assert.equal(reviewInput.kind, "synthesis.review_workflow_input");
-    assert.deepEqual(reviewInput.structured_topic.claims, [{ id: "claim-1" }]);
-    assert.equal(
-      reviewInput.structured_topic.external_literature_analysis.summary,
-      "External context.",
-    );
+    assert.equal(reviewInput.structured_topic.claims[0].id, "claim:1");
+    assert.equal(reviewInput.structured_topic.coverage.verdict, "partial");
   });
 });

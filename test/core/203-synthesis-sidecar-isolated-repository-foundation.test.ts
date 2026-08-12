@@ -349,7 +349,18 @@ describe("Synthesis sidecar isolated repository foundation", function () {
       now: () => "2026-07-17T00:01:00.000Z",
     });
     assert.equal(second.snapshot().repositoryId, repositoryId);
-    assert.equal(second.store.getOperation("running")?.status, "canceled");
+    const interrupted = second.store.getOperation("running");
+    assert.include(interrupted, {
+      status: "canceled",
+      phase: "service_restart",
+      phaseLabel: "Service restarted",
+    });
+    assert.deepEqual(JSON.parse(interrupted?.diagnosticsJson || "[]"), [
+      {
+        code: "synthesis_operation_stale_after_restart",
+        severity: "warning",
+      },
+    ]);
     assert.equal(second.store.getOperation("completed")?.status, "completed");
     assert.isNotNull(second.store.getCacheBasis("basis"));
     second.close();

@@ -100,16 +100,12 @@ describe("Synthesis Host representative image read port", function () {
       rebuildSynthesisHostRepresentativeImageReadRequest({
         libraryId: LIBRARY_ID,
         noteKey: NOTE_KEY,
-        ignored: { safe: true },
       }),
       { libraryId: LIBRARY_ID, noteKey: NOTE_KEY },
     );
 
     assert.deepEqual(
-      rebuildSynthesisHostRepresentativeImageReadResult({
-        ...availableResult(),
-        ignored: "discarded",
-      }),
+      rebuildSynthesisHostRepresentativeImageReadResult(availableResult()),
       availableResult(),
     );
     assert.deepEqual(
@@ -121,7 +117,6 @@ describe("Synthesis Host representative image read port", function () {
         sourceKind: "markdown_image_ref",
         strategy: "markdown_src_hint",
         diagnostics: ["representative_image_attachment_not_found"],
-        ignored: ["discarded"],
       }),
       {
         status: "unavailable",
@@ -137,7 +132,6 @@ describe("Synthesis Host representative image read port", function () {
       rebuildSynthesisHostRepresentativeImageReadResult({
         status: "absent",
         diagnostics: [],
-        ignored: true,
       }),
       { status: "absent", diagnostics: [] },
     );
@@ -153,6 +147,7 @@ describe("Synthesis Host representative image read port", function () {
       { libraryId: LIBRARY_ID, noteKey: "" },
       { libraryId: LIBRARY_ID, noteKey: "bad key" },
       { libraryId: LIBRARY_ID, noteKey: "x".repeat(129) },
+      { libraryId: LIBRARY_ID, noteKey: NOTE_KEY, ignored: true },
       { libraryId: LIBRARY_ID, noteKey: NOTE_KEY, callback: () => undefined },
       cyclic,
     ];
@@ -165,6 +160,7 @@ describe("Synthesis Host representative image read port", function () {
     const invalidResults = [
       null,
       { status: "unknown", diagnostics: [] },
+      { status: "absent", diagnostics: [], ignored: true },
       { status: "absent", diagnostics: [], callback: () => undefined },
       availableResult({ attachmentKey: "bad key" }),
       availableResult({ mimeType: "text/html" }),

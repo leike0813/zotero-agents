@@ -2574,6 +2574,15 @@ describe("skillrunner.sequence.v1 runtime", function () {
     const tempRoot = await mkTempDir(
       "zotero-skills-literature-analysis-sequence",
     );
+    const manifest = JSON.parse(
+      await fs.readFile(
+        path.join(
+          process.cwd(),
+          "workflows_builtin/literature-workbench-package/literature-analysis/workflow.json",
+        ),
+        "utf8",
+      ),
+    );
     const parentItem = {
       id: 42,
       key: "PARENT42",
@@ -2588,6 +2597,12 @@ describe("skillrunner.sequence.v1 runtime", function () {
       helpers: {
         resolveItemRef: () => parentItem,
         getAttachmentFilePath: (entry: any) => String(entry.filePath || ""),
+        inspectGeneratedNoteReadiness: async () => ({
+          mode: "full",
+          accepted: true,
+          evidenceHash: "fixture:literature-analysis-ready",
+          artifacts: {},
+        }),
       },
       hostApi: {
         synthesis: {
@@ -2646,6 +2661,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           auto_tag_regulator: false,
         },
       },
+      manifest,
       runtime,
     })) as any;
     assert.equal(digestOnly.kind, "skillrunner.sequence.v1");
@@ -2666,6 +2682,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           auto_tag_infer_tag: false,
         },
       },
+      manifest,
       runtime,
     })) as any;
     assert.equal(withTag.final_step_id, "tag-regulator");
@@ -2707,6 +2724,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           auto_tag_regulator: true,
         },
       },
+      manifest,
       runtime: emptyVocabularyRuntime,
     })) as any;
     const pureInferenceTagStep = withPureInferenceTag.steps[1];
