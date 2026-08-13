@@ -227,6 +227,45 @@ describe("export research bundle workflow", function () {
     );
   });
 
+  it("accepts the documented maximum selection limits", function () {
+    const selection = normalizeResearchSelection({
+      schema_id: "research_bundle.selection",
+      schema_version: "2.0.0",
+      intent: {
+        paper_title: "Maximum bounded review",
+        article_type: "original research",
+        research_content: "The documented Research Bundle selection limits",
+      },
+      limits: {
+        max_topics: 10,
+        max_core_papers: 50,
+        max_related_papers: 200,
+      },
+      topics: Array.from({ length: 10 }, (_, index) => ({
+        topic_id: `topic-${String(index + 1).padStart(2, "0")}`,
+        relevance: 0.9,
+      })),
+      papers: Array.from({ length: 200 }, (_, index) => ({
+        paper_ref: `1:P${String(index + 1).padStart(4, "0")}`,
+        semantic_relevance: 0.9,
+        role: index < 50 ? "core" : "related",
+      })),
+      diagnostics: [],
+    });
+
+    assert.deepEqual(selection.limits, {
+      max_topics: 10,
+      max_core_papers: 50,
+      max_related_papers: 200,
+    });
+    assert.lengthOf(selection.topics, 10);
+    assert.lengthOf(selection.papers, 200);
+    assert.lengthOf(
+      selection.papers.filter((paper) => paper.role === "core"),
+      50,
+    );
+  });
+
   it("uses documented graph and fallback score weights", function () {
     assert.closeTo(
       computeResearchPaperScore({

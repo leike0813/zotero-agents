@@ -51,9 +51,9 @@ export function normalizeResearchSelection(value) {
     throw new Error("research selection intent is incomplete");
   }
   const limits = {
-    max_topics: boundedInteger(value?.limits?.max_topics, 5, 0, 5),
-    max_core_papers: boundedInteger(value?.limits?.max_core_papers, 20, 1, 20),
-    max_related_papers: boundedInteger(value?.limits?.max_related_papers, 80, 1, 80),
+    max_topics: boundedInteger(value?.limits?.max_topics, 5, 0, 10),
+    max_core_papers: boundedInteger(value?.limits?.max_core_papers, 20, 1, 50),
+    max_related_papers: boundedInteger(value?.limits?.max_related_papers, 80, 1, 200),
   };
   const topicIds = new Set();
   const topics = array(value.topics).slice(0, limits.max_topics).map((entry) => ({
