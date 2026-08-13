@@ -319,6 +319,7 @@ pub(crate) struct NativeTransferOwner {
     next_id: u64,
     stopping: bool,
     service_bytes: Arc<ByteBudget>,
+    production_client_membership: crate::runtime_production_client::ProductionClientMembership,
 }
 
 pub(crate) struct PublishedContentTransfer {
@@ -430,7 +431,11 @@ fn validate_descriptor(descriptor: &TransferPageDescriptorDto) -> Result<(), Str
     Ok(())
 }
 
-fn validate_manifest_dto(manifest: &TransferManifestDto, content_only: bool) -> Result<(), String> {
+fn validate_manifest_dto(
+    manifest: &TransferManifestDto,
+    content_only: bool,
+    production_client_membership: &crate::runtime_production_client::ProductionClientMembership,
+) -> Result<(), String> {
     if !valid_transfer_hash(&manifest.root_sha256)
         || manifest.pages.len() > MAX_DIRECTION_PAGES
         || manifest.pages.iter().try_fold(0_u64, |total, page| {
@@ -526,10 +531,7 @@ fn validate_manifest_dto(manifest: &TransferManifestDto, content_only: bool) -> 
                     byte_length,
                     sha256,
                 } => {
-                    let capabilities =
-                        synthesis_sidecar::production_capabilities::production_client_capabilities(
-                        )?;
-                    if !capabilities.iter().any(|candidate| candidate == capability)
+                    if !production_client_membership.contains(capability)
                         || *byte_length > MAX_DIRECTION_BYTES
                         || !valid_transfer_hash(sha256)
                     {
@@ -722,7 +724,11 @@ fn valid_role_evidence(values: &[CitationRoleEvidenceDto]) -> bool {
             .all(|value| valid_transfer_text(&value.role, 4_096) && value.count > 0)
 }
 
-fn validate_transfer_action_contract(action: &Value, content_only: bool) -> Result<(), String> {
+fn validate_transfer_action_contract(
+    action: &Value,
+    content_only: bool,
+    production_client_membership: &crate::runtime_production_client::ProductionClientMembership,
+) -> Result<(), String> {
     let action: TransferActionDto =
         serde_json::from_value(action.clone()).map_err(|_| "invalid_request".to_owned())?;
     match action {
@@ -733,7 +739,7 @@ fn validate_transfer_action_contract(action: &Value, content_only: bool) -> Resu
             if !valid_transfer_text(&idempotency_key, 128) {
                 return Err("invalid_request".into());
             }
-            validate_manifest_dto(&manifest, content_only)
+            validate_manifest_dto(&manifest, content_only, production_client_membership)
         }
         TransferActionDto::PutInputPage { session_id, page } => {
             if !valid_transfer_text(&session_id, 128) {
@@ -825,7 +831,10 @@ impl Drop for TransferOutputOwnership {
 }
 
 impl NativeTransferOwner {
-    pub(crate) fn new(profile_runtime_root: &Path) -> Result<Self, String> {
+    pub(crate) fn new(
+        profile_runtime_root: &Path,
+        production_client_membership: crate::runtime_production_client::ProductionClientMembership,
+    ) -> Result<Self, String> {
         let root = profile_runtime_root.join("citation-graph-transfer");
         if root.exists() {
             fs::remove_dir_all(&root).map_err(|_| "transfer_unavailable".to_owned())?;
@@ -838,6 +847,7 @@ impl NativeTransferOwner {
             next_id: 1,
             stopping: false,
             service_bytes: ByteBudget::new(),
+            production_client_membership,
         })
     }
 
@@ -891,7 +901,7 @@ impl NativeTransferOwner {
         action: Value,
         now_ms: u64,
     ) -> Result<TransferDispatch, String> {
-        validate_transfer_action_contract(&action, false)?;
+        validate_transfer_action_contract(&action, false, &self.production_client_membership)?;
         if self.stopping {
             return Err("transfer_stopping".to_owned());
         }
@@ -926,7 +936,7 @@ impl NativeTransferOwner {
     }
 
     pub(crate) fn handle_content(&mut self, action: Value, now_ms: u64) -> Result<Value, String> {
-        validate_transfer_action_contract(&action, true)?;
+        validate_transfer_action_contract(&action, true, &self.production_client_membership)?;
         let action_name = bounded_string(&action["action"], 64)?;
         if action_name == "execute" {
             return Err("invalid_request".to_owned());
@@ -2129,6 +2139,13 @@ mod tests {
         ))
     }
 
+    fn production_client_membership() -> crate::runtime_production_client::ProductionClientMembership
+    {
+        crate::runtime_production_client::ProductionClientCatalog::from_embedded()
+            .expect("production client catalog")
+            .membership()
+    }
+
     fn page(kind: &str, rows: Value) -> Value {
         let canonical = canonical_json(&rows).expect("canonical rows");
         json!({
@@ -2192,7 +2209,8 @@ mod tests {
     #[test]
     fn materializes_hash_bound_topic_assets_from_a_sealed_content_session() {
         let root = temporary_root("topic-content");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let text = "large topic body";
         let pages = [page("content", json!([text]))];
         let TransferDispatch::Response(begun) = owner
@@ -2238,7 +2256,8 @@ mod tests {
     #[test]
     fn rejects_unknown_nested_transfer_fields_and_kind_row_mismatches() {
         let root = temporary_root("strict-contract");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let pages = [page(
             "library_nodes",
             json!([{"nodeId":"paper:A","authors":[],"aliases":[]}]),
@@ -2276,7 +2295,8 @@ mod tests {
     #[test]
     fn publishes_large_client_results_as_hash_bound_output_pages() {
         let root = temporary_root("client-result");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let result =
             json!({"artifacts":[{"payload":"x".repeat(900_000)}],"diagnostics":[],"total":1});
         let locator = owner
@@ -2332,7 +2352,8 @@ mod tests {
     #[test]
     fn publishes_and_cancels_hash_bound_host_export_entries() {
         let root = temporary_root("host-export-entries");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let content = json!({
             "entries":[
                 {"path":"runtime/payloads/paper-artifacts-manifest.json","text":"{}\n"},
@@ -2362,7 +2383,8 @@ mod tests {
     #[test]
     fn stages_canonical_pages_on_disk_and_reaps_idle_sessions() {
         let root = temporary_root("staging");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let pages = [
             page(
                 "library_nodes",
@@ -2452,7 +2474,7 @@ mod tests {
         let stale = root.join("citation-graph-transfer/stale");
         fs::create_dir_all(&stale).expect("stale root");
         fs::write(stale.join("page.json"), b"stale").expect("stale page");
-        let owner = NativeTransferOwner::new(&root).expect("owner");
+        let owner = NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         assert!(!stale.exists());
         drop(owner);
 
@@ -2495,7 +2517,8 @@ mod tests {
     #[test]
     fn active_attempts_are_hidden_before_cleanup_but_keep_files_until_finish() {
         let root = temporary_root("active-cleanup");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let pages = [
             page(
                 "library_nodes",
@@ -2562,7 +2585,8 @@ mod tests {
     #[test]
     fn stop_and_late_output_rollback_release_each_byte_once() {
         let root = temporary_root("stop-byte-ownership");
-        let mut owner = NativeTransferOwner::new(&root).expect("owner");
+        let mut owner =
+            NativeTransferOwner::new(&root, production_client_membership()).expect("owner");
         let pages = [
             page(
                 "library_nodes",

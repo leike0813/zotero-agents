@@ -1,12 +1,14 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::runtime_capabilities::ServeState;
+use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_deadline::with_request_context;
 use crate::runtime_diagnostics::{
     NativeDiagnosticEvent, child_observation_context, debug_events_enabled, emit_debug,
@@ -23,10 +25,647 @@ use crate::runtime_webdav_maintenance_surface::{
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::utc_now_iso8601;
 use synthesis_repository::{RepositorySqlObservation, observe_repository_sql};
-use synthesis_sidecar::production_capabilities::{
-    ProductionClientDataPlane, ProductionClientReceipt, ProductionClientSemanticSuccess,
-};
 use synthesis_sidecar::runtime_contract::current_time_ms;
+
+const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(
+    "../../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json"
+);
+const PRODUCTION_CLIENT_OPERATION_MANIFEST: &str = include_str!(
+    "../../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json"
+);
+
+pub(crate) type ProductionClientHandler =
+    fn(&crate::runtime_production_ports::ProductionApplications, &[Value]) -> Result<Value, String>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProductionClientSpecialStep {
+    None,
+    ArtifactExportDelivery,
+    MaintenanceControlResume,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProductionClientCanonicalEffect {
+    None,
+    Persisted,
+    Deleted,
+    Committed,
+    Mutated,
+    NonEmptyPromotion,
+    ReferencePromotion,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ProductionClientRouteEntry {
+    pub(crate) capability: &'static str,
+    pub(crate) handler: ProductionClientHandler,
+    special_step: ProductionClientSpecialStep,
+    canonical_effect: ProductionClientCanonicalEffect,
+}
+
+impl ProductionClientRouteEntry {
+    pub(crate) const fn new(capability: &'static str, handler: ProductionClientHandler) -> Self {
+        Self {
+            capability,
+            handler,
+            special_step: ProductionClientSpecialStep::None,
+            canonical_effect: ProductionClientCanonicalEffect::None,
+        }
+    }
+
+    pub(crate) const fn with_special_step(
+        mut self,
+        special_step: ProductionClientSpecialStep,
+    ) -> Self {
+        self.special_step = special_step;
+        self
+    }
+
+    pub(crate) const fn with_canonical_effect(
+        mut self,
+        canonical_effect: ProductionClientCanonicalEffect,
+    ) -> Self {
+        self.canonical_effect = canonical_effect;
+        self
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientCapabilityManifest {
+    schema: String,
+    canonicalization: String,
+    fingerprint_sha256: String,
+    capabilities: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ProductionClientAccess {
+    Read,
+    Mutation,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ProductionClientDataPlane {
+    Control,
+    Transfer,
+    Locator,
+    Delivery,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ProductionClientWorkModel {
+    Bounded,
+    Receipt,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ProductionClientReceipt {
+    Inline,
+    PublicMaintenanceOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ProductionClientSemanticSuccess {
+    pub(crate) field: String,
+    pub(crate) values: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientPolicy {
+    request_plane: ProductionClientDataPlane,
+    result_plane: ProductionClientDataPlane,
+    work_model: ProductionClientWorkModel,
+    receipt: ProductionClientReceipt,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientPolicyOverride {
+    request_plane: Option<ProductionClientDataPlane>,
+    result_plane: Option<ProductionClientDataPlane>,
+    work_model: Option<ProductionClientWorkModel>,
+    receipt: Option<ProductionClientReceipt>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProductionClientOperationManifest {
+    schema: String,
+    request_codec: String,
+    result_codec: String,
+    request_bytes: usize,
+    response_bytes: usize,
+    control_target_bytes: usize,
+    deadline_ms: u64,
+    deadline_overrides_ms: BTreeMap<String, u64>,
+    work_deadline_ms: BTreeMap<String, u64>,
+    receipt_query_capability: String,
+    policy_defaults: ProductionClientPolicy,
+    policy_overrides: BTreeMap<String, ProductionClientPolicyOverride>,
+    access: BTreeMap<String, ProductionClientAccess>,
+    #[serde(default)]
+    semantic_success: BTreeMap<String, ProductionClientSemanticSuccess>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProductionClientOperationMetadata {
+    pub(crate) access: ProductionClientAccess,
+    pub(crate) request_plane: ProductionClientDataPlane,
+    pub(crate) result_plane: ProductionClientDataPlane,
+    pub(crate) work_model: ProductionClientWorkModel,
+    pub(crate) receipt: ProductionClientReceipt,
+    pub(crate) control_target_bytes: usize,
+    pub(crate) request_bytes: usize,
+    pub(crate) response_bytes: usize,
+    pub(crate) deadline_ms: u64,
+    pub(crate) work_deadline_ms: Option<u64>,
+    pub(crate) semantic_success: Option<ProductionClientSemanticSuccess>,
+}
+
+#[derive(Clone, Debug)]
+struct ProductionClientRoute {
+    entry: ProductionClientRouteEntry,
+    metadata: ProductionClientOperationMetadata,
+}
+
+#[derive(Debug)]
+pub(crate) struct ProductionClientCatalog {
+    capability_ids: Vec<String>,
+    routes: BTreeMap<String, ProductionClientRoute>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ProductionClientCatalogIssueKind {
+    InvalidCapabilityManifest,
+    InvalidOperationManifest,
+    FingerprintMismatch,
+    MissingHandler,
+    DuplicateHandler,
+    UndeclaredHandler,
+    MissingPolicy,
+    InvalidExecutionPlan,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProductionClientCatalogIssue {
+    pub(crate) kind: ProductionClientCatalogIssueKind,
+    pub(crate) capability: Option<String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ProductionClientCatalogError {
+    pub(crate) issues: Vec<ProductionClientCatalogIssue>,
+}
+
+impl std::fmt::Display for ProductionClientCatalogError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "invalid_production_client_catalog")?;
+        for issue in &self.issues {
+            write!(
+                formatter,
+                ";{:?}:{}",
+                issue.kind,
+                issue.capability.as_deref().unwrap_or("-")
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ProductionClientCatalogError {}
+
+impl ProductionClientCatalog {
+    pub(crate) fn from_embedded() -> Result<Self, ProductionClientCatalogError> {
+        Self::from_sources(
+            PRODUCTION_CLIENT_CAPABILITY_MANIFEST,
+            PRODUCTION_CLIENT_OPERATION_MANIFEST,
+            &production_client_route_entries(),
+        )
+    }
+
+    fn from_sources(
+        capability_source: &str,
+        operation_source: &str,
+        entries: &[ProductionClientRouteEntry],
+    ) -> Result<Self, ProductionClientCatalogError> {
+        let manifest: ProductionClientCapabilityManifest = serde_json::from_str(capability_source)
+            .map_err(|_| ProductionClientCatalogError {
+                issues: vec![ProductionClientCatalogIssue {
+                    kind: ProductionClientCatalogIssueKind::InvalidCapabilityManifest,
+                    capability: None,
+                }],
+            })?;
+        let operation_manifest =
+            production_client_operation_manifest(operation_source).map_err(|_| {
+                ProductionClientCatalogError {
+                    issues: vec![ProductionClientCatalogIssue {
+                        kind: ProductionClientCatalogIssueKind::InvalidOperationManifest,
+                        capability: None,
+                    }],
+                }
+            })?;
+        let metadata = production_client_operation_metadata(&operation_manifest);
+        let declared = manifest
+            .capabilities
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        let computed_fingerprint = production_client_fingerprint(&manifest.capabilities);
+        let mut issues = Vec::new();
+        if manifest.schema != "synthesis-production-client-capabilities.v1"
+            || manifest.canonicalization != "sorted-newline-terminated"
+            || manifest
+                .capabilities
+                .iter()
+                .any(|capability| !capability.starts_with("client."))
+            || declared.len() != manifest.capabilities.len()
+        {
+            issues.push(ProductionClientCatalogIssue {
+                kind: ProductionClientCatalogIssueKind::InvalidCapabilityManifest,
+                capability: None,
+            });
+        }
+        if manifest.fingerprint_sha256 != computed_fingerprint {
+            issues.push(ProductionClientCatalogIssue {
+                kind: ProductionClientCatalogIssueKind::FingerprintMismatch,
+                capability: None,
+            });
+        }
+        for capability in &manifest.capabilities {
+            let matching = entries
+                .iter()
+                .filter(|entry| entry.capability == capability)
+                .collect::<Vec<_>>();
+            if matching.is_empty() {
+                issues.push(catalog_issue(
+                    ProductionClientCatalogIssueKind::MissingHandler,
+                    capability,
+                ));
+            } else if matching.len() > 1 {
+                issues.push(catalog_issue(
+                    ProductionClientCatalogIssueKind::DuplicateHandler,
+                    capability,
+                ));
+            }
+            let Some(operation) = metadata.get(capability) else {
+                issues.push(catalog_issue(
+                    ProductionClientCatalogIssueKind::MissingPolicy,
+                    capability,
+                ));
+                continue;
+            };
+            if matching
+                .iter()
+                .any(|entry| !valid_execution_plan(entry, operation))
+            {
+                issues.push(catalog_issue(
+                    ProductionClientCatalogIssueKind::InvalidExecutionPlan,
+                    capability,
+                ));
+            }
+        }
+        for entry in entries {
+            if !declared.contains(entry.capability) {
+                issues.push(catalog_issue(
+                    ProductionClientCatalogIssueKind::UndeclaredHandler,
+                    entry.capability,
+                ));
+            }
+        }
+        if operation_manifest
+            .access
+            .keys()
+            .any(|capability| !declared.contains(capability.as_str()))
+        {
+            issues.push(ProductionClientCatalogIssue {
+                kind: ProductionClientCatalogIssueKind::InvalidOperationManifest,
+                capability: None,
+            });
+        }
+        issues.sort_by(|left, right| {
+            left.capability
+                .cmp(&right.capability)
+                .then(left.kind.cmp(&right.kind))
+        });
+        if !issues.is_empty() {
+            return Err(ProductionClientCatalogError { issues });
+        }
+
+        let entries = entries
+            .iter()
+            .copied()
+            .map(|entry| (entry.capability, entry))
+            .collect::<BTreeMap<_, _>>();
+        let routes = manifest
+            .capabilities
+            .iter()
+            .map(|capability| {
+                let entry = *entries.get(capability.as_str()).expect("validated route");
+                let metadata = metadata
+                    .get(capability)
+                    .expect("validated metadata")
+                    .clone();
+                (
+                    capability.clone(),
+                    ProductionClientRoute { entry, metadata },
+                )
+            })
+            .collect();
+        Ok(Self {
+            capability_ids: manifest.capabilities,
+            routes,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn capability_ids(&self) -> Vec<&str> {
+        self.capability_ids.iter().map(String::as_str).collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains(&self, capability: &str) -> bool {
+        self.routes.contains_key(capability)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fingerprint(&self) -> String {
+        production_client_fingerprint(&self.capability_ids)
+    }
+
+    fn route(&self, capability: &str) -> Option<&ProductionClientRoute> {
+        self.routes.get(capability)
+    }
+
+    pub(crate) fn membership(&self) -> ProductionClientMembership {
+        ProductionClientMembership {
+            capabilities: Arc::new(self.capability_ids.iter().cloned().collect()),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ProductionClientMembership {
+    capabilities: Arc<BTreeSet<String>>,
+}
+
+impl ProductionClientMembership {
+    pub(crate) fn contains(&self, capability: &str) -> bool {
+        self.capabilities.contains(capability)
+    }
+}
+
+pub(crate) struct ProductionClientRuntime {
+    catalog: Arc<ProductionClientCatalog>,
+    applications: Arc<crate::runtime_production_ports::ProductionApplications>,
+    transfer: Arc<Mutex<crate::runtime_transfer::NativeTransferOwner>>,
+    background_tasks: Arc<BackgroundTaskOwner>,
+}
+
+impl ProductionClientRuntime {
+    pub(crate) fn new(
+        catalog: Arc<ProductionClientCatalog>,
+        applications: Arc<crate::runtime_production_ports::ProductionApplications>,
+        transfer: Arc<Mutex<crate::runtime_transfer::NativeTransferOwner>>,
+        background_tasks: Arc<BackgroundTaskOwner>,
+    ) -> Self {
+        Self {
+            catalog,
+            applications,
+            transfer,
+            background_tasks,
+        }
+    }
+
+    pub(crate) fn execute(
+        &self,
+        request_id: &str,
+        capability: &str,
+        payload: Value,
+    ) -> Result<Value, String> {
+        dispatch_production_client(self, request_id, capability, payload)
+    }
+}
+
+fn catalog_issue(
+    kind: ProductionClientCatalogIssueKind,
+    capability: impl Into<String>,
+) -> ProductionClientCatalogIssue {
+    ProductionClientCatalogIssue {
+        kind,
+        capability: Some(capability.into()),
+    }
+}
+
+fn valid_execution_plan(
+    entry: &ProductionClientRouteEntry,
+    metadata: &ProductionClientOperationMetadata,
+) -> bool {
+    let special_step_valid = match entry.special_step {
+        ProductionClientSpecialStep::None => {
+            metadata.result_plane != ProductionClientDataPlane::Delivery
+        }
+        ProductionClientSpecialStep::ArtifactExportDelivery => {
+            metadata.work_model == ProductionClientWorkModel::Bounded
+                && metadata.result_plane == ProductionClientDataPlane::Delivery
+        }
+        ProductionClientSpecialStep::MaintenanceControlResume => {
+            metadata.work_model == ProductionClientWorkModel::Bounded
+                && metadata.request_plane == ProductionClientDataPlane::Control
+                && metadata.result_plane == ProductionClientDataPlane::Control
+        }
+    };
+    let canonical_effect_valid = match entry.canonical_effect {
+        ProductionClientCanonicalEffect::None => true,
+        ProductionClientCanonicalEffect::ReferencePromotion => {
+            metadata.work_model == ProductionClientWorkModel::Receipt
+                && metadata.access == ProductionClientAccess::Mutation
+        }
+        ProductionClientCanonicalEffect::Persisted
+        | ProductionClientCanonicalEffect::Deleted
+        | ProductionClientCanonicalEffect::Committed
+        | ProductionClientCanonicalEffect::Mutated
+        | ProductionClientCanonicalEffect::NonEmptyPromotion => {
+            metadata.work_model == ProductionClientWorkModel::Bounded
+                && metadata.access == ProductionClientAccess::Mutation
+        }
+    };
+    special_step_valid && canonical_effect_valid
+}
+
+fn production_client_fingerprint(capabilities: &[String]) -> String {
+    let mut capabilities = capabilities.iter().map(String::as_str).collect::<Vec<_>>();
+    capabilities.sort_unstable();
+    let canonical = format!("{}\n", capabilities.join("\n"));
+    format!("{:x}", Sha256::digest(canonical.as_bytes()))
+}
+
+fn production_client_route_entries() -> Vec<ProductionClientRouteEntry> {
+    crate::runtime_topic_workbench_surface::TOPIC_WORKBENCH_CLIENT_ROUTES
+        .iter()
+        .chain(crate::runtime_reference_citation_surface::REFERENCE_CITATION_CLIENT_ROUTES)
+        .chain(crate::runtime_tag_surface::TAG_CLIENT_ROUTES)
+        .chain(crate::runtime_concept_topic_graph_surface::CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES)
+        .chain(crate::runtime_artifact_library_debug::ARTIFACT_LIBRARY_DEBUG_CLIENT_ROUTES)
+        .chain(crate::runtime_webdav_maintenance_surface::WEBDAV_MAINTENANCE_CLIENT_ROUTES)
+        .copied()
+        .collect()
+}
+
+fn resolved_policy(
+    manifest: &ProductionClientOperationManifest,
+    capability: &str,
+) -> ProductionClientPolicy {
+    let defaults = manifest.policy_defaults;
+    let policy = manifest
+        .policy_overrides
+        .get(capability)
+        .copied()
+        .unwrap_or_default();
+    ProductionClientPolicy {
+        request_plane: policy.request_plane.unwrap_or(defaults.request_plane),
+        result_plane: policy.result_plane.unwrap_or(defaults.result_plane),
+        work_model: policy.work_model.unwrap_or(defaults.work_model),
+        receipt: policy.receipt.unwrap_or(defaults.receipt),
+    }
+}
+
+fn valid_policy(access: ProductionClientAccess, policy: ProductionClientPolicy) -> bool {
+    matches!(
+        policy.request_plane,
+        ProductionClientDataPlane::Control | ProductionClientDataPlane::Transfer
+    ) && matches!(
+        policy.result_plane,
+        ProductionClientDataPlane::Control
+            | ProductionClientDataPlane::Locator
+            | ProductionClientDataPlane::Delivery
+    ) && matches!(
+        (policy.work_model, policy.receipt),
+        (
+            ProductionClientWorkModel::Bounded,
+            ProductionClientReceipt::Inline
+        ) | (
+            ProductionClientWorkModel::Receipt,
+            ProductionClientReceipt::PublicMaintenanceOperation
+        )
+    ) && (policy.work_model != ProductionClientWorkModel::Receipt
+        || access == ProductionClientAccess::Mutation)
+}
+
+fn production_client_operation_manifest(
+    source: &str,
+) -> Result<ProductionClientOperationManifest, String> {
+    let manifest: ProductionClientOperationManifest = serde_json::from_str(source)
+        .map_err(|_| "invalid_production_operation_manifest".to_owned())?;
+    if manifest.schema != "synthesis-production-client-operations.v2"
+        || manifest.request_codec != "synthesis-client-args.v1"
+        || manifest.result_codec != "synthesis-client-result.v1"
+        || manifest.request_bytes == 0
+        || manifest.request_bytes > 8 * 1024 * 1024
+        || manifest.response_bytes == 0
+        || manifest.response_bytes > 8 * 1024 * 1024
+        || manifest.control_target_bytes == 0
+        || manifest.control_target_bytes > manifest.request_bytes
+        || manifest.control_target_bytes > manifest.response_bytes
+        || manifest.receipt_query_capability != "client.getPublicMaintenanceOperation"
+        || manifest.policy_defaults
+            != (ProductionClientPolicy {
+                request_plane: ProductionClientDataPlane::Control,
+                result_plane: ProductionClientDataPlane::Control,
+                work_model: ProductionClientWorkModel::Bounded,
+                receipt: ProductionClientReceipt::Inline,
+            })
+        || manifest
+            .policy_overrides
+            .keys()
+            .any(|capability| !manifest.access.contains_key(capability))
+        || manifest.access.iter().any(|(capability, access)| {
+            !valid_policy(*access, resolved_policy(&manifest, capability))
+        })
+        || !(100..=60_000).contains(&manifest.deadline_ms)
+        || manifest
+            .deadline_overrides_ms
+            .iter()
+            .any(|(capability, deadline)| {
+                !manifest.access.contains_key(capability) || !(100..=60_000).contains(deadline)
+            })
+        || manifest
+            .work_deadline_ms
+            .iter()
+            .any(|(capability, deadline)| {
+                !manifest.access.contains_key(capability)
+                    || resolved_policy(&manifest, capability).receipt
+                        != ProductionClientReceipt::PublicMaintenanceOperation
+                    || !(100..=1_800_000).contains(deadline)
+            })
+        || manifest.access.keys().any(|capability| {
+            (resolved_policy(&manifest, capability).receipt
+                == ProductionClientReceipt::PublicMaintenanceOperation)
+                != manifest.work_deadline_ms.contains_key(capability)
+        })
+        || manifest.access.keys().any(|capability| {
+            resolved_policy(&manifest, capability).receipt
+                == ProductionClientReceipt::PublicMaintenanceOperation
+                && !manifest.semantic_success.contains_key(capability)
+        })
+        || manifest.semantic_success.iter().any(|(capability, rule)| {
+            !manifest.access.contains_key(capability)
+                || !matches!(rule.field.as_str(), "status" | "queue_state")
+                || rule.values.is_empty()
+                || rule.values.iter().any(|value| {
+                    value.is_empty()
+                        || value.len() > 128
+                        || !value.bytes().all(|byte| {
+                            byte.is_ascii_lowercase()
+                                || byte.is_ascii_digit()
+                                || b"_.:-".contains(&byte)
+                        })
+                })
+        })
+    {
+        return Err("invalid_production_operation_manifest".into());
+    }
+    Ok(manifest)
+}
+
+fn production_client_operation_metadata(
+    manifest: &ProductionClientOperationManifest,
+) -> BTreeMap<String, ProductionClientOperationMetadata> {
+    manifest
+        .access
+        .iter()
+        .map(|(capability, access)| {
+            let policy = resolved_policy(manifest, capability);
+            let deadline_ms = manifest
+                .deadline_overrides_ms
+                .get(capability)
+                .copied()
+                .unwrap_or(manifest.deadline_ms);
+            (
+                capability.clone(),
+                ProductionClientOperationMetadata {
+                    access: *access,
+                    request_plane: policy.request_plane,
+                    result_plane: policy.result_plane,
+                    work_model: policy.work_model,
+                    receipt: policy.receipt,
+                    control_target_bytes: manifest.control_target_bytes,
+                    request_bytes: manifest.request_bytes,
+                    response_bytes: manifest.response_bytes,
+                    deadline_ms,
+                    work_deadline_ms: manifest.work_deadline_ms.get(capability).copied(),
+                    semantic_success: manifest.semantic_success.get(capability).cloned(),
+                },
+            )
+        })
+        .collect()
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,48 +687,22 @@ struct TopicApplyTransferReference {
 }
 
 #[cfg(test)]
-fn dispatched_production_client_capabilities() -> impl Iterator<Item = &'static str> {
-    crate::runtime_topic_workbench_surface::dispatched_capabilities()
-        .chain(crate::runtime_reference_citation_surface::dispatched_capabilities())
-        .chain(crate::runtime_tag_surface::dispatched_capabilities())
-        .chain(crate::runtime_concept_topic_graph_surface::dispatched_capabilities())
-        .chain(crate::runtime_artifact_library_debug::dispatched_capabilities())
-        .chain(crate::runtime_webdav_maintenance_surface::dispatched_capabilities())
-}
-
 fn dispatch_typed_client(
     apps: &crate::runtime_production_ports::ProductionApplications,
     capability: &str,
     args: &[Value],
 ) -> Result<Value, String> {
-    if let Some(result) = crate::runtime_topic_workbench_surface::dispatch(apps, capability, args) {
-        return result;
-    }
-    if let Some(result) =
-        crate::runtime_reference_citation_surface::dispatch(apps, capability, args)
-    {
-        return result;
-    }
-    if let Some(result) = crate::runtime_tag_surface::dispatch(apps, capability, args) {
-        return result;
-    }
-    if let Some(result) =
-        crate::runtime_concept_topic_graph_surface::dispatch(apps, capability, args)
-    {
-        return result;
-    }
-    if let Some(result) = crate::runtime_artifact_library_debug::dispatch(apps, capability, args) {
-        return result;
-    }
-    if let Some(result) =
-        crate::runtime_webdav_maintenance_surface::dispatch(apps, capability, args)
-    {
-        return result;
-    }
-    Err("operation_unavailable".into())
+    let entry = production_client_route_entries()
+        .into_iter()
+        .find(|entry| entry.capability == capability)
+        .ok_or_else(|| "operation_unavailable".to_owned())?;
+    (entry.handler)(apps, args)
 }
 
-fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Value, String> {
+fn dispatch_artifact_export(
+    runtime: &ProductionClientRuntime,
+    result: Value,
+) -> Result<Value, String> {
     use crate::runtime_artifact_library_debug::{ArtifactExportDestination, ArtifactExportPlan};
 
     let ArtifactExportPlan {
@@ -102,7 +715,7 @@ fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Va
         .map(Vec::len)
         .ok_or_else(|| "production_projection_invalid".to_owned())?;
     let transfer_now_ms = current_time_ms()?;
-    let published = state
+    let published = runtime
         .transfer
         .lock()
         .map_err(|_| "transfer_unavailable".to_owned())?
@@ -117,7 +730,7 @@ fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Va
         "rootSha256":published.root_sha256,
     });
     let delivery = match &destination {
-        ArtifactExportDestination::RunWorkspace { run_root } => state.applications.call_host(
+        ArtifactExportDestination::RunWorkspace { run_root } => runtime.applications.call_host(
             "delivery.export.materialize_run_workspace",
             json!({
                 "capability":"paper_artifacts.export_filtered",
@@ -125,7 +738,7 @@ fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Va
                 "contentTransfer":content_transfer,
             }),
         ),
-        ArtifactExportDestination::Archive { display_name } => state.applications.call_host(
+        ArtifactExportDestination::Archive { display_name } => runtime.applications.call_host(
             "delivery.export.publish_archive",
             json!({
                 "capability":"paper_artifacts.export_filtered",
@@ -134,7 +747,7 @@ fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Va
             }),
         ),
     };
-    let cleanup = state
+    let cleanup = runtime
         .transfer
         .lock()
         .map_err(|_| "transfer_unavailable".to_owned())?
@@ -174,16 +787,17 @@ fn dispatch_artifact_export(state: &Arc<ServeState>, result: Value) -> Result<Va
     Ok(response)
 }
 
-pub(crate) fn dispatch_production_client(
-    state: &Arc<ServeState>,
+fn dispatch_production_client(
+    runtime: &ProductionClientRuntime,
     request_id: &str,
     capability: &str,
     payload: Value,
 ) -> Result<Value, String> {
-    let metadata = state
-        .production_client_operations
-        .get(capability)
+    let route = runtime
+        .catalog
+        .route(capability)
         .ok_or_else(|| "invalid_request".to_owned())?;
+    let metadata = &route.metadata;
     let payload_bytes = serde_json::to_vec(&payload)
         .map_err(|_| "invalid_request".to_owned())?
         .len();
@@ -198,12 +812,12 @@ pub(crate) fn dispatch_production_client(
             .first()
             .is_some_and(|value| value.get("assetTransfer").is_some())
     {
-        if capability != "client.applyTopicSynthesisResult" || envelope.args.len() != 1 {
+        if envelope.args.len() != 1 {
             return Err("invalid_request".to_owned());
         }
         let control: TopicApplyTransferControl = serde_json::from_value(envelope.args[0].clone())
             .map_err(|_| "invalid_request".to_owned())?;
-        let assets = state
+        let assets = runtime
             .transfer
             .lock()
             .map_err(|_| "transfer_unavailable".to_owned())?
@@ -221,7 +835,7 @@ pub(crate) fn dispatch_production_client(
             .work_deadline_ms
             .ok_or_else(|| "invalid_production_operation_manifest".to_owned())?;
         return start_public_maintenance_operation(
-            state,
+            runtime,
             request_id,
             capability,
             operation_args,
@@ -235,18 +849,20 @@ pub(crate) fn dispatch_production_client(
             Duration::from_millis(metadata.deadline_ms),
             debug_events_enabled().then_some(request_id),
             || {
-                if capability == "client.controlPublicMaintenanceOperation" {
+                if route.entry.special_step == ProductionClientSpecialStep::MaintenanceControlResume
+                {
                     dispatch_public_maintenance_control(
-                        state,
+                        runtime,
                         request_id,
                         capability,
                         &operation_args,
                     )
                 } else {
-                    let result =
-                        dispatch_typed_client(&state.applications, capability, &operation_args)?;
-                    if capability == "client.exportFilteredPaperArtifacts" {
-                        dispatch_artifact_export(state, result)
+                    let result = (route.entry.handler)(&runtime.applications, &operation_args)?;
+                    if route.entry.special_step
+                        == ProductionClientSpecialStep::ArtifactExportDelivery
+                    {
+                        dispatch_artifact_export(runtime, result)
                     } else {
                         Ok(result)
                     }
@@ -256,8 +872,8 @@ pub(crate) fn dispatch_production_client(
     });
     emit_query_observation(capability, &outcome, sql_observation);
     if let Ok(result) = outcome.as_ref() {
-        state.applications.canonical_autosync.observe_commit(
-            capability,
+        runtime.applications.canonical_autosync.observe_commit(
+            route.entry.canonical_effect,
             result,
             sql_observation.write_count,
         );
@@ -278,7 +894,7 @@ pub(crate) fn dispatch_production_client(
     let wire_result = if metadata.result_plane == ProductionClientDataPlane::Locator
         && result_bytes > metadata.control_target_bytes
     {
-        state
+        runtime
             .transfer
             .lock()
             .map_err(|_| "transfer_unavailable".to_owned())?
@@ -297,17 +913,16 @@ pub(crate) fn dispatch_production_client(
 }
 
 fn dispatch_public_maintenance_control(
-    state: &Arc<ServeState>,
+    runtime: &ProductionClientRuntime,
     request_id: &str,
     capability: &str,
     operation_args: &[Value],
 ) -> Result<Value, String> {
-    let result = crate::runtime_webdav_maintenance_surface::dispatch(
-        state.applications.as_ref(),
-        capability,
-        operation_args,
-    )
-    .ok_or_else(|| "operation_unavailable".to_owned())??;
+    let route = runtime
+        .catalog
+        .route(capability)
+        .ok_or_else(|| "operation_unavailable".to_owned())?;
+    let result = (route.entry.handler)(runtime.applications.as_ref(), operation_args)?;
     let action = operation_args
         .first()
         .and_then(|value| value.get("action"))
@@ -319,36 +934,38 @@ fn dispatch_public_maintenance_control(
             .get("operation_id")
             .and_then(Value::as_str)
             .ok_or_else(|| "production_projection_invalid".to_owned())?;
-        let basis = state.applications.repository.with_reader(|repository| {
+        let basis = runtime.applications.repository.with_reader(|repository| {
             let row = repository
                 .get_operation(operation_id)?
                 .ok_or_else(|| "operation_receipt_missing".to_owned())?;
             decode_basis(&row)
         })?;
-        resume_public_maintenance_operation(state, request_id, operation_id, basis)?;
+        resume_public_maintenance_operation(runtime, request_id, operation_id, basis)?;
     }
     Ok(result)
 }
 
 fn resume_public_maintenance_operation(
-    state: &Arc<ServeState>,
+    runtime: &ProductionClientRuntime,
     request_id: &str,
     operation_id: &str,
     basis: PublicMaintenanceBasis,
 ) -> Result<(), String> {
-    let semantic_success = state
-        .production_client_operations
-        .get(&basis.capability)
-        .and_then(|metadata| metadata.semantic_success.clone());
-    let applications = Arc::clone(&state.applications);
+    let route = runtime
+        .catalog
+        .route(&basis.capability)
+        .ok_or_else(|| "operation_unavailable".to_owned())?
+        .clone();
+    let semantic_success = route.metadata.semantic_success.clone();
+    let applications = Arc::clone(&runtime.applications);
     let mut canonical_maintenance = applications
         .canonical_autosync
-        .begin_maintenance(&basis.capability);
+        .begin_maintenance(route.entry.canonical_effect);
     let operation_id = operation_id.to_owned();
     let request_id = request_id.to_owned();
-    observe_public_maintenance_accepted(state.applications.as_ref(), &operation_id)?;
+    observe_public_maintenance_accepted(runtime.applications.as_ref(), &operation_id)?;
     let worker_trace = child_observation_context();
-    state
+    runtime
         .background_tasks
         .spawn(
             "synthesis-maintenance-resume",
@@ -377,11 +994,7 @@ fn resume_public_maintenance_operation(
                                 debug_events_enabled().then_some(&request_id),
                                 || {
                                     with_operation_context(&operation_id, || {
-                                        dispatch_typed_client(
-                                            applications.as_ref(),
-                                            &basis.capability,
-                                            &basis.args,
-                                        )
+                                        (route.entry.handler)(applications.as_ref(), &basis.args)
                                     })
                                 },
                             )
@@ -417,7 +1030,7 @@ fn resume_public_maintenance_operation(
 }
 
 fn start_public_maintenance_operation(
-    state: &Arc<ServeState>,
+    runtime: &ProductionClientRuntime,
     request_id: &str,
     capability: &str,
     operation_args: Vec<Value>,
@@ -440,7 +1053,7 @@ fn start_public_maintenance_operation(
         &identity_hash["sha256:".len().."sha256:".len() + 24]
     );
     let (accepted, inserted) = begin_public_maintenance_operation(
-        state.applications.as_ref(),
+        runtime.applications.as_ref(),
         &operation_id,
         capability,
         &operation_args,
@@ -458,10 +1071,15 @@ fn start_public_maintenance_operation(
     if !inserted {
         return Ok(accepted_dto);
     }
-    let applications = Arc::clone(&state.applications);
+    let route = runtime
+        .catalog
+        .route(capability)
+        .ok_or_else(|| "operation_unavailable".to_owned())?
+        .clone();
+    let applications = Arc::clone(&runtime.applications);
     let mut canonical_maintenance = applications
         .canonical_autosync
-        .begin_maintenance(capability);
+        .begin_maintenance(route.entry.canonical_effect);
     let operation_id_for_worker = operation_id.clone();
     let capability_for_worker = capability.to_owned();
     let request_id_for_worker = request_id.to_owned();
@@ -472,7 +1090,7 @@ fn start_public_maintenance_operation(
         &identity_hash["sha256:".len().."sha256:".len() + 8]
     );
     let spawn_result =
-        state
+        runtime
             .background_tasks
             .spawn(worker_name, Arc::new(AtomicBool::new(false)), move || {
                 let execution = catch_unwind(AssertUnwindSafe(|| {
@@ -499,9 +1117,8 @@ fn start_public_maintenance_operation(
                                 debug_events_enabled().then_some(&request_id_for_worker),
                                 || {
                                     with_operation_context(&operation_id_for_worker, || {
-                                        dispatch_typed_client(
+                                        (route.entry.handler)(
                                             applications.as_ref(),
-                                            &capability_for_worker,
                                             &operation_args,
                                         )
                                     })
@@ -544,13 +1161,13 @@ fn start_public_maintenance_operation(
     if let Err(error) = spawn_result {
         let code = format!("operation_spawn_failed:{error}");
         finish_public_maintenance_operation(
-            state.applications.as_ref(),
+            runtime.applications.as_ref(),
             &operation_id,
             Err(&code),
             semantic_success.as_ref(),
             &utc_now_iso8601(),
         )?;
-        let row = state.applications.repository.with_reader(|repository| {
+        let row = runtime.applications.repository.with_reader(|repository| {
             repository
                 .get_operation(&operation_id)?
                 .ok_or_else(|| "operation_receipt_missing".to_owned())
@@ -717,7 +1334,6 @@ mod tests {
 
 #[cfg(test)]
 mod dispatch_integration_tests {
-    use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -726,9 +1342,6 @@ mod dispatch_integration_tests {
     use serde_json::json;
     use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
     use synthesis_repository::{CacheBasisRecord, Repository, RepositoryIdentity};
-    use synthesis_sidecar::production_capabilities::{
-        READY_PRODUCTION_CLIENT_CAPABILITIES, production_client_capabilities,
-    };
 
     use crate::runtime_host_collection::{
         HostItemCollectionPort, ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
@@ -873,6 +1486,19 @@ mod dispatch_integration_tests {
         applications
     }
 
+    fn test_runtime(root: &Path) -> ProductionClientRuntime {
+        let catalog = Arc::new(ProductionClientCatalog::from_embedded().unwrap());
+        let transfer =
+            crate::runtime_transfer::NativeTransferOwner::new(root, catalog.membership())
+                .expect("transfer");
+        ProductionClientRuntime::new(
+            catalog,
+            Arc::new(test_applications(root)),
+            Arc::new(Mutex::new(transfer)),
+            crate::runtime_background_tasks::BackgroundTaskOwner::new(),
+        )
+    }
+
     fn literature_digest_request() -> Value {
         json!({
             "libraryId":1,
@@ -938,40 +1564,168 @@ mod dispatch_integration_tests {
     }
 
     #[test]
-    fn registered_handlers_are_unique_and_declared() {
-        let declared = production_client_capabilities()
-            .unwrap()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        let registered = dispatched_production_client_capabilities()
-            .map(str::to_owned)
-            .collect::<BTreeSet<_>>();
-        assert_eq!(registered.len(), 96);
-        assert!(registered.is_subset(&declared));
-    }
-
-    #[test]
-    fn every_declared_client_operation_has_exactly_one_handler() {
-        let declared = production_client_capabilities()
-            .unwrap()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        let registered = dispatched_production_client_capabilities()
-            .map(str::to_owned)
-            .collect::<BTreeSet<_>>();
-        assert_eq!(registered, declared);
-    }
-
-    #[test]
-    fn ready_roster_is_a_dispatchable_subset() {
-        let ready = READY_PRODUCTION_CLIENT_CAPABILITIES
+    fn embedded_catalog_preserves_manifest_order_membership_and_fingerprint() {
+        let catalog = ProductionClientCatalog::from_embedded().unwrap();
+        let manifest: Value = serde_json::from_str(PRODUCTION_CLIENT_CAPABILITY_MANIFEST).unwrap();
+        let declared = manifest["capabilities"].as_array().unwrap();
+        let declared = declared
             .iter()
-            .map(|capability| (*capability).to_owned())
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(catalog.capability_ids(), declared);
+        assert!(catalog.contains("client.listTopics"));
+        assert!(!catalog.contains("client.notDeclared"));
+        assert_eq!(
+            catalog.fingerprint(),
+            manifest["fingerprintSha256"].as_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn unified_runtime_executes_an_inline_route_from_the_validated_catalog() {
+        let root = test_root();
+        let runtime = test_runtime(&root);
+        let result = runtime
+            .execute(
+                "request:inline",
+                "client.listTopics",
+                json!({"args":[{"cursor":"","limit":50}]}),
+            )
+            .unwrap();
+
+        assert!(result["topics"].is_array());
+        assert_eq!(result["cursor"], "");
+        assert_eq!(
+            runtime
+                .execute("request:unknown", "client.notDeclared", json!({"args":[]}))
+                .unwrap_err(),
+            "invalid_request"
+        );
+    }
+
+    #[test]
+    fn catalog_compiles_manifest_planes_special_steps_and_effects_into_routes() {
+        let catalog = ProductionClientCatalog::from_embedded().unwrap();
+        let cases = [
+            (
+                "client.listTopics",
+                ProductionClientDataPlane::Control,
+                ProductionClientDataPlane::Control,
+                ProductionClientReceipt::Inline,
+                ProductionClientSpecialStep::None,
+                ProductionClientCanonicalEffect::None,
+            ),
+            (
+                "client.applyTopicSynthesisResult",
+                ProductionClientDataPlane::Transfer,
+                ProductionClientDataPlane::Control,
+                ProductionClientReceipt::Inline,
+                ProductionClientSpecialStep::None,
+                ProductionClientCanonicalEffect::Persisted,
+            ),
+            (
+                "client.readPaperArtifacts",
+                ProductionClientDataPlane::Control,
+                ProductionClientDataPlane::Locator,
+                ProductionClientReceipt::Inline,
+                ProductionClientSpecialStep::None,
+                ProductionClientCanonicalEffect::None,
+            ),
+            (
+                "client.exportFilteredPaperArtifacts",
+                ProductionClientDataPlane::Control,
+                ProductionClientDataPlane::Delivery,
+                ProductionClientReceipt::Inline,
+                ProductionClientSpecialStep::ArtifactExportDelivery,
+                ProductionClientCanonicalEffect::None,
+            ),
+            (
+                "client.refreshReferenceSidecarNow",
+                ProductionClientDataPlane::Control,
+                ProductionClientDataPlane::Control,
+                ProductionClientReceipt::PublicMaintenanceOperation,
+                ProductionClientSpecialStep::None,
+                ProductionClientCanonicalEffect::ReferencePromotion,
+            ),
+            (
+                "client.controlPublicMaintenanceOperation",
+                ProductionClientDataPlane::Control,
+                ProductionClientDataPlane::Control,
+                ProductionClientReceipt::Inline,
+                ProductionClientSpecialStep::MaintenanceControlResume,
+                ProductionClientCanonicalEffect::None,
+            ),
+        ];
+        for (capability, request_plane, result_plane, receipt, special, effect) in cases {
+            let route = catalog.route(capability).unwrap();
+            assert_eq!(route.metadata.request_plane, request_plane, "{capability}");
+            assert_eq!(route.metadata.result_plane, result_plane, "{capability}");
+            assert_eq!(route.metadata.receipt, receipt, "{capability}");
+            assert_eq!(route.entry.special_step, special, "{capability}");
+            assert_eq!(route.entry.canonical_effect, effect, "{capability}");
+        }
+    }
+
+    #[test]
+    fn catalog_reports_all_route_assembly_defects_together() {
+        let mut entries = production_client_route_entries();
+        entries.retain(|entry| entry.capability != "client.listTopics");
+        let duplicate = *entries
+            .iter()
+            .find(|entry| entry.capability == "client.findTopicsByPaperRef")
+            .unwrap();
+        entries.push(duplicate);
+        entries.push(ProductionClientRouteEntry::new(
+            "client.notDeclared",
+            duplicate.handler,
+        ));
+        let invalid_plan = entries
+            .iter_mut()
+            .find(|entry| entry.capability == "client.readTopicDetail")
+            .unwrap();
+        *invalid_plan =
+            invalid_plan.with_special_step(ProductionClientSpecialStep::ArtifactExportDelivery);
+
+        let mut operations: Value =
+            serde_json::from_str(PRODUCTION_CLIENT_OPERATION_MANIFEST).unwrap();
+        operations["access"]
+            .as_object_mut()
+            .unwrap()
+            .remove("client.getTopicContext");
+        let operations = serde_json::to_string(&operations).unwrap();
+        let error = ProductionClientCatalog::from_sources(
+            PRODUCTION_CLIENT_CAPABILITY_MANIFEST,
+            &operations,
+            &entries,
+        )
+        .unwrap_err();
+        let issues = error
+            .issues
+            .iter()
+            .map(|issue| (issue.kind, issue.capability.as_deref()))
             .collect::<BTreeSet<_>>();
-        let registered = dispatched_production_client_capabilities()
-            .map(str::to_owned)
-            .collect::<BTreeSet<_>>();
-        assert!(ready.is_subset(&registered));
+
+        assert!(issues.contains(&(
+            ProductionClientCatalogIssueKind::MissingHandler,
+            Some("client.listTopics")
+        )));
+        assert!(issues.contains(&(
+            ProductionClientCatalogIssueKind::DuplicateHandler,
+            Some("client.findTopicsByPaperRef")
+        )));
+        assert!(issues.contains(&(
+            ProductionClientCatalogIssueKind::UndeclaredHandler,
+            Some("client.notDeclared")
+        )));
+        assert!(issues.contains(&(
+            ProductionClientCatalogIssueKind::MissingPolicy,
+            Some("client.getTopicContext")
+        )));
+        assert!(issues.contains(&(
+            ProductionClientCatalogIssueKind::InvalidExecutionPlan,
+            Some("client.readTopicDetail")
+        )));
     }
 
     #[test]

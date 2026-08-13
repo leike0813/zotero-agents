@@ -16,6 +16,9 @@ use synthesis_repository::{
     TopicGraphReviewItemRecord,
 };
 
+use crate::runtime_production_client::{
+    ProductionClientCanonicalEffect, ProductionClientRouteEntry,
+};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_reference_canonical::{LiteratureDigestApplyRequest, ReferenceIndexRequest};
 
@@ -1240,85 +1243,72 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     }
 }
 
-type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
-
-struct RegisteredProductionClientHandler {
-    capability: &'static str,
-    dispatch: ProductionClientHandler,
-}
-
-macro_rules! register_production_client_handlers {
-    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
-        const TOPIC_WORKBENCH_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
-            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
-        ];
-    };
-}
-
-register_production_client_handlers!(
-    ("client.listTopics", |apps, args| {
+pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
+    ProductionClientRouteEntry::new("client.listTopics", |apps, args| {
         apps.topics.list(one(args)?).map(topic_list_wire)
     }),
-    ("client.findTopicsByPaperRef", |apps, args| {
+    ProductionClientRouteEntry::new("client.findTopicsByPaperRef", |apps, args| {
         wire(apps.topics.find_by_paper_refs(decode_find_request(args)?)?)
     }),
-    ("client.readTopicDetail", |apps, args| {
+    ProductionClientRouteEntry::new("client.readTopicDetail", |apps, args| {
         apps.topics.detail(one(args)?).map(topic_detail_wire)
     }),
-    ("client.listWorkflowTopicOptions", |apps, args| {
+    ProductionClientRouteEntry::new("client.listWorkflowTopicOptions", |apps, args| {
         wire(
             apps.topics
                 .workflow_options(decode_workflow_filter(args)?)?,
         )
     }),
-    ("client.getSynthesisWorkbenchChromeInput", |apps, args| {
+    ProductionClientRouteEntry::new("client.getSynthesisWorkbenchChromeInput", |apps, args| {
         if !one::<Value>(args)?.is_object() {
             return Err("invalid_request".into());
         }
         wire(apps.workbench.read_public_chrome()?)
     }),
-    ("client.getSynthesisWorkbenchSurfaceInput", |apps, args| {
+    ProductionClientRouteEntry::new("client.getSynthesisWorkbenchSurfaceInput", |apps, args| {
         let request = decode_surface(args)?;
         wire(
             apps.workbench
                 .read_surface(&request, &ProductionWorkbenchSurfaces { apps })?,
         )
     }),
-    ("client.getSynthesisBackgroundJobRows", |apps, args| {
+    ProductionClientRouteEntry::new("client.getSynthesisBackgroundJobRows", |apps, args| {
         no_args(args)?;
         wire(apps.workbench.background_jobs()?)
     }),
-    ("client.applyTopicSynthesisResult", |apps, args| {
+    ProductionClientRouteEntry::new("client.applyTopicSynthesisResult", |apps, args| {
         wire(apps.topics.apply(one::<TopicApplyRequest>(args)?))
-    }),
-    ("client.getTopicContext", |apps, args| {
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Persisted),
+    ProductionClientRouteEntry::new("client.getTopicContext", |apps, args| {
         wire(apps.topics.context(decode_topic_context(args)?)?)
     }),
-    ("client.resolveResolver", |apps, args| {
+    ProductionClientRouteEntry::new("client.resolveResolver", |apps, args| {
         let request = match decode_resolver(args) {
             Ok(request) => request,
             Err(errors) => return Ok(invalid_resolver(errors)),
         };
         wire(apps.topics.resolve(apps.topic_library.as_ref(), request)?)
     }),
-    ("client.getTopicReport", |apps, args| {
+    ProductionClientRouteEntry::new("client.getTopicReport", |apps, args| {
         let request = one::<TopicDetailRequest>(args)?;
         wire(apps.topics.report(TopicReportRequest {
             topic_id: request.topic_id,
         })?)
     }),
-    ("client.applyLiteratureDigestSidecar", |apps, args| {
+    ProductionClientRouteEntry::new("client.applyLiteratureDigestSidecar", |apps, args| {
         apps.reference_canonical
             .apply_literature_digest(one::<LiteratureDigestApplyRequest>(args)?)
     }),
-    ("client.deleteTopicArtifact", |apps, args| {
+    ProductionClientRouteEntry::new("client.deleteTopicArtifact", |apps, args| {
         wire(apps.topics.delete(one::<TopicDeleteRequest>(args)?)?)
-    }),
-    ("client.purgeDeletedTopicArtifacts", |apps, args| {
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Deleted),
+    ProductionClientRouteEntry::new("client.purgeDeletedTopicArtifacts", |apps, args| {
         no_args(args)?;
         wire(apps.topics.purge_deleted()?)
     }),
-    ("client.rejectTopicDiscoveryHint", |apps, args| {
+    ProductionClientRouteEntry::new("client.rejectTopicDiscoveryHint", |apps, args| {
         let request = one::<TopicDiscoveryHintWireRequest>(args)?;
         if request.hint_id.trim().is_empty() {
             return Err("invalid_request".into());
@@ -1331,7 +1321,7 @@ register_production_client_handlers!(
                 })?,
         )
     }),
-    ("client.restoreTopicDiscoveryHint", |apps, args| {
+    ProductionClientRouteEntry::new("client.restoreTopicDiscoveryHint", |apps, args| {
         let request = one::<TopicDiscoveryHintWireRequest>(args)?;
         if request.hint_id.trim().is_empty() {
             return Err("invalid_request".into());
@@ -1344,41 +1334,11 @@ register_production_client_handlers!(
                 })?,
         )
     }),
-);
-
-pub(crate) fn dispatch(
-    apps: &ProductionApplications,
-    capability: &str,
-    args: &[Value],
-) -> Option<Result<Value, String>> {
-    TOPIC_WORKBENCH_CLIENT_HANDLERS
-        .iter()
-        .find(|handler| handler.capability == capability)
-        .map(|handler| (handler.dispatch)(apps, args))
-}
-
-#[cfg(test)]
-pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
-    TOPIC_WORKBENCH_CLIENT_HANDLERS
-        .iter()
-        .map(|handler| handler.capability)
-}
+];
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn adapter_has_the_closed_sixteen_operation_slice() {
-        assert_eq!(TOPIC_WORKBENCH_CLIENT_HANDLERS.len(), 16);
-        let mut capabilities = TOPIC_WORKBENCH_CLIENT_HANDLERS
-            .iter()
-            .map(|handler| handler.capability)
-            .collect::<Vec<_>>();
-        capabilities.sort_unstable();
-        capabilities.dedup();
-        assert_eq!(capabilities.len(), 16);
-    }
 
     #[test]
     fn invalid_resolver_is_rejected_before_a_library_port_exists() {

@@ -8,16 +8,13 @@ use synthesis_repository::{
     Repository, RepositoryIdentity, legacy_production_topic_ids,
     prepare_production_schema_with_legacy_topics,
 };
-use synthesis_sidecar::production_capabilities::{
-    production_client_capabilities, production_client_operation_metadata,
-    production_ready_client_capabilities,
-};
 use synthesis_sidecar::runtime_contract::{current_time_ms, read_native_launch_config};
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_capabilities::ServeState;
 use crate::runtime_diagnostics::configure_debug_events;
 use crate::runtime_lifecycle::RuntimeOwnership;
+use crate::runtime_production_client::{ProductionClientCatalog, ProductionClientRuntime};
 use crate::runtime_production_ports::build_production_applications;
 use crate::runtime_reverse_host::probe_reverse_host;
 use crate::runtime_server_loop::run_sidecar_listener;
@@ -75,9 +72,8 @@ fn ensure_production_source(
 }
 
 pub(crate) fn serve(config_path: &str) -> Result<(), String> {
-    production_client_capabilities()?;
-    production_ready_client_capabilities()?;
-    let production_client_operations = production_client_operation_metadata()?;
+    let production_client_catalog =
+        Arc::new(ProductionClientCatalog::from_embedded().map_err(|error| error.to_string())?);
     let config = read_native_launch_config(Path::new(config_path))?;
     configure_debug_events(config.diagnostics_enabled);
     probe_reverse_host(&config)?;
@@ -144,35 +140,44 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         Arc::clone(&repository),
         4,
     )?);
-    let applications = build_production_applications(
+    let applications = Arc::new(build_production_applications(
         repository_port,
         Arc::clone(&canonical),
         Arc::clone(&compute_pool),
         Some(Arc::clone(&config)),
         ownership.service_instance_id.clone(),
         webdav_state_path,
-    )?;
+    )?);
     crate::runtime_public_maintenance_operation::reconcile_restart(
-        &applications,
+        applications.as_ref(),
         &synthesis_protocol::utc_now_iso8601(),
     )?;
     let canonical_port = applications.canonical.as_ref().clone();
     let stopping = Arc::new(AtomicBool::new(false));
-    let transfer = NativeTransferOwner::new(&config.profile_runtime_root)?;
+    let transfer = Arc::new(Mutex::new(NativeTransferOwner::new(
+        &config.profile_runtime_root,
+        production_client_catalog.membership(),
+    )?));
     let background_tasks = BackgroundTaskOwner::new();
+    let production_client = Arc::new(ProductionClientRuntime::new(
+        production_client_catalog,
+        Arc::clone(&applications),
+        Arc::clone(&transfer),
+        Arc::clone(&background_tasks),
+    ));
     let state = Arc::new(ServeState {
         service_instance_id: ownership.service_instance_id.clone(),
         profile: config.profile_id.clone(),
         config,
         repository_id,
         repository,
-        applications: Arc::new(applications),
-        production_client_operations,
+        applications,
+        production_client,
         runtime_ownership: Arc::clone(&ownership),
         canonical: canonical_port,
         stopping: Arc::clone(&stopping),
         compute_pool,
-        transfer: Mutex::new(transfer),
+        transfer,
         background_tasks,
     });
     drop(canonical);

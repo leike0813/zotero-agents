@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use synthesis_application::WebDavSyncApplication;
 
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
+use crate::runtime_production_client::ProductionClientCanonicalEffect;
 
 pub(crate) const CANONICAL_AUTOSYNC_DEBOUNCE: Duration = Duration::from_secs(5);
 
@@ -70,13 +71,13 @@ impl CoordinatorShared {
 
 pub(crate) struct CanonicalMaintenanceGuard {
     shared: Arc<CoordinatorShared>,
-    capability: &'static str,
+    effect: ProductionClientCanonicalEffect,
     mutated: bool,
 }
 
 impl CanonicalMaintenanceGuard {
     pub(crate) fn observe(&mut self, result: &Value, write_count: u64) {
-        self.mutated |= canonical_commit(self.capability, result, write_count);
+        self.mutated |= canonical_commit(self.effect, result, write_count);
     }
 }
 
@@ -119,14 +120,24 @@ impl CanonicalAutosyncCoordinator {
         })
     }
 
-    pub(crate) fn observe_commit(&self, capability: &str, result: &Value, write_count: u64) {
-        if canonical_commit(capability, result, write_count) {
+    pub(crate) fn observe_commit(
+        &self,
+        effect: ProductionClientCanonicalEffect,
+        result: &Value,
+        write_count: u64,
+    ) {
+        if canonical_commit(effect, result, write_count) {
             self.shared.mark_dirty();
         }
     }
 
-    pub(crate) fn begin_maintenance(&self, capability: &str) -> Option<CanonicalMaintenanceGuard> {
-        let capability = canonical_maintenance_capability(capability)?;
+    pub(crate) fn begin_maintenance(
+        &self,
+        effect: ProductionClientCanonicalEffect,
+    ) -> Option<CanonicalMaintenanceGuard> {
+        if effect != ProductionClientCanonicalEffect::ReferencePromotion {
+            return None;
+        }
         let mut state = self.shared.state.lock().ok()?;
         if !state.accepting || state.stopping {
             return None;
@@ -135,7 +146,7 @@ impl CanonicalAutosyncCoordinator {
         state.deadline = None;
         Some(CanonicalMaintenanceGuard {
             shared: Arc::clone(&self.shared),
-            capability,
+            effect,
             mutated: false,
         })
     }
@@ -217,42 +228,28 @@ fn run_worker(shared: Arc<CoordinatorShared>, target: Arc<dyn CanonicalAutosyncT
     }
 }
 
-fn canonical_maintenance_capability(capability: &str) -> Option<&'static str> {
-    match capability {
-        "client.startReferenceSidecarRefresh" => Some("client.startReferenceSidecarRefresh"),
-        "client.refreshReferenceSidecarNow" => Some("client.refreshReferenceSidecarNow"),
-        "client.retryReferenceSidecarRefresh" => Some("client.retryReferenceSidecarRefresh"),
-        _ => None,
-    }
-}
-
-pub(crate) fn canonical_commit(capability: &str, result: &Value, write_count: u64) -> bool {
+pub(crate) fn canonical_commit(
+    effect: ProductionClientCanonicalEffect,
+    result: &Value,
+    write_count: u64,
+) -> bool {
     if write_count == 0 {
         return false;
     }
     let status = || result.get("status").and_then(Value::as_str);
-    match capability {
-        "client.applyTopicSynthesisResult" => status() == Some("persisted"),
-        "client.deleteTopicArtifact" => status() == Some("deleted"),
-        "client.saveTagVocabulary"
-        | "client.applyTagVocabularyImport"
-        | "client.updateConceptDisplayText"
-        | "client.applyConceptReviewAction"
-        | "client.deleteConceptEntries"
-        | "client.acceptTopicGraphRelation"
-        | "client.rejectTopicGraphRelation"
-        | "client.applyTopicGraphReviewAction" => status() == Some("committed"),
-        "client.updateTagVocabularyEntry" | "client.deleteTagVocabularyEntry" => {
+    match effect {
+        ProductionClientCanonicalEffect::None => false,
+        ProductionClientCanonicalEffect::Persisted => status() == Some("persisted"),
+        ProductionClientCanonicalEffect::Deleted => status() == Some("deleted"),
+        ProductionClientCanonicalEffect::Committed => status() == Some("committed"),
+        ProductionClientCanonicalEffect::Mutated => {
             result.get("mutated").and_then(Value::as_bool) == Some(true)
         }
-        "client.promoteStagedTagSuggestions" => result
+        ProductionClientCanonicalEffect::NonEmptyPromotion => result
             .get("promoted")
             .and_then(Value::as_array)
             .is_some_and(|promoted| !promoted.is_empty()),
-        "client.startReferenceSidecarRefresh"
-        | "client.refreshReferenceSidecarNow"
-        | "client.retryReferenceSidecarRefresh" => status() == Some("promoted"),
-        _ => false,
+        ProductionClientCanonicalEffect::ReferencePromotion => status() == Some("promoted"),
     }
 }
 
@@ -312,85 +309,67 @@ mod tests {
 
     #[test]
     fn classifies_only_committed_fixed_baseline_mutations() {
-        for (capability, result) in [
+        for (effect, result) in [
             (
-                "client.applyTopicSynthesisResult",
+                ProductionClientCanonicalEffect::Persisted,
                 json!({"status":"persisted"}),
             ),
-            ("client.deleteTopicArtifact", json!({"status":"deleted"})),
-            ("client.saveTagVocabulary", json!({"status":"committed"})),
-            ("client.updateTagVocabularyEntry", json!({"mutated":true})),
-            ("client.deleteTagVocabularyEntry", json!({"mutated":true})),
             (
-                "client.promoteStagedTagSuggestions",
+                ProductionClientCanonicalEffect::Deleted,
+                json!({"status":"deleted"}),
+            ),
+            (
+                ProductionClientCanonicalEffect::Committed,
+                json!({"status":"committed"}),
+            ),
+            (
+                ProductionClientCanonicalEffect::Mutated,
+                json!({"mutated":true}),
+            ),
+            (
+                ProductionClientCanonicalEffect::NonEmptyPromotion,
                 json!({"promoted":["topic:a"]}),
             ),
             (
-                "client.applyTagVocabularyImport",
-                json!({"status":"committed"}),
-            ),
-            (
-                "client.updateConceptDisplayText",
-                json!({"status":"committed"}),
-            ),
-            (
-                "client.applyConceptReviewAction",
-                json!({"status":"committed"}),
-            ),
-            ("client.deleteConceptEntries", json!({"status":"committed"})),
-            (
-                "client.acceptTopicGraphRelation",
-                json!({"status":"committed"}),
-            ),
-            (
-                "client.rejectTopicGraphRelation",
-                json!({"status":"committed"}),
-            ),
-            (
-                "client.applyTopicGraphReviewAction",
-                json!({"status":"committed"}),
-            ),
-            (
-                "client.startReferenceSidecarRefresh",
-                json!({"status":"promoted"}),
-            ),
-            (
-                "client.refreshReferenceSidecarNow",
-                json!({"status":"promoted"}),
-            ),
-            (
-                "client.retryReferenceSidecarRefresh",
+                ProductionClientCanonicalEffect::ReferencePromotion,
                 json!({"status":"promoted"}),
             ),
         ] {
-            assert!(canonical_commit(capability, &result, 1), "{capability}");
-            assert!(!canonical_commit(capability, &result, 0), "{capability}");
+            assert!(canonical_commit(effect, &result, 1), "{effect:?}");
+            assert!(!canonical_commit(effect, &result, 0), "{effect:?}");
         }
 
-        for (capability, result) in [
+        for (effect, result) in [
             (
-                "client.applyTopicSynthesisResult",
+                ProductionClientCanonicalEffect::Persisted,
                 json!({"status":"conflict"}),
             ),
-            ("client.deleteTopicArtifact", json!({"status":"not_found"})),
-            ("client.saveTagVocabulary", json!({"status":"unchanged"})),
-            ("client.updateTagVocabularyEntry", json!({"mutated":false})),
-            ("client.promoteStagedTagSuggestions", json!({"promoted":[]})),
             (
-                "client.updateConceptDisplayText",
+                ProductionClientCanonicalEffect::Deleted,
                 json!({"status":"not_found"}),
             ),
             (
-                "client.refreshReferenceSidecarNow",
+                ProductionClientCanonicalEffect::Committed,
                 json!({"status":"unchanged"}),
             ),
             (
-                "client.rebuildConceptKbIndex",
+                ProductionClientCanonicalEffect::Mutated,
+                json!({"mutated":false}),
+            ),
+            (
+                ProductionClientCanonicalEffect::NonEmptyPromotion,
+                json!({"promoted":[]}),
+            ),
+            (
+                ProductionClientCanonicalEffect::ReferencePromotion,
+                json!({"status":"unchanged"}),
+            ),
+            (
+                ProductionClientCanonicalEffect::None,
                 json!({"status":"committed"}),
             ),
-            ("client.syncWebDavNow", json!({"queue_state":"idle"})),
         ] {
-            assert!(!canonical_commit(capability, &result, 1), "{capability}");
+            assert!(!canonical_commit(effect, &result, 1), "{effect:?}");
         }
     }
 
@@ -403,12 +382,12 @@ mod tests {
                 .expect("coordinator");
 
         coordinator.observe_commit(
-            "client.updateTagVocabularyEntry",
+            ProductionClientCanonicalEffect::Mutated,
             &json!({"mutated":true}),
             1,
         );
         coordinator.observe_commit(
-            "client.deleteTagVocabularyEntry",
+            ProductionClientCanonicalEffect::Mutated,
             &json!({"mutated":true}),
             1,
         );
@@ -425,15 +404,15 @@ mod tests {
             CanonicalAutosyncCoordinator::new(target.clone(), Duration::from_millis(20))
                 .expect("coordinator");
         let mut first = coordinator
-            .begin_maintenance("client.refreshReferenceSidecarNow")
+            .begin_maintenance(ProductionClientCanonicalEffect::ReferencePromotion)
             .expect("tracked maintenance");
         let second = coordinator
-            .begin_maintenance("client.retryReferenceSidecarRefresh")
+            .begin_maintenance(ProductionClientCanonicalEffect::ReferencePromotion)
             .expect("tracked maintenance");
 
         first.observe(&json!({"status":"promoted"}), 1);
         coordinator.observe_commit(
-            "client.updateConceptDisplayText",
+            ProductionClientCanonicalEffect::Committed,
             &json!({"status":"committed"}),
             1,
         );
@@ -452,7 +431,7 @@ mod tests {
             CanonicalAutosyncCoordinator::new(target.clone(), Duration::from_millis(100))
                 .expect("coordinator");
         coordinator.observe_commit(
-            "client.saveTagVocabulary",
+            ProductionClientCanonicalEffect::Committed,
             &json!({"status":"committed"}),
             1,
         );

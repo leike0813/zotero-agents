@@ -1,9 +1,11 @@
+use crate::runtime_production_client::{
+    ProductionClientRouteEntry, ProductionClientSemanticSuccess, ProductionClientSpecialStep,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::webdav_sync::WebDavSyncState;
 use synthesis_repository::OperationRecord;
-use synthesis_sidecar::production_capabilities::ProductionClientSemanticSuccess;
 
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 use crate::runtime_production_ports::ProductionApplications;
@@ -16,23 +18,8 @@ use crate::runtime_public_maintenance_operation::{
 ///
 /// It deliberately keeps public request validation here: callers never need
 /// to know the internal WebDAV state representation or debug-maintenance port.
-type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
-
-struct RegisteredProductionClientHandler {
-    capability: &'static str,
-    dispatch: ProductionClientHandler,
-}
-
-macro_rules! register_production_client_handlers {
-    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
-        const WEBDAV_MAINTENANCE_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
-            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
-        ];
-    };
-}
-
-register_production_client_handlers!(
-    ("client.syncWebDavNow", |apps, args| {
+pub(crate) const WEBDAV_MAINTENANCE_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
+    ProductionClientRouteEntry::new("client.syncWebDavNow", |apps, args| {
         no_args(args)?;
         apps.canonical_autosync.cancel_pending();
         let checkpoint = || promotion_checkpoint(apps);
@@ -41,52 +28,35 @@ register_production_client_handlers!(
                 .trigger_webdav_sync_with_checkpoint(&checkpoint)?,
         )
     }),
-    ("client.pauseWebDavSync", |apps, args| {
+    ProductionClientRouteEntry::new("client.pauseWebDavSync", |apps, args| {
         no_args(args)?;
         apps.canonical_autosync.cancel_pending();
         webdav_sync_wire(apps.webdav.pause_webdav_sync()?)
     }),
-    ("client.resumeWebDavSync", |apps, args| {
+    ProductionClientRouteEntry::new("client.resumeWebDavSync", |apps, args| {
         no_args(args)?;
         webdav_sync_wire(apps.webdav.resume_webdav_sync()?)
     }),
-    ("client.retryWebDavSync", |apps, args| {
+    ProductionClientRouteEntry::new("client.retryWebDavSync", |apps, args| {
         no_args(args)?;
         apps.canonical_autosync.cancel_pending();
         let checkpoint = || promotion_checkpoint(apps);
         webdav_sync_wire(apps.webdav.retry_webdav_sync_with_checkpoint(&checkpoint)?)
     }),
-    ("client.resolveWebDavSyncConflict", resolve_conflict),
-    ("client.getPublicMaintenanceOperation", public_maintenance),
-    (
+    ProductionClientRouteEntry::new("client.resolveWebDavSyncConflict", resolve_conflict),
+    ProductionClientRouteEntry::new("client.getPublicMaintenanceOperation", public_maintenance),
+    ProductionClientRouteEntry::new(
         "client.controlPublicMaintenanceOperation",
-        control_public_maintenance
-    ),
-    (
+        control_public_maintenance,
+    )
+    .with_special_step(ProductionClientSpecialStep::MaintenanceControlResume),
+    ProductionClientRouteEntry::new(
         "client.reconcileSynthesisRuntimeWorkStateOnStartup",
-        reconcile_startup
+        reconcile_startup,
     ),
-    ("client.resetSynthesisDatabase", reset_database),
-    ("client.debugSynthesisCleanInstallReset", debug_reset),
-);
-
-pub(crate) fn dispatch(
-    apps: &ProductionApplications,
-    capability: &str,
-    args: &[Value],
-) -> Option<Result<Value, String>> {
-    WEBDAV_MAINTENANCE_CLIENT_HANDLERS
-        .iter()
-        .find(|handler| handler.capability == capability)
-        .map(|handler| (handler.dispatch)(apps, args))
-}
-
-#[cfg(test)]
-pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
-    WEBDAV_MAINTENANCE_CLIENT_HANDLERS
-        .iter()
-        .map(|handler| handler.capability)
-}
+    ProductionClientRouteEntry::new("client.resetSynthesisDatabase", reset_database),
+    ProductionClientRouteEntry::new("client.debugSynthesisCleanInstallReset", debug_reset),
+];
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
     let Some(operation_id) = current_operation_id() else {
@@ -656,16 +626,6 @@ struct DebugResetWireRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn adapter_has_the_closed_ten_operation_slice() {
-        assert_eq!(WEBDAV_MAINTENANCE_CLIENT_HANDLERS.len(), 10);
-        let capabilities = WEBDAV_MAINTENANCE_CLIENT_HANDLERS
-            .iter()
-            .map(|handler| handler.capability)
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(capabilities.len(), 10);
-    }
 
     #[test]
     fn validates_public_webdav_requests_before_effects() {

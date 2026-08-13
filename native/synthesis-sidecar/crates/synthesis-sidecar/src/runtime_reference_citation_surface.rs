@@ -4,6 +4,9 @@ use serde_json::Value;
 use serde_json::json;
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 
+use crate::runtime_production_client::{
+    ProductionClientCanonicalEffect, ProductionClientRouteEntry,
+};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
     checkpoint_before_promotion, current_operation_id,
@@ -147,23 +150,8 @@ fn reference_review_decisions(
         .collect()
 }
 
-type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
-
-struct RegisteredProductionClientHandler {
-    capability: &'static str,
-    dispatch: ProductionClientHandler,
-}
-
-macro_rules! register_production_client_handlers {
-    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
-        const REFERENCE_CITATION_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
-            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
-        ];
-    };
-}
-
-register_production_client_handlers!(
-    ("client.consumeRelatedItemsSyncEcho", |apps, args| {
+pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
+    ProductionClientRouteEntry::new("client.consumeRelatedItemsSyncEcho", |apps, args| {
         let request = one::<RelatedItemsEchoRequest>(args)?;
         apps.consume_related_items_sync_echo(
             request.library_id,
@@ -171,150 +159,153 @@ register_production_client_handlers!(
             request.related_item_key.as_deref(),
         )
     }),
-    ("client.getReferenceSidecarIndex", |apps, args| {
+    ProductionClientRouteEntry::new("client.getReferenceSidecarIndex", |apps, args| {
         apps.reference_canonical
             .sidecar_index(&optional_one::<ReferenceIndexRequest>(args)?)
     }),
-    ("client.rankExternalReferences", |apps, args| {
+    ProductionClientRouteEntry::new("client.rankExternalReferences", |apps, args| {
         apps.reference_canonical
             .rank_external_references(&optional_one::<ExternalReferenceRankRequest>(args)?)
     }),
-    ("client.getAttentionQueue", |apps, args| {
+    ProductionClientRouteEntry::new("client.getAttentionQueue", |apps, args| {
         apps.reference_canonical
             .attention_queue(&optional_one::<ReferenceAttentionRequest>(args)?)
     }),
-    ("client.getReviewInput", |apps, args| {
+    ProductionClientRouteEntry::new("client.getReviewInput", |apps, args| {
         crate::runtime_topic_workbench_surface::dispatch_workflow_review_input(apps, args)
     }),
-    ("client.startReferenceSidecarRefresh", |apps, args| {
+    ProductionClientRouteEntry::new("client.startReferenceSidecarRefresh", |apps, args| {
         optional_one::<EmptyRequest>(args)?;
         let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
             .start_refresh_with_checkpoint(&checkpoint)
-    }),
-    ("client.refreshReferenceSidecarNow", |apps, args| {
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
+    ProductionClientRouteEntry::new("client.refreshReferenceSidecarNow", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
             .refresh_now_with_checkpoint(&checkpoint)
-    }),
-    ("client.retryReferenceSidecarRefresh", |apps, args| {
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
+    ProductionClientRouteEntry::new("client.retryReferenceSidecarRefresh", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
             .retry_refresh_with_checkpoint(&checkpoint)
-    }),
-    ("client.runAdvancedReferenceMatchingNow", |apps, args| {
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
+    ProductionClientRouteEntry::new("client.runAdvancedReferenceMatchingNow", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
             .run_advanced_matching_with_checkpoint(&checkpoint)
     }),
-    ("client.retryAdvancedReferenceMatching", |apps, args| {
+    ProductionClientRouteEntry::new("client.retryAdvancedReferenceMatching", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
         apps.reference_canonical
             .retry_advanced_matching_with_checkpoint(&checkpoint)
     }),
-    ("client.applyCanonicalRevisionReviewAction", |apps, args| {
+    ProductionClientRouteEntry::new("client.applyCanonicalRevisionReviewAction", |apps, args| {
         apps.reference_canonical
             .apply_revision_review(one::<CanonicalRevisionReviewRequest>(args)?)
     }),
-    ("client.applyReferenceMatchProposalAction", |apps, args| {
+    ProductionClientRouteEntry::new("client.applyReferenceMatchProposalAction", |apps, args| {
         let decision = reference_review_decision(one::<ReferenceReviewDecisionWire>(args)?)?;
         apps.reference_canonical
             .apply_proposal_actions(std::slice::from_ref(&decision))
     }),
-    ("client.applyReferenceMatchProposalActions", |apps, args| {
+    ProductionClientRouteEntry::new("client.applyReferenceMatchProposalActions", |apps, args| {
         let decisions = reference_review_decisions(one::<ReferenceReviewDecisionBatchWire>(args)?)?;
         apps.reference_canonical.apply_proposal_actions(&decisions)
     }),
-    ("client.mergeEffectiveCanonicalReference", |apps, args| {
+    ProductionClientRouteEntry::new("client.mergeEffectiveCanonicalReference", |apps, args| {
         apps.reference_canonical
             .merge_canonical(one::<EffectiveCanonicalMergeRequest>(args)?)
     }),
-    (
+    ProductionClientRouteEntry::new(
         "client.applyCanonicalRevisionMergeRequests",
         |apps, args| {
             apps.reference_canonical
                 .merge_canonical_batch(one::<CanonicalMergeBatchRequest>(args)?)
-        }
+        },
     ),
-    ("client.updateCanonicalReferenceMetadata", |apps, args| {
+    ProductionClientRouteEntry::new("client.updateCanonicalReferenceMetadata", |apps, args| {
         apps.reference_canonical
             .update_canonical_metadata(one::<CanonicalMetadataUpdateRequest>(args)?)
     }),
-    ("client.archiveCanonicalReference", |apps, args| {
+    ProductionClientRouteEntry::new("client.archiveCanonicalReference", |apps, args| {
         apps.reference_canonical
             .archive_canonical(one::<CanonicalArchiveRequest>(args)?)
     }),
-    ("client.queryCitationGraph", |apps, args| {
+    ProductionClientRouteEntry::new("client.queryCitationGraph", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(
             apps,
             "client.queryCitationGraph",
             args,
         )
     }),
-    ("client.queryCitationGraphCluster", |apps, args| {
+    ProductionClientRouteEntry::new("client.queryCitationGraphCluster", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(
             apps,
             "client.queryCitationGraphCluster",
             args,
         )
     }),
-    ("client.getCitationGraphSlice", |apps, args| {
+    ProductionClientRouteEntry::new("client.getCitationGraphSlice", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(
             apps,
             "client.getCitationGraphSlice",
             args,
         )
     }),
-    ("client.getCitationGraphLayout", |apps, args| {
+    ProductionClientRouteEntry::new("client.getCitationGraphLayout", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(
             apps,
             "client.getCitationGraphLayout",
             args,
         )
     }),
-    ("client.getCitationGraphMetrics", |apps, args| {
+    ProductionClientRouteEntry::new("client.getCitationGraphMetrics", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(
             apps,
             "client.getCitationGraphMetrics",
             args,
         )
     }),
-    ("client.rankLibraryPapers", |apps, args| {
+    ProductionClientRouteEntry::new("client.rankLibraryPapers", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(apps, "client.rankLibraryPapers", args)
     }),
-    ("client.recomputeCitationGraphLayout", |apps, args| {
+    ProductionClientRouteEntry::new("client.recomputeCitationGraphLayout", |apps, args| {
         crate::runtime_citation_graph_commands::dispatch(
             apps,
             "client.recomputeCitationGraphLayout",
             args,
         )
     }),
-    ("client.refreshCitationGraphMetricsNow", |apps, args| {
+    ProductionClientRouteEntry::new("client.refreshCitationGraphMetricsNow", |apps, args| {
         crate::runtime_citation_graph_commands::dispatch(
             apps,
             "client.refreshCitationGraphMetricsNow",
             args,
         )
     }),
-    ("client.startCitationGraphUpdate", |apps, args| {
+    ProductionClientRouteEntry::new("client.startCitationGraphUpdate", |apps, args| {
         crate::runtime_citation_graph_commands::dispatch(
             apps,
             "client.startCitationGraphUpdate",
             args,
         )
     }),
-    ("client.rebuildCitationGraphCacheNow", |apps, args| {
+    ProductionClientRouteEntry::new("client.rebuildCitationGraphCacheNow", |apps, args| {
         crate::runtime_citation_graph_commands::dispatch(
             apps,
             "client.rebuildCitationGraphCacheNow",
             args,
         )
     }),
-    (
+    ProductionClientRouteEntry::new(
         "client.refreshCitationGraphCacheIncrementalNow",
         |apps, args| {
             crate::runtime_citation_graph_commands::dispatch(
@@ -322,34 +313,16 @@ register_production_client_handlers!(
                 "client.refreshCitationGraphCacheIncrementalNow",
                 args,
             )
-        }
+        },
     ),
-    ("client.retryCitationGraphCacheRebuild", |apps, args| {
+    ProductionClientRouteEntry::new("client.retryCitationGraphCacheRebuild", |apps, args| {
         crate::runtime_citation_graph_commands::dispatch(
             apps,
             "client.retryCitationGraphCacheRebuild",
             args,
         )
     }),
-);
-
-pub(crate) fn dispatch(
-    apps: &ProductionApplications,
-    capability: &str,
-    args: &[Value],
-) -> Option<Result<Value, String>> {
-    REFERENCE_CITATION_CLIENT_HANDLERS
-        .iter()
-        .find(|handler| handler.capability == capability)
-        .map(|handler| (handler.dispatch)(apps, args))
-}
-
-#[cfg(test)]
-pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
-    REFERENCE_CITATION_CLIENT_HANDLERS
-        .iter()
-        .map(|handler| handler.capability)
-}
+];
 
 #[cfg(test)]
 mod tests {
@@ -410,19 +383,11 @@ mod tests {
         capability: &str,
         args: &[Value],
     ) -> Result<Value, String> {
-        dispatch(apps, capability, args).expect("owned capability")
-    }
-
-    #[test]
-    fn adapter_has_the_closed_twenty_nine_operation_slice() {
-        assert_eq!(REFERENCE_CITATION_CLIENT_HANDLERS.len(), 29);
-        let mut capabilities = REFERENCE_CITATION_CLIENT_HANDLERS
+        let route = REFERENCE_CITATION_CLIENT_ROUTES
             .iter()
-            .map(|handler| handler.capability)
-            .collect::<Vec<_>>();
-        capabilities.sort_unstable();
-        capabilities.dedup();
-        assert_eq!(capabilities.len(), 29);
+            .find(|route| route.capability == capability)
+            .expect("owned capability");
+        (route.handler)(apps, args)
     }
 
     #[test]

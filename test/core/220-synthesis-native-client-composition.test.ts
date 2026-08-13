@@ -332,10 +332,9 @@ describe("Synthesis native client composition", function () {
     }
   });
 
-  it("keeps the TypeScript port and Rust manifest on one closed fingerprint", function () {
+  it("keeps the TypeScript port and manifests on one closed fingerprint", function () {
     const report = inspectSynthesisProductionCapabilities();
-    assert.equal(report.capabilityCount, 96);
-    assert.equal(report.operationCount, 96);
+    assert.equal(report.capabilityCount, report.operationCount);
     assert.equal(
       report.fingerprint,
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
@@ -351,19 +350,10 @@ describe("Synthesis native client composition", function () {
     assert.deepEqual(report.errors.missingFromSurfaceCorpora, []);
     assert.deepEqual(report.errors.unknownInSurfaceCorpora, []);
     assert.deepEqual(report.errors.missingSurfaceEvidence, []);
-    assert.deepEqual(report.errors.dispatcherMissing, []);
-    assert.deepEqual(report.errors.dispatcherUnknown, []);
-    assert.deepEqual(report.errors.dispatcherDuplicates, []);
     assert.deepEqual(report.errors.legacyCompatModule, []);
-    assert.deepEqual(report.errors.typedTopicWorkbenchOwnership, []);
-    assert.deepEqual(report.errors.typedReferenceCitationOwnership, []);
-    assert.deepEqual(report.errors.typedTagOwnership, []);
-    assert.deepEqual(report.errors.typedConceptTopicGraphOwnership, []);
-    assert.deepEqual(report.errors.typedArtifactLibraryDebugOwnership, []);
-    assert.deepEqual(report.errors.typedWebDavMaintenanceOwnership, []);
   });
 
-  it("fails closed for corrupted durable corpus, dispatcher, and ready-roster evidence", function () {
+  it("fails closed for corrupted durable corpus and observable route evidence", function () {
     const corpora = readSynthesisProductionSurfaceCorpora().map((surface) => ({
       ...surface,
       corpus: {
@@ -401,9 +391,6 @@ describe("Synthesis native client composition", function () {
     };
     const report = inspectSynthesisProductionCapabilities({
       surfaceCorpora: corpora as never,
-      readyCapabilities: ["client.unknown"],
-      rustReadyCapabilities: ["client.listTopics"],
-      rustDispatcherCapabilities: ["client.listTopics", "client.listTopics"],
     });
 
     assert.isNotEmpty(report.errors.surfaceCorpusIdentity);
@@ -413,10 +400,6 @@ describe("Synthesis native client composition", function () {
     assert.deepEqual(report.errors.unknownInSurfaceCorpora, ["client.unknown"]);
     assert.isNotEmpty(report.errors.missingBoundaryCases);
     assert.isNotEmpty(report.errors.missingMutationReopen);
-    assert.isNotEmpty(report.errors.readyNotDeclared);
-    assert.isNotEmpty(report.errors.readyRustBinding);
-    assert.isNotEmpty(report.errors.dispatcherMissing);
-    assert.isNotEmpty(report.errors.dispatcherDuplicates);
   });
 
   it("rejects unstable values in fixed-baseline observable fixtures", function () {

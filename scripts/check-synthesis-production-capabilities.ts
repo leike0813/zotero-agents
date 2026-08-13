@@ -6,7 +6,6 @@ import ts from "typescript";
 import {
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
-  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../packages/synthesis-contracts/src/sidecarSystem";
 import {
   SYNTHESIS_PRODUCTION_SURFACES,
@@ -82,70 +81,10 @@ const PORT_PATH = path.join(
   ROOT,
   "src/modules/synthesisClient/inProcessClient.ts",
 );
-const RUST_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/production_capabilities.rs",
-);
-const RUST_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_client.rs",
-);
 const RUST_LEGACY_COMPAT_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_compat.rs",
 );
-const RUST_TOPIC_WORKBENCH_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_topic_workbench_surface.rs",
-);
-const RUST_REFERENCE_CITATION_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs",
-);
-const RUST_TAG_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_tag_surface.rs",
-);
-const RUST_CONCEPT_TOPIC_GRAPH_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_concept_topic_graph_surface.rs",
-);
-const RUST_ARTIFACT_LIBRARY_DEBUG_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs",
-);
-const RUST_WEBDAV_MAINTENANCE_DISPATCH_PATH = path.join(
-  ROOT,
-  "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_webdav_maintenance_surface.rs",
-);
-const TOPIC_WORKBENCH_TYPED_CAPABILITIES = [
-  "client.listTopics",
-  "client.findTopicsByPaperRef",
-  "client.readTopicDetail",
-  "client.listWorkflowTopicOptions",
-  "client.getSynthesisWorkbenchChromeInput",
-  "client.getSynthesisWorkbenchSurfaceInput",
-  "client.getSynthesisBackgroundJobRows",
-  "client.applyTopicSynthesisResult",
-  "client.getTopicContext",
-  "client.resolveResolver",
-  "client.getTopicReport",
-  "client.applyLiteratureDigestSidecar",
-  "client.deleteTopicArtifact",
-  "client.purgeDeletedTopicArtifacts",
-  "client.rejectTopicDiscoveryHint",
-  "client.restoreTopicDiscoveryHint",
-] as const;
-const REFERENCE_CITATION_TYPED_SURFACES = new Set([
-  "reference-canonical",
-  "citation-graph",
-]);
-const REFERENCE_CITATION_TYPED_EXTENSIONS = [
-  "client.consumeRelatedItemsSyncEcho",
-] as const;
-const ARTIFACT_LIBRARY_DEBUG_TYPED_EXTENSIONS = [
-  "client.resolveTopicPaperDigest",
-] as const;
 function sorted(values: readonly string[]) {
   return [...values].sort();
 }
@@ -252,25 +191,8 @@ function extractPortCapabilities() {
     .filter(Boolean);
 }
 
-function extractRustDispatcherCapabilities(source: string) {
-  const registrations =
-    source.match(/register_production_client_handlers!\((.*?)\n\);/s)?.[1] ||
-    "";
-  const direct =
-    source.match(
-      /DIRECT_PRODUCTION_CLIENT_CAPABILITIES:\s*&\[&str\]\s*=\s*&\[(.*?)\];/s,
-    )?.[1] || "";
-  return [
-    ...registrations.matchAll(/\(\s*"(client\.[A-Za-z0-9_]+)"/g),
-    ...direct.matchAll(/"(client\.[A-Za-z0-9_]+)"/g),
-  ].map((match) => match[1]!);
-}
-
 type ProductionCapabilityInspectionOptions = {
   surfaceCorpora?: ReturnType<typeof readSynthesisProductionSurfaceCorpora>;
-  readyCapabilities?: string[];
-  rustReadyCapabilities?: string[];
-  rustDispatcherCapabilities?: string[];
 };
 
 export function inspectSynthesisProductionCapabilities(
@@ -292,72 +214,11 @@ export function inspectSynthesisProductionCapabilities(
   const actualFingerprint = createHash("sha256")
     .update(canonical)
     .digest("hex");
-  const rustSource = fs.readFileSync(RUST_PATH, "utf8");
-  const rustDispatchSource = fs.readFileSync(RUST_DISPATCH_PATH, "utf8");
   const legacyCompatModulePresent = fs.existsSync(
     RUST_LEGACY_COMPAT_DISPATCH_PATH,
   );
-  const rustTopicWorkbenchDispatchSource = fs.existsSync(
-    RUST_TOPIC_WORKBENCH_DISPATCH_PATH,
-  )
-    ? fs.readFileSync(RUST_TOPIC_WORKBENCH_DISPATCH_PATH, "utf8")
-    : "";
-  const rustReferenceCitationDispatchSource = fs.existsSync(
-    RUST_REFERENCE_CITATION_DISPATCH_PATH,
-  )
-    ? fs.readFileSync(RUST_REFERENCE_CITATION_DISPATCH_PATH, "utf8")
-    : "";
-  const rustTagDispatchSource = fs.existsSync(RUST_TAG_DISPATCH_PATH)
-    ? fs.readFileSync(RUST_TAG_DISPATCH_PATH, "utf8")
-    : "";
-  const rustConceptTopicGraphDispatchSource = fs.existsSync(
-    RUST_CONCEPT_TOPIC_GRAPH_DISPATCH_PATH,
-  )
-    ? fs.readFileSync(RUST_CONCEPT_TOPIC_GRAPH_DISPATCH_PATH, "utf8")
-    : "";
-  const rustArtifactLibraryDebugDispatchSource = fs.existsSync(
-    RUST_ARTIFACT_LIBRARY_DEBUG_DISPATCH_PATH,
-  )
-    ? fs.readFileSync(RUST_ARTIFACT_LIBRARY_DEBUG_DISPATCH_PATH, "utf8")
-    : "";
-  const rustWebDavMaintenanceDispatchSource = fs.existsSync(
-    RUST_WEBDAV_MAINTENANCE_DISPATCH_PATH,
-  )
-    ? fs.readFileSync(RUST_WEBDAV_MAINTENANCE_DISPATCH_PATH, "utf8")
-    : "";
   const surfaceCorpora =
     options.surfaceCorpora ?? readSynthesisProductionSurfaceCorpora(ROOT);
-  const referenceCitationTypedCapabilities = surfaceCorpora
-    .filter((surface) => REFERENCE_CITATION_TYPED_SURFACES.has(surface.id))
-    .flatMap((surface) =>
-      surface.corpus.operations.map((operation) => operation.id),
-    )
-    .concat(REFERENCE_CITATION_TYPED_EXTENSIONS);
-  const tagTypedCapabilities = surfaceCorpora
-    .find((surface) => surface.id === "tag")!
-    .corpus.operations.map((operation) => operation.id);
-  const conceptTopicGraphTypedCapabilities = surfaceCorpora
-    .find((surface) => surface.id === "concept-topic-graph")!
-    .corpus.operations.map((operation) => operation.id);
-  const artifactLibraryDebugTypedCapabilities = surfaceCorpora
-    .find((surface) => surface.id === "artifact-library-debug")!
-    .corpus.operations.map((operation) => operation.id)
-    .concat(ARTIFACT_LIBRARY_DEBUG_TYPED_EXTENSIONS);
-  const webDavMaintenanceTypedCapabilities = surfaceCorpora
-    .find((surface) => surface.id === "webdav-maintenance")!
-    .corpus.operations.map((operation) => operation.id);
-  const rustReadyBlock =
-    rustSource.match(
-      /READY_PRODUCTION_CLIENT_CAPABILITIES:\s*&\[&str\]\s*=\s*&\[(.*?)\];/s,
-    )?.[1] || "";
-  const parsedRustReadyCapabilities = [
-    ...rustReadyBlock.matchAll(/"(client\.[A-Za-z0-9_]+)"/g),
-  ].map((match) => match[1]!);
-  const rustReadyCapabilities =
-    options.rustReadyCapabilities ?? parsedRustReadyCapabilities;
-  const readyCapabilities = options.readyCapabilities ?? [
-    ...SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-  ];
   const corpusCapabilities = surfaceCorpora.flatMap(({ corpus }) =>
     corpus.operations.map((operation) => operation.id),
   );
@@ -367,31 +228,6 @@ export function inspectSynthesisProductionCapabilities(
       .map((operation) => operation.id)
       .filter((capability) => !source.includes(`"${capability}"`));
   });
-  const rustDispatcherCapabilities = options.rustDispatcherCapabilities ?? [
-    ...extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource),
-    ...extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource),
-    ...extractRustDispatcherCapabilities(rustTagDispatchSource),
-    ...extractRustDispatcherCapabilities(rustConceptTopicGraphDispatchSource),
-    ...extractRustDispatcherCapabilities(
-      rustArtifactLibraryDebugDispatchSource,
-    ),
-    ...extractRustDispatcherCapabilities(rustWebDavMaintenanceDispatchSource),
-  ];
-  const rustTopicWorkbenchDispatcherCapabilities =
-    extractRustDispatcherCapabilities(rustTopicWorkbenchDispatchSource);
-  const rustReferenceCitationDispatcherCapabilities =
-    extractRustDispatcherCapabilities(rustReferenceCitationDispatchSource);
-  const rustTagDispatcherCapabilities = extractRustDispatcherCapabilities(
-    rustTagDispatchSource,
-  );
-  const rustConceptTopicGraphDispatcherCapabilities =
-    extractRustDispatcherCapabilities(rustConceptTopicGraphDispatchSource);
-  const rustArtifactLibraryDebugDispatcherCapabilities =
-    extractRustDispatcherCapabilities(rustArtifactLibraryDebugDispatchSource);
-  const rustWebDavMaintenanceDispatcherCapabilities =
-    extractRustDispatcherCapabilities(rustWebDavMaintenanceDispatchSource);
-  const dispatcherCapabilities = [...new Set(rustDispatcherCapabilities)];
-
   return {
     capabilityCount: manifestCapabilities.length,
     operationCount: operationCapabilities.length,
@@ -420,99 +256,9 @@ export function inspectSynthesisProductionCapabilities(
           SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
           ? []
           : ["TypeScript or manifest fingerprint mismatch"],
-      rustBinding:
-        rustSource.includes(
-          `PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT: &str =\n    "${actualFingerprint}"`,
-        ) &&
-        rustSource.includes("synthesis-production-client-v1/capabilities.json")
-          ? []
-          : ["Rust production capability binding mismatch"],
-      readyNotDeclared: difference(readyCapabilities, manifestCapabilities),
-      readyRustBinding: [
-        ...difference(readyCapabilities, rustReadyCapabilities),
-        ...difference(rustReadyCapabilities, readyCapabilities),
-      ],
-      readyDuplicates: duplicateValues(readyCapabilities),
-      rustReadyDuplicates: duplicateValues(rustReadyCapabilities),
-      readyDispatcherBinding:
-        rustDispatchSource.includes(
-          "production_client_operations\n        .get(capability)",
-        ) &&
-        rustDispatchSource.includes(
-          "dispatch_typed_client(&state.applications, capability",
-        )
-          ? []
-          : ["Rust dispatcher is not bound to the closed operation registry"],
       legacyCompatModule: legacyCompatModulePresent
         ? ["legacy Rust production compatibility dispatcher is retained"]
         : [],
-      dispatcherMissing: difference(
-        manifestCapabilities,
-        dispatcherCapabilities,
-      ),
-      dispatcherUnknown: difference(
-        dispatcherCapabilities,
-        manifestCapabilities,
-      ),
-      dispatcherDuplicates: duplicateValues(rustDispatcherCapabilities),
-      typedTopicWorkbenchOwnership: [
-        ...difference(
-          TOPIC_WORKBENCH_TYPED_CAPABILITIES,
-          rustTopicWorkbenchDispatcherCapabilities,
-        ).map((capability) => `typed owner missing: ${capability}`),
-        ...difference(
-          rustTopicWorkbenchDispatcherCapabilities,
-          TOPIC_WORKBENCH_TYPED_CAPABILITIES,
-        ).map((capability) => `typed owner unknown: ${capability}`),
-      ],
-      typedReferenceCitationOwnership: [
-        ...difference(
-          referenceCitationTypedCapabilities,
-          rustReferenceCitationDispatcherCapabilities,
-        ).map((capability) => `typed owner missing: ${capability}`),
-        ...difference(
-          rustReferenceCitationDispatcherCapabilities,
-          referenceCitationTypedCapabilities,
-        ).map((capability) => `typed owner unknown: ${capability}`),
-      ],
-      typedTagOwnership: [
-        ...difference(tagTypedCapabilities, rustTagDispatcherCapabilities).map(
-          (capability) => `typed owner missing: ${capability}`,
-        ),
-        ...difference(rustTagDispatcherCapabilities, tagTypedCapabilities).map(
-          (capability) => `typed owner unknown: ${capability}`,
-        ),
-      ],
-      typedConceptTopicGraphOwnership: [
-        ...difference(
-          conceptTopicGraphTypedCapabilities,
-          rustConceptTopicGraphDispatcherCapabilities,
-        ).map((capability) => `typed owner missing: ${capability}`),
-        ...difference(
-          rustConceptTopicGraphDispatcherCapabilities,
-          conceptTopicGraphTypedCapabilities,
-        ).map((capability) => `typed owner unknown: ${capability}`),
-      ],
-      typedArtifactLibraryDebugOwnership: [
-        ...difference(
-          artifactLibraryDebugTypedCapabilities,
-          rustArtifactLibraryDebugDispatcherCapabilities,
-        ).map((capability) => `typed owner missing: ${capability}`),
-        ...difference(
-          rustArtifactLibraryDebugDispatcherCapabilities,
-          artifactLibraryDebugTypedCapabilities,
-        ).map((capability) => `typed owner unknown: ${capability}`),
-      ],
-      typedWebDavMaintenanceOwnership: [
-        ...difference(
-          webDavMaintenanceTypedCapabilities,
-          rustWebDavMaintenanceDispatcherCapabilities,
-        ).map((capability) => `typed owner missing: ${capability}`),
-        ...difference(
-          rustWebDavMaintenanceDispatcherCapabilities,
-          webDavMaintenanceTypedCapabilities,
-        ).map((capability) => `typed owner unknown: ${capability}`),
-      ],
       surfaceCorpusIdentity: surfaceCorpora.flatMap(
         ({ id, schema, operations, operationFingerprint, corpus }) =>
           corpus.schema === schema &&

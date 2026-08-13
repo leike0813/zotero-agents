@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisCitationGraphSurfaceParity } from "../../scripts/check-synthesis-citation-graph-surface-parity";
 
 const OWNED = [
@@ -26,7 +26,7 @@ describe("Synthesis native Citation Graph surface", function () {
     });
     for (const capability of OWNED) {
       assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
         capability,
       );
     }

@@ -10,6 +10,9 @@ use synthesis_application::topic_graph::{
     TopicGraphRelationStatus, TopicGraphReviewAction, TopicGraphReviewRequest,
 };
 
+use crate::runtime_production_client::{
+    ProductionClientCanonicalEffect, ProductionClientRouteEntry,
+};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
     checkpoint_before_promotion, current_operation_id,
@@ -19,26 +22,11 @@ const MAX_QUERY_LABELS: usize = 100;
 const MAX_TEXT_BYTES: usize = 4_096;
 
 /// The single public adapter for the Concept KB and Topic Graph operations.
-/// The dispatcher only selects this domain surface; this module owns public
-/// aliases, captured CAS bases, and the domain-specific typed commands.
-type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
-
-struct RegisteredProductionClientHandler {
-    capability: &'static str,
-    dispatch: ProductionClientHandler,
-}
-
-macro_rules! register_production_client_handlers {
-    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
-        const CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
-            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
-        ];
-    };
-}
-
-register_production_client_handlers!(
-    ("client.queryConceptKb", query),
-    ("client.rebuildConceptKbIndex", |apps, args| {
+/// This module owns public aliases, captured CAS bases, and the domain-specific
+/// typed commands selected by the production client runtime.
+pub(crate) const CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
+    ProductionClientRouteEntry::new("client.queryConceptKb", query),
+    ProductionClientRouteEntry::new("client.rebuildConceptKbIndex", |apps, args| {
         no_args(args)?;
         let basis = concept_basis(apps)?;
         let checkpoint = || promotion_checkpoint(apps);
@@ -47,10 +35,13 @@ register_production_client_handlers!(
                 .rebuild_index_with_checkpoint(&basis, &checkpoint),
         )
     }),
-    ("client.updateConceptDisplayText", update_display_text),
-    ("client.applyConceptReviewAction", review_concept),
-    ("client.deleteConceptEntries", delete_concepts),
-    ("client.rebuildTopicGraphIndex", |apps, args| {
+    ProductionClientRouteEntry::new("client.updateConceptDisplayText", update_display_text)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.applyConceptReviewAction", review_concept)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.deleteConceptEntries", delete_concepts)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.rebuildTopicGraphIndex", |apps, args| {
         no_args(args)?;
         let basis = topic_graph_basis(apps)?;
         let checkpoint = || promotion_checkpoint(apps);
@@ -59,32 +50,17 @@ register_production_client_handlers!(
                 .rebuild_index_with_checkpoint(&basis, &checkpoint),
         )
     }),
-    ("client.acceptTopicGraphRelation", |apps, args| {
+    ProductionClientRouteEntry::new("client.acceptTopicGraphRelation", |apps, args| {
         decide_relation(apps, args, TopicGraphRelationStatus::Confirmed)
-    }),
-    ("client.rejectTopicGraphRelation", |apps, args| {
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.rejectTopicGraphRelation", |apps, args| {
         decide_relation(apps, args, TopicGraphRelationStatus::Rejected)
-    }),
-    ("client.applyTopicGraphReviewAction", review_topic_graph),
-);
-
-pub(crate) fn dispatch(
-    apps: &ProductionApplications,
-    capability: &str,
-    args: &[Value],
-) -> Option<Result<Value, String>> {
-    CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS
-        .iter()
-        .find(|handler| handler.capability == capability)
-        .map(|handler| (handler.dispatch)(apps, args))
-}
-
-#[cfg(test)]
-pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
-    CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS
-        .iter()
-        .map(|handler| handler.capability)
-}
+    })
+    .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.applyTopicGraphReviewAction", review_topic_graph)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+];
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
     let Some(operation_id) = current_operation_id() else {
@@ -523,19 +499,4 @@ enum TopicGraphReviewWireAction {
 struct TopicGraphReviewWireRequest {
     review_id: String,
     action: TopicGraphReviewWireAction,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn adapter_has_the_closed_nine_operation_slice() {
-        assert_eq!(CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS.len(), 9);
-        let capabilities = CONCEPT_TOPIC_GRAPH_CLIENT_HANDLERS
-            .iter()
-            .map(|handler| handler.capability)
-            .collect::<BTreeSet<_>>();
-        assert_eq!(capabilities.len(), 9);
-    }
 }

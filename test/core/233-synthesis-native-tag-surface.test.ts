@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisTagSurfaceParity } from "../../scripts/check-synthesis-tag-surface-parity";
 
 const OWNED = [
@@ -33,7 +33,7 @@ describe("Synthesis native Tag surface", () => {
     });
     for (const capability of OWNED)
       assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
         capability,
       );
   });

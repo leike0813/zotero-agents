@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
 
 const OWNED = [
@@ -32,7 +32,7 @@ describe("Synthesis native Reference/Canonical surface", function () {
     });
     for (const capability of OWNED) {
       assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
         capability,
       );
     }

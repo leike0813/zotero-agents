@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
-import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { inspectSynthesisArtifactLibraryDebugSurfaceParity } from "../../scripts/check-synthesis-artifact-library-debug-surface-parity";
 import { createScopedSynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostHandlers";
 
@@ -23,7 +23,7 @@ const OWNED = [
 ] as const;
 
 describe("Synthesis native Artifact/Library/Debug surface", function () {
-  it("keeps its durable corpus complete, bounded, and ready", function () {
+  it("keeps its durable corpus complete and bounded", function () {
     assert.deepEqual(inspectSynthesisArtifactLibraryDebugSurfaceParity(), {
       ok: true,
       operations: 12,
@@ -31,38 +31,16 @@ describe("Synthesis native Artifact/Library/Debug surface", function () {
     });
   });
 
-  it("uses one closed typed Rust surface for every owned operation", function () {
-    const source = fs.readFileSync(
-      path.join(
-        ROOT,
-        "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_artifact_library_debug.rs",
-      ),
-      "utf8",
-    );
+  it("declares every owned operation in the production contract", function () {
     for (const capability of OWNED) {
-      assert.include(source, `"${capability}"`);
       assert.include(
-        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES,
         capability,
       );
     }
-    assert.include(source, "library.artifacts.scan_page");
-    const productionClientSource = fs.readFileSync(
-      path.join(
-        ROOT,
-        "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_client.rs",
-      ),
-      "utf8",
-    );
-    assert.include(productionClientSource, "publish_host_export_entries");
-    assert.include(productionClientSource, "delivery.export.publish_archive");
-    assert.include(
-      productionClientSource,
-      "delivery.export.materialize_run_workspace",
-    );
   });
 
-  it("keeps the language-neutral schema contract out of the dispatcher", function () {
+  it("keeps the schema contract language-neutral", function () {
     const schema = JSON.parse(
       fs.readFileSync(
         path.join(

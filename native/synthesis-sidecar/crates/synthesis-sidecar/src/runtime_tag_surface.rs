@@ -8,6 +8,10 @@ use synthesis_application::tag_vocabulary::{
 use synthesis_canonical_store::canonical_json_hash;
 use synthesis_repository::TagAuditRecord;
 
+use crate::runtime_production_client::{
+    ProductionClientCanonicalEffect, ProductionClientRouteEntry,
+};
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TagImportPreviewRequest {
@@ -89,71 +93,45 @@ use crate::runtime_public_maintenance_operation::{
 
 /// The only production adapter for the public Tag surface.  It deliberately
 /// keeps the private vocabulary application as the durable domain owner while
-/// preventing the RPC dispatcher from exposing repository records directly.
-type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
-
-struct RegisteredProductionClientHandler {
-    capability: &'static str,
-    dispatch: ProductionClientHandler,
-}
-
-macro_rules! register_production_client_handlers {
-    ($(($capability:literal, $handler:expr)),+ $(,)?) => {
-        const TAG_CLIENT_HANDLERS: &[RegisteredProductionClientHandler] = &[
-            $(RegisteredProductionClientHandler { capability: $capability, dispatch: $handler }),+
-        ];
-    };
-}
-
-register_production_client_handlers!(
-    ("client.isBuiltinTagPolicyInitialized", |apps, args| {
+/// preventing the RPC boundary from exposing repository records directly.
+pub(crate) const TAG_CLIENT_ROUTES: &[ProductionClientRouteEntry] = &[
+    ProductionClientRouteEntry::new("client.isBuiltinTagPolicyInitialized", |apps, args| {
         no_args(args)?;
         Ok(Value::Bool(apps.tags.is_builtin_policy_initialized()?))
     }),
-    ("client.loadTagVocabulary", |apps, args| {
+    ProductionClientRouteEntry::new("client.loadTagVocabulary", |apps, args| {
         no_args(args)?;
         snapshot(apps)
     }),
-    ("client.exportTagVocabularyForRegulator", |apps, args| {
+    ProductionClientRouteEntry::new("client.exportTagVocabularyForRegulator", |apps, args| {
         no_args(args)?;
         wire(apps.tags.export_regulator_tags()?)
     }),
-    ("client.listStagedTagSuggestions", list_staged),
-    ("client.initializeBuiltinTagPolicy", |apps, args| {
+    ProductionClientRouteEntry::new("client.listStagedTagSuggestions", list_staged),
+    ProductionClientRouteEntry::new("client.initializeBuiltinTagPolicy", |apps, args| {
         no_args(args)?;
         wire(apps.tags.initialize_public_vocabulary()?)
     }),
-    ("client.saveTagVocabulary", save),
-    ("client.validateTagVocabulary", validate),
-    ("client.rebuildTagVocabularyIndex", rebuild_index),
-    ("client.stageTagSuggestions", stage),
-    ("client.updateStagedTagSuggestion", update_staged),
-    ("client.updateTagVocabularyEntry", update_entry),
-    ("client.deleteTagVocabularyEntry", delete_entry),
-    ("client.promoteStagedTagSuggestions", promote),
-    ("client.discardStagedTagSuggestions", discard),
-    ("client.clearStagedTagSuggestions", clear_staged),
-    ("client.previewTagVocabularyImport", preview_import),
-    ("client.applyTagVocabularyImport", apply_import),
-    ("client.replaceTagAuditRecords", replace_audits),
-    ("client.clearTagAuditRecord", clear_audit),
-);
-
-pub(crate) fn dispatch(
-    apps: &ProductionApplications,
-    capability: &str,
-    args: &[Value],
-) -> Option<Result<Value, String>> {
-    TAG_CLIENT_HANDLERS
-        .iter()
-        .find(|handler| handler.capability == capability)
-        .map(|handler| (handler.dispatch)(apps, args))
-}
-
-#[cfg(test)]
-pub(crate) fn dispatched_capabilities() -> impl Iterator<Item = &'static str> {
-    TAG_CLIENT_HANDLERS.iter().map(|handler| handler.capability)
-}
+    ProductionClientRouteEntry::new("client.saveTagVocabulary", save)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.validateTagVocabulary", validate),
+    ProductionClientRouteEntry::new("client.rebuildTagVocabularyIndex", rebuild_index),
+    ProductionClientRouteEntry::new("client.stageTagSuggestions", stage),
+    ProductionClientRouteEntry::new("client.updateStagedTagSuggestion", update_staged),
+    ProductionClientRouteEntry::new("client.updateTagVocabularyEntry", update_entry)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Mutated),
+    ProductionClientRouteEntry::new("client.deleteTagVocabularyEntry", delete_entry)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Mutated),
+    ProductionClientRouteEntry::new("client.promoteStagedTagSuggestions", promote)
+        .with_canonical_effect(ProductionClientCanonicalEffect::NonEmptyPromotion),
+    ProductionClientRouteEntry::new("client.discardStagedTagSuggestions", discard),
+    ProductionClientRouteEntry::new("client.clearStagedTagSuggestions", clear_staged),
+    ProductionClientRouteEntry::new("client.previewTagVocabularyImport", preview_import),
+    ProductionClientRouteEntry::new("client.applyTagVocabularyImport", apply_import)
+        .with_canonical_effect(ProductionClientCanonicalEffect::Committed),
+    ProductionClientRouteEntry::new("client.replaceTagAuditRecords", replace_audits),
+    ProductionClientRouteEntry::new("client.clearTagAuditRecord", clear_audit),
+];
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
@@ -345,19 +323,4 @@ fn clear_audit(apps: &ProductionApplications, args: &[Value]) -> Result<Value, S
     apps.tags
         .clear_audit(request.library_id, &request.item_key)?;
     Ok(json!({"ok":true}))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn adapter_has_the_closed_nineteen_operation_slice() {
-        assert_eq!(TAG_CLIENT_HANDLERS.len(), 19);
-        let capabilities = TAG_CLIENT_HANDLERS
-            .iter()
-            .map(|handler| handler.capability)
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(capabilities.len(), 19);
-    }
 }

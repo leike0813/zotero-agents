@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,7 +7,6 @@ use std::thread;
 use std::time::Duration;
 use synthesis_application::{CanonicalStorePort, TopicCanonicalPort};
 use synthesis_repository::Repository;
-use synthesis_sidecar::production_capabilities::ProductionClientOperationMetadata;
 use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
 };
@@ -20,9 +18,7 @@ use crate::runtime_diagnostics::{
 };
 use crate::runtime_http::{HttpRequest, read_http, response};
 use crate::runtime_lifecycle::RuntimeOwnership;
-use crate::runtime_production_client::{
-    dispatch_production_client, production_client_error_status,
-};
+use crate::runtime_production_client::{ProductionClientRuntime, production_client_error_status};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_transfer::{NativeTransferOwner, TransferDispatch};
 use crate::runtime_worker_pool::{NativeComputePool, WorkerOperation};
@@ -52,12 +48,12 @@ pub(crate) struct ServeState {
     pub(crate) repository_id: String,
     pub(crate) repository: Arc<Mutex<Repository>>,
     pub(crate) applications: Arc<ProductionApplications>,
-    pub(crate) production_client_operations: BTreeMap<String, ProductionClientOperationMetadata>,
+    pub(crate) production_client: Arc<ProductionClientRuntime>,
     pub(crate) runtime_ownership: Arc<RuntimeOwnership>,
     pub(crate) canonical: CanonicalStorePort,
     pub(crate) stopping: Arc<AtomicBool>,
     pub(crate) compute_pool: Arc<NativeComputePool>,
-    pub(crate) transfer: Mutex<NativeTransferOwner>,
+    pub(crate) transfer: Arc<Mutex<NativeTransferOwner>>,
     pub(crate) background_tasks: Arc<BackgroundTaskOwner>,
 }
 
@@ -332,7 +328,9 @@ pub(crate) fn handle_connection(
         let mut handler_failure = None;
         let outcome = match call.capability.as_str() {
             capability if capability.starts_with("client.") => {
-                match dispatch_production_client(&state, &call.request_id, capability, call.payload)
+                match state
+                    .production_client
+                    .execute(&call.request_id, capability, call.payload)
                 {
                     Ok(data) => bounded_response(
                         &mut stream,
