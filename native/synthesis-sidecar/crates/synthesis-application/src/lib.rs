@@ -33,7 +33,7 @@ pub use reference_matching::ReferenceMatchingApplication;
 pub use reference_refresh::ReferenceRefreshApplication;
 pub use related_items::RelatedItemsApplication;
 pub use tag_vocabulary::TagVocabularyApplication;
-pub use topic::TopicApplication;
+pub use topic::{TopicApplication, project_legacy_canonical_topic};
 pub use topic_digest::TopicPaperDigestApplication;
 pub use topic_graph::TopicGraphApplication;
 pub use webdav_sync::WebDavSyncApplication;

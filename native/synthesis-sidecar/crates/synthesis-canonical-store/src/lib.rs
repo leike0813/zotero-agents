@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(unix)]
 use std::fs::File;
 use std::fs::{self, OpenOptions};
@@ -39,6 +39,15 @@ pub struct TopicSnapshot {
     pub sections: BTreeMap<String, Value>,
     #[serde(default)]
     pub markdown: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LegacyCanonicalTopic {
+    pub topic_definition: Value,
+    pub topic_resolver: Value,
+    pub resolved_paper_set: Value,
+    pub snapshot: TopicSnapshot,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -466,6 +475,14 @@ fn copy_snapshot(snapshot: &TopicSnapshot, current: &Path) -> Result<CanonicalBa
 }
 
 fn read_json(path: &Path) -> Result<(Value, Vec<u8>), String> {
+    let (value, bytes) = read_json_bytes(path)?;
+    if json_bytes(&value)? != bytes {
+        return Err("canonical_bytes_noncanonical".into());
+    }
+    Ok((value, bytes))
+}
+
+fn read_json_bytes(path: &Path) -> Result<(Value, Vec<u8>), String> {
     let metadata =
         fs::symlink_metadata(path).map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -474,10 +491,62 @@ fn read_json(path: &Path) -> Result<(Value, Vec<u8>), String> {
     let bytes = fs::read(path).map_err(|_| "canonical_snapshot_incomplete".to_owned())?;
     let value: Value =
         serde_json::from_slice(&bytes).map_err(|_| "canonical_snapshot_invalid".to_owned())?;
-    if json_bytes(&value)? != bytes {
-        return Err("canonical_bytes_noncanonical".into());
-    }
     Ok((value, bytes))
+}
+
+fn legacy_topic_map(path: &Path, field: &str) -> Result<BTreeMap<String, Value>, String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("canonical_symlink_rejected".into());
+    }
+    let bytes = fs::read(path).map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
+    let document: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
+    document
+        .get("data")
+        .and_then(Value::as_object)
+        .and_then(|data| data.get(field))
+        .and_then(Value::as_object)
+        .cloned()
+        .map(|values| values.into_iter().collect())
+        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())
+}
+
+fn read_topic_snapshot(root: &Path, topic_id: &str) -> Result<TopicSnapshot, String> {
+    validate_identity_part(topic_id)?;
+    let path_id = canonical_topic_path_id(topic_id)?;
+    let current = root.join("topics").join(&path_id).join("current");
+    if !current.is_dir() {
+        return Err("canonical_legacy_topic_sources_mismatch".into());
+    }
+    descriptor(&current, topic_id, &path_id)?;
+    let (manifest, _) = read_json(&current.join("manifest.json"))?;
+    let (artifact, _) = read_json(&current.join("artifact.json"))?;
+    // The final TypeScript owner wrote metadata with a stable payload hash but
+    // pretty JSON bytes. Preserve those bytes; descriptor validates the legacy
+    // hash basis while excluding its self-declared metadata_hash field.
+    let (metadata, _) = read_json_bytes(&current.join("metadata.json"))?;
+    let mut sections = BTreeMap::new();
+    let section_names = manifest["sections"]
+        .as_object()
+        .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?;
+    for name in section_names.keys() {
+        let file_name = section_file_name(name)?;
+        let (section, _) = read_json(&current.join("sections").join(file_name))?;
+        sections.insert(name.clone(), section);
+    }
+    let mut markdown = BTreeMap::new();
+    collect_markdown(&current, &current, &mut markdown)?;
+    Ok(TopicSnapshot {
+        topic_id: topic_id.into(),
+        path_id,
+        manifest,
+        artifact,
+        metadata,
+        sections,
+        markdown,
+    })
 }
 
 fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, String> {
@@ -488,7 +557,7 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
     }
     let (manifest_value, _manifest) = read_json(&current.join("manifest.json"))?;
     let (artifact_value, _artifact) = read_json(&current.join("artifact.json"))?;
-    let (metadata_value, _metadata) = read_json(&current.join("metadata.json"))?;
+    let (metadata_value, _metadata) = read_json_bytes(&current.join("metadata.json"))?;
     let mut sections = Vec::new();
     let sections_root = current.join("sections");
     let section_metadata = fs::symlink_metadata(&sections_root)
@@ -543,9 +612,26 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
         .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?;
     let artifact_hash = hash_json(&artifact_value)?;
     let metadata_hash = hash_json(&metadata_value)?;
+    let legacy_metadata_hash = metadata_value
+        .get("data")
+        .and_then(Value::as_object)
+        .and_then(|data| {
+            let declared = data.get("metadata_hash")?.as_str()?.to_owned();
+            let mut basis = data.clone();
+            basis.remove("metadata_hash");
+            Some((declared, Value::Object(basis)))
+        })
+        .map(|(declared, basis)| hash_json(&basis).map(|computed| (declared, computed)))
+        .transpose()?;
+    let declared_metadata_hash = manifest_object.get("metadata_hash").and_then(Value::as_str);
+    let metadata_hash_matches = declared_metadata_hash == Some(metadata_hash.as_str())
+        || legacy_metadata_hash
+            .as_ref()
+            .is_some_and(|(declared, computed)| {
+                declared == computed && declared_metadata_hash == Some(declared.as_str())
+            });
     if manifest_object.get("artifact_hash").and_then(Value::as_str) != Some(artifact_hash.as_str())
-        || manifest_object.get("metadata_hash").and_then(Value::as_str)
-            != Some(metadata_hash.as_str())
+        || !metadata_hash_matches
     {
         return Err("canonical_hash_mismatch".into());
     }
@@ -669,6 +755,58 @@ fn collect_markdown(
 }
 
 impl CanonicalStore {
+    pub fn preflight_legacy_production(root: &Path) -> Result<Vec<LegacyCanonicalTopic>, String> {
+        if !root.is_absolute()
+            || root.file_name().and_then(|value| value.to_str()) != Some("synthesis")
+        {
+            return Err("canonical_production_path_invalid".into());
+        }
+        let metadata = fs::symlink_metadata(root)
+            .map_err(|_| "canonical_production_root_missing".to_owned())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err("canonical_production_path_invalid".into());
+        }
+        if root.join("identity.json").exists() {
+            return Err("canonical_legacy_identity_present".into());
+        }
+        let definitions = legacy_topic_map(&root.join("sidecar/topic-definitions.json"), "topics")?;
+        let resolvers = legacy_topic_map(&root.join("sidecar/resolvers.json"), "resolvers")?;
+        let paper_sets =
+            legacy_topic_map(&root.join("sidecar/resolved-paper-sets.json"), "paper_sets")?;
+        let topic_ids = definitions.keys().cloned().collect::<BTreeSet<_>>();
+        if topic_ids.is_empty()
+            || resolvers.keys().cloned().collect::<BTreeSet<_>>() != topic_ids
+            || paper_sets.keys().cloned().collect::<BTreeSet<_>>() != topic_ids
+        {
+            return Err("canonical_legacy_topic_sources_mismatch".into());
+        }
+        topic_ids
+            .into_iter()
+            .map(|topic_id| {
+                let definition = definitions
+                    .get(&topic_id)
+                    .cloned()
+                    .ok_or_else(|| "canonical_legacy_topic_sources_mismatch".to_owned())?;
+                if definition.get("id").and_then(Value::as_str) != Some(topic_id.as_str()) {
+                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                }
+                let snapshot = read_topic_snapshot(root, &topic_id)?;
+                if snapshot.topic_id != topic_id
+                    || snapshot.manifest.get("topic_id").and_then(Value::as_str)
+                        != Some(topic_id.as_str())
+                {
+                    return Err("canonical_legacy_topic_sources_mismatch".into());
+                }
+                Ok(LegacyCanonicalTopic {
+                    topic_definition: definition,
+                    topic_resolver: resolvers[&topic_id].clone(),
+                    resolved_paper_set: paper_sets[&topic_id].clone(),
+                    snapshot,
+                })
+            })
+            .collect()
+    }
+
     pub fn open(profile_runtime_root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
         let root = profile_runtime_root
             .join("shadow-canonical")
@@ -854,30 +992,9 @@ impl CanonicalStore {
                 });
             }
         };
-        let (manifest, _) = read_json(&current.join("manifest.json"))?;
-        let (artifact, _) = read_json(&current.join("artifact.json"))?;
-        let (metadata, _) = read_json(&current.join("metadata.json"))?;
-        let mut sections = BTreeMap::new();
-        let section_names = manifest["sections"]
-            .as_object()
-            .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?;
-        for name in section_names.keys() {
-            let file_name = section_file_name(name)?;
-            let (section, _) = read_json(&current.join("sections").join(file_name))?;
-            sections.insert(name.clone(), section);
-        }
-        let mut markdown = BTreeMap::new();
-        collect_markdown(&current, &current, &mut markdown)?;
+        let snapshot = read_topic_snapshot(&self.root, topic_id)?;
         Ok(CurrentTopic::Ready {
-            snapshot: TopicSnapshot {
-                topic_id: topic_id.into(),
-                path_id,
-                manifest,
-                artifact,
-                metadata,
-                sections,
-                markdown,
-            },
+            snapshot,
             basis: CanonicalBasis {
                 manifest_hash: descriptor["manifestHash"]
                     .as_str()
@@ -1555,6 +1672,116 @@ mod tests {
         assert_eq!(
             CanonicalStore::initialize_production(&production_root, identity(),).unwrap_err(),
             "canonical_production_root_exists"
+        );
+        fs::remove_dir_all(parent).expect("cleanup");
+    }
+
+    #[test]
+    fn legacy_preflight_preserves_bytes_and_rejects_source_conflicts() {
+        let parent = root("legacy-preflight");
+        let production_root = parent.join("data/synthesis");
+        let mut store = CanonicalStore::initialize_production(&production_root, identity())
+            .expect("initialize production");
+        let mut legacy_snapshot = snapshot(1);
+        legacy_snapshot
+            .manifest
+            .as_object_mut()
+            .expect("manifest")
+            .insert("topic_id".into(), json!(legacy_snapshot.topic_id));
+        store
+            .promote(Promotion {
+                transaction_id: "transaction:legacy".into(),
+                expected_basis: None,
+                snapshot: legacy_snapshot,
+            })
+            .expect("promote legacy topic");
+        store.close().expect("close");
+        fs::remove_file(production_root.join("identity.json")).expect("remove identity");
+
+        let current = production_root.join("topics/topic-r7/current");
+        let mut metadata_data = json!({
+            "topic_id":"topic:r7",
+            "title":"R7",
+            "updated_at":"2026-01-01",
+        });
+        let metadata_hash = hash_json(&metadata_data).expect("metadata hash");
+        metadata_data
+            .as_object_mut()
+            .expect("metadata data")
+            .insert("metadata_hash".into(), json!(metadata_hash));
+        let metadata = json!({
+            "schema_id":"synthesis.topic_artifact_metadata",
+            "schema_version":"1.0.0",
+            "created_at":"2026-01-01",
+            "updated_at":"2026-01-01",
+            "data":metadata_data,
+        });
+        fs::write(
+            current.join("metadata.json"),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&metadata).expect("pretty metadata")
+            ),
+        )
+        .expect("write metadata");
+        let manifest_path = current.join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("manifest bytes"))
+                .expect("manifest");
+        manifest
+            .as_object_mut()
+            .expect("manifest object")
+            .insert("metadata_hash".into(), json!(metadata_hash));
+        fs::write(
+            &manifest_path,
+            json_bytes(&manifest).expect("manifest bytes"),
+        )
+        .expect("write manifest");
+
+        let sidecar = production_root.join("sidecar");
+        fs::create_dir_all(&sidecar).expect("sidecar");
+        let write_legacy = |name: &str, field: &str, value: Value| {
+            let mut keyed = serde_json::Map::new();
+            keyed.insert("topic:r7".into(), value);
+            let mut data = serde_json::Map::new();
+            data.insert(field.into(), Value::Object(keyed));
+            fs::write(
+                sidecar.join(name),
+                format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(&json!({"data":data})).expect("legacy json")
+                ),
+            )
+            .expect("write legacy source");
+        };
+        write_legacy(
+            "topic-definitions.json",
+            "topics",
+            json!({"id":"topic:r7","title":"R7","definition":"definition"}),
+        );
+        write_legacy("resolvers.json", "resolvers", json!({"tag":"topic:r7"}));
+        write_legacy(
+            "resolved-paper-sets.json",
+            "paper_sets",
+            json!({"papers":[]}),
+        );
+        let metadata_before = fs::read(current.join("metadata.json")).expect("metadata before");
+        let topics = CanonicalStore::preflight_legacy_production(&production_root)
+            .expect("legacy preflight");
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].topic_resolver, json!({"tag":"topic:r7"}));
+        assert_eq!(
+            fs::read(current.join("metadata.json")).expect("metadata after"),
+            metadata_before
+        );
+
+        let conflict = fs::read_to_string(sidecar.join("resolved-paper-sets.json"))
+            .expect("paper sets")
+            .replace("topic:r7", "topic:other");
+        fs::write(sidecar.join("resolved-paper-sets.json"), conflict).expect("write conflict");
+        assert_eq!(
+            CanonicalStore::preflight_legacy_production(&production_root).unwrap_err(),
+            "canonical_legacy_topic_sources_mismatch"
         );
         fs::remove_dir_all(parent).expect("cleanup");
     }

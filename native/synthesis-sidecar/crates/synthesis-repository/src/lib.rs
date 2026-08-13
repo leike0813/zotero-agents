@@ -14,6 +14,7 @@ mod citation_reference;
 pub use citation_reference::*;
 mod checkpoint_bundle_webdav_debug;
 pub use checkpoint_bundle_webdav_debug::*;
+mod legacy_ts_migration;
 mod reference_redirect_graph;
 pub use reference_redirect_graph::*;
 mod tag_concept_topic_graph;
@@ -123,7 +124,7 @@ fn record_observed_repository_write() {
     });
 }
 
-const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
+pub(crate) const SCHEMA_IDENTITIES: &[(&str, &str)] = &[
     ("repository_foundation_schema_version", SCHEMA_VERSION),
     (
         "topic_application_schema_version",
@@ -624,6 +625,24 @@ fn prepare_production_schema_with_registry(
 }
 
 pub fn prepare_production_schema(database_path: &Path, backup_root: &Path) -> Result<(), String> {
+    prepare_production_schema_with_legacy_topics(database_path, backup_root, &[])
+}
+
+pub fn legacy_production_topic_ids(database_path: &Path) -> Result<Option<Vec<String>>, String> {
+    legacy_ts_migration::legacy_topic_ids(database_path)
+}
+
+pub fn prepare_production_schema_with_legacy_topics(
+    database_path: &Path,
+    backup_root: &Path,
+    topics: &[(
+        TopicApplicationStateRecord,
+        TopicApplicationProjectionRecord,
+    )],
+) -> Result<(), String> {
+    if legacy_ts_migration::migrate_if_exact_legacy_ts(database_path, backup_root, topics)? {
+        return prepare_reference_redirect_graph_schema(database_path, backup_root);
+    }
     prepare_production_schema_with_registry(
         database_path,
         backup_root,
@@ -2624,6 +2643,119 @@ mod tests {
             profile_id: "profile:r7".into(),
             data_root_id: "data:r7".into(),
         }
+    }
+
+    #[test]
+    fn exact_legacy_ts_schema_is_registered_and_divergent_schema_is_rejected() {
+        let root = root("legacy-ts-detection");
+        let database_path = root.join("state/synthesis.db");
+        fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+        legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
+        let source = open_production_database_read_only(&database_path).expect("source");
+        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("detect"));
+        source
+            .execute("ALTER TABLE synt_tag_alias ADD COLUMN drift TEXT", [])
+            .expect_err("readonly source");
+        drop(source);
+        let writable = Connection::open(&database_path).expect("writable");
+        writable
+            .execute("ALTER TABLE synt_tag_alias ADD COLUMN drift TEXT", [])
+            .expect("drift");
+        drop(writable);
+        let source = open_production_database_read_only(&database_path).expect("source");
+        assert!(!legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("reject"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn exact_legacy_ts_schema_migrates_once_with_verified_backup() {
+        let root = root("legacy-ts-migration");
+        let database_path = root.join("state/synthesis.db");
+        let backup_root = root.join("state/synthesis-migration-backups");
+        fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+        legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
+
+        prepare_production_schema(&database_path, &backup_root).expect("migrate");
+        let current = open_production_database_read_only(&database_path).expect("current");
+        assert_eq!(
+            read_schema_version(&current).expect("version"),
+            SCHEMA_VERSION
+        );
+        assert!(
+            current
+                .query_row(
+                    "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='synt_topic_deleted_artifact'",
+                    [],
+                    |_| Ok(()),
+                )
+                .optional()
+                .expect("table")
+                .is_some()
+        );
+        drop(current);
+        let backups = fs::read_dir(&backup_root)
+            .expect("backups")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("entries");
+        assert_eq!(backups.len(), 1);
+        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup"));
+        drop(backup);
+
+        prepare_production_schema(&database_path, &backup_root).expect("idempotent reopen");
+        assert_eq!(
+            fs::read_dir(&backup_root).expect("backups").count(),
+            1,
+            "current reopen must not create a second migration backup"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn failed_legacy_ts_build_keeps_the_source_and_verified_backup() {
+        let root = root("legacy-ts-build-failure");
+        let database_path = root.join("state/synthesis.db");
+        let backup_root = root.join("state/synthesis-migration-backups");
+        fs::create_dir_all(database_path.parent().expect("parent")).expect("state");
+        legacy_ts_migration::create_legacy_test_database(&database_path).expect("legacy fixture");
+        let writable = Connection::open(&database_path).expect("writable");
+        writable
+            .execute(
+                "INSERT INTO synt_topic_interest_metadata(
+               topic_id,schema_id,include_terms_json,must_have_terms_json,methods_json,
+               exclude_terms_json,seed_literature_item_ids_json,source_artifact_hash,
+               metadata_hash,diagnostics_json,updated_at
+             ) VALUES('topic:r7','topic-interest.v1','not-json','[]','[]','[]','[]','','','[]','1')",
+                [],
+            )
+            .expect("broken legacy fact");
+        drop(writable);
+
+        assert_eq!(
+            prepare_production_schema(&database_path, &backup_root).unwrap_err(),
+            "repository_legacy_topic_interest_invalid"
+        );
+        let source = open_production_database_read_only(&database_path).expect("source");
+        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&source).expect("legacy source"));
+        assert_eq!(
+            source
+                .query_row(
+                    "SELECT COUNT(*) FROM synt_topic_interest_metadata",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("source fact"),
+            1
+        );
+        drop(source);
+        let backups = fs::read_dir(&backup_root)
+            .expect("backups")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("entries");
+        assert_eq!(backups.len(), 1);
+        let backup = open_existing_database_read_only(&backups[0].path()).expect("backup");
+        assert!(legacy_ts_migration::is_exact_legacy_ts_schema(&backup).expect("legacy backup"));
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

@@ -2,9 +2,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use synthesis_application::RepositoryPort;
+use synthesis_application::{RepositoryPort, project_legacy_canonical_topic};
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
-use synthesis_repository::{Repository, RepositoryIdentity, prepare_production_schema};
+use synthesis_repository::{
+    Repository, RepositoryIdentity, legacy_production_topic_ids,
+    prepare_production_schema_with_legacy_topics,
+};
 use synthesis_sidecar::production_capabilities::{
     production_client_capabilities, production_client_operation_metadata,
     production_ready_client_capabilities,
@@ -98,7 +101,29 @@ pub(crate) fn serve(config_path: &str) -> Result<(), String> {
         .parent()
         .ok_or_else(|| "repository_production_path_invalid".to_owned())?
         .join("synthesis-migration-backups");
-    prepare_production_schema(&config.repository_db_path, &migration_backup_root)?;
+    let legacy_topics = match legacy_production_topic_ids(&config.repository_db_path)? {
+        Some(database_topic_ids) => {
+            let topics = CanonicalStore::preflight_legacy_production(&config.canonical_root)?;
+            let projected = topics
+                .iter()
+                .map(project_legacy_canonical_topic)
+                .collect::<Result<Vec<_>, _>>()?;
+            let projected_topic_ids = projected
+                .iter()
+                .map(|(state, _)| state.topic_id.clone())
+                .collect::<Vec<_>>();
+            if database_topic_ids != projected_topic_ids {
+                return Err("canonical_legacy_topic_sources_mismatch".into());
+            }
+            projected
+        }
+        None => Vec::new(),
+    };
+    prepare_production_schema_with_legacy_topics(
+        &config.repository_db_path,
+        &migration_backup_root,
+        &legacy_topics,
+    )?;
     let repository = Repository::open_production(
         &config.repository_db_path,
         repository_identity,

@@ -60,14 +60,17 @@ export function synthesisProductionRouteConfig(args: {
   session: string;
   supervisorInstanceId: string;
   reverseHostPort: number;
+  profileId?: string;
+  runtimeRootId?: string;
+  dataRootId?: string;
 }) {
   return {
     schema: "synthesis-sidecar-launch-config.v3",
-    profileId: "1".repeat(64),
+    profileId: args.profileId ?? "1".repeat(64),
     libraryId: 1,
     profileRuntimeRoot: args.session,
-    runtimeRootId: "2".repeat(64),
-    dataRootId: "3".repeat(64),
+    runtimeRootId: args.runtimeRootId ?? "2".repeat(64),
+    dataRootId: args.dataRootId ?? "3".repeat(64),
     bundleId: "4".repeat(64),
     implementation: "rust-native",
     target: process.platform === "win32" ? "windows-x64" : "linux-x64",
@@ -353,6 +356,9 @@ export async function startSynthesisProductionRouteHarness(args: {
   id: string;
   hostFixture?: SynthesisProductionRouteHostFixture;
   root?: string;
+  profileId?: string;
+  runtimeRootId?: string;
+  dataRootId?: string;
 }) {
   if (!fs.existsSync(SYNTHESIS_PRODUCTION_ROUTE_EXECUTABLE)) {
     throw new Error("synthesis_production_route_sidecar_not_built");
@@ -431,14 +437,28 @@ export async function startSynthesisProductionRouteHarness(args: {
         session,
         supervisorInstanceId: `supervisor-${args.id}`,
         reverseHostPort: address.port,
+        profileId: args.profileId,
+        runtimeRootId: args.runtimeRootId,
+        dataRootId: args.dataRootId,
       }),
     ),
   );
   const sidecar = startSynthesisProductionRouteSidecar(configPath);
-  const { port } = await sidecar.listening;
-  const health = (await (
-    await fetch(`http://127.0.0.1:${port}/synthesis/v1/health`)
-  ).json()) as { serviceInstanceId: string };
+  let port: number;
+  let health: { serviceInstanceId: string };
+  try {
+    ({ port } = await sidecar.listening);
+    health = (await (
+      await fetch(`http://127.0.0.1:${port}/synthesis/v1/health`)
+    ).json()) as { serviceInstanceId: string };
+  } catch (error) {
+    if (sidecar.child.exitCode === null) {
+      await stopSynthesisProductionRouteSidecar(sidecar.child);
+    }
+    await new Promise<void>((resolve) => reverseHost.close(() => resolve()));
+    if (ownedRoot) fs.rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
   const measuredFetch: typeof fetch = async (input, init) => {
     const capability = (() => {
       try {
@@ -471,7 +491,7 @@ export async function startSynthesisProductionRouteHarness(args: {
       discovery: {
         host: "127.0.0.1",
         port,
-        profileId: "1".repeat(64),
+        profileId: args.profileId ?? "1".repeat(64),
         serviceInstanceId: health.serviceInstanceId,
       },
       clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
@@ -509,7 +529,7 @@ export async function startSynthesisProductionRouteHarness(args: {
       return rpcClient.call({
         connection: {
           baseUrl: `http://127.0.0.1:${port}`,
-          profileId: "1".repeat(64),
+          profileId: args.profileId ?? "1".repeat(64),
           clientToken: SYNTHESIS_PRODUCTION_ROUTE_CLIENT_TOKEN,
           serviceInstanceId: health.serviceInstanceId,
         },

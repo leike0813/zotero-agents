@@ -17,7 +17,7 @@ state.
 | Synthesis runtime DB | `state/synthesis.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
 | Synthesis production lock | `state/synthesis.lock` | OS file-lock target held by the Rust process for its lifetime. File contents are not ownership authority. |
 | Native WebDAV runtime state | `state/native-webdav-state.json` with `.pending` and `.previous` siblings | Secret-free queue, retry, conflict, and last-run state persisted atomically by Rust; it is local runtime state rather than a durable exchange asset. |
-| Schema migration backups | `data/synthesis-migration-backups/**` | Created only by Rust immediately before a registered schema migration. Same-schema startup creates no backup. |
+| Schema migration backups | `state/synthesis-migration-backups/**` | Deterministically named, schema-verified copies created by Rust immediately before a registered schema migration. Same-schema startup creates no backup. |
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/<deletedPathId>/current/**` | Soft-deleted Topic current trees addressed only by the recorded tombstone ID; Workbench metadata comes from `synt_topic_deleted_artifact` |
@@ -45,8 +45,8 @@ zotero-agents/
     native-webdav-state.json
     workflow-registry-status.json
     *.bak
-  data/
     synthesis-migration-backups/**   # only for registered migrations
+  data/
     synthesis/
       topics/<topicId>/current/**
       sidecar/**             # legacy/migration, sync transaction, debug only
@@ -90,6 +90,23 @@ canonical root are all absent. Rust creates the database and canonical root
 while holding the production lock. Any partial combination fails closed without
 creating the missing half. Same-schema startup creates no backup; only a
 registered native schema migration may create a verified migration backup.
+
+The one supported production adoption path recognizes the exact final
+TypeScript-owned schema (`2026-06-01.sidecar-cache-hard-cut`) together with its
+legacy Topic definition, resolver, resolved-paper-set, and canonical current
+files. While holding `state/synthesis.lock`, Rust preflights every canonical
+Topic and builds a sibling replacement database. It preserves durable facts,
+projects Topic application state from the canonical bytes, marks rebuildable
+cache/layout/metrics state stale, and publishes only after SQLite integrity,
+foreign-key, row-count, and current-schema checks pass. The legacy database is
+copied first to `state/synthesis-migration-backups`; a failed build or
+publication leaves the original database and canonical bytes in place. Once
+published, repository and canonical identity markers bind both stores to the
+configured profile/data-root identity, so an identity mismatch fails closed and
+there is no TypeScript-owner fallback. Numeric staged Tag bindings are resolved
+after startup through the reverse Host in bounded batches and retain their
+durable retry receipt until every row has either been converted or explicitly
+accounted for.
 
 Reference Refresh state records the active reference projection hash, canonical descriptor input hash, row counts, and reference/graph/related readiness. Full promotion removes absent sources; scoped promotion replaces only listed changed sources and preserves unrelated rows plus protected bindings, redirects, rejected decisions, and canonical-revision review state. Preparation itself changes no readiness. Citation Graph state separately records its active build-result/input/metrics hashes and counts; Graph replacement and later basis-bound metrics/layout behavior are unchanged. Reads never require an in-memory full mirror or production fallback.
 

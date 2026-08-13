@@ -27,7 +27,8 @@ use std::time::Duration;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 use synthesis_canonical_store::{
-    CurrentTopic, Promotion, TopicSnapshot, canonical_json_hash, canonical_topic_path_id,
+    CurrentTopic, LegacyCanonicalTopic, Promotion, TopicSnapshot, canonical_json_hash,
+    canonical_topic_path_id,
 };
 use synthesis_protocol::canonical_json;
 use synthesis_repository::{
@@ -104,6 +105,200 @@ struct TopicReadinessView {
     stale_reasons: Vec<String>,
     dirty_reasons: Vec<String>,
     missing_sections: Vec<String>,
+}
+
+pub fn project_legacy_canonical_topic(
+    legacy: &LegacyCanonicalTopic,
+) -> Result<
+    (
+        TopicApplicationStateRecord,
+        TopicApplicationProjectionRecord,
+    ),
+    String,
+> {
+    let snapshot = &legacy.snapshot;
+    let topic_id = snapshot.topic_id.clone();
+    let definition_id = legacy
+        .topic_definition
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if definition_id != topic_id || canonical_topic_path_id(&topic_id)? != snapshot.path_id {
+        return Err("canonical_legacy_topic_sources_mismatch".into());
+    }
+    let metadata = snapshot
+        .metadata
+        .get("data")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?;
+    let title = legacy
+        .topic_definition
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let definition = legacy
+        .topic_definition
+        .get("definition")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    if title.trim().is_empty() {
+        return Err("canonical_legacy_topic_sources_invalid".into());
+    }
+    let timestamp = snapshot
+        .metadata
+        .get("updated_at")
+        .and_then(Value::as_str)
+        .or_else(|| metadata.get("updated_at").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_owned();
+    let created_at = snapshot
+        .metadata
+        .get("created_at")
+        .and_then(Value::as_str)
+        .unwrap_or(&timestamp)
+        .to_owned();
+    let source_paper_refs = snapshot
+        .artifact
+        .get("source_papers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|paper| {
+            paper
+                .get("paper_ref")
+                .or_else(|| paper.get("paperRef"))
+                .and_then(Value::as_str)
+        })
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let artifact_hash = snapshot
+        .manifest
+        .get("artifact_hash")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?
+        .to_owned();
+    let metadata_hash = snapshot
+        .manifest
+        .get("metadata_hash")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?
+        .to_owned();
+    let topic_resolver = normalize_legacy_topic_resolver(&legacy.topic_resolver)?;
+    let state = TopicApplicationStateRecord {
+        topic_id: topic_id.clone(),
+        path_id: snapshot.path_id.clone(),
+        title: title.clone(),
+        definition: definition.clone(),
+        language: snapshot
+            .manifest
+            .get("language")
+            .and_then(Value::as_str)
+            .unwrap_or("auto")
+            .to_owned(),
+        operation: snapshot
+            .manifest
+            .get("operation")
+            .and_then(Value::as_str)
+            .unwrap_or("create")
+            .to_owned(),
+        manifest_hash: canonical_json_hash(&snapshot.manifest)?,
+        artifact_hash: artifact_hash.clone(),
+        metadata_hash,
+        bundle_hash: metadata
+            .get("bundle_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        paper_count: source_paper_refs.len() as i64,
+        topic_definition_json: canonical_json(&legacy.topic_definition)
+            .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?,
+        topic_resolver_json: canonical_json(&topic_resolver)
+            .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?,
+        resolved_paper_set_json: canonical_json(&legacy.resolved_paper_set)
+            .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?,
+        created_at,
+        updated_at: timestamp.clone(),
+    };
+    let projection = TopicApplicationProjectionRecord {
+        topic_id: topic_id.clone(),
+        topic_graph_json: canonical_json(&json!({
+            "topic":{
+                "topic_id":topic_id,
+                "title":title,
+                "definition":definition,
+                "artifact_hash":artifact_hash,
+            },
+            "relations":{},
+        }))
+        .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?,
+        concepts_json: "{}".into(),
+        interest_metadata_json: "{}".into(),
+        discovery_json: canonical_json(&json!({"source_paper_refs":source_paper_refs}))
+            .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?,
+        updated_at: timestamp,
+    };
+    Ok((state, projection))
+}
+
+fn normalize_legacy_topic_resolver(resolver: &Value) -> Result<Value, String> {
+    let resolver = resolver
+        .as_object()
+        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?;
+    let strings = |value: Option<&Value>| -> Result<Vec<String>, String> {
+        match value {
+            None => Ok(Vec::new()),
+            Some(Value::String(value)) if !value.trim().is_empty() => Ok(vec![value.clone()]),
+            Some(Value::Array(values)) => values
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(str::to_owned)
+                        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())
+                })
+                .collect(),
+            _ => Err("canonical_legacy_topic_sources_invalid".into()),
+        }
+    };
+    let tag = match resolver.get("tag") {
+        None => None,
+        Some(Value::String(_)) | Some(Value::Array(_)) => {
+            Some(json!({"or": strings(resolver.get("tag"))?}))
+        }
+        Some(Value::Object(value)) => {
+            let mut normalized = Map::new();
+            for field in ["and", "or", "not"] {
+                if value.contains_key(field) {
+                    normalized.insert(field.into(), json!(strings(value.get(field))?));
+                }
+            }
+            Some(Value::Object(normalized))
+        }
+        _ => return Err("canonical_legacy_topic_sources_invalid".into()),
+    };
+    let combine = match resolver.get("combine").and_then(Value::as_str) {
+        None | Some("union") => "union",
+        Some("intersection") => "intersection",
+        _ => return Err("canonical_legacy_topic_sources_invalid".into()),
+    };
+    let mut normalized = json!({
+        "paper_refs": strings(resolver.get("paper_refs"))?,
+        "collection_key": strings(resolver.get("collection_key"))?,
+        "combine": combine,
+    });
+    if let Some(tag) = tag {
+        normalized
+            .as_object_mut()
+            .expect("resolver is an object")
+            .insert("tag".into(), tag);
+    }
+    serde_json::from_value::<TopicResolverDto>(normalized.clone())
+        .map_err(|_| "canonical_legacy_topic_sources_invalid".to_owned())?;
+    Ok(normalized)
 }
 
 pub struct TopicApplication {
@@ -2353,6 +2548,32 @@ mod tests {
         Repository, RepositoryIdentity, TopicApplicationRecordPage,
         TopicGraphApplicationStateRecord, TopicGraphNodeRecord, TopicGraphReplacement,
     };
+
+    #[test]
+    fn legacy_resolver_shapes_normalize_to_the_current_closed_dto() {
+        assert_eq!(
+            normalize_legacy_topic_resolver(&json!({"tag":"topic:r7"})).expect("string tag"),
+            json!({
+                "paper_refs":[],"collection_key":[],"tag":{"or":["topic:r7"]},
+                "combine":"union"
+            })
+        );
+        assert_eq!(
+            normalize_legacy_topic_resolver(&json!({
+                "paper_refs":["1:AAAA"],
+                "collection_key":"collection:r7",
+                "tag":{"and":["topic:r7"],"not":"status:excluded"},
+                "combine":"intersection"
+            }))
+            .expect("composite resolver"),
+            json!({
+                "paper_refs":["1:AAAA"],
+                "collection_key":["collection:r7"],
+                "tag":{"and":["topic:r7"],"not":["status:excluded"]},
+                "combine":"intersection"
+            })
+        );
+    }
 
     struct CountingTopicRepository {
         inner: RepositoryPort,

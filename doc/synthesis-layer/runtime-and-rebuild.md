@@ -19,6 +19,18 @@ Rust initializes the database and canonical root while holding the lock. A
 partial combination fails with `synthesis_source_state_incomplete` without
 constructing the missing half.
 
+One registered adoption path handles the exact final TypeScript-owned database
+marker `2026-06-01.sidecar-cache-hard-cut`. Before publishing anything, Rust
+cross-checks the legacy Topic graph, definitions, resolvers, resolved paper
+sets, and every canonical current tree. It then creates a verified backup under
+`state/synthesis-migration-backups`, builds and validates a sibling foundation
+v2 database, and publishes it atomically. Existing canonical files remain
+byte-identical; only the production identity marker is added after database
+publication. Unsupported schema drift, source conflicts, build failures, lock
+conflicts, or identity mismatches fail closed. There is no legacy-owner retry.
+The next startup opens the current stores directly and creates no additional
+migration backup.
+
 Installing a new XPI replaces the packaged sidecar. The next startup verifies
 the new bundle and atomically replaces `current`. Same-schema startup creates no
 backup. A future schema change must register its exact migration in Rust; only

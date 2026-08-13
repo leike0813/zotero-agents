@@ -54,6 +54,7 @@
     "check:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 clippy --workspace --all-targets --locked --manifest-path native/synthesis-sidecar/Cargo.toml -- -D warnings",
     "format:check:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 fmt --manifest-path native/synthesis-sidecar/Cargo.toml --all --check",
     "test:synthesis-rust-sidecar": "cargo +nightly-2026-07-25 test --workspace --locked --manifest-path native/synthesis-sidecar/Cargo.toml",
+    "test:synthesis:legacy-production-migration": "tsx node_modules/mocha/bin/mocha \"test/core/238-synthesis-production-owner-migration.test.ts\" --require test/setup/zotero-mock.ts --timeout 120000 --exit",
     "benchmark:synthesis-citation-graph-build-sidecar": "npm run build:synthesis-service && tsx scripts/benchmark-synthesis-citation-graph-build-sidecar.ts",
     "benchmark:synthesis-rust-deterministic-kernels": "tsx scripts/benchmark-synthesis-rust-deterministic-kernels.ts",
     "benchmark:synthesis-rust-complex-kernels": "tsx scripts/benchmark-synthesis-rust-complex-kernels.ts",
