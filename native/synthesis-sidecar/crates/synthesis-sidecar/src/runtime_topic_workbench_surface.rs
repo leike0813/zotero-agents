@@ -20,7 +20,10 @@ use crate::runtime_production_client::{
     ProductionClientCanonicalEffect, ProductionClientRouteEntry,
 };
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_reference_canonical::{LiteratureDigestApplyRequest, ReferenceIndexRequest};
+use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
+use synthesis_application::reference_application::{
+    LiteratureDigestApplyRequest, ReferenceIndexRequest,
+};
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
@@ -100,14 +103,12 @@ fn review_registry_rows(
     for source_refs in paper_refs.chunks(250) {
         let mut cursor = 0usize;
         loop {
-            let page = apps
-                .reference_canonical
-                .sidecar_index(&ReferenceIndexRequest {
-                    cursor: Some(cursor.to_string()),
-                    limit: Some(100),
-                    include_references: Some(false),
-                    source_refs: Some(source_refs.to_vec()),
-                })?;
+            let page = apps.references.sidecar_index(&ReferenceIndexRequest {
+                cursor: Some(cursor.to_string()),
+                limit: Some(100),
+                include_references: Some(false),
+                source_refs: Some(source_refs.to_vec()),
+            })?;
             let page_rows = page
                 .get("rows")
                 .and_then(Value::as_array)
@@ -1143,7 +1144,7 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     fn index(&self, state: &Value) -> Result<Value, String> {
         let projection = self
             .apps
-            .reference_canonical
+            .references
             .workbench_index(state, self.apps.library_id())?;
         self.attach_review_summary(projection)
     }
@@ -1151,7 +1152,7 @@ impl WorkbenchSurfacePort for ProductionWorkbenchSurfaces<'_> {
     fn reference_review(&self, state: &Value) -> Result<Value, String> {
         let projection = self
             .apps
-            .reference_canonical
+            .references
             .workbench_review(state, self.apps.library_id())?;
         self.attach_review_summary(projection)
     }
@@ -1297,8 +1298,9 @@ pub(crate) const TOPIC_WORKBENCH_CLIENT_ROUTES: &[ProductionClientRouteEntry] = 
         })?)
     }),
     ProductionClientRouteEntry::new("client.applyLiteratureDigestSidecar", |apps, args| {
-        apps.reference_canonical
-            .apply_literature_digest(one::<LiteratureDigestApplyRequest>(args)?)
+        let checkpoint = || checkpoint_current_before_promotion(apps);
+        apps.references
+            .apply_literature_digest(one::<LiteratureDigestApplyRequest>(args)?, &checkpoint)
     }),
     ProductionClientRouteEntry::new("client.deleteTopicArtifact", |apps, args| {
         wire(apps.topics.delete(one::<TopicDeleteRequest>(args)?)?)

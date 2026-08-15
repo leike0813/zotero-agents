@@ -16,6 +16,10 @@ use synthesis_application::citation_graph::{
     CitationMetricsOutput, CitationMetricsPageRequest, CitationMetricsSort, CitationRebuildRequest,
     CitationSliceRequest,
 };
+use synthesis_application::reference::{
+    CanonicalReferenceMutation, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
+    ReferenceHostItemsByRef, ReferenceHostItemsPage, ReferenceHostPort,
+};
 use synthesis_application::reference_matching::{
     ReferenceHostCandidate, ReferenceMatchKind, ReferenceMatchPass, ReferenceMatcherInput,
     ReferenceMatcherOutcome, ReferenceMatcherPort, ReferenceMatchingPrepareRequest,
@@ -27,8 +31,8 @@ use synthesis_application::reference_refresh::{
     ReferenceRefreshScope,
 };
 use synthesis_application::{
-    CitationGraphApplication, ReferenceMatchingApplication, ReferenceRefreshApplication,
-    RepositoryPort,
+    CitationGraphApplication, ReferenceApplication, ReferenceMatchingApplication,
+    ReferenceRefreshApplication, RepositoryPort,
 };
 use synthesis_repository::{
     CitationComplexMetricsRecord, CitationEdgeRecord, CitationGraphApplicationStateRecord,
@@ -244,6 +248,40 @@ impl CitationGraphComputePort for FixtureCitationCompute {
 }
 
 struct FixtureMatcher;
+
+struct UnusedReferenceHost;
+
+impl ReferenceHostPort for UnusedReferenceHost {
+    fn list_items_page(
+        &self,
+        _cursor: &str,
+        _limit: usize,
+    ) -> Result<ReferenceHostItemsPage, String> {
+        Err("parity_host_not_requested".into())
+    }
+
+    fn get_items_by_ref(&self, _paper_refs: &[String]) -> Result<ReferenceHostItemsByRef, String> {
+        Err("parity_host_not_requested".into())
+    }
+
+    fn scan_artifacts_page(
+        &self,
+        _cursor: &str,
+        _limit: usize,
+        _paper_refs: &[String],
+        _artifact_types: &[&str],
+    ) -> Result<ReferenceHostArtifactsPage, String> {
+        Err("parity_host_not_requested".into())
+    }
+
+    fn read_artifact(
+        &self,
+        _locator: &str,
+        _expected_hash: &str,
+    ) -> Result<ReferenceHostArtifactRead, String> {
+        Err("parity_host_not_requested".into())
+    }
+}
 
 impl ReferenceMatcherPort for FixtureMatcher {
     fn match_pass(
@@ -522,26 +560,36 @@ fn main() -> Result<(), String> {
         input: changed_input,
     });
     let graph_after_explicit_rebuild = citation.inspect()?.graph_hash;
-    let table_snapshot = owner
-        .lock()
-        .map_err(|_| "repository_unavailable")?
-        .table_snapshot()?;
     let citation_inspect = citation.inspect()?;
     let refresh_inspect = refresh.inspect()?;
     let matching_inspect = matching.inspect()?;
     citation.shutdown(Duration::from_secs(1))?;
-    refresh.shutdown(Duration::from_secs(1))?;
-    if !matching.shutdown(Duration::from_secs(1)) {
-        return Err("reference_matching_drain_timeout".into());
+    let references = ReferenceApplication::new(
+        port.clone(),
+        refresh,
+        matching,
+        Arc::new(UnusedReferenceHost),
+    );
+    let missing_canonical = references
+        .mutate_canonicals(
+            CanonicalReferenceMutation::Archive {
+                canonical_reference_id: "parity:missing".into(),
+            },
+            &|| Ok(()),
+        )
+        .map_err(|error| error.code().to_owned())?;
+    if missing_canonical.canonical_reference_id != "parity:missing" {
+        return Err("reference_application_checkpoint_projection_invalid".into());
     }
+    references.quiesce(Duration::from_secs(1))?;
     drop(citation);
-    drop(refresh);
-    drop(matching);
+    drop(references);
     drop(port);
     drop(owner);
 
     let reopened = Repository::open_at(&request.runtime_root, identity, &request.corpus.clock)?;
     let reopen_snapshot = reopened.table_snapshot()?;
+    let table_snapshot = reopen_snapshot.clone();
     let reopen = json!({
         "citation": reopened.get_citation_graph_application_state()?,
         "refresh": reopened.get_reference_application_state()?,

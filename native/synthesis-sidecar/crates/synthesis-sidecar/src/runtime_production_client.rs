@@ -1130,10 +1130,10 @@ mod dispatch_integration_tests {
         HostItemCollectionPort, ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
     };
     use crate::runtime_production_ports::{ProductionApplications, build_production_applications};
-    use crate::runtime_reference_canonical::{
+    use crate::runtime_worker_pool::NativeComputePool;
+    use synthesis_application::reference::{
         ReferenceHostArtifactRead, ReferenceHostArtifactsPage, ReferenceHostPort,
     };
-    use crate::runtime_worker_pool::NativeComputePool;
 
     struct LiteratureDigestHost;
 
@@ -1203,6 +1203,21 @@ mod dispatch_integration_tests {
     }
 
     impl ReferenceHostPort for LiteratureDigestHost {
+        fn list_items_page(
+            &self,
+            cursor: &str,
+            limit: usize,
+        ) -> Result<ReferenceHostItemsPage, String> {
+            HostItemCollectionPort::list_items_page(self, cursor, limit)
+        }
+
+        fn get_items_by_ref(
+            &self,
+            paper_refs: &[String],
+        ) -> Result<ReferenceHostItemsByRef, String> {
+            HostItemCollectionPort::get_items_by_ref(self, paper_refs)
+        }
+
         fn scan_artifacts_page(
             &self,
             _cursor: &str,
@@ -1262,9 +1277,7 @@ mod dispatch_integration_tests {
         )
         .expect("applications");
         let host = Arc::new(LiteratureDigestHost);
-        applications
-            .reference_canonical
-            .replace_host_for_tests(host.clone());
+        applications.references.replace_host_for_tests(host.clone());
         applications.host_items = host;
         applications
     }
@@ -1340,10 +1353,10 @@ mod dispatch_integration_tests {
         request: Value,
     ) -> Result<Value, String> {
         let request = serde_json::from_value::<
-            crate::runtime_reference_canonical::LiteratureDigestApplyRequest,
+            synthesis_application::reference_application::LiteratureDigestApplyRequest,
         >(request)
         .map_err(|_| "invalid_request".to_owned())?;
-        apps.reference_canonical.apply_literature_digest(request)
+        apps.references.apply_literature_digest(request, &|| Ok(()))
     }
 
     #[test]

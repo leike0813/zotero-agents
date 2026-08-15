@@ -379,6 +379,13 @@ impl RunningRuntime {
             self.stop_signal
                 .record_cleanup_issue(ServePhase::Shutdown, error);
         }
+        if let Err(error) = applications
+            .references
+            .quiesce(cleanup_deadline.saturating_duration_since(Instant::now()))
+        {
+            self.stop_signal
+                .record_cleanup_issue(ServePhase::Shutdown, error);
+        }
         self.compute_pool
             .as_ref()
             .expect("running compute pool")

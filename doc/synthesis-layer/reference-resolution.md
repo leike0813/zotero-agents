@@ -9,6 +9,25 @@ This document is the executable policy contract for literature-to-literature ref
 - Preserve useful weaker candidates as bounded suggestions/review data.
 - Make matcher changes measurable through fixture, gold labels, and experiment reports.
 
+## Application ownership
+
+`synthesis_application::ReferenceApplication` is the production owner for the
+Reference domain. Runtime routes decode public requests and encode public
+responses; they do not coordinate Reference Refresh, Matching/Review, or
+Canonical Reference mutation and do not borrow the repository owner. The
+application owns bounded Host collection, semantic Reference projections,
+operation ordering, per-call promotion checkpoints, receipts, basis checks,
+and cache-stale transitions.
+
+The application composes three independent internal use cases. Reference
+Refresh owns source/artifact projection, Reference Matching owns matching and
+review decisions, and Canonical Reference mutation owns merge, metadata, and
+archive consistency. Their persistence ports expose domain reads and atomic
+commits. SQLite locks, transactions, and table records remain inside the
+repository adapter. `ReferenceHostPort` and its typed DTOs belong to the
+application package; the reverse-Host implementation in the runtime crate is
+only a transport adapter.
+
 ## Inputs
 
 The matcher consumes only identity-bearing fields:

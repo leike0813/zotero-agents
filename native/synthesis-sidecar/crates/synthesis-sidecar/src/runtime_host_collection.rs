@@ -1,6 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+pub(crate) use synthesis_application::reference::{
+    ReferenceHostItem, ReferenceHostItemsByRef, ReferenceHostItemsPage,
+};
 use synthesis_application::{
     TopicLibraryItem, TopicLibraryItemsByRef, TopicLibraryPage, TopicLibraryQueryPort,
 };
@@ -8,62 +10,6 @@ use synthesis_application::{
 pub(crate) const HOST_PAGE_LIMIT: usize = 100;
 pub(crate) const MAX_HOST_PAGES: usize = 1_000;
 pub(crate) const MAX_HOST_ROWS: usize = 100_000;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReferenceHostItem {
-    pub paper_ref: String,
-    pub library_id: i64,
-    pub item_key: String,
-    #[serde(default)]
-    pub item_type: String,
-    pub title: String,
-    #[serde(default)]
-    pub year: String,
-    #[serde(default)]
-    pub date: String,
-    #[serde(default)]
-    pub creators: Vec<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub collections: Vec<String>,
-    #[serde(default)]
-    pub doi: String,
-    #[serde(default)]
-    pub arxiv: String,
-    #[serde(default)]
-    pub isbn: String,
-    #[serde(default)]
-    pub url: String,
-    #[serde(default)]
-    pub citekey: String,
-    #[serde(default)]
-    pub date_added: String,
-    #[serde(default)]
-    pub updated_at: String,
-    #[serde(default)]
-    pub metadata_hash: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReferenceHostItemsPage {
-    pub items: Vec<ReferenceHostItem>,
-    pub cursor: String,
-    pub next_cursor: String,
-    pub snapshot_revision: String,
-    pub has_more: bool,
-    pub returned: usize,
-    pub limit: usize,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ReferenceHostItemsByRef {
-    pub items: Vec<ReferenceHostItem>,
-    pub missing_paper_refs: Vec<String>,
-}
 
 pub(crate) trait HostItemCollectionPort: Send + Sync {
     fn list_items_page(&self, cursor: &str, limit: usize)
@@ -168,13 +114,6 @@ pub(crate) fn collect_host_items(
     host: &dyn HostItemCollectionPort,
 ) -> Result<Vec<ReferenceHostItem>, String> {
     collect_host_items_with_limit(host, MAX_HOST_ROWS, false)
-}
-
-pub(crate) fn collect_host_items_bounded(
-    host: &dyn HostItemCollectionPort,
-    max_rows: usize,
-) -> Result<Vec<ReferenceHostItem>, String> {
-    collect_host_items_with_limit(host, max_rows.min(MAX_HOST_ROWS), true)
 }
 
 fn collect_host_items_with_limit(

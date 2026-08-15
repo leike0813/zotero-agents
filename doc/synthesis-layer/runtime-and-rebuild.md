@@ -197,6 +197,13 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 
 ## Normal Runtime Flow
 
+Reference and Canonical Reference client routes share one production
+`ReferenceApplication`. The runtime retains maintenance admission,
+cancellation/deadline lookup, terminal transitions, reverse-Host transport,
+and wire codecs. Each durable application call receives a checkpoint for the
+current invocation. Shutdown quiesces the composed Refresh and Matching owners
+through the same application before compute and storage owners are released.
+
 Normal workflow apply is the only automatic sidecar update path:
 
 1. `literature-analysis` reads Zotero item/attachment/note data directly.

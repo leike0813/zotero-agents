@@ -451,7 +451,7 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workflow, host_bridge, mcp]
     production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
-    application_owner: [runtime_reference_canonical::ReferenceCanonicalApplication, synthesis_application::ConceptKbApplication, synthesis_application::TopicGraphApplication]
+    application_owner: [synthesis_application::ReferenceApplication, synthesis_application::ConceptKbApplication, synthesis_application::TopicGraphApplication]
     production_evidence: production_native_route.evidence
     methods:
       - getReviewInput
@@ -532,7 +532,7 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
-    application_owner: runtime_reference_canonical::ReferenceCanonicalApplication
+    application_owner: synthesis_application::ReferenceApplication
     production_evidence: production_native_route.evidence
     methods:
       - getReferenceSidecarIndex
@@ -548,7 +548,7 @@ method_groups:
     disposition: client_capability
     consumer_groups: [workbench, host_bridge, mcp]
     production_adapter_owner: native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reference_citation_surface.rs
-    application_owner: runtime_reference_canonical::ReferenceCanonicalApplication
+    application_owner: synthesis_application::ReferenceApplication
     production_evidence: production_native_route.evidence
     methods:
       - refreshReferenceSidecarNow

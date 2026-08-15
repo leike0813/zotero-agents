@@ -1,7 +1,6 @@
 use serde::de::DeserializeOwned;
-use serde_json::Value;
-#[cfg(test)]
-use serde_json::json;
+use serde_json::{Value, json};
+use synthesis_application::reference::{CanonicalMutationStatus, CanonicalReferenceMutation};
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 
 use crate::runtime_production_client::{
@@ -9,10 +8,11 @@ use crate::runtime_production_client::{
 };
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
-use crate::runtime_reference_canonical::{
+use synthesis_application::reference_application::{
     CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
     CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest, ExternalReferenceRankRequest,
-    ReferenceAttentionRequest, ReferenceIndexRequest,
+    ReferenceAttentionRequest, ReferenceIndexRequest, ReferenceMatchingCommand,
+    ReferenceRefreshCommand,
 };
 
 #[derive(serde::Deserialize)]
@@ -155,15 +155,15 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
         )
     }),
     ProductionClientRouteEntry::new("client.getReferenceSidecarIndex", |apps, args| {
-        apps.reference_canonical
+        apps.references
             .sidecar_index(&optional_one::<ReferenceIndexRequest>(args)?)
     }),
     ProductionClientRouteEntry::new("client.rankExternalReferences", |apps, args| {
-        apps.reference_canonical
+        apps.references
             .rank_external_references(&optional_one::<ExternalReferenceRankRequest>(args)?)
     }),
     ProductionClientRouteEntry::new("client.getAttentionQueue", |apps, args| {
-        apps.reference_canonical
+        apps.references
             .attention_queue(&optional_one::<ReferenceAttentionRequest>(args)?)
     }),
     ProductionClientRouteEntry::new("client.getReviewInput", |apps, args| {
@@ -172,67 +172,160 @@ pub(crate) const REFERENCE_CITATION_CLIENT_ROUTES: &[ProductionClientRouteEntry]
     ProductionClientRouteEntry::new("client.startReferenceSidecarRefresh", |apps, args| {
         optional_one::<EmptyRequest>(args)?;
         let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .start_refresh_with_checkpoint(&checkpoint)
+        apps.references
+            .refresh(ReferenceRefreshCommand::Run, &checkpoint)
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
     ProductionClientRouteEntry::new("client.refreshReferenceSidecarNow", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .refresh_now_with_checkpoint(&checkpoint)
+        apps.references
+            .refresh(ReferenceRefreshCommand::Run, &checkpoint)
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
     ProductionClientRouteEntry::new("client.retryReferenceSidecarRefresh", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .retry_refresh_with_checkpoint(&checkpoint)
+        apps.references
+            .refresh(ReferenceRefreshCommand::Retry, &checkpoint)
     })
     .with_canonical_effect(ProductionClientCanonicalEffect::ReferencePromotion),
     ProductionClientRouteEntry::new("client.runAdvancedReferenceMatchingNow", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .run_advanced_matching_with_checkpoint(&checkpoint)
+        apps.references
+            .match_references(ReferenceMatchingCommand::Run, &checkpoint)
     }),
     ProductionClientRouteEntry::new("client.retryAdvancedReferenceMatching", |apps, args| {
         no_args(args)?;
         let checkpoint = || promotion_checkpoint(apps);
-        apps.reference_canonical
-            .retry_advanced_matching_with_checkpoint(&checkpoint)
+        apps.references
+            .match_references(ReferenceMatchingCommand::Retry, &checkpoint)
     }),
     ProductionClientRouteEntry::new("client.applyCanonicalRevisionReviewAction", |apps, args| {
-        apps.reference_canonical
-            .apply_revision_review(one::<CanonicalRevisionReviewRequest>(args)?)
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.references
+            .apply_revision_review(one::<CanonicalRevisionReviewRequest>(args)?, &checkpoint)
     }),
     ProductionClientRouteEntry::new("client.applyReferenceMatchProposalAction", |apps, args| {
         let decision = reference_review_decision(one::<ReferenceReviewDecisionWire>(args)?)?;
-        apps.reference_canonical
-            .apply_proposal_actions(std::slice::from_ref(&decision))
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.references
+            .apply_proposal_actions(std::slice::from_ref(&decision), &checkpoint)
     }),
     ProductionClientRouteEntry::new("client.applyReferenceMatchProposalActions", |apps, args| {
         let decisions = reference_review_decisions(one::<ReferenceReviewDecisionBatchWire>(args)?)?;
-        apps.reference_canonical.apply_proposal_actions(&decisions)
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.references
+            .apply_proposal_actions(&decisions, &checkpoint)
     }),
     ProductionClientRouteEntry::new("client.mergeEffectiveCanonicalReference", |apps, args| {
-        apps.reference_canonical
-            .merge_canonical(one::<EffectiveCanonicalMergeRequest>(args)?)
+        let checkpoint = || promotion_checkpoint(apps);
+        apps.references
+            .merge_canonical(one::<EffectiveCanonicalMergeRequest>(args)?, &checkpoint)
     }),
     ProductionClientRouteEntry::new(
         "client.applyCanonicalRevisionMergeRequests",
         |apps, args| {
-            apps.reference_canonical
-                .merge_canonical_batch(one::<CanonicalMergeBatchRequest>(args)?)
+            let checkpoint = || promotion_checkpoint(apps);
+            apps.references
+                .merge_canonical_batch(one::<CanonicalMergeBatchRequest>(args)?, &checkpoint)
         },
     ),
     ProductionClientRouteEntry::new("client.updateCanonicalReferenceMetadata", |apps, args| {
-        apps.reference_canonical
-            .update_canonical_metadata(one::<CanonicalMetadataUpdateRequest>(args)?)
+        let request = one::<CanonicalMetadataUpdateRequest>(args)?;
+        let checkpoint = || promotion_checkpoint(apps);
+        let receipt = apps
+            .references
+            .mutate_canonicals(
+                CanonicalReferenceMutation::UpdateMetadata {
+                    canonical_reference_id: request.canonical_reference_id,
+                    title: request.patch.title,
+                    normalized_title: request.patch.normalized_title,
+                    normalized_title_derived: false,
+                    year: request.patch.year,
+                    authors: request.patch.authors,
+                    identifiers: request.patch.identifiers,
+                },
+                &checkpoint,
+            )
+            .map_err(|error| error.code().to_owned())?;
+        let mut result = match receipt.status {
+            CanonicalMutationStatus::Updated => json!({
+                "ok":true,
+                "status":"updated",
+                "canonical_reference_id":receipt.canonical_reference_id,
+            }),
+            CanonicalMutationStatus::MissingCanonical => json!({
+                "ok":false,
+                "status":"missing_canonical",
+                "error":{
+                    "code":"canonical_metadata_missing_canonical",
+                    "details":{"canonicalReferenceId":receipt.canonical_reference_id},
+                },
+            }),
+            CanonicalMutationStatus::BoundToZotero => json!({
+                "ok":false,
+                "status":"bound_to_zotero",
+                "error":{
+                    "code":"canonical_metadata_bound_to_zotero",
+                    "details":{"canonicalReferenceId":receipt.canonical_reference_id},
+                },
+            }),
+            CanonicalMutationStatus::Stopping => return Err("operation_canceled".into()),
+            _ => return Err("canonical_mutation_result_invalid".into()),
+        };
+        if receipt.idempotent {
+            result["idempotent"] = Value::Bool(true);
+        }
+        Ok(result)
     }),
     ProductionClientRouteEntry::new("client.archiveCanonicalReference", |apps, args| {
-        apps.reference_canonical
-            .archive_canonical(one::<CanonicalArchiveRequest>(args)?)
+        let request = one::<CanonicalArchiveRequest>(args)?;
+        let checkpoint = || promotion_checkpoint(apps);
+        let receipt = apps
+            .references
+            .mutate_canonicals(
+                CanonicalReferenceMutation::Archive {
+                    canonical_reference_id: request.canonical_reference_id,
+                },
+                &checkpoint,
+            )
+            .map_err(|error| error.code().to_owned())?;
+        let mut result = match receipt.status {
+            CanonicalMutationStatus::Archived | CanonicalMutationStatus::AlreadyArchived => json!({
+                "ok":true,
+                "status":"archived",
+                "canonical_reference_id":receipt.canonical_reference_id,
+            }),
+            CanonicalMutationStatus::Blocked => json!({
+                "ok":false,
+                "status":"blocked",
+                "error":{
+                    "code":"canonical_archive_blocked",
+                    "details":{
+                        "canonicalReferenceId":receipt.canonical_reference_id,
+                        "blockers":receipt.blockers,
+                    },
+                },
+            }),
+            CanonicalMutationStatus::MissingCanonical => json!({
+                "ok":false,
+                "status":"missing_canonical",
+                "error":{
+                    "code":"canonical_archive_missing_canonical",
+                    "details":{"canonicalReferenceId":receipt.canonical_reference_id},
+                },
+            }),
+            CanonicalMutationStatus::Stopping => return Err("operation_canceled".into()),
+            CanonicalMutationStatus::Updated | CanonicalMutationStatus::BoundToZotero => {
+                return Err("canonical_mutation_result_invalid".into());
+            }
+        };
+        if receipt.idempotent {
+            result["idempotent"] = Value::Bool(true);
+        }
+        Ok(result)
     }),
     ProductionClientRouteEntry::new("client.queryCitationGraph", |apps, args| {
         crate::runtime_citation_graph_read_surface::dispatch(

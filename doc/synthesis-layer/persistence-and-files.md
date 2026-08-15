@@ -117,6 +117,13 @@ or discard. Proposal, accepted binding, redirect, rejection, supersession, and
 retarget decisions survive restart. Accepted-fact changes mark isolated graph
 and related projections stale without executing either downstream effect.
 
+Runtime code reaches Reference persistence only through use-case-specific
+application ports and cannot acquire the Reference SQLite owner. Atomic
+Canonical Reference archive and metadata commits include the durable receipt
+and every related basis/cache-stale update; a rejected promotion checkpoint
+performs none of those writes. Repository reopen evidence, rather than an
+in-memory cache, proves idempotency and durable outcomes.
+
 Tag Vocabulary production state records the active vocabulary revision and
 index basis beside strict entry, alias, abbreviation, protocol, warning, staged
 suggestion, audit, and effect rows. The Rust application validates and builds

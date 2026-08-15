@@ -15,7 +15,6 @@ mod runtime_lifecycle;
 mod runtime_production_client;
 mod runtime_production_ports;
 mod runtime_public_maintenance_operation;
-mod runtime_reference_canonical;
 mod runtime_reference_citation_surface;
 mod runtime_reverse_host;
 mod runtime_server_loop;

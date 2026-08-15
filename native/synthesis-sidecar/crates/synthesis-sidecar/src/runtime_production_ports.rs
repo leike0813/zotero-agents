@@ -40,9 +40,9 @@ use synthesis_application::webdav_sync::{
 use synthesis_application::{
     CanonicalStorePort, CitationGraphApplication, ConceptKbApplication,
     DebugMaintenanceApplication, DurableBundleApplication, HostEffectDiagnostic,
-    ReferenceMatchingApplication, ReferenceRefreshApplication, RepositoryPort,
-    TagVocabularyApplication, TopicApplication, TopicGraphApplication, TopicLibraryQueryPort,
-    WebDavSyncApplication, WorkbenchApplication,
+    ReferenceApplication, ReferenceMatchingApplication, ReferenceRefreshApplication,
+    RepositoryPort, TagVocabularyApplication, TopicApplication, TopicGraphApplication,
+    TopicLibraryQueryPort, WebDavSyncApplication, WorkbenchApplication,
 };
 use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_protocol::utc_now_iso8601;
@@ -62,13 +62,13 @@ use crate::runtime_canonical_autosync::{
     CANONICAL_AUTOSYNC_DEBOUNCE, CanonicalAutosyncCoordinator,
 };
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
-use crate::runtime_reference_canonical::{
-    ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
-    ReferenceHostPort,
-};
 use crate::runtime_reverse_host::call_reverse_host;
 use crate::runtime_webdav_runtime::{FileWebDavStateStore, InterruptibleWebDavRetryScheduler};
 use crate::runtime_worker_pool::NativeComputePool;
+use synthesis_application::reference::{
+    ReferenceHostArtifactRead, ReferenceHostArtifactsPage, ReferenceHostPort, ReferenceObservation,
+    ReferenceObservationPort,
+};
 
 pub(crate) struct ProductionApplications {
     pub(crate) repository: Arc<RepositoryPort>,
@@ -78,7 +78,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) topic_digests: TopicPaperDigestApplication,
     pub(crate) citations: CitationGraphApplication,
     pub(crate) related_items: RelatedItemsApplication,
-    pub(crate) reference_canonical: ReferenceCanonicalApplication,
+    pub(crate) references: ReferenceApplication,
     pub(crate) tags: TagVocabularyApplication,
     pub(crate) concepts: Arc<ConceptKbApplication>,
     pub(crate) topic_graph: Arc<TopicGraphApplication>,
@@ -222,12 +222,13 @@ pub(crate) fn build_production_applications(
             compute: Arc::clone(&compute),
         }),
     );
-    let reference_canonical = ReferenceCanonicalApplication::new(
+    let references = ReferenceApplication::new(
         repository.clone(),
         reference_refresh,
         reference_matching,
         host.clone(),
-    );
+    )
+    .with_observations(Arc::new(NativeReferenceObservationPort));
     let tags = TagVocabularyApplication::new(
         repository.clone(),
         Arc::new(NativeTagVocabularyComputePort {
@@ -264,7 +265,7 @@ pub(crate) fn build_production_applications(
         topic_digests,
         citations,
         related_items,
-        reference_canonical,
+        references,
         tags,
         concepts,
         topic_graph,
@@ -1724,6 +1725,109 @@ pub(crate) struct ReverseHostApplicationPort {
     service_instance_id: String,
 }
 
+struct NativeReferenceObservationPort;
+
+impl ReferenceObservationPort for NativeReferenceObservationPort {
+    fn emit(&self, observation: ReferenceObservation) {
+        let mut event =
+            NativeDiagnosticEvent::new("operation", observation.phase, observation.status);
+        if let Some(code) = observation.code {
+            event = event.code(code);
+        }
+        for (key, value) in observation.fields {
+            match key.as_str() {
+                "capability" => {
+                    if let Some(value) = value.as_str() {
+                        event = event.capability(value);
+                    }
+                }
+                "operationId" => {
+                    if let Some(value) = value.as_str() {
+                        event = event.operation_id(value);
+                    }
+                }
+                "semanticStatus" => {
+                    if let Some(value) = value.as_str() {
+                        event = event.mutation_status(value);
+                    }
+                }
+                "matchingHash" => {
+                    if let Some(value) = value.as_str() {
+                        event = event.matching_hash(value);
+                    }
+                }
+                "returned" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.returned(value as usize);
+                    }
+                }
+                "payloadCount" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.payload_count(value as usize);
+                    }
+                }
+                "total" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.total(value as usize);
+                    }
+                }
+                "sourceCount" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.source_count(value as usize);
+                    }
+                }
+                "page" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.page(value as usize);
+                    }
+                }
+                "batchOrdinal" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.batch_ordinal(value as usize);
+                    }
+                }
+                "actualBytes" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.actual_bytes(value as usize);
+                    }
+                }
+                "limitBytes" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.limit_bytes(value as usize);
+                    }
+                }
+                "actualJsonNodes" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.actual_json_nodes(value as usize);
+                    }
+                }
+                "limitJsonNodes" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.limit_json_nodes(value as usize);
+                    }
+                }
+                "proposalCount" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.proposal_created_count(value as usize);
+                    }
+                }
+                "factCount" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.fact_count(value as usize);
+                    }
+                }
+                "warningCount" => {
+                    if let Some(value) = value.as_u64() {
+                        event = event.warning_count(value as usize);
+                    }
+                }
+                _ => {}
+            }
+        }
+        emit_debug(|| event);
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReverseHostEffectReceiptDto {
@@ -1795,6 +1899,18 @@ impl HostItemCollectionPort for ReverseHostApplicationPort {
 }
 
 impl ReferenceHostPort for ReverseHostApplicationPort {
+    fn list_items_page(
+        &self,
+        cursor: &str,
+        limit: usize,
+    ) -> Result<ReferenceHostItemsPage, String> {
+        HostItemCollectionPort::list_items_page(self, cursor, limit)
+    }
+
+    fn get_items_by_ref(&self, paper_refs: &[String]) -> Result<ReferenceHostItemsByRef, String> {
+        HostItemCollectionPort::get_items_by_ref(self, paper_refs)
+    }
+
     fn scan_artifacts_page(
         &self,
         cursor: &str,
