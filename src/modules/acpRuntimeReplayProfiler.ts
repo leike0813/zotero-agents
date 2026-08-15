@@ -192,7 +192,14 @@ function createOwnerMapper(syntheticRootId: string) {
                 : `${syntheticRootId}-${requestNonce}-request`,
           }
         : {}),
-      ...(owner.sessionId ? { sessionId: `${prefix}-session` } : {}),
+      ...(owner.sessionId
+        ? {
+            sessionId:
+              conversationNonce === 1
+                ? identity.chat.sessionId
+                : `${syntheticRootId}-${conversationNonce}-session`,
+          }
+        : {}),
       ...(owner.turnId ? { turnId: `${prefix}-turn` } : {}),
     };
     owners.set(key, mapped);

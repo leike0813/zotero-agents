@@ -58,7 +58,7 @@ describe("runtime diagnostics release elision", function () {
       /function schedulePersistenceFlush[\s\S]*?function scheduleWorkspaceChange/.exec(
         sources[3],
       )?.[0],
-      /function scheduleWorkspaceChange[\s\S]*?export function inspectSyntheticAcpChatReplayTimers/.exec(
+      /function scheduleWorkspaceChange[\s\S]*?export function inspectAcpChatSessionTimers/.exec(
         sources[3],
       )?.[0],
       /private queue[\s\S]*?private async flushPending/.exec(sources[4])?.[0],

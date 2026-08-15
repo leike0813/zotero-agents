@@ -4,8 +4,9 @@ import {
   type AcpRuntimeReplayLogicalTimerDescriptor,
 } from "../../src/modules/acpRuntimeReplayLogicalTime";
 import {
-  cleanupSyntheticAcpChatReplay,
-  inspectSyntheticAcpChatReplayTimers,
+  deleteActiveAcpConversation,
+  disconnectAcpConversation,
+  inspectAcpChatSessionTimers,
 } from "../../src/modules/acpSessionManager";
 import {
   appendAcpSkillRunUserReply,
@@ -67,10 +68,14 @@ describe("ACP runtime replay logical time", function () {
   });
 
   afterEach(async function () {
-    await cleanupSyntheticAcpChatReplay({
+    await disconnectAcpConversation({
       backendId: "acp-replay",
       conversationId: "logical-chat-conversation",
-    });
+    }).catch(() => undefined);
+    await deleteActiveAcpConversation({
+      backendId: "acp-replay",
+      conversationId: "logical-chat-conversation",
+    }).catch(() => undefined);
     await cleanupSyntheticAcpSkillRunReplay(["logical-skill-request"]);
     setDebugModeOverrideForTests();
   });
@@ -284,7 +289,7 @@ describe("ACP runtime replay logical time", function () {
       owner: chatEvent.owner,
       transcriptBoundary: "soft-side-channel",
     });
-    const chatInspection = inspectSyntheticAcpChatReplayTimers({
+    const chatInspection = inspectAcpChatSessionTimers({
       backendId: "acp-replay",
       conversationId: "logical-chat-conversation",
     });
@@ -530,8 +535,8 @@ describe("ACP runtime replay logical time", function () {
     assert.equal(replay.completion, "complete");
     assert.deepEqual(replay.warnings, []);
     assert.deepEqual(waits, []);
-    assert.equal(replay.projectedEvents, 2);
-    assert.equal(replay.consumedNoopEvents, 4);
+    assert.equal(replay.projectedEvents, 3);
+    assert.equal(replay.consumedNoopEvents, 3);
   });
 
   it("fails closed when a target-active Workspace timer has no owned host", function () {

@@ -658,6 +658,36 @@ export function handleAcpChatTranscriptSessionUpdate(
       });
       return true;
     }
+
+    case "user_message_chunk": {
+      sessionRuntime.snapshot.lastLifecycleEvent = "user_message_chunk";
+      const content = update.content as
+        | { type?: string; text?: string }
+        | undefined;
+      if (String(content?.type || "").trim() !== "text") {
+        return true;
+      }
+      const chunk = String(content?.text || "");
+      if (!chunk) {
+        return true;
+      }
+      completeAcpChatActiveStreamingTextItems(sessionRuntime);
+      pushAcpChatTranscriptItem(sessionRuntime, {
+        id: nextOpaqueId("acp-msg-user"),
+        kind: "message",
+        role: "user",
+        text: chunk,
+        createdAt: nowIso(),
+        state: "complete",
+      });
+      host.emitSessionRuntimeSnapshot(sessionRuntime, {
+        uiReason: "boundary",
+        changeKinds: args.progressCountChanged
+          ? ["message-counts", "transcript-boundary"]
+          : ["transcript-boundary"],
+      });
+      return true;
+    }
     case "agent_thought_chunk": {
       sessionRuntime.snapshot.lastLifecycleEvent = "agent_thought_chunk";
       const content = update.content as

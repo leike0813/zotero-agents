@@ -247,9 +247,25 @@ export type AcpChatSessionRuntime = {
   lastLiveActivityMs: number;
 };
 
+type ScopedAcpConnectionAdapterFactory = {
+  backend: BackendInstance;
+  conversationId?: string;
+  factory: (
+    args: AcpConnectionAdapterFactoryArgs,
+  ) => Promise<AcpConnectionAdapter>;
+};
+
+function scopedAdapterFactoryKey(backendId: string, conversationId?: string) {
+  return conversationId ? `${backendId}\n${conversationId}` : backendId;
+}
+
 let adapterFactory: (
   args: AcpConnectionAdapterFactoryArgs,
 ) => Promise<AcpConnectionAdapter> = createAcpConnectionAdapter;
+const scopedAdapterFactories = new Map<
+  string,
+  ScopedAcpConnectionAdapterFactory
+>();
 let initialized = false;
 let acpChatPromptInterruptGraceMs = DEFAULT_ACP_CHAT_PROMPT_INTERRUPT_GRACE_MS;
 let unsubscribeExecutionDisplayMode: (() => void) | undefined;
@@ -960,7 +976,7 @@ export function scheduleWorkspaceChange(
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
 }
 
-export function inspectSyntheticAcpChatReplayTimers(args: {
+export function inspectAcpChatSessionTimers(args: {
   backendId: string;
   conversationId: string;
 }): AcpRuntimeReplayLogicalTimerInspection {
@@ -1178,28 +1194,35 @@ async function refreshAcpBackends() {
   if (loaded.fatalError) {
     throw new Error(loaded.fatalError);
   }
-  cachedAcpBackends = loaded.backends.filter(
+  const loadedAcpBackends = loaded.backends.filter(
     (entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE,
   );
-  const ids = new Set(cachedAcpBackends.map((entry) => entry.id));
-  if (!syntheticAcpChatReplayLeaseOwnsForeground()) {
-    if (cachedAcpBackends.length === 0) {
-      if (activeBackendId) {
-        activeBackendId = "";
-        activeConversationId = "";
-        saveAcpFrontendState({ activeBackendId });
-      }
-      return cachedAcpBackends;
-    }
+  const seenIds = new Set(loadedAcpBackends.map((entry) => entry.id));
+  const admittedScopedBackends: BackendInstance[] = [];
+  for (const registration of scopedAdapterFactories.values()) {
     if (
-      (!activeBackendId || !ids.has(activeBackendId)) &&
-      cachedAcpBackends[0]
+      normalizeBackendId(registration.backend.type) === ACP_BACKEND_TYPE &&
+      !seenIds.has(registration.backend.id)
     ) {
-      activeBackendId = cachedAcpBackends[0].id;
-      activeConversationId =
-        loadAcpChatSessionIndex(activeBackendId).activeConversationId;
+      seenIds.add(registration.backend.id);
+      admittedScopedBackends.push(registration.backend);
+    }
+  }
+  cachedAcpBackends = [...loadedAcpBackends, ...admittedScopedBackends];
+  const ids = new Set(cachedAcpBackends.map((entry) => entry.id));
+  if (cachedAcpBackends.length === 0) {
+    if (activeBackendId) {
+      activeBackendId = "";
+      activeConversationId = "";
       saveAcpFrontendState({ activeBackendId });
     }
+    return cachedAcpBackends;
+  }
+  if ((!activeBackendId || !ids.has(activeBackendId)) && loadedAcpBackends[0]) {
+    activeBackendId = loadedAcpBackends[0].id;
+    activeConversationId =
+      loadAcpChatSessionIndex(activeBackendId).activeConversationId;
+    saveAcpFrontendState({ activeBackendId });
   }
   for (const backend of cachedAcpBackends) {
     const backendSessionRuntimes = Array.from(sessionRuntimes.values()).filter(
@@ -2055,7 +2078,18 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
         : __debug_mode__)
         ? {}
         : undefined;
-    const nextAdapter = await adapterFactory({
+    const scopedRegistration =
+      scopedAdapterFactories.get(
+        scopedAdapterFactoryKey(
+          normalizeBackendId(backendWithHostBridgeCli.id),
+          normalizeConversationId(sessionRuntime.snapshot.conversationId),
+        ),
+      ) ||
+      scopedAdapterFactories.get(
+        normalizeBackendId(backendWithHostBridgeCli.id),
+      );
+    const resolveAdapter = scopedRegistration?.factory || adapterFactory;
+    const nextAdapter = await resolveAdapter({
       backend: backendWithHostBridgeCli,
       agentWorkspaceDir: sessionRuntime.snapshot.agentWorkspaceDir,
       sessionCwd: sessionRuntime.snapshot.sessionCwd,
@@ -3738,10 +3772,11 @@ export function pruneAcpChatSessionRuntimesForBackends(
   backends: BackendInstance[],
 ) {
   ensureInitialized();
-  const protectedSyntheticBackendId =
-    syntheticAcpChatReplayLeaseOwnsForeground()
-      ? activeSyntheticAcpChatReplayActivation?.backendId
-      : undefined;
+  const protectedScopedBackendIds = new Set(
+    Array.from(scopedAdapterFactories.values()).map(
+      (registration) => registration.backend.id,
+    ),
+  );
   const remainingAcpIds = new Set(
     backends
       .filter((entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE)
@@ -3751,7 +3786,7 @@ export function pruneAcpChatSessionRuntimesForBackends(
   for (const [key, sessionRuntime] of Array.from(sessionRuntimes.entries())) {
     if (
       remainingAcpIds.has(sessionRuntime.backendId) ||
-      sessionRuntime.backendId === protectedSyntheticBackendId
+      protectedScopedBackendIds.has(sessionRuntime.backendId)
     ) {
       continue;
     }
@@ -3769,10 +3804,28 @@ export function pruneAcpChatSessionRuntimesForBackends(
       clearAcpConversationState(backendId);
     });
   }
-  cachedAcpBackends = backends.filter(
-    (entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE,
-  );
-  if (!protectedSyntheticBackendId && !remainingAcpIds.has(activeBackendId)) {
+  const seenScopedBackendIds = new Set(remainingAcpIds);
+  const scopedBackends: BackendInstance[] = [];
+  for (const registration of scopedAdapterFactories.values()) {
+    const backend = registration.backend;
+    if (
+      normalizeBackendId(backend.type) === ACP_BACKEND_TYPE &&
+      !seenScopedBackendIds.has(backend.id)
+    ) {
+      seenScopedBackendIds.add(backend.id);
+      scopedBackends.push(backend);
+    }
+  }
+  cachedAcpBackends = [
+    ...backends.filter(
+      (entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE,
+    ),
+    ...scopedBackends,
+  ];
+  if (
+    !protectedScopedBackendIds.has(activeBackendId) &&
+    !remainingAcpIds.has(activeBackendId)
+  ) {
     activeBackendId = cachedAcpBackends[0]?.id || "";
     activeConversationId = activeBackendId
       ? loadAcpChatSessionIndex(activeBackendId).activeConversationId
@@ -3839,7 +3892,7 @@ export async function shutdownAcpSessionManager() {
   cachedAcpBackends = [];
   activeBackendId = "";
   activeConversationId = "";
-  activeSyntheticAcpChatReplayActivation = undefined;
+  scopedAdapterFactories.clear();
   resetAcpChatWorkspacePreparationState();
   initialized = false;
   resetZoteroMcpServerForTests();
@@ -3853,238 +3906,40 @@ export function setAcpConnectionAdapterFactoryForTests(
   adapterFactory = factory || createAcpConnectionAdapter;
 }
 
-export function prepareSyntheticAcpChatReplay(args: {
-  backendId: string;
-  conversationId: string;
-  sessionId?: string;
+export function registerAcpConnectionAdapterFactory(args: {
+  backend: BackendInstance;
+  conversationId?: string;
+  factory: (
+    args: AcpConnectionAdapterFactoryArgs,
+  ) => Promise<AcpConnectionAdapter>;
 }) {
-  const sessionRuntime = getOrCreateSessionRuntime(
-    args.backendId,
-    args.conversationId,
-  );
-  sessionRuntime.snapshot.backend = {
-    id: args.backendId,
-    displayName: args.backendId,
-    type: ACP_BACKEND_TYPE,
-    baseUrl: "",
-  };
-  sessionRuntime.snapshot.conversationId = args.conversationId;
-  sessionRuntime.snapshot.sessionId = String(args.sessionId || "").trim();
-  sessionRuntime.snapshot.status = "connected";
-  sessionRuntime.snapshot.busy = false;
-  cancelSessionRuntimePermissionRequests(sessionRuntime);
-  touchLiveAcpChatSessionRuntime(sessionRuntime);
-  return {
-    backendId: args.backendId,
-    conversationId: args.conversationId,
-  };
-}
-
-export type SyntheticAcpChatReplayActivationLease = {
-  token: number;
-  backendId: string;
-  conversationId: string;
-  release: () => Promise<void>;
-};
-
-type SyntheticAcpChatReplayActivationState = {
-  token: number;
-  backendId: string;
-  conversationId: string;
-  previous: { backendId: string; conversationId: string };
-};
-
-let syntheticAcpChatReplayActivationNonce = 0;
-let activeSyntheticAcpChatReplayActivation:
-  | SyntheticAcpChatReplayActivationState
-  | undefined;
-
-function syntheticAcpChatReplayLeaseOwnsForeground() {
-  const activation = activeSyntheticAcpChatReplayActivation;
-  return Boolean(
-    activation &&
-    activation.backendId === activeBackendId &&
-    activation.conversationId === activeConversationId,
+  const backendId = normalizeBackendId(args.backend.id);
+  if (!backendId) {
+    throw new Error("ACP scoped adapter factory requires a backend id");
+  }
+  const conversationId = normalizeConversationId(args.conversationId);
+  scopedAdapterFactories.set(
+    scopedAdapterFactoryKey(backendId, conversationId),
+    {
+      backend: args.backend,
+      conversationId: conversationId || undefined,
+      factory: args.factory,
+    },
   );
 }
 
-function publishAcpChatForegroundSelection(
-  sessionRuntime?: AcpChatSessionRuntime,
+export function unregisterAcpConnectionAdapterFactory(
+  backendIdRaw: unknown,
+  conversationIdRaw?: unknown,
 ) {
-  if (sessionRuntime) {
-    notifyAcpChatWorkspaceListeners(
-      buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope"]),
-    );
+  const backendId = normalizeBackendId(backendIdRaw);
+  if (!backendId) {
     return;
   }
-  notifyAcpChatWorkspaceListeners(
-    Object.freeze({
-      active: true,
-      global: true,
-      kinds: Object.freeze(["active-scope"] as const),
-    }),
+  const conversationId = normalizeConversationId(conversationIdRaw);
+  scopedAdapterFactories.delete(
+    scopedAdapterFactoryKey(backendId, conversationId),
   );
-}
-
-export async function activateSyntheticAcpChatReplay(args: {
-  backendId: string;
-  conversationId: string;
-}): Promise<SyntheticAcpChatReplayActivationLease> {
-  ensureInitialized();
-  const backendId = normalizeBackendId(args.backendId);
-  const conversationId = normalizeConversationId(args.conversationId);
-  const sessionRuntime = sessionRuntimes.get(
-    acpChatSessionKey(backendId, conversationId),
-  );
-  if (
-    !backendId ||
-    !conversationId ||
-    !sessionRuntime ||
-    sessionRuntime.adapter !== null ||
-    normalizeConversationId(sessionRuntime.snapshot.conversationId) !==
-      conversationId
-  ) {
-    throw new Error("Synthetic ACP Chat Replay owner is not prepared");
-  }
-  const previous = activeSyntheticAcpChatReplayActivation?.previous || {
-    backendId: activeBackendId,
-    conversationId: activeConversationId,
-  };
-  syntheticAcpChatReplayActivationNonce += 1;
-  const state: SyntheticAcpChatReplayActivationState = {
-    token: syntheticAcpChatReplayActivationNonce,
-    backendId,
-    conversationId,
-    previous,
-  };
-  activeSyntheticAcpChatReplayActivation = state;
-  activeBackendId = backendId;
-  activeConversationId = conversationId;
-  try {
-    pruneIdleAcpChatBackgroundTranscriptMirrors();
-    publishAcpChatForegroundSelection(sessionRuntime);
-  } catch (error) {
-    if (activeSyntheticAcpChatReplayActivation?.token === state.token) {
-      activeSyntheticAcpChatReplayActivation = undefined;
-      activeBackendId = previous.backendId;
-      activeConversationId = previous.conversationId;
-    }
-    throw error;
-  }
-
-  let released = false;
-  return {
-    token: state.token,
-    backendId,
-    conversationId,
-    release: async () => {
-      if (released) return;
-      released = true;
-      if (activeSyntheticAcpChatReplayActivation?.token !== state.token) {
-        return;
-      }
-      activeSyntheticAcpChatReplayActivation = undefined;
-      if (
-        activeBackendId !== backendId ||
-        activeConversationId !== conversationId
-      ) {
-        return;
-      }
-      activeBackendId = previous.backendId;
-      activeConversationId = previous.conversationId;
-      const previousRuntime = previous.backendId
-        ? getOrCreateSessionRuntime(
-            previous.backendId,
-            previous.conversationId || undefined,
-          )
-        : undefined;
-      publishAcpChatForegroundSelection(previousRuntime);
-    },
-  };
-}
-
-export function applySyntheticAcpChatReplaySessionUpdate(args: {
-  backendId: string;
-  conversationId: string;
-  event: {
-    sessionId: string;
-    update: { sessionUpdate: string; [key: string]: unknown };
-  };
-}) {
-  const sessionRuntime = getOrCreateSessionRuntime(
-    args.backendId,
-    args.conversationId,
-  );
-  sessionRuntime.snapshot.sessionId = args.event.sessionId;
-  handleSessionUpdate(sessionRuntime, args.event);
-}
-
-export function applySyntheticAcpChatReplayPrompt(args: {
-  backendId: string;
-  conversationId: string;
-  message: string;
-  createdAt?: string;
-}) {
-  const sessionRuntime = getOrCreateSessionRuntime(
-    args.backendId,
-    args.conversationId,
-  );
-  pushAcpChatTranscriptItem(sessionRuntime, {
-    id: nextOpaqueId("acp-replay-user"),
-    kind: "message",
-    role: "user",
-    text: args.message,
-    createdAt: args.createdAt || nowIso(),
-    state: "complete",
-  });
-}
-
-export function applySyntheticAcpChatReplayPermission(args: {
-  backendId: string;
-  conversationId: string;
-  request: AcpPendingPermissionRequest | null;
-}) {
-  const sessionRuntime = getOrCreateSessionRuntime(
-    args.backendId,
-    args.conversationId,
-  );
-  sessionRuntime.snapshot.pendingPermissionRequest = args.request;
-  sessionRuntime.snapshot.status = args.request
-    ? "permission-required"
-    : "connected";
-  emitSessionRuntimeSnapshot(sessionRuntime, {
-    uiReason: "critical",
-  });
-}
-
-export async function drainSyntheticAcpChatReplay(args: {
-  backendId: string;
-  conversationId: string;
-}) {
-  const sessionRuntime = getOrCreateSessionRuntime(
-    args.backendId,
-    args.conversationId,
-  );
-  await flushPendingChatTranscriptWrites(sessionRuntime);
-  emitSessionRuntimeSnapshot(sessionRuntime, {
-    uiReason: "critical",
-  });
-}
-
-export async function cleanupSyntheticAcpChatReplay(args: {
-  backendId: string;
-  conversationId: string;
-}) {
-  const sessionRuntime = getOrCreateSessionRuntime(
-    args.backendId,
-    args.conversationId,
-  );
-  await discardAcpChatDiagnosticAudit(
-    acpChatDiagnosticAuditOwnerKey(args.backendId, args.conversationId),
-  );
-  await flushPendingChatTranscriptWrites(sessionRuntime);
-  sessionRuntimes.delete(sessionRuntime.key);
-  deleteAcpConversationState(args.backendId, args.conversationId);
 }
 
 export function setAcpChatPromptInterruptGraceMsForTests(timeoutMs?: number) {
@@ -4122,8 +3977,7 @@ export function resetAcpSessionManagerForTests() {
   cachedAcpBackends = [];
   activeBackendId = "";
   activeConversationId = "";
-  activeSyntheticAcpChatReplayActivation = undefined;
-  syntheticAcpChatReplayActivationNonce = 0;
+  scopedAdapterFactories.clear();
   resetAcpChatWorkspacePreparationState();
   initialized = false;
   acpChatPromptInterruptGraceMs = DEFAULT_ACP_CHAT_PROMPT_INTERRUPT_GRACE_MS;

@@ -39,8 +39,9 @@ import {
 } from "./acpRuntimeReplayPublicationSidecar";
 import {
   getActiveAcpChatOwner,
-  inspectSyntheticAcpChatReplayTimers,
+  inspectAcpChatSessionTimers,
 } from "./acpSessionManager";
+import { inspectAcpSyntheticConnectionAdapterTimers } from "./acpSyntheticConnectionAdapter";
 import {
   getSelectedAcpSkillRunRequestId,
   inspectSyntheticAcpSkillRunReplayTimers,
@@ -64,7 +65,11 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
     const inspections =
       args.sourceKind === "acp-chat-conversation"
         ? [
-            inspectSyntheticAcpChatReplayTimers({
+            inspectAcpChatSessionTimers({
+              backendId: identity.chat.backendId,
+              conversationId: identity.chat.conversationId,
+            }),
+            inspectAcpSyntheticConnectionAdapterTimers({
               backendId: identity.chat.backendId,
               conversationId: identity.chat.conversationId,
             }),
