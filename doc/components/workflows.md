@@ -470,7 +470,7 @@ describe`、`workflow validate-input`、`workflow profile describe` 与
   - `selected.pdf`
   - `selected.source`（由当前输入单元筛选后的唯一源附件，支持 markdown/pdf）
 - 每个 selector 在当前输入单元必须唯一命中，否则该输入单元报错/跳过
-- 声明式编译会自动把 `files[].key` 写入 create body 的 `input.<key>`，值为 `uploads/` 根下相对路径（例如 `inputs/source_path/example.md`）
+- 声明式编译会自动把 `files[].key` 写入 create body 的 `input.<key>`，值为 `uploads/` 根下相对路径（例如 `inputs/source_path/example.md`）；该 upload-relative 路径由单一 provider mapping 模块 `src/providers/skillrunner/uploadMapping.ts` 生成，声明式编译与 sequence runtime 共用同一投影
 - `upload_files` 仅用于“本地文件路径 -> zip entry”映射；zip entry 与 `input.<key>` 路径必须一致
 
 ### skillrunner.sequence.v1 关键约束

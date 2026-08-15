@@ -3,7 +3,8 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_BACKEND_TYPE,
 } from "../../config/defaults";
-import { getBaseName, normalizeNativeLocalPath } from "../../utils/path";
+import { normalizeNativeLocalPath } from "../../utils/path";
+import { buildSkillRunnerUploadRelativePath } from "../../providers/skillrunner/uploadMapping";
 import type { BackendInstance } from "../../backends/types";
 import type {
   AcpSkillRunRequestV1,
@@ -351,7 +352,10 @@ function applyHandoffBindings(args: {
           stepId: sourceStep,
           target: binding.target,
         });
-        const targetPath = buildUploadRelativePath(inputKey, sourcePath);
+        const targetPath = buildSkillRunnerUploadRelativePath(
+          inputKey,
+          sourcePath,
+        );
         value = targetPath;
         fileBindings.push({
           input_key: inputKey,
@@ -471,26 +475,6 @@ function isAbsoluteLocalPath(value: string) {
   return /^[A-Za-z]:\//.test(text) || text.startsWith("/");
 }
 
-function sanitizeUploadPathSegment(value: string) {
-  const normalized = normalizeString(value).replace(/[^A-Za-z0-9._-]+/g, "-");
-  return normalized || "file";
-}
-
-function normalizeUploadRelativePath(value: string) {
-  return normalizeString(value)
-    .replace(/\\/g, "/")
-    .replace(/^\.\/+/, "")
-    .replace(/\/+/g, "/")
-    .replace(/^\/+/, "");
-}
-
-function buildUploadRelativePath(fileKey: string, localPath: string) {
-  const fileName = getBaseName(localPath) || "upload.bin";
-  return normalizeUploadRelativePath(
-    `inputs/${sanitizeUploadPathSegment(fileKey)}/${fileName}`,
-  );
-}
-
 function normalizePathForPrefix(value: string) {
   return normalizeString(value)
     .replace(/^file:\/\/+/, "")
@@ -579,7 +563,7 @@ function buildSkillRunnerUploadMapping(input: Record<string, unknown>) {
       continue;
     }
     const localPath = normalizeNativeLocalPath(value);
-    mappedInput[key] = buildUploadRelativePath(key, localPath);
+    mappedInput[key] = buildSkillRunnerUploadRelativePath(key, localPath);
     upload_files.push({ key, path: localPath });
   }
   return {
