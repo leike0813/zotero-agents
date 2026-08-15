@@ -286,7 +286,7 @@ runtime.commandProgressTimer = setInterval(() => {
 }, SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS);
 ```
 
-`refreshWorkbenchCommandProgress()` 动态解析默认 `SynthesisClient`，通过无参数 `client.workbench.readProgress()` 读取 opaque maintenance projection，经共享 UI adapter 转换后使用现有 runtime merge 合并到 `snapshotInput`，再发送 chrome 更新。该查询不修改 operation lifecycle；持久化 `running` operation 只由显式 startup reconciliation 作为 restart orphan 取消。Citation Graph cache 与 Reference maintenance command 不再主动回调 UI，进度完全由这条持久化状态轮询路径发布。轮询保留 `commandProgressSnapshotRunning` 并发锁、`snapshotInputLocked` 保护、Git/WebDAV Sync chrome fast path、错误 fallback 和 500ms cadence。
+`refreshWorkbenchCommandProgress()` 动态解析默认 `SynthesisClient`，通过无参数 `client.workbench.readProgress()` 读取 opaque maintenance projection，经共享 UI adapter 转换后使用现有 runtime merge 合并到 `snapshotInput`，再发送 chrome 更新。该查询不修改 operation lifecycle；显式 startup reconciliation 将 public maintenance `pending` 转为 `continuation_required`，将 external-effect outcome 不明的 public maintenance `running` 标记失败，并取消其它 stale `running` operation，且不会自动 dispatch。Citation Graph cache 与 Reference maintenance command 不再主动回调 UI，进度完全由这条持久化状态轮询路径发布。轮询保留 `commandProgressSnapshotRunning` 并发锁、`snapshotInputLocked` 保护、Git/WebDAV Sync chrome fast path、错误 fallback 和 500ms cadence。
 
 ### surfacesInvalidatedByCommand
 

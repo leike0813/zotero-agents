@@ -1627,7 +1627,7 @@ impl Repository {
     pub fn finish_operation_if_nonterminal(
         &self,
         record: &OperationRecord,
-    ) -> Result<OperationRecord, String> {
+    ) -> Result<(OperationRecord, bool), String> {
         if !matches!(
             record.status.as_str(),
             "completed" | "failed" | "canceled" | "timed_out"
@@ -1668,7 +1668,7 @@ impl Repository {
             .get_operation(&record.operation_id)?
             .ok_or_else(|| "operation_receipt_missing".to_owned())?;
         debug_assert!(changed <= 1);
-        Ok(row)
+        Ok((row, changed == 1))
     }
 
     /// Update a non-terminal operation only while its persisted state still
@@ -1679,7 +1679,7 @@ impl Repository {
         record: &OperationRecord,
         expected_status: &str,
         expected_phase: Option<&str>,
-    ) -> Result<Option<OperationRecord>, String> {
+    ) -> Result<(Option<OperationRecord>, bool), String> {
         if is_terminal_operation_status(&record.status) {
             return Err("repository_operation_nonterminal_required".into());
         }
@@ -1714,10 +1714,7 @@ impl Repository {
                 ],
             )
             .map_err(map_sqlite_error)?;
-        if changed == 0 {
-            return self.get_operation(&record.operation_id);
-        }
-        self.get_operation(&record.operation_id)
+        Ok((self.get_operation(&record.operation_id)?, changed == 1))
     }
 
     /// Insert a retry successor exactly once.  A duplicate retry key resolves
@@ -3718,13 +3715,11 @@ mod tests {
             updated_at: "2026-08-02T00:00:01.000Z".into(),
             ..pending.clone()
         };
-        assert_eq!(
-            repository
-                .finish_operation_if_nonterminal(&completed)
-                .expect("complete")
-                .status,
-            "completed"
-        );
+        let (stored, won_terminal) = repository
+            .finish_operation_if_nonterminal(&completed)
+            .expect("complete");
+        assert_eq!(stored.status, "completed");
+        assert!(won_terminal);
         let late_cancel = OperationRecord {
             status: "canceled".into(),
             phase: "canceled".into(),
@@ -3732,13 +3727,48 @@ mod tests {
             updated_at: "2026-08-02T00:00:02.000Z".into(),
             ..pending
         };
-        assert_eq!(
-            repository
-                .finish_operation_if_nonterminal(&late_cancel)
-                .expect("first terminal wins")
-                .status,
-            "completed"
-        );
+        let (stored, won_terminal) = repository
+            .finish_operation_if_nonterminal(&late_cancel)
+            .expect("first terminal wins");
+        assert_eq!(stored.status, "completed");
+        assert!(!won_terminal);
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn nonterminal_operation_update_reports_the_cas_winner() {
+        let root = root("operation-nonterminal-cas");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let accepted = OperationRecord {
+            operation_id: "operation:nonterminal-cas".into(),
+            operation_type: "fixture".into(),
+            status: "pending".into(),
+            phase: "accepted".into(),
+            created_at: "2026-08-02T00:00:00.000Z".into(),
+            updated_at: "2026-08-02T00:00:00.000Z".into(),
+            ..OperationRecord::default()
+        };
+        repository.upsert_operation(&accepted).expect("seed");
+        let running = OperationRecord {
+            status: "running".into(),
+            phase: "running".into(),
+            started_at: "2026-08-02T00:00:01.000Z".into(),
+            updated_at: "2026-08-02T00:00:01.000Z".into(),
+            ..accepted
+        };
+
+        let (stored, won_update) = repository
+            .update_operation_if_current(&running, "pending", Some("accepted"))
+            .expect("winner");
+        assert_eq!(stored.expect("stored").status, "running");
+        assert!(won_update);
+
+        let (stored, won_update) = repository
+            .update_operation_if_current(&running, "pending", Some("accepted"))
+            .expect("loser");
+        assert_eq!(stored.expect("stored").status, "running");
+        assert!(!won_update);
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

@@ -318,6 +318,19 @@ describe("Synthesis Citation Graph Build streaming worker", function () {
       path.join(runtimeRoot, "runtime_service.rs"),
       "utf8",
     );
+    const transport = fs.readFileSync(
+      path.join(runtimeRoot, "runtime_server_loop.rs"),
+      "utf8",
+    );
+    const library = fs.readFileSync(path.join(runtimeRoot, "lib.rs"), "utf8");
+    const main = fs.readFileSync(path.join(runtimeRoot, "main.rs"), "utf8");
+    const workerPoolTest = fs.readFileSync(
+      path.join(
+        ROOT,
+        "native/synthesis-sidecar/crates/synthesis-sidecar/tests/native_worker_pool.rs",
+      ),
+      "utf8",
+    );
 
     assert.notInclude(transfer, "synthesis_citation_graph_build");
     for (const source of [worker, workerPool]) {
@@ -330,8 +343,30 @@ describe("Synthesis Citation Graph Build streaming worker", function () {
     assert.include(workerPool, "trait PagedInputSource");
     assert.include(workerPool, "trait PagedOutputSink");
     assert.include(capabilities, "match call.capability.as_str()");
+    assert.include(capabilities, "struct RequestContext");
+    assert.notInclude(capabilities, "pub(crate) config:");
     assert.notInclude(service, "enum WorkerCommand");
     assert.notInclude(service, "match call.capability.as_str()");
-    assert.isBelow(service.split("\n").length, 300);
+    assert.include(service, "struct RunningRuntime");
+    assert.include(service, "publish_discovery");
+    assert.include(service, "fn shutdown");
+    assert.include(transport, "struct SidecarTransport");
+    assert.include(transport, "fn begin_shutdown");
+    assert.include(transport, "fn drain");
+    for (const authority of [
+      "BackgroundTaskOwner",
+      "NativeComputePool",
+      "NativeTransferOwner",
+      "RuntimeOwnership",
+      "publish_discovery",
+      "canonical_autosync",
+      "shutdown_incomplete",
+    ]) {
+      assert.notInclude(transport, authority);
+    }
+    assert.include(library, "mod runtime_service;");
+    assert.include(library, "pub use runtime_service::serve;");
+    assert.notInclude(main, "mod runtime_service;");
+    assert.notInclude(workerPoolTest, "#[path");
   });
 });

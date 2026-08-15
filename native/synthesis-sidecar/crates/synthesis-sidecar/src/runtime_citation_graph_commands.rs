@@ -16,9 +16,7 @@ use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItem, collect_host_items,
 };
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_public_maintenance_operation::{
-    checkpoint_before_promotion, current_operation_id,
-};
+use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 
 const CACHE_KEY: &str = "citation-graph:library";
 const FULL_INTENT: &str = "citation_graph_command_full";
@@ -770,10 +768,7 @@ fn recompute_layout(apps: &ProductionApplications, args: &[Value]) -> Result<Val
 }
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
-    let Some(operation_id) = current_operation_id() else {
-        return Ok(());
-    };
-    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
+    checkpoint_current_before_promotion(apps)
 }
 
 fn retry(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {

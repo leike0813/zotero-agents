@@ -173,7 +173,7 @@ describe("Synthesis sidecar debug observability", function () {
     assert.lengthOf(patches, 1);
   });
 
-  it("keeps an accepted maintenance trace active and unevictable until its durable terminal", function () {
+  it("unpins an accepted maintenance trace when its durable terminal arrives on a later trace", function () {
     const root = createSynthesisSidecarTraceContext()!;
     const maintenance = createSynthesisSidecarTraceContext({ parent: root })!;
     recordSynthesisSidecarTraceEvent({
@@ -232,8 +232,9 @@ describe("Synthesis sidecar debug observability", function () {
     assert.isDefined(retained);
     assert.isTrue(retained!.active);
 
+    const continuation = createSynthesisSidecarTraceContext()!;
     recordSynthesisSidecarTraceEvent({
-      context: maintenance,
+      context: continuation,
       source: "rust-sidecar",
       boundary: "operation",
       phase: "maintenance-terminal",
@@ -251,8 +252,15 @@ describe("Synthesis sidecar debug observability", function () {
     );
     assert.isDefined(retained);
     assert.isFalse(retained!.active);
+    assert.isFalse(
+      retained!.events.some((event) => event.phase === "maintenance-terminal"),
+    );
+    const continuationTrace = readSynthesisSidecarTraceSnapshot().traces.find(
+      (trace) => trace.traceId === continuation.traceId,
+    );
+    assert.isDefined(continuationTrace);
     assert.isTrue(
-      retained!.events.some(
+      continuationTrace!.events.some(
         (event) =>
           event.phase === "maintenance-terminal" &&
           event.code === "worker_timeout",

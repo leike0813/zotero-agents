@@ -2,30 +2,23 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
+use crate::runtime_contract::current_time_ms;
 use crate::runtime_deadline::with_request_context;
-use crate::runtime_diagnostics::{
-    NativeDiagnosticEvent, child_observation_context, debug_events_enabled, emit_debug,
-    with_observation_context,
-};
+use crate::runtime_diagnostics::{NativeDiagnosticEvent, debug_events_enabled, emit_debug};
 use crate::runtime_public_maintenance_operation::{
-    PUBLIC_MAINTENANCE_BASIS_KIND, PublicMaintenanceBasis, decode_basis, with_operation_context,
+    control as control_maintenance_operation, submit as submit_maintenance_operation,
+    with_operation_context,
 };
 use crate::runtime_webdav_maintenance_surface::{
-    begin_public_maintenance_operation, finish_public_maintenance_operation,
-    mark_public_maintenance_running, observe_public_maintenance_accepted,
+    public_maintenance_control_request, public_maintenance_not_found,
     public_maintenance_operation_dto,
 };
-use synthesis_canonical_store::canonical_json_hash;
 use synthesis_protocol::utc_now_iso8601;
 use synthesis_repository::{RepositorySqlObservation, observe_repository_sql};
-use synthesis_sidecar::runtime_contract::current_time_ms;
 
 const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(
     "../../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json"
@@ -41,7 +34,7 @@ pub(crate) type ProductionClientHandler =
 pub(crate) enum ProductionClientSpecialStep {
     None,
     ArtifactExportDelivery,
-    MaintenanceControlResume,
+    MaintenanceControl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,6 +186,61 @@ pub(crate) struct ProductionClientOperationMetadata {
 struct ProductionClientRoute {
     entry: ProductionClientRouteEntry,
     metadata: ProductionClientOperationMetadata,
+}
+
+#[derive(Clone)]
+pub(crate) struct ResolvedMaintenanceRoute {
+    operation_type: String,
+    handler: ProductionClientHandler,
+    canonical_effect: ProductionClientCanonicalEffect,
+    work_deadline_ms: u64,
+    semantic_success: Option<ProductionClientSemanticSuccess>,
+}
+
+impl ResolvedMaintenanceRoute {
+    pub(crate) fn operation_type(&self) -> &str {
+        &self.operation_type
+    }
+
+    pub(crate) fn work_deadline_ms(&self) -> u64 {
+        self.work_deadline_ms
+    }
+
+    pub(crate) fn semantic_success(&self) -> Option<&ProductionClientSemanticSuccess> {
+        self.semantic_success.as_ref()
+    }
+
+    pub(crate) fn execute(
+        &self,
+        applications: &crate::runtime_production_ports::ProductionApplications,
+        request_id: &str,
+        operation_id: &str,
+        args: &[Value],
+    ) -> Result<Value, String> {
+        let mut canonical_maintenance = applications
+            .canonical_autosync
+            .begin_maintenance(self.canonical_effect);
+        let observed_at = Instant::now();
+        let (outcome, sql_observation) = observe_repository_sql(|| {
+            with_request_context(
+                Duration::from_millis(self.work_deadline_ms),
+                debug_events_enabled().then_some(request_id),
+                || with_operation_context(operation_id, || (self.handler)(applications, args)),
+            )
+        });
+        emit_query_observation(&self.operation_type, &outcome, sql_observation);
+        if let (Some(maintenance), Ok(result)) = (canonical_maintenance.as_mut(), outcome.as_ref())
+        {
+            maintenance.observe(result, sql_observation.write_count);
+            record_semantic_mutation_result(
+                &self.operation_type,
+                self.semantic_success.as_ref(),
+                result,
+                observed_at.elapsed(),
+            );
+        }
+        outcome
+    }
 }
 
 #[derive(Debug)]
@@ -403,6 +451,20 @@ impl ProductionClientCatalog {
         self.routes.get(capability)
     }
 
+    pub(crate) fn resolve_maintenance(&self, capability: &str) -> Option<ResolvedMaintenanceRoute> {
+        let route = self.route(capability)?;
+        if route.metadata.receipt != ProductionClientReceipt::PublicMaintenanceOperation {
+            return None;
+        }
+        Some(ResolvedMaintenanceRoute {
+            operation_type: capability.to_owned(),
+            handler: route.entry.handler,
+            canonical_effect: route.entry.canonical_effect,
+            work_deadline_ms: route.metadata.work_deadline_ms?,
+            semantic_success: route.metadata.semantic_success.clone(),
+        })
+    }
+
     pub(crate) fn membership(&self) -> ProductionClientMembership {
         ProductionClientMembership {
             capabilities: Arc::new(self.capability_ids.iter().cloned().collect()),
@@ -475,7 +537,7 @@ fn valid_execution_plan(
             metadata.work_model == ProductionClientWorkModel::Bounded
                 && metadata.result_plane == ProductionClientDataPlane::Delivery
         }
-        ProductionClientSpecialStep::MaintenanceControlResume => {
+        ProductionClientSpecialStep::MaintenanceControl => {
             metadata.work_model == ProductionClientWorkModel::Bounded
                 && metadata.request_plane == ProductionClientDataPlane::Control
                 && metadata.result_plane == ProductionClientDataPlane::Control
@@ -831,17 +893,18 @@ fn dispatch_production_client(
         envelope.args
     };
     if metadata.receipt == ProductionClientReceipt::PublicMaintenanceOperation {
-        let work_deadline_ms = metadata
-            .work_deadline_ms
-            .ok_or_else(|| "invalid_production_operation_manifest".to_owned())?;
-        return start_public_maintenance_operation(
-            runtime,
+        let maintenance_route = runtime
+            .catalog
+            .resolve_maintenance(capability)
+            .ok_or_else(|| "operation_unavailable".to_owned())?;
+        let view = submit_maintenance_operation(
+            &runtime.applications,
+            &runtime.background_tasks,
+            maintenance_route,
             request_id,
-            capability,
             operation_args,
-            work_deadline_ms,
-            metadata.semantic_success.clone(),
-        );
+        )?;
+        return public_maintenance_operation_dto(&view);
     }
     let started_at = Instant::now();
     let (outcome, sql_observation) = observe_repository_sql(|| {
@@ -849,14 +912,8 @@ fn dispatch_production_client(
             Duration::from_millis(metadata.deadline_ms),
             debug_events_enabled().then_some(request_id),
             || {
-                if route.entry.special_step == ProductionClientSpecialStep::MaintenanceControlResume
-                {
-                    dispatch_public_maintenance_control(
-                        runtime,
-                        request_id,
-                        capability,
-                        &operation_args,
-                    )
+                if route.entry.special_step == ProductionClientSpecialStep::MaintenanceControl {
+                    dispatch_public_maintenance_control(runtime, request_id, &operation_args)
                 } else {
                     let result = (route.entry.handler)(&runtime.applications, &operation_args)?;
                     if route.entry.special_step
@@ -915,298 +972,24 @@ fn dispatch_production_client(
 fn dispatch_public_maintenance_control(
     runtime: &ProductionClientRuntime,
     request_id: &str,
-    capability: &str,
     operation_args: &[Value],
 ) -> Result<Value, String> {
-    let route = runtime
-        .catalog
-        .route(capability)
-        .ok_or_else(|| "operation_unavailable".to_owned())?;
-    let result = (route.entry.handler)(runtime.applications.as_ref(), operation_args)?;
-    let action = operation_args
-        .first()
-        .and_then(|value| value.get("action"))
-        .and_then(Value::as_str);
-    if matches!(action, Some("retry") | Some("continue"))
-        && result.get("status").and_then(Value::as_str) == Some("pending")
-    {
-        let operation_id = result
-            .get("operation_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "production_projection_invalid".to_owned())?;
-        let basis = runtime.applications.repository.with_reader(|repository| {
-            let row = repository
-                .get_operation(operation_id)?
-                .ok_or_else(|| "operation_receipt_missing".to_owned())?;
-            decode_basis(&row)
-        })?;
-        resume_public_maintenance_operation(runtime, request_id, operation_id, basis)?;
-    }
-    Ok(result)
-}
-
-fn resume_public_maintenance_operation(
-    runtime: &ProductionClientRuntime,
-    request_id: &str,
-    operation_id: &str,
-    basis: PublicMaintenanceBasis,
-) -> Result<(), String> {
-    let route = runtime
-        .catalog
-        .route(&basis.capability)
-        .ok_or_else(|| "operation_unavailable".to_owned())?
-        .clone();
-    let semantic_success = route.metadata.semantic_success.clone();
-    let applications = Arc::clone(&runtime.applications);
-    let mut canonical_maintenance = applications
-        .canonical_autosync
-        .begin_maintenance(route.entry.canonical_effect);
-    let operation_id = operation_id.to_owned();
-    let request_id = request_id.to_owned();
-    observe_public_maintenance_accepted(runtime.applications.as_ref(), &operation_id)?;
-    let worker_trace = child_observation_context();
-    runtime
-        .background_tasks
-        .spawn(
-            "synthesis-maintenance-resume",
-            Arc::new(AtomicBool::new(false)),
-            move || {
-                let execution = catch_unwind(AssertUnwindSafe(|| {
-                    with_observation_context(worker_trace.as_ref(), || {
-                        let started_at = utc_now_iso8601();
-                        if let Err(error) = mark_public_maintenance_running(
-                            applications.as_ref(),
-                            &operation_id,
-                            &started_at,
-                        ) {
-                            finish_public_maintenance_observed(
-                                applications.as_ref(),
-                                &operation_id,
-                                Err(&error),
-                                semantic_success.as_ref(),
-                                &utc_now_iso8601(),
-                            );
-                            return;
-                        }
-                        let (outcome, sql_observation) = observe_repository_sql(|| {
-                            with_request_context(
-                                Duration::from_millis(basis.deadline_ms),
-                                debug_events_enabled().then_some(&request_id),
-                                || {
-                                    with_operation_context(&operation_id, || {
-                                        (route.entry.handler)(applications.as_ref(), &basis.args)
-                                    })
-                                },
-                            )
-                        });
-                        emit_query_observation(&basis.capability, &outcome, sql_observation);
-                        if let (Some(maintenance), Ok(result)) =
-                            (canonical_maintenance.as_mut(), outcome.as_ref())
-                        {
-                            maintenance.observe(result, sql_observation.write_count);
-                        }
-                        finish_public_maintenance_observed(
-                            applications.as_ref(),
-                            &operation_id,
-                            outcome.as_ref().map_err(String::as_str),
-                            semantic_success.as_ref(),
-                            &utc_now_iso8601(),
-                        );
-                    })
-                }));
-                if execution.is_err() {
-                    finish_public_maintenance_observed(
-                        applications.as_ref(),
-                        &operation_id,
-                        Err("operation_dispatch_panicked"),
-                        semantic_success.as_ref(),
-                        &utc_now_iso8601(),
-                    );
-                }
-            },
-        )
-        .map_err(|error| format!("operation_spawn_failed:{error}"))?;
-    Ok(())
-}
-
-fn start_public_maintenance_operation(
-    runtime: &ProductionClientRuntime,
-    request_id: &str,
-    capability: &str,
-    operation_args: Vec<Value>,
-    work_deadline_ms: u64,
-    semantic_success: Option<ProductionClientSemanticSuccess>,
-) -> Result<Value, String> {
-    let accepted_at = utc_now_iso8601();
-    let source_hash = canonical_json_hash(&json!({
-        "capability":capability,
-        "args":operation_args,
-    }))?;
-    let identity_hash = canonical_json_hash(&json!({
-        "capability":capability,
-        "requestId":request_id,
-        "sourceHash":source_hash,
-    }))?;
-    let operation_id = format!(
-        "maintenance:{}:{}",
-        capability.trim_start_matches("client."),
-        &identity_hash["sha256:".len().."sha256:".len() + 24]
-    );
-    let (accepted, inserted) = begin_public_maintenance_operation(
-        runtime.applications.as_ref(),
-        &operation_id,
-        capability,
-        &operation_args,
-        &source_hash,
-        work_deadline_ms,
-        &accepted_at,
-    )?;
-    if accepted.operation_type != capability
-        || accepted.basis_kind != PUBLIC_MAINTENANCE_BASIS_KIND
-        || accepted.source_hash != source_hash
-    {
-        return Err("basis_mismatch".into());
-    }
-    let accepted_dto = public_maintenance_operation_dto(&accepted)?;
-    if !inserted {
-        return Ok(accepted_dto);
-    }
-    let route = runtime
-        .catalog
-        .route(capability)
-        .ok_or_else(|| "operation_unavailable".to_owned())?
-        .clone();
-    let applications = Arc::clone(&runtime.applications);
-    let mut canonical_maintenance = applications
-        .canonical_autosync
-        .begin_maintenance(route.entry.canonical_effect);
-    let operation_id_for_worker = operation_id.clone();
-    let capability_for_worker = capability.to_owned();
-    let request_id_for_worker = request_id.to_owned();
-    let semantic_success_for_worker = semantic_success.clone();
-    let worker_trace = child_observation_context();
-    let worker_name = format!(
-        "synthesis-maintenance-{}",
-        &identity_hash["sha256:".len().."sha256:".len() + 8]
-    );
-    let spawn_result =
-        runtime
-            .background_tasks
-            .spawn(worker_name, Arc::new(AtomicBool::new(false)), move || {
-                let execution = catch_unwind(AssertUnwindSafe(|| {
-                    with_observation_context(worker_trace.as_ref(), || {
-                        let started_at = utc_now_iso8601();
-                        if let Err(error) = mark_public_maintenance_running(
-                            applications.as_ref(),
-                            &operation_id_for_worker,
-                            &started_at,
-                        ) {
-                            finish_public_maintenance_observed(
-                                applications.as_ref(),
-                                &operation_id_for_worker,
-                                Err(&error),
-                                semantic_success_for_worker.as_ref(),
-                                &utc_now_iso8601(),
-                            );
-                            return;
-                        }
-                        let observed_at = Instant::now();
-                        let (outcome, sql_observation) = observe_repository_sql(|| {
-                            with_request_context(
-                                Duration::from_millis(work_deadline_ms),
-                                debug_events_enabled().then_some(&request_id_for_worker),
-                                || {
-                                    with_operation_context(&operation_id_for_worker, || {
-                                        (route.entry.handler)(
-                                            applications.as_ref(),
-                                            &operation_args,
-                                        )
-                                    })
-                                },
-                            )
-                        });
-                        emit_query_observation(&capability_for_worker, &outcome, sql_observation);
-                        if let (Some(maintenance), Ok(result)) =
-                            (canonical_maintenance.as_mut(), outcome.as_ref())
-                        {
-                            maintenance.observe(result, sql_observation.write_count);
-                        }
-                        if let Ok(result) = outcome.as_ref() {
-                            record_semantic_mutation_result(
-                                &capability_for_worker,
-                                semantic_success_for_worker.as_ref(),
-                                result,
-                                observed_at.elapsed(),
-                            );
-                        }
-                        finish_public_maintenance_observed(
-                            applications.as_ref(),
-                            &operation_id_for_worker,
-                            outcome.as_ref().map_err(String::as_str),
-                            semantic_success_for_worker.as_ref(),
-                            &utc_now_iso8601(),
-                        );
-                    })
-                }));
-                if execution.is_err() {
-                    finish_public_maintenance_observed(
-                        applications.as_ref(),
-                        &operation_id_for_worker,
-                        Err("operation_dispatch_panicked"),
-                        semantic_success_for_worker.as_ref(),
-                        &utc_now_iso8601(),
-                    );
-                }
-            });
-    if let Err(error) = spawn_result {
-        let code = format!("operation_spawn_failed:{error}");
-        finish_public_maintenance_operation(
-            runtime.applications.as_ref(),
-            &operation_id,
-            Err(&code),
-            semantic_success.as_ref(),
-            &utc_now_iso8601(),
-        )?;
-        let row = runtime.applications.repository.with_reader(|repository| {
-            repository
-                .get_operation(&operation_id)?
-                .ok_or_else(|| "operation_receipt_missing".to_owned())
-        })?;
-        return public_maintenance_operation_dto(&row);
-    }
-    Ok(accepted_dto)
-}
-
-fn finish_public_maintenance_observed(
-    applications: &crate::runtime_production_ports::ProductionApplications,
-    operation_id: &str,
-    outcome: Result<&Value, &str>,
-    semantic_success: Option<&ProductionClientSemanticSuccess>,
-    completed_at: &str,
-) {
-    let first = finish_public_maintenance_operation(
-        applications,
-        operation_id,
-        outcome,
-        semantic_success,
-        completed_at,
-    );
-    if let Err(first_error) = first {
-        thread::yield_now();
-        if let Err(error) = finish_public_maintenance_operation(
-            applications,
-            operation_id,
-            Err(&first_error),
-            semantic_success,
-            &utc_now_iso8601(),
-        ) {
-            emit_debug(|| {
-                NativeDiagnosticEvent::new("operation", "terminal-persist", "failed")
-                    .code(error)
-                    .operation_id(operation_id)
-            });
+    let (command, operation_id) = public_maintenance_control_request(operation_args)?;
+    let view = match control_maintenance_operation(
+        &runtime.applications,
+        &runtime.background_tasks,
+        runtime.catalog.as_ref(),
+        request_id,
+        &command,
+        &utc_now_iso8601(),
+    ) {
+        Ok(view) => view,
+        Err(code) if code == "not_found" => {
+            return Ok(public_maintenance_not_found(&operation_id));
         }
-    }
+        Err(code) => return Err(code),
+    };
+    public_maintenance_operation_dto(&view)
 }
 
 fn emit_query_observation(
@@ -1653,7 +1436,7 @@ mod dispatch_integration_tests {
                 ProductionClientDataPlane::Control,
                 ProductionClientDataPlane::Control,
                 ProductionClientReceipt::Inline,
-                ProductionClientSpecialStep::MaintenanceControlResume,
+                ProductionClientSpecialStep::MaintenanceControl,
                 ProductionClientCanonicalEffect::None,
             ),
         ];
@@ -1665,6 +1448,56 @@ mod dispatch_integration_tests {
             assert_eq!(route.entry.special_step, special, "{capability}");
             assert_eq!(route.entry.canonical_effect, effect, "{capability}");
         }
+    }
+
+    #[test]
+    fn catalog_resolves_only_receipt_operations_as_opaque_maintenance_routes() {
+        let catalog = ProductionClientCatalog::from_embedded().unwrap();
+
+        let route = catalog
+            .resolve_maintenance("client.refreshReferenceSidecarNow")
+            .expect("maintenance route");
+        assert_eq!(route.operation_type(), "client.refreshReferenceSidecarNow");
+        assert!(route.work_deadline_ms() >= 100);
+
+        assert!(catalog.resolve_maintenance("client.listTopics").is_none());
+        assert!(
+            catalog
+                .resolve_maintenance("client.controlPublicMaintenanceOperation")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn committed_submit_terminalizes_the_same_operation_when_dispatch_is_rejected() {
+        let root = test_root();
+        let runtime = test_runtime(&root);
+        runtime.background_tasks.stop_admission();
+
+        let result = runtime
+            .execute(
+                "request:spawn-rejected",
+                "client.syncWebDavNow",
+                json!({"args":[]}),
+            )
+            .expect("durable terminal receipt");
+
+        assert_eq!(result["status"], "failed");
+        assert_eq!(result["receipt"]["outcome"], "failed");
+        assert_eq!(
+            result["receipt"]["diagnostics"][0]["code"],
+            "operation_spawn_failed"
+        );
+        let operation_id = result["operation_id"].as_str().expect("operation id");
+        let observed = runtime
+            .execute(
+                "request:spawn-rejected-read",
+                "client.getPublicMaintenanceOperation",
+                json!({"args":[{"operation_id":operation_id}]}),
+            )
+            .expect("read terminal receipt");
+        assert_eq!(observed["operation_id"], operation_id);
+        assert_eq!(observed["status"], "failed");
     }
 
     #[test]

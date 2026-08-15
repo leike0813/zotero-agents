@@ -486,6 +486,12 @@ export function findSynthesisProductionBoundaryViolations(): string[] {
   const rustRoot = path.join(ROOT_DIR, "native/synthesis-sidecar/crates");
   for (const filePath of walkFiles(rustRoot, ".rs")) {
     const relativePath = normalizedRepoPath(filePath);
+    if (
+      relativePath.includes("/tests/") ||
+      relativePath.includes("/examples/")
+    ) {
+      continue;
+    }
     const source = fs.readFileSync(filePath, "utf8");
     const productionSource = source.split("#[cfg(test)]", 1)[0]!;
     if (

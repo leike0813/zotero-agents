@@ -2731,20 +2731,27 @@ describe("Synthesis Rust production client route", function () {
           },
         ],
       };
-      const refresh = await call(
-        port,
-        "client.controlPublicMaintenanceOperation",
-        retryRequest,
-      );
+      const [refresh, replayedRetry] = await Promise.all([
+        call(
+          port,
+          "client.controlPublicMaintenanceOperation",
+          retryRequest,
+        ),
+        call(
+          port,
+          "client.controlPublicMaintenanceOperation",
+          retryRequest,
+        ),
+      ]);
       assert.equal(refresh.status, 200, JSON.stringify(refresh.body));
       assert.notEqual(
         refresh.body.data.operation_id,
         canceledRefresh.body.data.operation_id,
       );
-      const replayedRetry = await call(
-        port,
-        "client.controlPublicMaintenanceOperation",
-        retryRequest,
+      assert.equal(
+        replayedRetry.status,
+        200,
+        JSON.stringify(replayedRetry.body),
       );
       assert.equal(
         replayedRetry.body.data.operation_id,
@@ -3993,6 +4000,16 @@ describe("Synthesis Rust production client route", function () {
           ).length,
         1,
       );
+      assert.equal(
+        harness
+          .observations()
+          .filter(
+            (event) =>
+              event.phase === "maintenance-terminal" &&
+              event.identities?.operation === first.body.data.operation_id,
+          ).length,
+        1,
+      );
     } finally {
       releaseItems();
       await harness.stop();
@@ -4024,11 +4041,16 @@ describe("Synthesis Rust production client route", function () {
         const suffix = String(index).padStart(4, "0");
         insert.run(
           `maintenance:pending:${suffix}`,
-          "client.rebuildCitationGraphCacheNow",
+          "client.syncWebDavNow",
           "pending",
           "accepted",
           "public_maintenance_operation",
-          "{}",
+          JSON.stringify({
+            capability: "client.syncWebDavNow",
+            args: [],
+            deadlineMs: 1_800_000,
+            sourceHash: `sha256:pending-${suffix}`,
+          }),
           `sha256:pending-${suffix}`,
           "[]",
           "2026-08-11T00:00:00.000Z",
@@ -4129,6 +4151,66 @@ describe("Synthesis Rust production client route", function () {
         .get() as { count: number };
       assert.equal(terminalRows.count, 1_001);
       reopened.close();
+
+      const continueRequest = {
+        args: [
+          {
+            action: "continue",
+            operation_id: "maintenance:pending:0000",
+          },
+        ],
+      };
+      const [firstContinue, duplicateContinue] = await Promise.all([
+        call(
+          harness.port,
+          "client.controlPublicMaintenanceOperation",
+          continueRequest,
+        ),
+        call(
+          harness.port,
+          "client.controlPublicMaintenanceOperation",
+          continueRequest,
+        ),
+      ]);
+      assert.equal(firstContinue.status, 200, JSON.stringify(firstContinue.body));
+      assert.equal(
+        duplicateContinue.status,
+        200,
+        JSON.stringify(duplicateContinue.body),
+      );
+      assert.equal(
+        firstContinue.body.data.operation_id,
+        duplicateContinue.body.data.operation_id,
+      );
+      const continued = await waitForMaintenanceOperation(
+        harness.port,
+        "maintenance:pending:0000",
+      );
+      assert.equal(continued.status, "completed", JSON.stringify(continued));
+      const continuationEvents = harness
+        .observations()
+        .filter(
+          (event) =>
+            event.identities?.operation === "maintenance:pending:0000",
+        );
+      assert.equal(
+        continuationEvents.filter(
+          (event) => event.phase === "maintenance-started",
+        ).length,
+        0,
+      );
+      assert.equal(
+        continuationEvents.filter(
+          (event) => event.phase === "maintenance-running",
+        ).length,
+        1,
+      );
+      assert.equal(
+        continuationEvents.filter(
+          (event) => event.phase === "maintenance-terminal",
+        ).length,
+        1,
+      );
 
       for (const operationId of [
         "maintenance:pending:0000",

@@ -445,6 +445,22 @@ struct WorkerChild {
     stderr_tail: mpsc::Receiver<Vec<u8>>,
 }
 
+trait WorkerExecution: Send {
+    fn send(&mut self, value: &Value) -> Result<(), String>;
+    fn recv_frame(
+        &mut self,
+        deadline: Instant,
+        stopping: Option<&AtomicBool>,
+        canceled: Option<&AtomicBool>,
+    ) -> Result<Value, String>;
+    fn terminate(&mut self);
+    #[cfg(test)]
+    fn process_id(&self) -> Option<u32>;
+}
+
+type WorkerFactory =
+    Arc<dyn Fn(&Path) -> Result<Box<dyn WorkerExecution>, String> + Send + Sync + 'static>;
+
 impl WorkerChild {
     fn spawn(executable: &Path) -> Result<Self, String> {
         let mut child = Command::new(executable)
@@ -565,13 +581,38 @@ impl Drop for WorkerChild {
     }
 }
 
+impl WorkerExecution for WorkerChild {
+    fn send(&mut self, value: &Value) -> Result<(), String> {
+        WorkerChild::send(self, value)
+    }
+
+    fn recv_frame(
+        &mut self,
+        deadline: Instant,
+        stopping: Option<&AtomicBool>,
+        canceled: Option<&AtomicBool>,
+    ) -> Result<Value, String> {
+        WorkerChild::recv_frame(self, deadline, stopping, canceled)
+    }
+
+    fn terminate(&mut self) {
+        WorkerChild::terminate(self);
+    }
+
+    #[cfg(test)]
+    fn process_id(&self) -> Option<u32> {
+        Some(self.child.id())
+    }
+}
+
 pub(crate) struct NativeComputePool {
     inner: Mutex<ComputePoolInner>,
     available: Condvar,
-    worker: Mutex<Option<WorkerChild>>,
+    worker: Mutex<Option<Box<dyn WorkerExecution>>>,
     next_task_id: AtomicU64,
     stop_requested: AtomicBool,
     executable: PathBuf,
+    worker_factory: WorkerFactory,
 }
 
 pub(crate) struct ComputeAdmission {
@@ -600,13 +641,18 @@ impl NativeComputePool {
             next_task_id: AtomicU64::new(1),
             stop_requested: AtomicBool::new(false),
             executable: std::env::current_exe().unwrap_or_default(),
+            worker_factory: Arc::new(|executable| {
+                WorkerChild::spawn(executable)
+                    .map(|worker| Box::new(worker) as Box<dyn WorkerExecution>)
+            }),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn new_with_executable(executable: PathBuf) -> Self {
+    fn new_with_worker_factory(worker_factory: WorkerFactory) -> Self {
         let mut pool = Self::new();
-        pool.executable = executable;
+        pool.executable = PathBuf::from("scripted-worker");
+        pool.worker_factory = worker_factory;
         pool
     }
 
@@ -921,16 +967,16 @@ impl NativeComputePool {
 
     fn with_worker<T>(
         &self,
-        operation: impl FnOnce(&mut WorkerChild) -> Result<T, String>,
+        operation: impl FnOnce(&mut dyn WorkerExecution) -> Result<T, String>,
     ) -> Result<T, String> {
         let mut worker = self
             .worker
             .lock()
             .map_err(|_| "worker_unavailable".to_owned())?;
         if worker.is_none() {
-            *worker = Some(WorkerChild::spawn(&self.executable)?);
+            *worker = Some((self.worker_factory)(&self.executable)?);
         }
-        let result = operation(worker.as_mut().expect("worker initialized"));
+        let result = operation(worker.as_mut().expect("worker initialized").as_mut());
         if result.as_ref().is_err_and(|code| runtime_fault(code))
             && let Some(mut child) = worker.take()
         {
@@ -1012,7 +1058,7 @@ impl NativeComputePool {
         self.worker
             .lock()
             .ok()
-            .and_then(|worker| worker.as_ref().map(|worker| worker.child.id()))
+            .and_then(|worker| worker.as_ref().and_then(|worker| worker.process_id()))
     }
 }
 
@@ -1291,12 +1337,172 @@ fn validate_direct_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU32;
+
+    struct ScriptedWorker {
+        id: u32,
+        pending: Option<Result<Value, String>>,
+    }
+
+    impl WorkerExecution for ScriptedWorker {
+        fn send(&mut self, value: &Value) -> Result<(), String> {
+            let task_id = value["taskId"].clone();
+            let graph_hash = value["payload"]["graphHash"].as_str().unwrap_or_default();
+            let mode = graph_hash
+                .strip_prefix("sha256:")
+                .and_then(|suffix| suffix.chars().next())
+                .unwrap_or('0');
+            self.pending = Some(match mode {
+                '0' => Ok(json!({
+                    "protocol":WORKER_PROTOCOL,
+                    "type":"result",
+                    "taskId":task_id,
+                    "result":{
+                        "graphHash":graph_hash,
+                        "metricsVersion":2,
+                        "params":{
+                            "pagerankDamping":0.85,
+                            "pagerankIterations":50,
+                            "foundationFormula":"fixture",
+                            "frontierFormula":"fixture"
+                        },
+                        "graphYear":null,
+                        "libraryNodeMetrics":[],
+                        "diagnostics":{
+                            "libraryNodeCount":0,
+                            "externalReferenceCount":0,
+                            "unresolvedReferenceCount":0,
+                            "componentCount":0,
+                            "isolatedLibraryNodeCount":0,
+                            "missingYearCount":0
+                        }
+                    }
+                })),
+                'b' => Err("worker_crashed".into()),
+                'c' => Ok(json!({
+                    "protocol":WORKER_PROTOCOL,
+                    "type":"result",
+                    "taskId":task_id,
+                    "result":{}
+                })),
+                'd' => Err("worker_panicked".into()),
+                _ => Err("fixture_unconfigured".into()),
+            });
+            Ok(())
+        }
+
+        fn recv_frame(
+            &mut self,
+            _deadline: Instant,
+            _stopping: Option<&AtomicBool>,
+            _canceled: Option<&AtomicBool>,
+        ) -> Result<Value, String> {
+            self.pending
+                .take()
+                .unwrap_or_else(|| Err("worker_result_invalid".into()))
+        }
+
+        fn terminate(&mut self) {}
+
+        fn process_id(&self) -> Option<u32> {
+            Some(self.id)
+        }
+    }
+
+    fn scripted_factory(spawn_count: Arc<AtomicU32>) -> WorkerFactory {
+        Arc::new(move |_| {
+            let id = spawn_count.fetch_add(1, Ordering::Relaxed) + 1;
+            Ok(Box::new(ScriptedWorker { id, pending: None }))
+        })
+    }
+
+    fn request(mode: char) -> Value {
+        json!({"graphHash":format!("sha256:{mode}{}", "0".repeat(63))})
+    }
 
     #[test]
     fn configured_pool_remains_lazy_until_admission_runs() {
-        let pool = NativeComputePool::new_with_executable(PathBuf::from("unused-worker"));
+        let spawn_count = Arc::new(AtomicU32::new(0));
+        let pool =
+            NativeComputePool::new_with_worker_factory(scripted_factory(Arc::clone(&spawn_count)));
         assert_eq!(pool.child_id(), None);
+        assert_eq!(spawn_count.load(Ordering::Relaxed), 0);
         assert_eq!(pool.snapshot(false).expect("snapshot")["state"], "idle");
+    }
+
+    #[test]
+    fn reuses_a_successful_worker_and_fuses_three_runtime_crashes() {
+        let pool = Arc::new(NativeComputePool::new_with_worker_factory(
+            scripted_factory(Arc::new(AtomicU32::new(0))),
+        ));
+        let stopping = AtomicBool::new(false);
+
+        let admission = pool.admit(&stopping).expect("first admission");
+        assert_eq!(
+            pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('0'))
+                .expect("first result")["graphHash"],
+            request('0')["graphHash"]
+        );
+        let worker_id = pool.child_id().expect("persistent worker");
+        drop(admission);
+
+        let admission = pool.admit(&stopping).expect("second admission");
+        pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('0'))
+            .expect("second result");
+        assert_eq!(pool.child_id(), Some(worker_id));
+        drop(admission);
+
+        let admission = pool.admit(&stopping).expect("invalid-result admission");
+        assert_eq!(
+            pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('c'))
+                .expect_err("invalid worker result"),
+            "worker_result_invalid"
+        );
+        drop(admission);
+        assert_eq!(pool.snapshot(false).expect("snapshot")["restartCount"], 1);
+
+        let admission = pool.admit(&stopping).expect("replacement admission");
+        pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('0'))
+            .expect("replacement result");
+        assert_ne!(pool.child_id(), Some(worker_id));
+        drop(admission);
+
+        for expected_failures in 1..=3 {
+            let admission = pool.admit(&stopping).expect("fault admission");
+            assert_eq!(
+                pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('b'))
+                    .expect_err("worker crash"),
+                "worker_crashed"
+            );
+            drop(admission);
+            assert_eq!(
+                pool.snapshot(false).expect("snapshot")["failureCount"],
+                expected_failures
+            );
+        }
+        assert_eq!(
+            pool.admit(&stopping).err(),
+            Some("worker_unavailable"),
+            "three consecutive worker crashes open the fuse"
+        );
+        assert_eq!(pool.snapshot(false).expect("snapshot")["restartCount"], 4);
+    }
+
+    #[test]
+    fn maps_a_worker_panic_to_the_stable_runtime_code() {
+        let pool = Arc::new(NativeComputePool::new_with_worker_factory(
+            scripted_factory(Arc::new(AtomicU32::new(0))),
+        ));
+        let stopping = AtomicBool::new(false);
+        let admission = pool.admit(&stopping).expect("panic admission");
+
+        assert_eq!(
+            pool.run_direct::<_, Value>(WorkerOperation::CitationGraphMetrics, request('d'))
+                .expect_err("worker panic"),
+            "worker_panicked"
+        );
+        drop(admission);
+        assert_eq!(pool.snapshot(false).expect("snapshot")["restartCount"], 1);
     }
 
     #[test]

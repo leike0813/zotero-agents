@@ -1,15 +1,11 @@
+use crate::runtime_contract::{NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::net::TcpStream;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use synthesis_application::{CanonicalStorePort, TopicCanonicalPort};
-use synthesis_repository::Repository;
-use synthesis_sidecar::runtime_contract::{
-    NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
-};
 
 use crate::runtime_background_tasks::BackgroundTaskOwner;
 use crate::runtime_diagnostics::{
@@ -17,7 +13,7 @@ use crate::runtime_diagnostics::{
     with_observation_context,
 };
 use crate::runtime_http::{HttpRequest, read_http, response};
-use crate::runtime_lifecycle::RuntimeOwnership;
+use crate::runtime_lifecycle::{StopReason, StopSignal};
 use crate::runtime_production_client::{ProductionClientRuntime, production_client_error_status};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_transfer::{NativeTransferOwner, TransferDispatch};
@@ -41,20 +37,46 @@ struct CallEnvelope {
     trace: Option<TraceContext>,
 }
 
-pub(crate) struct ServeState {
-    pub(crate) config: Arc<NativeLaunchConfig>,
-    pub(crate) service_instance_id: String,
-    pub(crate) profile: String,
-    pub(crate) repository_id: String,
-    pub(crate) repository: Arc<Mutex<Repository>>,
-    pub(crate) applications: Arc<ProductionApplications>,
-    pub(crate) production_client: Arc<ProductionClientRuntime>,
-    pub(crate) runtime_ownership: Arc<RuntimeOwnership>,
-    pub(crate) canonical: CanonicalStorePort,
-    pub(crate) stopping: Arc<AtomicBool>,
-    pub(crate) compute_pool: Arc<NativeComputePool>,
-    pub(crate) transfer: Arc<Mutex<NativeTransferOwner>>,
-    pub(crate) background_tasks: Arc<BackgroundTaskOwner>,
+pub(crate) struct RequestContext {
+    config: Arc<NativeLaunchConfig>,
+    service_instance_id: String,
+    repository_id: String,
+    applications: Arc<ProductionApplications>,
+    production_client: Arc<ProductionClientRuntime>,
+    canonical: CanonicalStorePort,
+    stop_signal: StopSignal,
+    compute_pool: Arc<NativeComputePool>,
+    transfer: Arc<Mutex<NativeTransferOwner>>,
+    background_tasks: Arc<BackgroundTaskOwner>,
+}
+
+impl RequestContext {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        config: Arc<NativeLaunchConfig>,
+        service_instance_id: String,
+        repository_id: String,
+        applications: Arc<ProductionApplications>,
+        production_client: Arc<ProductionClientRuntime>,
+        canonical: CanonicalStorePort,
+        stop_signal: StopSignal,
+        compute_pool: Arc<NativeComputePool>,
+        transfer: Arc<Mutex<NativeTransferOwner>>,
+        background_tasks: Arc<BackgroundTaskOwner>,
+    ) -> Self {
+        Self {
+            config,
+            service_instance_id,
+            repository_id,
+            applications,
+            production_client,
+            canonical,
+            stop_signal,
+            compute_pool,
+            transfer,
+            background_tasks,
+        }
+    }
 }
 
 fn valid_bounded_text(value: &str, max: usize) -> bool {
@@ -166,22 +188,20 @@ pub(crate) fn error_response(code: &str) -> Value {
     })
 }
 
-fn compute_pool_snapshot(state: &ServeState) -> Result<Value, String> {
-    state
-        .compute_pool
-        .snapshot(state.stopping.load(Ordering::Acquire))
+fn compute_pool_snapshot(state: &RequestContext) -> Result<Value, String> {
+    state.compute_pool.snapshot(state.stop_signal.is_stopping())
 }
 
-fn repository_snapshot(state: &ServeState) -> Value {
+fn repository_snapshot(state: &RequestContext) -> Value {
     json!({
         "mode":"production",
-        "state":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
+        "state":if state.stop_signal.is_stopping() {"stopping"} else {"ready"},
         "schemaVersion":synthesis_repository::SCHEMA_VERSION,
         "repositoryId":state.repository_id,
     })
 }
 
-fn canonical_snapshot(state: &ServeState) -> Result<Value, String> {
+fn canonical_snapshot(state: &RequestContext) -> Result<Value, String> {
     let store_id = state
         .canonical
         .owner()
@@ -190,13 +210,13 @@ fn canonical_snapshot(state: &ServeState) -> Result<Value, String> {
         .store_id()
         .to_owned();
     Ok(json!({
-        "state":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
+        "state":if state.stop_signal.is_stopping() {"stopping"} else {"ready"},
         "schemaVersion":"synthesis-topic-canonical-store.v1",
         "storeId":store_id,
     }))
 }
 
-fn transfer_snapshot(state: &ServeState) -> Result<Value, String> {
+fn transfer_snapshot(state: &RequestContext) -> Result<Value, String> {
     state
         .transfer
         .lock()
@@ -222,7 +242,7 @@ fn bounded_response(
 
 pub(crate) fn handle_connection(
     mut stream: TcpStream,
-    state: Arc<ServeState>,
+    state: Arc<RequestContext>,
 ) -> Result<(), String> {
     let HttpRequest {
         method,
@@ -255,7 +275,7 @@ pub(crate) fn handle_connection(
             "targetTriple":state.config.target_triple,
             "buildFingerprint":state.config.build_fingerprint,
             "platformSignature":state.config.platform_signature,
-            "lifecycleState":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
+            "lifecycleState":if state.stop_signal.is_stopping() {"stopping"} else {"ready"},
             "repository":repository_snapshot(&state),
             "canonicalStore":canonical_snapshot(&state)?,
             "computePool":compute_pool_snapshot(&state)?,
@@ -293,7 +313,7 @@ pub(crate) fn handle_connection(
     {
         return response(&mut stream, 400, error_response("invalid_request"));
     }
-    if call.profile_id != state.profile {
+    if call.profile_id != state.config.profile_id {
         return response(&mut stream, 409, error_response("profile_mismatch"));
     }
     let lifecycle_control = matches!(call.capability.as_str(), "system.shutdown");
@@ -351,7 +371,7 @@ pub(crate) fn handle_connection(
             capability @ ("compute.citation_graph_layout"
             | "compute.citation_graph_metrics"
             | "compute.citation_graph_build") => {
-                let _admission = match state.compute_pool.admit(&state.stopping) {
+                let _admission = match state.compute_pool.admit(state.stop_signal.stopping_flag()) {
                     Ok(admission) => admission,
                     Err(code) => return response(&mut stream, 503, error_response(code)),
                 };
@@ -484,9 +504,10 @@ pub(crate) fn handle_connection(
                                         NativeDiagnosticEvent::new("batch", "attempt", "started")
                                             .capability("compute.citation_graph_build_transfer")
                                     });
-                                    let result = match reservation
-                                        .wait(&state_for_attempt.stopping, &cancellation)
-                                    {
+                                    let result = match reservation.wait(
+                                        state_for_attempt.stop_signal.stopping_flag(),
+                                        &cancellation,
+                                    ) {
                                         Ok(()) => {
                                             let now_ms = current_time_ms().unwrap_or_default();
                                             if let Ok(mut transfer) =
@@ -655,7 +676,9 @@ pub(crate) fn handle_connection(
                         json!({"accepted":true,"lifecycleState":"stopping"}),
                     ),
                 );
-                state.stopping.store(true, Ordering::Release);
+                state
+                    .stop_signal
+                    .request_normal(StopReason::AuthenticatedRequest);
                 response_result
             }
             _ => response(&mut stream, 404, error_response("capability_not_found")),

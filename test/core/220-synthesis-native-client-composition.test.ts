@@ -150,7 +150,7 @@ describe("Synthesis native client composition", function () {
     }
   });
 
-  it("records accepted maintenance receipts as successful root traces", async function () {
+  it("does not infer maintenance lifecycle events from accepted receipts", async function () {
     setDebugModeOverrideForTests(true);
     setSynthesisSidecarDiagnosticsSourceOverrideForTests(true);
     try {
@@ -238,16 +238,9 @@ describe("Synthesis native client composition", function () {
           { semanticStatus: "pending" },
           operation,
         );
-        assert.isTrue(trace.active, operation);
-        const accepted = trace.events.find(
-          (event) => event.phase === "maintenance-started",
-        )!;
-        assert.deepEqual(
-          accepted.identities,
-          {
-            capability: operation,
-            operation: `maintenance:${operation}`,
-          },
+        assert.isFalse(trace.active, operation);
+        assert.isFalse(
+          trace.events.some((event) => event.phase === "maintenance-started"),
           operation,
         );
       }

@@ -46,6 +46,7 @@ type MutableTrace = SynthesisSidecarTrace & {
 };
 
 const traces = new Map<string, MutableTrace>();
+const maintenanceOperationOrigins = new Map<string, string>();
 const subscribers = new Set<Subscriber>();
 let sequence = 0;
 const pendingAdded = new Set<string>();
@@ -180,10 +181,30 @@ function retainEvent(event: SynthesisSidecarObservationEvent) {
   }
   trace.updatedAtMs = event.occurredAtMs;
   if (isMaintenanceStarted) {
-    trace.activeMaintenanceOperationIds.add(maintenanceOperationId!);
+    const operationId = maintenanceOperationId!;
+    if (!maintenanceOperationOrigins.has(operationId)) {
+      maintenanceOperationOrigins.set(operationId, trace.traceId);
+      trace.activeMaintenanceOperationIds.add(operationId);
+    }
   }
   if (isMaintenanceTerminal) {
-    trace.activeMaintenanceOperationIds.delete(maintenanceOperationId!);
+    const operationId = maintenanceOperationId!;
+    const originTraceId = maintenanceOperationOrigins.get(operationId);
+    const originTrace = originTraceId ? traces.get(originTraceId) : undefined;
+    if (originTrace) {
+      originTrace.activeMaintenanceOperationIds.delete(operationId);
+      originTrace.active =
+        originTrace.rootActive ||
+        originTrace.activeMaintenanceOperationIds.size > 0;
+      if (originTrace !== trace) {
+        originTrace.updatedAtMs = Math.max(
+          originTrace.updatedAtMs,
+          event.occurredAtMs,
+        );
+        pendingUpdated.add(originTrace.traceId);
+      }
+    }
+    maintenanceOperationOrigins.delete(operationId);
   }
   if (isRootTerminal) trace.rootActive = false;
   trace.active =
@@ -276,6 +297,7 @@ export function resetSynthesisSidecarTraceForTests() {
   if (publishTimer !== undefined) globalThis.clearTimeout(publishTimer);
   publishTimer = undefined;
   traces.clear();
+  maintenanceOperationOrigins.clear();
   subscribers.clear();
   pendingAdded.clear();
   pendingUpdated.clear();

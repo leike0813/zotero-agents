@@ -1,9 +1,9 @@
+use crate::runtime_contract::{NativeLaunchConfig, current_time_ms};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use synthesis_sidecar::runtime_contract::{NativeLaunchConfig, current_time_ms};
 
 use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{

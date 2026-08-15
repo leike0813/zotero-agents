@@ -14,9 +14,7 @@ use crate::runtime_production_client::{
     ProductionClientCanonicalEffect, ProductionClientRouteEntry,
 };
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_public_maintenance_operation::{
-    checkpoint_before_promotion, current_operation_id,
-};
+use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 
 const MAX_QUERY_LABELS: usize = 100;
 const MAX_TEXT_BYTES: usize = 4_096;
@@ -63,10 +61,7 @@ pub(crate) const CONCEPT_TOPIC_GRAPH_CLIENT_ROUTES: &[ProductionClientRouteEntry
 ];
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
-    let Some(operation_id) = current_operation_id() else {
-        return Ok(());
-    };
-    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
+    checkpoint_current_before_promotion(apps)
 }
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {

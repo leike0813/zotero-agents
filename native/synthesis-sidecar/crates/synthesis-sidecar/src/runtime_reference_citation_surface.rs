@@ -8,9 +8,7 @@ use crate::runtime_production_client::{
     ProductionClientCanonicalEffect, ProductionClientRouteEntry,
 };
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_public_maintenance_operation::{
-    checkpoint_before_promotion, current_operation_id,
-};
+use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 use crate::runtime_reference_canonical::{
     CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
     CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest, ExternalReferenceRankRequest,
@@ -86,10 +84,7 @@ fn no_args(args: &[Value]) -> Result<(), String> {
 }
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
-    let Some(operation_id) = current_operation_id() else {
-        return Ok(());
-    };
-    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
+    checkpoint_current_before_promotion(apps)
 }
 
 fn reference_review_decision(

@@ -610,8 +610,8 @@ describe("Synthesis sidecar Topic application foundation", function () {
       path.join(applicationRoot, "topic.rs"),
       "utf8",
     );
-    const candidate = fs.readFileSync(
-      "native/synthesis-sidecar/crates/synthesis-sidecar/src/main.rs",
+    const capabilities = fs.readFileSync(
+      "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_capabilities.rs",
       "utf8",
     );
 
@@ -621,6 +621,6 @@ describe("Synthesis sidecar Topic application foundation", function () {
     assert.include(topic, "pub fn shutdown");
     assert.notInclude(facade, "ApplicationKind");
     assert.notInclude(facade, "ApplicationCommand");
-    assert.notInclude(candidate, '"topics.canonical.apply"');
+    assert.notInclude(capabilities, '"topics.canonical.apply"');
   });
 });

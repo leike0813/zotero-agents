@@ -396,7 +396,7 @@ fn write_frame(value: &Value) -> io::Result<()> {
     stdout.flush()
 }
 
-pub(crate) fn worker() -> Result<(), String> {
+pub fn worker() -> Result<(), String> {
     write_frame(&json!({"protocol": WORKER_PROTOCOL, "type": "ready", "buildFingerprint": WORKER_BUILD_FINGERPRINT})).map_err(|error| error.to_string())?;
     let (sender, receiver) = mpsc::sync_channel(1);
     let (control_sender, control_receiver) = mpsc::channel();

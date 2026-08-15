@@ -87,9 +87,7 @@ struct TagAuditClearRequest {
 }
 
 use crate::runtime_production_ports::ProductionApplications;
-use crate::runtime_public_maintenance_operation::{
-    checkpoint_before_promotion, current_operation_id,
-};
+use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion;
 
 /// The only production adapter for the public Tag surface.  It deliberately
 /// keeps the private vocabulary application as the durable domain owner while
@@ -194,10 +192,7 @@ fn rebuild_index(apps: &ProductionApplications, args: &[Value]) -> Result<Value,
 }
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
-    let Some(operation_id) = current_operation_id() else {
-        return Ok(());
-    };
-    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
+    checkpoint_current_before_promotion(apps)
 }
 
 fn stage(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {

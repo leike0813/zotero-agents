@@ -50,6 +50,16 @@ function assertOwnership(root: string) {
   const worker = read("runtime_worker.rs");
   const pool = read("runtime_worker_pool.rs");
   const service = read("runtime_service.rs");
+  const transport = read("runtime_server_loop.rs");
+  const library = read("lib.rs");
+  const main = read("main.rs");
+  const workerPoolTest = fs.readFileSync(
+    path.join(
+      root,
+      "native/synthesis-sidecar/crates/synthesis-sidecar/tests/native_worker_pool.rs",
+    ),
+    "utf8",
+  );
   const errors: string[] = [];
   if (transfer.includes("synthesis_citation_graph_build")) {
     errors.push("transfer_imports_graph_kernel");
@@ -75,8 +85,42 @@ function assertOwnership(root: string) {
   if (service.includes("match call.capability.as_str()")) {
     errors.push("service_owns_capability_dispatch");
   }
-  if (service.split("\n").length >= 300) {
-    errors.push("service_composition_too_large");
+  if (
+    !service.includes("struct RunningRuntime") ||
+    !service.includes("publish_discovery") ||
+    !service.includes("fn shutdown")
+  ) {
+    errors.push("service_missing_lifecycle_ownership");
+  }
+  for (const authority of [
+    "BackgroundTaskOwner",
+    "NativeComputePool",
+    "NativeTransferOwner",
+    "RuntimeOwnership",
+    "publish_discovery",
+    "canonical_autosync",
+    "shutdown_incomplete",
+  ]) {
+    if (transport.includes(authority)) {
+      errors.push(`transport_owns_${authority}`);
+    }
+  }
+  if (
+    !transport.includes("struct SidecarTransport") ||
+    !transport.includes("fn begin_shutdown") ||
+    !transport.includes("fn drain")
+  ) {
+    errors.push("transport_missing_bounded_connection_ownership");
+  }
+  if (
+    !library.includes("mod runtime_service;") ||
+    !library.includes("pub use runtime_service::serve;") ||
+    main.includes("mod runtime_service;")
+  ) {
+    errors.push("library_missing_runtime_graph_ownership");
+  }
+  if (workerPoolTest.includes("#[path")) {
+    errors.push("worker_pool_test_recompiles_production_source");
   }
   return errors;
 }

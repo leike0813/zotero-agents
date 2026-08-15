@@ -10,7 +10,7 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 - Legacy JSON, canonical projections, and archived files must not appear as implicit fallback rows.
 - Debug file inspection belongs in debug tools, not normal Workbench UI.
 - Normal Workbench reads must not start library-wide reconciliation or cache refresh.
-- Progress, chrome, client, and debug reads are pure queries: they must not cancel or update a `running` operation. Explicit startup reconciliation is the only lifecycle path that cancels persisted `running` rows as restart orphans.
+- Progress, chrome, client, and debug reads are pure queries: they must not update operation lifecycle. Explicit startup reconciliation changes public-maintenance `pending` rows to `continuation_required`, fails public-maintenance `running` rows whose external-effect outcome is unknown, and cancels other stale `running` rows; it never dispatches work.
 
 In debug builds, failed native startup spans are part of the same causal trace
 store as RPC, reverse-Host, worker, transfer, and durable-operation spans.

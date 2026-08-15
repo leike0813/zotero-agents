@@ -1,3 +1,4 @@
+use crate::runtime_contract::NativeLaunchConfig;
 use crate::runtime_host_collection::{
     HostItemCollectionPort, ReferenceHostItemsByRef, ReferenceHostItemsPage,
     TopicLibraryQueryAdapter,
@@ -56,7 +57,6 @@ use synthesis_repository::{
     CitationSourceOwnershipRecord, RawReferenceRecord, TagEffectRecord, TagProtocolRecord,
     TagVocabularyEntryRecord, TagVocabularyReplacement, TopicGraphReplacement,
 };
-use synthesis_sidecar::runtime_contract::NativeLaunchConfig;
 
 use crate::runtime_canonical_autosync::{
     CANONICAL_AUTOSYNC_DEBOUNCE, CanonicalAutosyncCoordinator,

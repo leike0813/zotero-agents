@@ -395,27 +395,6 @@ function createNativePort(args: {
               ? (result as Record<string, unknown>)
               : undefined;
           const semanticStatus = resultRow?.status;
-          const publicOperationId = resultRow?.operation_id;
-          if (
-            synthesisProductionOperationPolicy(operation).receipt ===
-              "public-maintenance-operation" &&
-            (semanticStatus === "pending" || semanticStatus === "running") &&
-            typeof publicOperationId === "string" &&
-            publicOperationId.length > 0
-          ) {
-            recordSynthesisSidecarTraceEvent({
-              context: createSynthesisSidecarTraceContext({ parent: trace }),
-              source: "host",
-              boundary: "operation",
-              phase: "maintenance-started",
-              outcome: "started",
-              identities: {
-                capability: operation,
-                operation: publicOperationId,
-              },
-              facts: { semanticStatus },
-            });
-          }
           recordSynthesisSidecarTraceEvent({
             context: trace,
             source: "host",

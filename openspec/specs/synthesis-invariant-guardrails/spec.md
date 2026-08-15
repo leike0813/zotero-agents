@@ -18,11 +18,17 @@ Invariant governance SHALL reject transfer-to-kernel imports and worker-to-appli
 - **WHEN** static checks scan `runtime_worker` and `runtime_worker_pool`
 - **THEN** repository, canonical, Host, production-root, HTTP capability, and service composition dependencies SHALL fail
 
-### Requirement: Native service composition SHALL remain thin
+### Requirement: Native lifecycle ownership SHALL be semantically guarded
 
-Static governance SHALL require worker framing and capability dispatch to live outside `runtime_service`.
+Static governance SHALL enforce the native runtime's public interface and authority placement without constraining source-file length or requiring implementation-text snapshots.
 
-#### Scenario: Service module is inspected
-- **WHEN** native ownership checks run
-- **THEN** worker frame variants and capability match handlers SHALL be absent from `runtime_service`
-- **AND** service composition, listener, lease, and cleanup ownership SHALL remain present
+#### Scenario: Runtime ownership checks run
+- **WHEN** static governance inspects the native sidecar
+- **THEN** the executable SHALL remain free of production runtime module declarations
+- **AND** the library SHALL keep runtime implementation modules private
+- **AND** worker frame variants and capability match handlers SHALL remain outside production lifecycle composition
+
+#### Scenario: Runtime tests are inspected
+- **WHEN** tests exercise worker or serve lifecycle behavior
+- **THEN** they SHALL use the library interface or a private internal seam
+- **AND** integration tests SHALL NOT recompile production source files through path-based module declarations

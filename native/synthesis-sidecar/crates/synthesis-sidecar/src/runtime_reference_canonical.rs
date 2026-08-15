@@ -29,9 +29,7 @@ use synthesis_repository::{
 
 use crate::runtime_deadline::bounded_timeout;
 use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
-use crate::runtime_public_maintenance_operation::{
-    checkpoint_before_promotion_in_repository, current_operation_id,
-};
+use crate::runtime_public_maintenance_operation::checkpoint_current_before_promotion_in_repository;
 
 const HOST_ARTIFACT_TYPES_PER_ITEM: usize = 4;
 use crate::runtime_host_collection::{
@@ -2157,14 +2155,7 @@ impl ReferenceCanonicalApplication {
     }
 
     fn promotion_checkpoint(&self) -> Result<(), String> {
-        let Some(operation_id) = current_operation_id() else {
-            return Ok(());
-        };
-        checkpoint_before_promotion_in_repository(
-            self.repository.as_ref(),
-            &operation_id,
-            &now_string(),
-        )
+        checkpoint_current_before_promotion_in_repository(self.repository.as_ref())
     }
 
     fn project_reference_index_rows(

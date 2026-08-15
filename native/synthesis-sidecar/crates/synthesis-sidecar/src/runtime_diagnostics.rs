@@ -1,9 +1,9 @@
+use crate::runtime_contract::current_time_ms;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use synthesis_sidecar::runtime_contract::current_time_ms;
 
 static DEBUG_EVENTS_ENABLED: AtomicBool = AtomicBool::new(false);
 static OBSERVATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);

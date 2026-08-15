@@ -57,11 +57,13 @@ Full-library and worker-backed mutations return
 `SynthesisPublicMaintenanceOperation` within the short control-plane
 deadline. The shared operation manifest separately persists an explicit work
 deadline for every such capability; the ten-second control bound never becomes
-the accepted worker's execution bound. Their operation-specific controllers publish bounded progress and
-exactly one success, failure, cancellation, or timeout terminal; callers poll
-the read-only operation API and use the control extension for cancel, continue,
-or retry. Reverse-Host calls keep their capability-specific bounds, including
-the larger hash-guarded artifact-read path.
+the accepted worker's execution bound. One public-maintenance lifecycle module
+owns admission, dispatch, progress, control, restart classification, and typed
+receipt projection for every such route. Each terminal compare-and-set winner
+publishes one success, failure, cancellation, or timeout event; callers poll the
+read-only operation API and use the control extension for cancel, continue, or
+retry. Reverse-Host calls keep their capability-specific bounds, including the
+larger hash-guarded artifact-read path.
 
 All normal Synthesis capabilities enter through the 96-operation native
 production manifest: 95 routes reconciled to the fixed 131-method baseline plus
@@ -187,7 +189,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.
-- Explicit startup runtime reconciliation cancels every persisted `running` operation as a restart orphan and records `synthesis_operation_stale_after_restart`; elapsed time during a live process is not a cancellation signal.
+- Explicit startup runtime reconciliation fails a public-maintenance `running` operation with `restart_external_effect_unknown`, changes public-maintenance `pending` work to `continuation_required`, and cancels other persisted `running` operations with `synthesis_operation_stale_after_restart`; elapsed time during a live process is not a cancellation signal and startup dispatches no work.
 - Workbench UI reads are surface-scoped: chrome/status, Index, Review, Graph, Tags, Concepts, and Topics are separate read models.
 - Normal startup must not reconcile the whole Zotero Library into Synthesis.
 - Long work must be user/debug-triggered, scoped, cancellable when practical, and visibly stale-tolerant.

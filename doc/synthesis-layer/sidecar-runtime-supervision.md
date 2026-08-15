@@ -33,13 +33,32 @@ identity cannot turn them into `runtime_mismatch`.
 
 ## Production ownership
 
+The Rust library owns the production process lifecycle through one blocking
+`serve(&Path)` operation. It validates the launch config, composes resources,
+binds transport, publishes readiness, runs until a terminal signal, performs
+bounded cleanup, and returns one typed terminal result. The executable's
+`main.rs` is only the `worker`/`serve --config` CLI adapter; request dispatch,
+transport, storage, and shutdown resources remain private library details.
+
 Rust opens `state/synthesis.lock` and holds an exclusive OS file lock for the
 entire process lifetime. A second process targeting the same production
 database fails before opening it. Releasing the process releases the lock, so
 there is no PID file, owner marker, lease timeout, or stale-owner recovery.
 
+Discovery publication is the readiness commit. Before that commit, an explicit
+startup owner rolls back every acquired resource and keeps the first startup
+failure as the terminal cause. A successful discovery write is the sole
+sidecar-side readiness fact; the listening line on stdout is diagnostic. The
+supervisor still verifies discovery, health, and handshake before publishing a
+client connection.
+
 Rust observes parent stdin. Parent-pipe EOF and authenticated `system.shutdown`
-both stop the service. Forced process termination is only a bounded fallback.
+both request the same stopping transition. The shutdown RPC receipt means the
+request was accepted and is flushed before that transition is published;
+process exit is the completion signal. Normal stop reasons coalesce. If a
+lifecycle failure is observed before the terminal result is formed, the first
+such failure becomes primary and later lifecycle or cleanup failures remain
+secondary evidence. Forced process termination is only a bounded fallback.
 
 ## Inbound HTTP ownership
 
@@ -67,7 +86,8 @@ listener, interrupts every active socket, stops work admission, and drains HTTP
 handlers and composition-owned background tasks within the native 500 ms
 budget. Transfer attempts and public maintenance controllers register their
 thread handles and cancellation flags with that composition owner; completed
-threads are reaped during listener polling. Shutdown closes background
+threads are reaped by the lifecycle owner while transport polling stays limited
+to listener, connection, and handler-thread work. Shutdown closes background
 admission, requests cancellation, and joins those tasks before deleting
 transfer staging or closing repository and canonical owners. If a task misses
 the deadline, shutdown reports the incomplete drain and leaves referenced
@@ -102,10 +122,13 @@ compute pool enters the same bounded fail/restart policy as other native health
 failures. Repository paths, canonical roots, credentials, and raw error text
 never enter this projection.
 
-Every detached public maintenance dispatch catches panic and attempts durable
-terminalization. If the first terminal write fails, it is retried once with a
-stable failure code. Promotion checkpoints enforce the persisted deadline, and
-startup reconciliation closes restart orphans; receipt reads remain pure.
+The public-maintenance lifecycle module owns durable admission, dispatch,
+running transition, terminalization, typed receipt projection, cancel/retry/
+continue control, and restart reconciliation. Every detached dispatch catches
+panic and attempts durable terminalization. If the first terminal write fails,
+it is retried once with a stable failure code. A post-commit spawn failure
+terminalizes that same operation. Promotion checkpoints enforce the persisted
+deadline, and receipt reads remain pure.
 Layout has a 120-second public work deadline, a 90-second direct worker phase,
 and a bounded client observation deadline beyond the public limit.
 
@@ -116,7 +139,9 @@ winner publishes `maintenance-started`, acquires a canonical-maintenance epoch,
 and spawns work. An identical request replay returns the stored pending,
 running, or terminal receipt without repeating Host effects. A different
 request ID is a distinct requested operation even when capability and arguments
-match.
+match. Retry creates an idempotent successor whose insert winner publishes its
+own started event. Continue dispatches the existing reconciled operation only
+when its compare-and-set transition wins and does not republish started.
 
 Repository open preserves operation lifecycle state for the explicit startup
 reconciler. That boundary traverses stable operation-ID pages rather than a
@@ -157,8 +182,9 @@ trace rows, selection, detail, and scroll remain mounted when their data does
 not change. An accepted public maintenance operation keeps its originating
 trace active after the command RPC returns. Accepted, running, and terminal
 events carry both capability and public operation ID; a failure terminal keeps
-the first stable raw code. Polling traces cannot evict the originating trace
-before that terminal.
+the first stable raw code. A terminal event on a later continuation trace
+unpins the originating trace by operation identity. Polling traces cannot evict
+the originating trace before that terminal.
 
 Worker stdout remains the only protocol channel. The parent captures at most the
 last 8 KiB of worker stderr for exit classification, maps identifiable Rust

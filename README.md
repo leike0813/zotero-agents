@@ -285,6 +285,8 @@ The Workbench is a full Workspace Tab in Zotero, containing 8 Surfaces:
 
 The Workbench includes built-in **WebDAV sync**, which can synchronize structured data such as tag vocabularies, topic synthesis, and concept knowledge bases to a remote server via the WebDAV protocol, enabling lightweight cross-device sync and backup.
 
+Library maintenance such as reference refresh, graph/index rebuilds, and WebDAV synchronization returns a durable Public Maintenance Operation. The sidecar owns its admission, execution, cancel/retry/continue controls, progress, and terminal receipt. After a restart, pending work requires explicit continuation and work that may already have crossed an external-effect boundary is reported as failed rather than replayed automatically.
+
 <table>
 <tr>
 <td width="50%"><img src="assets/home.png" alt="Synthesis Workbench Home" width="100%" /></td>

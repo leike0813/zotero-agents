@@ -1,17 +1,13 @@
-use crate::runtime_production_client::{
-    ProductionClientRouteEntry, ProductionClientSemanticSuccess, ProductionClientSpecialStep,
-};
+use crate::runtime_production_client::{ProductionClientRouteEntry, ProductionClientSpecialStep};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::webdav_sync::WebDavSyncState;
-use synthesis_repository::OperationRecord;
 
-use crate::runtime_diagnostics::{NativeDiagnosticEvent, emit_debug};
 use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_public_maintenance_operation::{
-    PUBLIC_MAINTENANCE_BASIS_KIND, PublicMaintenanceBasis, checkpoint_before_promotion,
-    control as control_operation, current_operation_id, encode_basis, reconcile_restart,
+    MaintenanceControlCommand, MaintenanceOperationView, checkpoint_current_before_promotion,
+    read as read_maintenance_operation, reconcile_restart,
 };
 
 /// The single public adapter for the WebDAV and maintenance operations.
@@ -49,7 +45,7 @@ pub(crate) const WEBDAV_MAINTENANCE_CLIENT_ROUTES: &[ProductionClientRouteEntry]
         "client.controlPublicMaintenanceOperation",
         control_public_maintenance,
     )
-    .with_special_step(ProductionClientSpecialStep::MaintenanceControlResume),
+    .with_special_step(ProductionClientSpecialStep::MaintenanceControl),
     ProductionClientRouteEntry::new(
         "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         reconcile_startup,
@@ -59,33 +55,45 @@ pub(crate) const WEBDAV_MAINTENANCE_CLIENT_ROUTES: &[ProductionClientRouteEntry]
 ];
 
 fn promotion_checkpoint(apps: &ProductionApplications) -> Result<(), String> {
-    let Some(operation_id) = current_operation_id() else {
-        return Ok(());
-    };
-    checkpoint_before_promotion(apps, &operation_id, &synthesis_protocol::utc_now_iso8601())
+    checkpoint_current_before_promotion(apps)
 }
 
 fn control_public_maintenance(
-    apps: &ProductionApplications,
+    _apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
     let request: MaintenanceControlWireRequest = one_request(args)?;
     request.validate()?;
-    let operation_id = request.operation_id.clone();
-    let canonical_args = vec![wire(request)?];
-    match control_operation(
-        apps,
-        &canonical_args,
-        &synthesis_protocol::utc_now_iso8601(),
-    ) {
-        Ok(row) => public_maintenance_operation_dto(&row),
-        Err(code) if code == "not_found" => Ok(json!({
-            "schema":"synthesis.maintenance_operation.v1",
-            "operation_id":operation_id,
-            "status":"not_found",
-        })),
-        Err(code) => Err(code),
-    }
+    wire(request)
+}
+
+pub(crate) fn public_maintenance_control_request(
+    args: &[Value],
+) -> Result<(MaintenanceControlCommand, String), String> {
+    let request: MaintenanceControlWireRequest = one_request(args)?;
+    request.validate()?;
+    let operation_id = request.operation_id.trim().to_owned();
+    let command = match request.action {
+        MaintenanceControlWireAction::Cancel => MaintenanceControlCommand::Cancel {
+            operation_id: operation_id.clone(),
+        },
+        MaintenanceControlWireAction::Continue => MaintenanceControlCommand::Continue {
+            operation_id: operation_id.clone(),
+        },
+        MaintenanceControlWireAction::Retry => MaintenanceControlCommand::Retry {
+            operation_id: operation_id.clone(),
+            retry_key: request.retry_key.expect("validated retry key"),
+        },
+    };
+    Ok((command, operation_id))
+}
+
+pub(crate) fn public_maintenance_not_found(operation_id: &str) -> Value {
+    json!({
+        "schema":"synthesis.maintenance_operation.v1",
+        "operation_id":operation_id,
+        "status":"not_found",
+    })
 }
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
@@ -150,11 +158,8 @@ fn resolve_conflict(apps: &ProductionApplications, args: &[Value]) -> Result<Val
 fn public_maintenance(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
     let request: MaintenanceReadWireRequest = one_request(args)?;
     let operation_id = request.validated_operation_id()?;
-    let row = apps
-        .repository
-        .with_reader(|repository| repository.get_operation(&operation_id))?;
-    match row.filter(|row| row.basis_kind == "public_maintenance_operation") {
-        Some(row) => public_maintenance_operation_dto(&row),
+    match read_maintenance_operation(apps, &operation_id)? {
+        Some(view) => public_maintenance_operation_dto(&view),
         None => Ok(json!({
             "schema":"synthesis.maintenance_operation.v1",
             "operation_id":operation_id,
@@ -163,350 +168,16 @@ fn public_maintenance(apps: &ProductionApplications, args: &[Value]) -> Result<V
     }
 }
 
-pub(crate) fn begin_public_maintenance_operation(
-    apps: &ProductionApplications,
-    operation_id: &str,
-    operation_type: &str,
-    args: &[Value],
-    source_hash: &str,
-    deadline_ms: u64,
-    now: &str,
-) -> Result<(OperationRecord, bool), String> {
-    let request = args.first().and_then(Value::as_object);
-    let paper_refs = request
-        .and_then(|value| value.get("paper_refs"))
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let scope_kind = if paper_refs.is_empty() {
-        "library"
-    } else {
-        "papers"
-    };
-    let row = OperationRecord {
-        operation_id: operation_id.into(),
-        operation_type: operation_type.into(),
-        library_id: apps.library_id(),
-        scope_kind: scope_kind.into(),
-        scope_ref: paper_refs.join(","),
-        status: "pending".into(),
-        label: operation_type.trim_start_matches("client.").into(),
-        phase: "accepted".into(),
-        phase_label: "Accepted".into(),
-        progress_mode: "indeterminate".into(),
-        total_count: paper_refs.len() as i64,
-        basis_kind: PUBLIC_MAINTENANCE_BASIS_KIND.into(),
-        basis_value: encode_basis(&PublicMaintenanceBasis {
-            capability: operation_type.into(),
-            args: args.to_vec(),
-            deadline_ms,
-            source_hash: source_hash.into(),
-            predecessor_operation_id: None,
-            retry_key: None,
-        })?,
-        source_hash: source_hash.into(),
-        diagnostics_json: "[]".into(),
-        created_at: now.into(),
-        updated_at: now.into(),
-        ..OperationRecord::default()
-    };
-    let (stored, inserted) = apps
-        .repository
-        .owner()
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?
-        .insert_operation_if_absent(&row)?;
-    if inserted {
-        emit_public_maintenance_event(&stored, "maintenance-started", "started", None);
-    }
-    Ok((stored, inserted))
-}
-
-pub(crate) fn mark_public_maintenance_running(
-    apps: &ProductionApplications,
-    operation_id: &str,
-    now: &str,
-) -> Result<(), String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    let mut row = repository
-        .get_operation(operation_id)?
-        .ok_or_else(|| "operation_receipt_missing".to_owned())?;
-    if matches!(
-        row.status.as_str(),
-        "completed" | "failed" | "canceled" | "timed_out"
-    ) || row.phase == "cancel_requested"
-    {
-        return Err("operation_canceled".into());
-    }
-    if row.status != "pending" {
-        return Err("operation_state_invalid".into());
-    }
-    let expected_phase = row.phase.clone();
-    row.status = "running".into();
-    row.phase = "running".into();
-    row.phase_label = "Running".into();
-    row.started_at = now.into();
-    row.updated_at = now.into();
-    let updated = repository.update_operation_if_current(&row, "pending", Some(&expected_phase))?;
-    match updated {
-        Some(current) if current.status == "running" => {
-            emit_public_maintenance_event(&current, "maintenance-running", "started", None);
-            Ok(())
-        }
-        Some(current) if matches!(current.status.as_str(), "canceled" | "timed_out") => {
-            Err("operation_canceled".into())
-        }
-        _ => Err("operation_state_invalid".into()),
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PublicMaintenanceTerminal {
-    Completed,
-    Failed(String),
-    Canceled(String),
-    TimedOut(String),
-}
-
-fn receipt_diagnostic_code(receipt: &Value) -> Option<String> {
-    [
-        receipt.get("diagnostics"),
-        receipt.get("warnings"),
-        receipt.pointer("/last_run/diagnostics"),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(Value::as_array)
-    .flatten()
-    .find_map(|entry| match entry {
-        Value::String(code) if !code.trim().is_empty() => Some(code.trim().to_owned()),
-        Value::Object(row) => row
-            .get("code")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|code| !code.is_empty())
-            .map(str::to_owned),
-        _ => None,
-    })
-}
-
-fn classify_failure_code(code: String) -> PublicMaintenanceTerminal {
-    match code.as_str() {
-        "operation_canceled" | "worker_canceled" | "stopping" => {
-            PublicMaintenanceTerminal::Canceled(code)
-        }
-        value if value.ends_with("_timeout") || value == "timeout" => {
-            PublicMaintenanceTerminal::TimedOut(code)
-        }
-        _ => PublicMaintenanceTerminal::Failed(code),
-    }
-}
-
-fn classify_public_maintenance_terminal(
-    outcome: Result<&Value, &str>,
-    semantic_success: Option<&ProductionClientSemanticSuccess>,
-) -> PublicMaintenanceTerminal {
-    let receipt = match outcome {
-        Ok(receipt) => receipt,
-        Err(code) => return classify_failure_code(code.to_owned()),
-    };
-    let declared_status = semantic_success.and_then(|rule| {
-        receipt
-            .get(&rule.field)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| (rule, value))
-    });
-    if receipt.get("ok").and_then(Value::as_bool) != Some(false)
-        && declared_status
-            .as_ref()
-            .is_some_and(|(rule, value)| rule.values.iter().any(|allowed| allowed == value))
-    {
-        return PublicMaintenanceTerminal::Completed;
-    }
-    let code = receipt_diagnostic_code(receipt)
-        .or_else(|| declared_status.map(|(_, value)| value.to_owned()))
-        .or_else(|| {
-            receipt
-                .get("status")
-                .or_else(|| receipt.get("queue_state"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "semantic_non_success".to_owned());
-    classify_failure_code(code)
-}
-
-fn emit_public_maintenance_event(
-    row: &OperationRecord,
-    phase: &'static str,
-    outcome: &'static str,
-    code: Option<&str>,
-) {
-    emit_debug(|| {
-        let event = NativeDiagnosticEvent::new("operation", phase, outcome)
-            .capability(&row.operation_type)
-            .operation_id(&row.operation_id)
-            .mutation_status(&row.status);
-        match code {
-            Some(code) => event.code(code),
-            None => event,
-        }
-    });
-}
-
-pub(crate) fn observe_public_maintenance_accepted(
-    apps: &ProductionApplications,
-    operation_id: &str,
-) -> Result<(), String> {
-    let row = apps
-        .repository
-        .with_reader(|repository| repository.get_operation(operation_id))?
-        .ok_or_else(|| "operation_receipt_missing".to_owned())?;
-    emit_public_maintenance_event(&row, "maintenance-started", "started", None);
-    Ok(())
-}
-
-pub(crate) fn finish_public_maintenance_operation(
-    apps: &ProductionApplications,
-    operation_id: &str,
-    outcome: Result<&Value, &str>,
-    semantic_success: Option<&ProductionClientSemanticSuccess>,
-    now: &str,
-) -> Result<(), String> {
-    let owner = apps.repository.owner();
-    let repository = owner
-        .lock()
-        .map_err(|_| "repository_unavailable".to_owned())?;
-    let mut row = repository
-        .get_operation(operation_id)?
-        .ok_or_else(|| "operation_receipt_missing".to_owned())?;
-    if matches!(
-        row.status.as_str(),
-        "completed" | "failed" | "canceled" | "timed_out"
-    ) {
-        return Ok(());
-    }
-    let terminal = classify_public_maintenance_terminal(outcome, semantic_success);
-    match &terminal {
-        PublicMaintenanceTerminal::Completed => {
-            row.status = "completed".into();
-            row.phase = "completed".into();
-            row.phase_label = "Completed".into();
-            let receipt = outcome.expect("completed outcome has receipt");
-            row.processed_count = receipt
-                .get("processed_paper_refs")
-                .and_then(Value::as_array)
-                .map(|values| values.len() as i64)
-                .unwrap_or(1);
-            row.total_count = row.total_count.max(row.processed_count);
-            row.diagnostics_json = serde_json::to_string(&vec![json!({
-                "code":"public_maintenance_receipt",
-                "receipt":receipt,
-            })])
-            .map_err(|_| "serialization_failed")?;
-        }
-        PublicMaintenanceTerminal::Failed(_)
-        | PublicMaintenanceTerminal::Canceled(_)
-        | PublicMaintenanceTerminal::TimedOut(_) => {
-            let (status, label) = match terminal {
-                PublicMaintenanceTerminal::Failed(_) => ("failed", "Failed"),
-                PublicMaintenanceTerminal::Canceled(_) => ("canceled", "Canceled"),
-                PublicMaintenanceTerminal::TimedOut(_) => ("timed_out", "Timed out"),
-                PublicMaintenanceTerminal::Completed => unreachable!(),
-            };
-            row.status = status.into();
-            row.phase = status.into();
-            row.phase_label = label.into();
-            row.failed_count = row.total_count.max(1);
-            let receipt = match outcome {
-                Ok(receipt) => receipt.clone(),
-                Err(code) => json!({
-                    "schema":"synthesis.maintenance_receipt.v1",
-                    "outcome":"failed",
-                    "state_changed":false,
-                    "retryable":true,
-                    "diagnostics":[{"code":code,"severity":"error"}],
-                }),
-            };
-            row.diagnostics_json = serde_json::to_string(&vec![json!({
-                "code":"public_maintenance_receipt",
-                "receipt":receipt,
-            })])
-            .map_err(|_| "serialization_failed")?;
-        }
-    }
-    row.completed_at = now.into();
-    row.updated_at = now.into();
-    let completed = repository.finish_operation_if_nonterminal(&row)?;
-    drop(repository);
-    let (event_outcome, code) = match terminal {
-        PublicMaintenanceTerminal::Completed => ("succeeded", None),
-        PublicMaintenanceTerminal::Failed(code) => ("failed", Some(code)),
-        PublicMaintenanceTerminal::Canceled(code) => ("canceled", Some(code)),
-        PublicMaintenanceTerminal::TimedOut(code) => ("timed-out", Some(code)),
-    };
-    emit_public_maintenance_event(
-        &completed,
-        "maintenance-terminal",
-        event_outcome,
-        code.as_deref(),
-    );
-    Ok(())
-}
-
-pub(crate) fn public_maintenance_operation_dto(row: &OperationRecord) -> Result<Value, String> {
-    let receipt = serde_json::from_str::<Value>(&row.diagnostics_json)
-        .ok()
-        .and_then(|value| value.as_array().cloned())
-        .and_then(|entries| {
-            entries.into_iter().find_map(|entry| {
-                (entry.get("code").and_then(Value::as_str) == Some("public_maintenance_receipt"))
-                    .then(|| entry.get("receipt").cloned())
-                    .flatten()
-            })
-        });
-    let mut dto = json!({
-        "schema":"synthesis.maintenance_operation.v1",
-        "operation_id":row.operation_id,
-        "operation_type":row.operation_type,
-        "library_id":row.library_id,
-        "scope":{
-            "kind":row.scope_kind,
-            "paper_refs":if row.scope_kind == "papers" {
-                row.scope_ref.split(',').filter(|value|!value.is_empty()).collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            },
-        },
-        "status":row.status,
-        "phase":row.phase,
-        "phase_label":row.phase_label,
-        "message":row.message,
-        "progress_mode":row.progress_mode,
-        "processed_count":row.processed_count,
-        "skipped_count":row.skipped_count,
-        "failed_count":row.failed_count,
-        "total_count":row.total_count,
-        "created_at":row.created_at,
-        "started_at":row.started_at,
-        "completed_at":row.completed_at,
-        "updated_at":row.updated_at,
-    });
-    if let Some(receipt) = receipt {
-        dto["receipt"] = receipt;
-    }
+pub(crate) fn public_maintenance_operation_dto(
+    view: &MaintenanceOperationView,
+) -> Result<Value, String> {
+    let mut dto = serde_json::to_value(view).map_err(|_| "production_projection_invalid")?;
+    dto.as_object_mut()
+        .ok_or_else(|| "production_projection_invalid".to_owned())?
+        .insert(
+            "schema".into(),
+            Value::String("synthesis.maintenance_operation.v1".into()),
+        );
     Ok(dto)
 }
 
@@ -636,31 +307,28 @@ mod tests {
     }
 
     #[test]
-    fn classifies_manifest_owned_maintenance_terminals_without_false_completion() {
-        let status_rule = ProductionClientSemanticSuccess {
-            field: "status".into(),
-            values: vec!["promoted".into(), "unchanged".into()],
-        };
+    fn translates_strict_control_wire_requests_into_typed_commands() {
+        let (command, operation_id) = public_maintenance_control_request(&[json!({
+            "action":"retry",
+            "operation_id":"maintenance:one",
+            "retry_key":"retry-1",
+        })])
+        .expect("typed retry");
+        assert_eq!(operation_id, "maintenance:one");
         assert_eq!(
-            classify_public_maintenance_terminal(
-                Ok(&json!({"status":"promoted"})),
-                Some(&status_rule),
-            ),
-            PublicMaintenanceTerminal::Completed
+            command,
+            MaintenanceControlCommand::Retry {
+                operation_id: "maintenance:one".into(),
+                retry_key: "retry-1".into(),
+            }
         );
         assert_eq!(
-            classify_public_maintenance_terminal(
-                Ok(&json!({
-                    "status":"worker_failed",
-                    "warnings":["worker_timeout"],
-                })),
-                Some(&status_rule),
-            ),
-            PublicMaintenanceTerminal::TimedOut("worker_timeout".into())
-        );
-        assert_eq!(
-            classify_public_maintenance_terminal(Err("operation_timeout"), Some(&status_rule),),
-            PublicMaintenanceTerminal::TimedOut("operation_timeout".into())
+            public_maintenance_control_request(&[json!({
+                "action":"continue",
+                "operationId":"maintenance:one",
+            })])
+            .unwrap_err(),
+            "invalid_request"
         );
     }
 }

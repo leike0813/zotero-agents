@@ -235,10 +235,7 @@ export function checkSynthesisDurableFoundationParity(
         sourceFingerprint: sourceFingerprint(root, [
           "native/synthesis-sidecar/Cargo.toml",
           "native/synthesis-sidecar/Cargo.lock",
-          "native/synthesis-sidecar/crates/synthesis-repository",
-          "native/synthesis-sidecar/crates/synthesis-canonical-store",
-          "native/synthesis-sidecar/crates/synthesis-application",
-          "native/synthesis-sidecar/crates/synthesis-sidecar/src/main.rs",
+          "native/synthesis-sidecar/crates",
           path.relative(root, CORPUS_PATH),
         ]),
       },
