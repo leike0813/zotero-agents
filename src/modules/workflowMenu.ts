@@ -12,7 +12,7 @@ import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import type { LoadedWorkflow } from "../workflows/types";
-import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import {
   compareWorkflowDisplayOrder,
   isCoreWorkflow,

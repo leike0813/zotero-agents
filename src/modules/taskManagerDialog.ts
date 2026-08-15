@@ -67,7 +67,7 @@ import {
   type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
 import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
-import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
   isWorkflowSettingsStructuralRefreshChange,

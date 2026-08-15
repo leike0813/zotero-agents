@@ -29,7 +29,7 @@ import {
   syncWorkflowTaskFromSkillRunnerProjection,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import { openRunResultBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";

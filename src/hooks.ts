@@ -1369,10 +1369,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           ? Math.floor(data.limit)
           : 12;
       const limit = Math.max(1, Math.min(50, limitRaw));
-      const [activeTasks, acpSkillRuns, filter, displayName] =
+      const [activeTasks, acpSkillRunStore, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
-          import("./modules/acpSkillRunDashboardFacade"),
+          import("./modules/acpSkillRunStore"),
           import("./modules/dashboardActiveTasks"),
           import("./backends/displayName"),
         ]);
@@ -1387,7 +1387,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return filter
         .projectDashboardActiveTasks({
           activeTasks: activeTasks.listActiveWorkflowTaskSummaries({ limit }),
-          acpSkillRuns: acpSkillRuns.listAcpSkillRunSummaries({
+          acpSkillRuns: acpSkillRunStore.listAcpSkillRunSummaries({
             activeOnly: true,
             limit,
           }),

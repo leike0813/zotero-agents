@@ -29,7 +29,7 @@ import {
   hasRecoverableSkillRunnerRequest,
 } from "../skillRunnerRecoverableState";
 import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
-import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
 import { sequenceTerminalStepOwnsApply } from "./sequenceRuntime";

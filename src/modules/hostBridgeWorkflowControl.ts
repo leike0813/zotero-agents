@@ -20,7 +20,7 @@ import {
   replyAcpSkillRun,
   type AcpSkillRunSummary,
 } from "./acpSkillRunStore";
-import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import {
   getHostBridgeApprovalRequirement,
   requestHostBridgePermissionForRequirement,
