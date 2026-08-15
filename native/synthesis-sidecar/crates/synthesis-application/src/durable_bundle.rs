@@ -5,7 +5,9 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use synthesis_canonical_store::{ImportBatchRecoveryOutcome, Promotion, canonical_json_hash};
+use synthesis_canonical_store::{
+    ImportBatchRecoveryOutcome, PreparedCanonicalPromotion, canonical_json_hash,
+};
 use synthesis_repository::{
     DurableDraft, DurableImportApply, DurableImportCapture, DurableSyncFact, DurableTopicBasis,
 };
@@ -219,7 +221,7 @@ pub(crate) struct DurableCanonicalCapture {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DurableCanonicalPreparation {
-    pub promotions: Vec<Promotion>,
+    pub promotions: Vec<PreparedCanonicalPromotion>,
     pub targets: Vec<DurableTopicBasis>,
 }
 

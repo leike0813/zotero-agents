@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use synthesis_canonical_store::{
-    CanonicalIdentity, CanonicalStore, Promotion, TopicSnapshot, canonical_json_hash,
+    CanonicalIdentity, CanonicalStore, CanonicalTopicDraft, PreparedCanonicalPromotion,
+    prepare_topic,
 };
 use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
 use synthesis_sidecar::{ServePhase, serve};
@@ -199,27 +200,34 @@ fn canonical_identity() -> CanonicalIdentity {
     }
 }
 
-fn pending_import_snapshot() -> TopicSnapshot {
+fn pending_import_topic() -> (PreparedCanonicalPromotion, DurableTopicBasis) {
     let sections = BTreeMap::from([("summary".into(), json!({"text":"recovered"}))]);
     let artifact = json!({"schema":"topic.artifact.v1","title":"Recovered"});
     let metadata = json!({"updatedAt":"2026-08-15T00:00:00.000Z"});
-    TopicSnapshot {
+    let prepared = prepare_topic(CanonicalTopicDraft {
         topic_id: "topic:startup-recovery".into(),
-        path_id: "topic-startup-recovery".into(),
         manifest: json!({
             "schema":"topic.manifest.v1",
             "sections":{"summary":{"path":"summary.json"}},
-            "artifact_hash":canonical_json_hash(&artifact).expect("artifact hash"),
-            "metadata_hash":canonical_json_hash(&metadata).expect("metadata hash"),
-            "section_hashes":{
-                "summary":canonical_json_hash(&sections["summary"]).expect("section hash")
-            }
         }),
         artifact,
         metadata,
         sections,
         markdown: BTreeMap::from([("synthesis.md".into(), "# Recovered\n".into())]),
-    }
+    })
+    .expect("prepare canonical topic");
+    let topic = prepared.view();
+    let target = DurableTopicBasis {
+        topic_id: topic.topic_id,
+        path_id: topic.path_id,
+        manifest_hash: topic.basis.manifest_hash,
+        artifact_hash: topic.basis.artifact_hash,
+        metadata_hash: topic.metadata_hash,
+        bundle_hash: prepared
+            .representation_hash()
+            .expect("canonical representation hash"),
+    };
+    (prepared.for_promotion(None), target)
 }
 
 fn prepare_import_crash_window(
@@ -230,17 +238,8 @@ fn prepare_import_crash_window(
 ) {
     let database_path = root.join("state/synthesis.db");
     let canonical_root = root.join("data/synthesis");
-    let snapshot = pending_import_snapshot();
+    let (promotion, target) = pending_import_topic();
     let manifest_hash = "a".repeat(64);
-    let target = DurableTopicBasis {
-        topic_id: snapshot.topic_id.clone(),
-        path_id: snapshot.path_id.clone(),
-        manifest_hash: canonical_json_hash(&snapshot.manifest).expect("manifest hash"),
-        artifact_hash: canonical_json_hash(&snapshot.artifact).expect("artifact hash"),
-        metadata_hash: canonical_json_hash(&snapshot.metadata).expect("metadata hash"),
-        bundle_hash: canonical_json_hash(&serde_json::to_value(&snapshot).expect("snapshot value"))
-            .expect("bundle hash"),
-    };
     let mut repository = Repository::initialize_production(&database_path, repository_identity())
         .expect("initialize repository");
     let capture = repository
@@ -267,14 +266,10 @@ fn prepare_import_crash_window(
         CanonicalStore::initialize_production(&canonical_root, canonical_identity())
             .expect("initialize canonical store");
     canonical
-        .stage_import_batch(
+        .stage_prepared_import_batch(
             canonical_receipt_id.into(),
             manifest_hash.clone(),
-            vec![Promotion {
-                transaction_id: "transaction:startup-recovery".into(),
-                expected_basis: None,
-                snapshot,
-            }],
+            vec![promotion],
         )
         .expect("stage canonical import");
     if promote_canonical {

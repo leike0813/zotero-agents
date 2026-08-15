@@ -5,10 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-parity-harness = []
+parity-harness = ["synthesis-canonical-store/parity-harness"]
 
 [[example]]
 name = "checkpoint_bundle_webdav_debug_application_parity"
+required-features = ["parity-harness"]
+
+[[example]]
+name = "typed_application_parity"
 required-features = ["parity-harness"]
 
 [dependencies]

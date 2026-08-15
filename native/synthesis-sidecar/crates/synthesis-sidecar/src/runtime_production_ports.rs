@@ -2246,7 +2246,7 @@ impl synthesis_application::StructuredArtifactPort for NativeStructuredArtifactP
 
     fn apply_section_patch(
         &self,
-        current: &synthesis_canonical_store::TopicSnapshot,
+        current: &synthesis_canonical_store::CanonicalTopicView,
         patch_manifest: &Value,
         changed_sections: &std::collections::BTreeMap<String, Value>,
     ) -> Result<synthesis_application::PatchOutput, String> {

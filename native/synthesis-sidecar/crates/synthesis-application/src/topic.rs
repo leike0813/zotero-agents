@@ -26,9 +26,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(test)]
+use synthesis_canonical_store::CanonicalTopicView;
 use synthesis_canonical_store::{
-    CurrentTopic, LegacyCanonicalTopic, Promotion, TopicSnapshot, canonical_json_hash,
-    canonical_topic_path_id,
+    CanonicalTopicDraft, CanonicalTopicState, LegacyCanonicalTopic, canonical_json_hash,
+    canonical_topic_path_id, prepare_topic,
 };
 use synthesis_protocol::canonical_json;
 use synthesis_repository::{
@@ -123,7 +125,7 @@ pub fn project_legacy_canonical_topic(
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if definition_id != topic_id || canonical_topic_path_id(&topic_id)? != snapshot.path_id {
+    if definition_id != topic_id {
         return Err("canonical_legacy_topic_sources_mismatch".into());
     }
     let metadata = snapshot
@@ -174,18 +176,8 @@ pub fn project_legacy_canonical_topic(
         .filter(|value| !value.trim().is_empty())
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    let artifact_hash = snapshot
-        .manifest
-        .get("artifact_hash")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?
-        .to_owned();
-    let metadata_hash = snapshot
-        .manifest
-        .get("metadata_hash")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "canonical_legacy_topic_sources_invalid".to_owned())?
-        .to_owned();
+    let artifact_hash = snapshot.basis.artifact_hash.clone();
+    let metadata_hash = snapshot.metadata_hash.clone();
     let topic_resolver = normalize_legacy_topic_resolver(&legacy.topic_resolver)?;
     let state = TopicApplicationStateRecord {
         topic_id: topic_id.clone(),
@@ -204,7 +196,7 @@ pub fn project_legacy_canonical_topic(
             .and_then(Value::as_str)
             .unwrap_or("create")
             .to_owned(),
-        manifest_hash: canonical_json_hash(&snapshot.manifest)?,
+        manifest_hash: snapshot.basis.manifest_hash.clone(),
         artifact_hash: artifact_hash.clone(),
         metadata_hash,
         bundle_hash: metadata
@@ -307,7 +299,6 @@ pub struct TopicApplication {
     engine: Arc<dyn StructuredArtifactPort>,
     now: Clock,
     operation_id: TextFactory,
-    transaction_id: TextFactory,
     topic_graph: Option<Arc<TopicGraphApplication>>,
     concept_kb: Option<Arc<ConceptKbApplication>>,
     accepting: AtomicBool,
@@ -334,7 +325,6 @@ impl TopicApplication {
     ) -> Self {
         let sequence = Arc::new(AtomicU64::new(0));
         let operation_sequence = Arc::clone(&sequence);
-        let transaction_sequence = Arc::clone(&sequence);
         Self::with_factories(
             repository,
             canonical,
@@ -347,13 +337,6 @@ impl TopicApplication {
                     operation_sequence.fetch_add(1, Ordering::Relaxed)
                 )
             }),
-            Arc::new(move |topic_id| {
-                format!(
-                    "topic-transaction-{}-{}",
-                    canonical_topic_path_id(topic_id).unwrap_or_else(|_| "invalid".into()),
-                    transaction_sequence.fetch_add(1, Ordering::Relaxed)
-                )
-            }),
         )
     }
 
@@ -363,7 +346,6 @@ impl TopicApplication {
         engine: Arc<dyn StructuredArtifactPort>,
         now: Clock,
         operation_id: TextFactory,
-        transaction_id: TextFactory,
     ) -> Self {
         Self {
             repository,
@@ -371,7 +353,6 @@ impl TopicApplication {
             engine,
             now,
             operation_id,
-            transaction_id,
             topic_graph: None,
             concept_kb: None,
             accepting: AtomicBool::new(true),
@@ -451,17 +432,22 @@ impl TopicApplication {
     pub fn detail(&self, request: TopicDetailRequest) -> Result<TopicDetailResult, String> {
         validate_topic_id(&request.topic_id)?;
         let state = self.repository.get_state(&request.topic_id)?;
-        let current = self.canonical.read_current(&request.topic_id)?;
+        let current = self
+            .canonical
+            .read_topic(&request.topic_id)
+            .map_err(|error| error.code().to_owned())?;
         match (state, current) {
-            (None, _) | (_, CurrentTopic::Absent { .. }) => Ok(TopicDetailResult::Absent {
+            (None, _) | (_, CanonicalTopicState::Absent { .. }) => Ok(TopicDetailResult::Absent {
                 topic_id: request.topic_id,
                 diagnostics: Vec::new(),
             }),
-            (_, CurrentTopic::Invalid { diagnostics, .. }) => Ok(TopicDetailResult::Invalid {
-                topic_id: request.topic_id,
-                diagnostics,
-            }),
-            (Some(state), CurrentTopic::Ready { snapshot, .. }) => {
+            (_, CanonicalTopicState::Invalid { diagnostics, .. }) => {
+                Ok(TopicDetailResult::Invalid {
+                    topic_id: request.topic_id,
+                    diagnostics,
+                })
+            }
+            (Some(state), CanonicalTopicState::Ready(snapshot)) => {
                 let projection = self.repository.get_projection(&request.topic_id)?;
                 let paper_refs = serde_json::from_str::<Value>(&state.resolved_paper_set_json)
                     .ok()
@@ -945,7 +931,8 @@ impl TopicApplication {
         let deleted_path_id = deleted_path_id(&request.topic_id, &deleted_at)?;
         if !self
             .canonical
-            .archive_current(&request.topic_id, &deleted_path_id)?
+            .archive_current(&request.topic_id, &deleted_path_id)
+            .map_err(|error| error.code().to_owned())?
         {
             return Err("topic_current_missing".into());
         }
@@ -1000,7 +987,9 @@ impl TopicApplication {
             }
         }
         for record in &records {
-            self.canonical.purge_deleted(&record.deleted_path_id)?;
+            self.canonical
+                .purge_deleted(&record.deleted_path_id)
+                .map_err(|error| error.code().to_owned())?;
         }
         let purged_count = self.repository.purge_deleted(&records)?;
         let mut warnings = Vec::new();
@@ -1129,14 +1118,14 @@ impl TopicApplication {
     }
 
     fn apply_after_receipt(&self, parsed: &ParsedApply, operation_id: &str) -> TopicApplyResult {
-        let current = match self.canonical.read_current(&parsed.topic_id) {
+        let current = match self.canonical.read_topic(&parsed.topic_id) {
             Ok(current) => current,
             Err(error) => {
-                return failed_from_error(error, &parsed.topic_id, operation_id);
+                return failed_from_error(error.code().to_owned(), &parsed.topic_id, operation_id);
             }
         };
         match (&parsed.operation, &current) {
-            (TopicOperation::Create, CurrentTopic::Absent { .. }) => {}
+            (TopicOperation::Create, CanonicalTopicState::Absent { .. }) => {}
             (TopicOperation::Create, _) => {
                 return TopicApplyResult::failed(
                     TopicApplyStatus::TopicExists,
@@ -1144,14 +1133,14 @@ impl TopicApplication {
                     operation_id.into(),
                 );
             }
-            (_, CurrentTopic::Absent { .. }) => {
+            (_, CanonicalTopicState::Absent { .. }) => {
                 return TopicApplyResult::failed(
                     TopicApplyStatus::TopicMissing,
                     parsed.topic_id.clone(),
                     operation_id.into(),
                 );
             }
-            (_, CurrentTopic::Invalid { .. }) => {
+            (_, CanonicalTopicState::Invalid { .. }) => {
                 return TopicApplyResult::failed(
                     TopicApplyStatus::RepairRequired,
                     parsed.topic_id.clone(),
@@ -1161,10 +1150,9 @@ impl TopicApplication {
             _ => {}
         }
         let current_hashes = match &current {
-            CurrentTopic::Ready { snapshot, basis } => Some((
-                basis.clone(),
-                canonical_json_hash(&snapshot.metadata).unwrap_or_default(),
-            )),
+            CanonicalTopicState::Ready(snapshot) => {
+                Some((snapshot.basis.clone(), snapshot.metadata_hash.clone()))
+            }
             _ => None,
         };
         if parsed.operation == TopicOperation::UpdateFull {
@@ -1228,7 +1216,7 @@ impl TopicApplication {
         };
         let timestamp = (self.now)();
         let created_at = match &current {
-            CurrentTopic::Ready { snapshot, .. } => snapshot.metadata["created_at"]
+            CanonicalTopicState::Ready(snapshot) => snapshot.metadata["created_at"]
                 .as_str()
                 .filter(|value| !value.is_empty())
                 .unwrap_or(&timestamp)
@@ -1249,43 +1237,23 @@ impl TopicApplication {
                 "artifact_metadata":parsed.artifact_metadata,
             }
         });
-        let artifact_hash = match canonical_json_hash(&candidate.artifact) {
-            Ok(hash) => hash,
-            Err(error) => return failed_from_error(error, &parsed.topic_id, operation_id),
-        };
-        let metadata_hash = match canonical_json_hash(&metadata) {
-            Ok(hash) => hash,
-            Err(error) => return failed_from_error(error, &parsed.topic_id, operation_id),
-        };
-        let section_hashes = candidate
-            .sections
-            .iter()
-            .map(|(name, value)| canonical_json_hash(value).map(|hash| (name.clone(), hash)))
-            .collect::<Result<BTreeMap<_, _>, _>>();
-        let section_hashes = match section_hashes {
-            Ok(hashes) => hashes,
-            Err(error) => return failed_from_error(error, &parsed.topic_id, operation_id),
-        };
-        let mut manifest = candidate.manifest.as_object().cloned().unwrap_or_default();
-        manifest.insert("artifact_hash".into(), json!(artifact_hash));
-        manifest.insert("metadata_hash".into(), json!(metadata_hash));
-        manifest.insert("section_hashes".into(), json!(section_hashes));
-        let snapshot = TopicSnapshot {
+        let prepared = match prepare_topic(CanonicalTopicDraft {
             topic_id: parsed.topic_id.clone(),
-            path_id: match canonical_topic_path_id(&parsed.topic_id) {
-                Ok(path) => path,
-                Err(error) => return failed_from_error(error, &parsed.topic_id, operation_id),
-            },
-            manifest: Value::Object(manifest),
+            manifest: candidate.manifest,
             artifact: candidate.artifact,
             metadata,
             sections: candidate.sections,
             markdown: BTreeMap::new(),
+        }) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return failed_from_error(error.code().to_owned(), &parsed.topic_id, operation_id);
+            }
         };
-        let manifest_hash = match canonical_json_hash(&snapshot.manifest) {
-            Ok(hash) => hash,
-            Err(error) => return failed_from_error(error, &parsed.topic_id, operation_id),
-        };
+        let snapshot = prepared.view();
+        let manifest_hash = snapshot.basis.manifest_hash.clone();
+        let artifact_hash = snapshot.basis.artifact_hash.clone();
+        let metadata_hash = snapshot.metadata_hash.clone();
         let _ = self.repository.update_operation(
             operation_id,
             "running",
@@ -1294,15 +1262,14 @@ impl TopicApplication {
             &(self.now)(),
         );
         let expected_basis = match &current {
-            CurrentTopic::Ready { basis, .. } => Some(basis.clone()),
+            CanonicalTopicState::Ready(snapshot) => Some(snapshot.basis.clone()),
             _ => None,
         };
-        if let Err(error) = self.canonical.promote(Promotion {
-            transaction_id: (self.transaction_id)(&parsed.topic_id),
-            expected_basis,
-            snapshot: snapshot.clone(),
-        }) {
-            return failed_from_error(error, &parsed.topic_id, operation_id);
+        if let Err(error) = self
+            .canonical
+            .promote(prepared.for_promotion(expected_basis))
+        {
+            return failed_from_error(error.code().to_owned(), &parsed.topic_id, operation_id);
         }
         let mut warnings = Vec::new();
         let _ = self.repository.update_operation(
@@ -1531,10 +1498,10 @@ impl TopicApplication {
     fn build_candidate(
         &self,
         parsed: &ParsedApply,
-        current: &CurrentTopic,
+        current: &CanonicalTopicState,
     ) -> Result<Candidate, CandidateError> {
         if parsed.operation == TopicOperation::UpdatePatch {
-            let CurrentTopic::Ready { snapshot, .. } = current else {
+            let CanonicalTopicState::Ready(snapshot) = current else {
                 return Err(CandidateError::Code("topic_missing".into()));
             };
             let changed = read_manifest_sections(
@@ -2761,7 +2728,7 @@ mod tests {
 
         fn apply_section_patch(
             &self,
-            current: &TopicSnapshot,
+            current: &CanonicalTopicView,
             _patch_manifest: &Value,
             changed_sections: &BTreeMap<String, Value>,
         ) -> Result<PatchOutput, String> {
@@ -2814,7 +2781,6 @@ mod tests {
         let (repository, canonical) = owners(root);
         let sequence = Arc::new(AtomicU64::new(0));
         let operation_sequence = Arc::clone(&sequence);
-        let transaction_sequence = Arc::clone(&sequence);
         TopicApplication::with_factories(
             Arc::new(repository),
             Arc::new(canonical),
@@ -2824,12 +2790,6 @@ mod tests {
                 format!(
                     "operation:{topic}:{}",
                     operation_sequence.fetch_add(1, Ordering::Relaxed)
-                )
-            }),
-            Arc::new(move |topic| {
-                format!(
-                    "transaction:{topic}:{}",
-                    transaction_sequence.fetch_add(1, Ordering::Relaxed)
                 )
             }),
         )
@@ -2991,7 +2951,6 @@ mod tests {
             Arc::new(FixtureEngine),
             Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
             Arc::new(|topic| format!("operation:{topic}")),
-            Arc::new(|topic| format!("transaction:{topic}")),
         )
         .with_topic_graph(Arc::clone(&graph));
 
@@ -3033,7 +2992,6 @@ mod tests {
             Arc::new(FixtureEngine),
             Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
             Arc::new(|topic| format!("operation:{topic}")),
-            Arc::new(|topic| format!("transaction:{topic}")),
         )
         .with_topic_graph(Arc::clone(&graph));
         assert!(application.apply(request("topic-parent", "create")).ok);
@@ -3184,7 +3142,6 @@ mod tests {
             Arc::new(FixtureEngine),
             Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
             Arc::new(|topic| format!("operation:{topic}")),
-            Arc::new(|topic| format!("transaction:{topic}")),
         );
         assert!(rollback.apply(request("topic-alpha", "create")).ok);
         repository
@@ -3205,8 +3162,8 @@ mod tests {
                 .is_err()
         );
         assert!(matches!(
-            canonical.read_current("topic-alpha").expect("restored"),
-            CurrentTopic::Ready { .. }
+            canonical.read_topic("topic-alpha").expect("restored"),
+            CanonicalTopicState::Ready(_)
         ));
         assert!(repository.get_state("topic-alpha").unwrap().is_some());
         assert!(repository.get_deleted("topic-alpha").unwrap().is_none());
@@ -3248,7 +3205,6 @@ mod tests {
             Arc::new(FixtureEngine),
             Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
             Arc::new(|topic| format!("operation:{topic}")),
-            Arc::new(|topic| format!("transaction:{topic}")),
         )
         .with_topic_graph(graph);
         assert!(warning.apply(request("topic-alpha", "create")).ok);
@@ -3271,8 +3227,8 @@ mod tests {
         assert!(repository.get_state("topic-alpha").unwrap().is_none());
         assert!(repository.get_deleted("topic-alpha").unwrap().is_some());
         assert!(matches!(
-            canonical.read_current("topic-alpha").expect("absent"),
-            CurrentTopic::Absent { .. }
+            canonical.read_topic("topic-alpha").expect("absent"),
+            CanonicalTopicState::Absent { .. }
         ));
         drop(warning);
         fs::remove_dir_all(warning_root).expect("cleanup warning");
@@ -3294,7 +3250,6 @@ mod tests {
             Arc::new(FixtureEngine),
             Arc::new(|| "2026-07-26T12:00:00.000Z".into()),
             Arc::new(|topic| format!("operation:{topic}")),
-            Arc::new(|topic| format!("transaction:{topic}")),
         );
         assert!(application.apply(request("topic-alpha", "create")).ok);
         repository.list_states.store(0, Ordering::Relaxed);

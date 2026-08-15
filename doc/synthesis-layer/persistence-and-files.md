@@ -162,9 +162,14 @@ queue and recovery state is written atomically beside `synthesis.db` as
 the file-store commit and recovery protocol.
 
 The production Topic canonical store uses the opaque profile/data-root identity
-and never accepts a caller-supplied canonical path. Complete snapshots are
-canonicalized and fsynced in staging before basis-guarded promotion; journal and
-receipt recovery never scans unrelated Topic content. Rust owns
+and never accepts a caller-supplied canonical path. It is also the sole owner of
+the persisted Topic representation: local application drafts and imported
+transport-neutral assets are validated into opaque prepared values, with path,
+declared hashes, section filenames, bounds, and transaction identity derived
+inside the store. Typed views expose domain content and bases without exposing
+the writable snapshot. Complete representations are canonicalized and fsynced
+in staging before basis-guarded promotion; journal and receipt recovery never
+scans unrelated Topic content. Rust owns
 `data/synthesis/topics/**`, Topic apply, archives, assets, and coordination
 with repository projections. Zotero source/artifact reads and remote export
 delivery remain reverse-Host authorities.

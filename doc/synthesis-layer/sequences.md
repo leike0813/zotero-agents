@@ -24,13 +24,18 @@ sequenceDiagram
   end
   A->>E: assemble artifact
   A->>E: validate artifact
-  A->>A: validate digest availability and compute hashes/metadata
-  A->>C: promote current manifest, sections, artifact, and metadata
+  A->>A: validate digest availability and assemble metadata
+  A->>C: prepare draft; derive path, hashes, bounds, and typed view
+  C-->>A: opaque prepared representation and transparent read view
+  A->>C: promote prepared representation against expected basis
+  C->>C: allocate transaction ID, stage, journal, and publish receipt
   A->>A: apply downstream sidecars, discovery, event log, and autosync
 ```
 
 Engine throw, cancellation, bounds failure, malformed result, or patch conflict
 stops before canonical promotion and downstream durable effects.
+The application never constructs the persisted snapshot or promotion payload;
+durable import reaches the same promotion path by decoding canonical assets.
 
 ## `seq.sidecar.digest_apply_sync`
 

@@ -1,13 +1,17 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+#[cfg(feature = "parity-harness")]
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(unix)]
 use std::fs::File;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(feature = "parity-harness")]
+use std::sync::{Arc, Mutex};
 use synthesis_protocol::canonical_json;
 
 const IDENTITY_SCHEMA: &str = "synthesis-rust-shadow-canonical.v1";
@@ -19,6 +23,7 @@ const IMPORT_SCHEMA: &str = "synthesis-topic-canonical-import-batch.v1";
 const MAX_TOPIC_ID_BYTES: usize = 512;
 const MAX_SECTION_COUNT: usize = 256;
 const MAX_SECTION_BYTES: usize = 4 * 1024 * 1024;
+static TRANSACTION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -29,16 +34,149 @@ pub struct CanonicalIdentity {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct TopicSnapshot {
+struct TopicSnapshot {
+    topic_id: String,
+    path_id: String,
+    manifest: Value,
+    artifact: Value,
+    metadata: Value,
+    #[serde(default)]
+    sections: BTreeMap<String, Value>,
+    #[serde(default)]
+    markdown: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalTopicDraft {
+    pub topic_id: String,
+    pub manifest: Value,
+    pub artifact: Value,
+    pub metadata: Value,
+    pub sections: BTreeMap<String, Value>,
+    pub markdown: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CanonicalTopicView {
     pub topic_id: String,
     pub path_id: String,
     pub manifest: Value,
     pub artifact: Value,
     pub metadata: Value,
-    #[serde(default)]
     pub sections: BTreeMap<String, Value>,
-    #[serde(default)]
     pub markdown: BTreeMap<String, String>,
+    #[serde(skip)]
+    pub basis: CanonicalBasis,
+    #[serde(skip)]
+    pub metadata_hash: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CanonicalTopicAsset {
+    pub path: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanonicalTopicCapture {
+    pub topic: CanonicalTopicView,
+    pub assets: Vec<CanonicalTopicAsset>,
+    pub representation_hash: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct PreparedCanonicalTopic {
+    snapshot: TopicSnapshot,
+}
+
+#[derive(Clone, Debug)]
+pub struct PreparedCanonicalPromotion {
+    expected_basis: Option<CanonicalBasis>,
+    snapshot: TopicSnapshot,
+}
+
+impl PreparedCanonicalTopic {
+    pub fn view(&self) -> CanonicalTopicView {
+        canonical_topic_view(&self.snapshot).expect("prepared canonical topic remains valid")
+    }
+
+    pub fn assets(&self) -> Result<Vec<CanonicalTopicAsset>, CanonicalError> {
+        canonical_topic_assets(&self.snapshot).map_err(CanonicalError::from_code)
+    }
+
+    pub fn representation_hash(&self) -> Result<String, CanonicalError> {
+        topic_representation_hash(&self.snapshot).map_err(CanonicalError::from_code)
+    }
+
+    pub fn for_promotion(
+        self,
+        expected_basis: Option<CanonicalBasis>,
+    ) -> PreparedCanonicalPromotion {
+        PreparedCanonicalPromotion {
+            expected_basis,
+            snapshot: self.snapshot,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CanonicalTopicState {
+    Absent {
+        topic_id: String,
+        path_id: String,
+    },
+    Ready(CanonicalTopicView),
+    Invalid {
+        topic_id: String,
+        path_id: String,
+        diagnostics: Vec<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CanonicalErrorKind {
+    InvalidRepresentation,
+    BasisConflict,
+    StoreBusy,
+    RepairRequired,
+    DurableIo,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CanonicalError {
+    kind: CanonicalErrorKind,
+    code: String,
+}
+
+impl CanonicalError {
+    pub fn from_code(code: String) -> Self {
+        let kind = match code.as_str() {
+            "basis_mismatch" => CanonicalErrorKind::BasisConflict,
+            "canonical_store_busy" => CanonicalErrorKind::StoreBusy,
+            "repair_required" => CanonicalErrorKind::RepairRequired,
+            value
+                if value == "canonical_store_unavailable"
+                    || value.starts_with("canonical_write_failed:")
+                    || value.starts_with("canonical_read_failed:")
+                    || value.starts_with("canonical_fsync_failed:")
+                    || value.starts_with("canonical_rename_failed:")
+                    || value.starts_with("canonical_remove_failed:") =>
+            {
+                CanonicalErrorKind::DurableIo
+            }
+            _ => CanonicalErrorKind::InvalidRepresentation,
+        };
+        Self { kind, code }
+    }
+
+    pub fn kind(&self) -> CanonicalErrorKind {
+        self.kind
+    }
+
+    pub fn code(&self) -> &str {
+        &self.code
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -47,10 +185,10 @@ pub struct LegacyCanonicalTopic {
     pub topic_definition: Value,
     pub topic_resolver: Value,
     pub resolved_paper_set: Value,
-    pub snapshot: TopicSnapshot,
+    pub snapshot: CanonicalTopicView,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CanonicalBasis {
     pub manifest_hash: String,
@@ -77,7 +215,7 @@ pub enum ImportBatchRecoveryOutcome {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
-pub enum CurrentTopic {
+enum CurrentTopic {
     Absent {
         topic_id: String,
         path_id: String,
@@ -139,11 +277,11 @@ struct Journal {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Promotion {
-    pub transaction_id: String,
+struct Promotion {
+    transaction_id: String,
     #[serde(default)]
-    pub expected_basis: Option<CanonicalBasis>,
-    pub snapshot: TopicSnapshot,
+    expected_basis: Option<CanonicalBasis>,
+    snapshot: TopicSnapshot,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -172,6 +310,8 @@ pub struct CanonicalStore {
     store_id: String,
     writer: AtomicBool,
     repair_required: bool,
+    #[cfg(feature = "parity-harness")]
+    parity_transaction_ids: Option<Arc<Mutex<VecDeque<String>>>>,
 }
 
 fn validate_identity_part(value: &str) -> Result<(), String> {
@@ -338,6 +478,196 @@ fn validate_declared_hashes(snapshot: &TopicSnapshot) -> Result<(), String> {
         return Err("canonical_hash_mismatch".into());
     }
     Ok(())
+}
+
+fn canonical_topic_view(snapshot: &TopicSnapshot) -> Result<CanonicalTopicView, String> {
+    Ok(CanonicalTopicView {
+        topic_id: snapshot.topic_id.clone(),
+        path_id: snapshot.path_id.clone(),
+        manifest: snapshot.manifest.clone(),
+        artifact: snapshot.artifact.clone(),
+        metadata: snapshot.metadata.clone(),
+        sections: snapshot.sections.clone(),
+        markdown: snapshot.markdown.clone(),
+        basis: CanonicalBasis {
+            manifest_hash: hash_json(&snapshot.manifest)?,
+            artifact_hash: hash_json(&snapshot.artifact)?,
+        },
+        metadata_hash: hash_json(&snapshot.metadata)?,
+    })
+}
+
+fn validate_snapshot_representation(snapshot: &TopicSnapshot) -> Result<(), String> {
+    validate_identity_part(&snapshot.topic_id)?;
+    validate_identity_part(&snapshot.path_id)?;
+    if canonical_topic_path_id(&snapshot.topic_id)? != snapshot.path_id {
+        return Err("canonical_path_identity_mismatch".into());
+    }
+    validate_declared_hashes(snapshot)?;
+    if snapshot.sections.len() > MAX_SECTION_COUNT {
+        return Err("canonical_snapshot_too_large".into());
+    }
+    for (name, value) in &snapshot.sections {
+        section_file_name(name)?;
+        if json_bytes(value)?.len() > MAX_SECTION_BYTES {
+            return Err("canonical_snapshot_too_large".into());
+        }
+    }
+    for (relative, content) in &snapshot.markdown {
+        validate_relative_file(relative)?;
+        if Path::new(relative).starts_with("sections") || content.len() > MAX_SECTION_BYTES {
+            return Err("canonical_snapshot_too_large".into());
+        }
+    }
+    Ok(())
+}
+
+fn pretty_json_text(value: &Value) -> Result<String, String> {
+    serde_json::to_string_pretty(value)
+        .map(|text| format!("{text}\n"))
+        .map_err(|_| "canonical_json_invalid".to_owned())
+}
+
+fn canonical_topic_assets(snapshot: &TopicSnapshot) -> Result<Vec<CanonicalTopicAsset>, String> {
+    let mut assets = BTreeMap::from([
+        (
+            "manifest.json".to_owned(),
+            pretty_json_text(&snapshot.manifest)?,
+        ),
+        (
+            "artifact.json".to_owned(),
+            pretty_json_text(&snapshot.artifact)?,
+        ),
+        (
+            "metadata.json".to_owned(),
+            pretty_json_text(&snapshot.metadata)?,
+        ),
+    ]);
+    for (name, value) in &snapshot.sections {
+        assets.insert(
+            format!("sections/{}", section_file_name(name)?),
+            pretty_json_text(value)?,
+        );
+    }
+    for (path, text) in &snapshot.markdown {
+        if assets.insert(path.clone(), text.clone()).is_some() {
+            return Err("canonical_snapshot_invalid".into());
+        }
+    }
+    Ok(assets
+        .into_iter()
+        .map(|(path, text)| CanonicalTopicAsset { path, text })
+        .collect())
+}
+
+fn topic_representation_hash(snapshot: &TopicSnapshot) -> Result<String, String> {
+    canonical_json_hash(
+        &serde_json::to_value(snapshot).map_err(|_| "canonical_snapshot_invalid".to_owned())?,
+    )
+}
+
+fn validate_asset_path(path: &str) -> Result<(), String> {
+    let path_value = Path::new(path);
+    if path.is_empty()
+        || path.len() > 512
+        || path_value.is_absolute()
+        || path_value
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("canonical_asset_path_invalid".into());
+    }
+    Ok(())
+}
+
+pub fn decode_topic_assets(
+    path_id: &str,
+    assets: Vec<CanonicalTopicAsset>,
+) -> Result<PreparedCanonicalTopic, CanonicalError> {
+    validate_identity_part(path_id).map_err(CanonicalError::from_code)?;
+    let mut by_path = BTreeMap::new();
+    for asset in assets {
+        validate_asset_path(&asset.path).map_err(CanonicalError::from_code)?;
+        if by_path.insert(asset.path, asset.text).is_some() {
+            return Err(CanonicalError::from_code(
+                "canonical_asset_duplicate".into(),
+            ));
+        }
+    }
+    let mut read_json_asset = |path: &str| -> Result<Value, CanonicalError> {
+        let text = by_path
+            .remove(path)
+            .ok_or_else(|| CanonicalError::from_code("canonical_snapshot_incomplete".into()))?;
+        serde_json::from_str(&text)
+            .map_err(|_| CanonicalError::from_code("canonical_snapshot_invalid".into()))
+    };
+    let manifest = read_json_asset("manifest.json")?;
+    let artifact = read_json_asset("artifact.json")?;
+    let metadata = read_json_asset("metadata.json")?;
+    let declared = manifest
+        .get("sections")
+        .and_then(Value::as_object)
+        .ok_or_else(|| CanonicalError::from_code("canonical_snapshot_invalid".into()))?;
+    let mut sections = BTreeMap::new();
+    for name in declared.keys() {
+        let path = format!(
+            "sections/{}",
+            section_file_name(name).map_err(CanonicalError::from_code)?
+        );
+        sections.insert(name.clone(), read_json_asset(&path)?);
+    }
+    let mut markdown = BTreeMap::new();
+    for (path, text) in by_path {
+        validate_relative_file(&path).map_err(CanonicalError::from_code)?;
+        markdown.insert(path, text);
+    }
+    let topic_id = metadata
+        .pointer("/data/topic_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CanonicalError::from_code("canonical_topic_identity_invalid".into()))?
+        .to_owned();
+    let snapshot = TopicSnapshot {
+        topic_id,
+        path_id: path_id.into(),
+        manifest,
+        artifact,
+        metadata,
+        sections,
+        markdown,
+    };
+    validate_snapshot_representation(&snapshot).map_err(CanonicalError::from_code)?;
+    Ok(PreparedCanonicalTopic { snapshot })
+}
+
+pub fn prepare_topic(draft: CanonicalTopicDraft) -> Result<PreparedCanonicalTopic, CanonicalError> {
+    let path_id = canonical_topic_path_id(&draft.topic_id).map_err(CanonicalError::from_code)?;
+    let artifact_hash = hash_json(&draft.artifact).map_err(CanonicalError::from_code)?;
+    let metadata_hash = hash_json(&draft.metadata).map_err(CanonicalError::from_code)?;
+    let section_hashes = draft
+        .sections
+        .iter()
+        .map(|(name, value)| hash_json(value).map(|hash| (name.clone(), hash)))
+        .collect::<Result<BTreeMap<_, _>, _>>()
+        .map_err(CanonicalError::from_code)?;
+    let mut manifest = draft
+        .manifest
+        .as_object()
+        .cloned()
+        .ok_or_else(|| CanonicalError::from_code("canonical_snapshot_invalid".into()))?;
+    manifest.insert("artifact_hash".into(), json!(artifact_hash));
+    manifest.insert("metadata_hash".into(), json!(metadata_hash));
+    manifest.insert("section_hashes".into(), json!(section_hashes));
+    let snapshot = TopicSnapshot {
+        topic_id: draft.topic_id,
+        path_id,
+        manifest: Value::Object(manifest),
+        artifact: draft.artifact,
+        metadata: draft.metadata,
+        sections: draft.sections,
+        markdown: draft.markdown,
+    };
+    validate_snapshot_representation(&snapshot).map_err(CanonicalError::from_code)?;
+    Ok(PreparedCanonicalTopic { snapshot })
 }
 
 #[cfg(unix)]
@@ -808,7 +1138,7 @@ impl CanonicalStore {
                     topic_definition: definition,
                     topic_resolver: resolvers[&topic_id].clone(),
                     resolved_paper_set: paper_sets[&topic_id].clone(),
-                    snapshot,
+                    snapshot: canonical_topic_view(&snapshot)?,
                 })
             })
             .collect()
@@ -889,6 +1219,8 @@ impl CanonicalStore {
             store_id,
             writer: AtomicBool::new(false),
             repair_required: false,
+            #[cfg(feature = "parity-harness")]
+            parity_transaction_ids: None,
         };
         store.recover_all(None)?;
         store.recover_import_batch_on_open()?;
@@ -979,7 +1311,7 @@ impl CanonicalStore {
         }
     }
 
-    pub fn read_current(&self, topic_id: &str) -> Result<CurrentTopic, String> {
+    fn read_current(&self, topic_id: &str) -> Result<CurrentTopic, String> {
         validate_identity_part(topic_id)?;
         let path_id = canonical_topic_path_id(topic_id)?;
         let current = self.topic_root(&path_id)?.join("current");
@@ -1012,6 +1344,52 @@ impl CanonicalStore {
                     .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?
                     .into(),
             },
+        })
+    }
+
+    pub fn read_topic(&self, topic_id: &str) -> Result<CanonicalTopicState, CanonicalError> {
+        match self
+            .read_current(topic_id)
+            .map_err(CanonicalError::from_code)?
+        {
+            CurrentTopic::Absent { topic_id, path_id } => {
+                Ok(CanonicalTopicState::Absent { topic_id, path_id })
+            }
+            CurrentTopic::Ready { snapshot, .. } => canonical_topic_view(&snapshot)
+                .map(CanonicalTopicState::Ready)
+                .map_err(CanonicalError::from_code),
+            CurrentTopic::Invalid {
+                topic_id,
+                path_id,
+                diagnostics,
+            } => Ok(CanonicalTopicState::Invalid {
+                topic_id,
+                path_id,
+                diagnostics,
+            }),
+        }
+    }
+
+    pub fn capture_topic(&self, topic_id: &str) -> Result<CanonicalTopicCapture, CanonicalError> {
+        let snapshot = match self
+            .read_current(topic_id)
+            .map_err(CanonicalError::from_code)?
+        {
+            CurrentTopic::Ready { snapshot, .. } => snapshot,
+            CurrentTopic::Absent { .. } => {
+                return Err(CanonicalError::from_code("canonical_topic_absent".into()));
+            }
+            CurrentTopic::Invalid { .. } => {
+                return Err(CanonicalError::from_code(
+                    "canonical_snapshot_invalid".into(),
+                ));
+            }
+        };
+        Ok(CanonicalTopicCapture {
+            topic: canonical_topic_view(&snapshot).map_err(CanonicalError::from_code)?,
+            assets: canonical_topic_assets(&snapshot).map_err(CanonicalError::from_code)?,
+            representation_hash: topic_representation_hash(&snapshot)
+                .map_err(CanonicalError::from_code)?,
         })
     }
 
@@ -1151,11 +1529,60 @@ impl CanonicalStore {
         descriptor(&current, topic_id, path_id).map(Some)
     }
 
-    pub fn promote(&mut self, promotion: Promotion) -> Result<CanonicalReceipt, String> {
+    fn promote(&mut self, promotion: Promotion) -> Result<CanonicalReceipt, String> {
         self.promote_with_fault(promotion, None, true)
     }
 
-    pub fn promote_with_fault(
+    pub fn promote_prepared(
+        &mut self,
+        prepared: PreparedCanonicalPromotion,
+    ) -> Result<CanonicalReceipt, CanonicalError> {
+        let transaction_id = self.next_transaction_id(&prepared.snapshot.path_id);
+        self.promote(Promotion {
+            transaction_id,
+            expected_basis: prepared.expected_basis,
+            snapshot: prepared.snapshot,
+        })
+        .map_err(CanonicalError::from_code)
+    }
+
+    fn next_transaction_id(&mut self, path_id: &str) -> String {
+        #[cfg(feature = "parity-harness")]
+        if let Some(transaction_ids) = &self.parity_transaction_ids
+            && let Ok(mut transaction_ids) = transaction_ids.lock()
+            && let Some(transaction_id) = transaction_ids.pop_front()
+        {
+            return transaction_id;
+        }
+        let sequence = TRANSACTION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let identity = sha256_hex(format!(
+            "{}\0{path_id}\0{}\0{}\0{sequence}",
+            self.store_id,
+            synthesis_protocol::utc_now_iso8601(),
+            std::process::id(),
+        ));
+        format!("canonical-transaction-{identity}")
+    }
+
+    #[cfg(feature = "parity-harness")]
+    pub fn set_transaction_ids_for_parity(
+        &mut self,
+        transaction_ids: Arc<Mutex<VecDeque<String>>>,
+    ) {
+        self.parity_transaction_ids = Some(transaction_ids);
+    }
+
+    #[cfg(feature = "parity-harness")]
+    pub fn reject_prepared_promotion_for_parity(
+        &mut self,
+        prepared: PreparedCanonicalPromotion,
+        code: String,
+    ) -> CanonicalError {
+        let _ = self.next_transaction_id(&prepared.snapshot.path_id);
+        CanonicalError::from_code(code)
+    }
+
+    fn promote_with_fault(
         &mut self,
         promotion: Promotion,
         fault: Option<FaultPoint>,
@@ -1373,7 +1800,7 @@ impl CanonicalStore {
         Ok(())
     }
 
-    pub fn stage_import_batch(
+    fn stage_import_batch(
         &mut self,
         receipt_id: String,
         manifest_hash: String,
@@ -1418,6 +1845,24 @@ impl CanonicalStore {
         })();
         self.release_writer(lease);
         result
+    }
+
+    pub fn stage_prepared_import_batch(
+        &mut self,
+        receipt_id: String,
+        manifest_hash: String,
+        topics: Vec<PreparedCanonicalPromotion>,
+    ) -> Result<(), CanonicalError> {
+        let mut promotions = Vec::with_capacity(topics.len());
+        for prepared in topics {
+            promotions.push(Promotion {
+                transaction_id: self.next_transaction_id(&prepared.snapshot.path_id),
+                expected_basis: prepared.expected_basis,
+                snapshot: prepared.snapshot,
+            });
+        }
+        self.stage_import_batch(receipt_id, manifest_hash, promotions)
+            .map_err(CanonicalError::from_code)
     }
 
     pub fn commit_import_batch(
@@ -1636,6 +2081,169 @@ mod tests {
             transaction_id: format!("transaction:{version}"),
             expected_basis: basis,
             snapshot: snapshot(version),
+        }
+    }
+
+    #[test]
+    fn draft_preparation_derives_the_stable_canonical_representation() {
+        let prepared = prepare_topic(CanonicalTopicDraft {
+            topic_id: "topic:r7".into(),
+            manifest: json!({
+                "schema":"topic.manifest.v1",
+                "version":1,
+                "sections":{"summary":{"path":"summary.json"}},
+            }),
+            artifact: json!({"schema":"topic.artifact.v1","title":"R7","version":1}),
+            metadata: json!({"updatedAt":"2026-01-01"}),
+            sections: BTreeMap::from([("summary".into(), json!({"version":1}))]),
+            markdown: BTreeMap::from([("synthesis.md".into(), "# R7\n\n1\n".into())]),
+        })
+        .expect("prepare");
+        let view = prepared.view();
+        assert_eq!(view.topic_id, "topic:r7");
+        assert_eq!(view.path_id, "topic-r7");
+        assert_eq!(
+            view.basis,
+            CanonicalBasis {
+                manifest_hash:
+                    "sha256:0f5fc1ab01f60c9aac565ed46a6a9d776d89d07b5f85a0883c4754da0b2a059c".into(),
+                artifact_hash:
+                    "sha256:df1b02cbd6c0f8aa68c48cc82f7db6a1174bb5e14bae069a467ac401bc9f6e28".into(),
+            }
+        );
+        assert_eq!(
+            view.metadata_hash,
+            "sha256:0de4f132d94ecf227adce4ff574b19f1629e145e1e8e5491d8e942417a5e630c"
+        );
+
+        let root = root("prepared-representation");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        store
+            .promote_prepared(prepared.for_promotion(None))
+            .expect("promote prepared");
+        let CanonicalTopicState::Ready(current) =
+            store.read_topic("topic:r7").expect("read prepared")
+        else {
+            panic!("expected ready topic");
+        };
+        assert_eq!(current, view);
+        assert_eq!(
+            fs::read_to_string(store.root().join("topics/topic-r7/current/manifest.json"))
+                .expect("manifest bytes"),
+            concat!(
+                "{\"artifact_hash\":\"sha256:df1b02cbd6c0f8aa68c48cc82f7db6a1174bb5e14bae069a467ac401bc9f6e28\",",
+                "\"metadata_hash\":\"sha256:0de4f132d94ecf227adce4ff574b19f1629e145e1e8e5491d8e942417a5e630c\",",
+                "\"schema\":\"topic.manifest.v1\",",
+                "\"section_hashes\":{\"summary\":\"sha256:2430f1a2ad2982d0067885488a4c89e21ad1d7c83b115ba8f1b20acc88dfaea8\"},",
+                "\"sections\":{\"summary\":{\"path\":\"summary.json\"}},\"version\":1}\n"
+            )
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn canonical_assets_round_trip_through_the_representation_interface() {
+        let prepared = prepare_topic(CanonicalTopicDraft {
+            topic_id: "topic:r7".into(),
+            manifest: json!({
+                "schema":"topic.manifest.v1",
+                "sections":{"source_papers":{"path":"asset/source-papers"}},
+            }),
+            artifact: json!({"source_papers":[]}),
+            metadata: json!({"data":{"topic_id":"topic:r7"}}),
+            sections: BTreeMap::from([("source_papers".into(), json!({"papers":[]}))]),
+            markdown: BTreeMap::from([("notes/summary.md".into(), "# Summary\n".into())]),
+        })
+        .expect("prepare");
+
+        let assets = prepared.assets().expect("assets");
+        assert_eq!(
+            assets
+                .iter()
+                .map(|asset| asset.path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "artifact.json",
+                "manifest.json",
+                "metadata.json",
+                "notes/summary.md",
+                "sections/source-papers.json",
+            ]
+        );
+        let decoded = decode_topic_assets("topic-r7", assets).expect("decode");
+        assert_eq!(decoded.view(), prepared.view());
+    }
+
+    #[test]
+    fn canonical_assets_reject_inconsistent_and_invalid_representation() {
+        let prepared = prepare_topic(CanonicalTopicDraft {
+            topic_id: "topic:r7".into(),
+            manifest: json!({
+                "schema":"topic.manifest.v1",
+                "sections":{"summary":{"path":"summary.json"}},
+            }),
+            artifact: json!({"version":1}),
+            metadata: json!({"data":{"topic_id":"topic:r7"}}),
+            sections: BTreeMap::from([("summary".into(), json!({"version":1}))]),
+            markdown: BTreeMap::new(),
+        })
+        .expect("prepare");
+        let mut assets = prepared.assets().expect("assets");
+        assets
+            .iter_mut()
+            .find(|asset| asset.path == "artifact.json")
+            .expect("artifact")
+            .text = "{\"version\":2}\n".into();
+        assert_eq!(
+            decode_topic_assets("topic-r7", assets)
+                .expect_err("hash mismatch")
+                .kind(),
+            CanonicalErrorKind::InvalidRepresentation
+        );
+
+        let traversal = vec![CanonicalTopicAsset {
+            path: "../manifest.json".into(),
+            text: "{}\n".into(),
+        }];
+        assert_eq!(
+            decode_topic_assets("topic-r7", traversal)
+                .expect_err("traversal")
+                .kind(),
+            CanonicalErrorKind::InvalidRepresentation
+        );
+
+        let oversized_name = "a".repeat(129);
+        assert_eq!(
+            prepare_topic(CanonicalTopicDraft {
+                topic_id: "topic:r7".into(),
+                manifest: json!({"sections":{oversized_name.clone():{"path":"summary.json"}}}),
+                artifact: json!({}),
+                metadata: json!({}),
+                sections: BTreeMap::from([(oversized_name, json!({}))]),
+                markdown: BTreeMap::new(),
+            })
+            .expect_err("section bound")
+            .kind(),
+            CanonicalErrorKind::InvalidRepresentation
+        );
+    }
+
+    #[test]
+    fn canonical_error_codes_map_to_stable_typed_categories() {
+        for (code, expected) in [
+            (
+                "canonical_snapshot_invalid",
+                CanonicalErrorKind::InvalidRepresentation,
+            ),
+            ("basis_mismatch", CanonicalErrorKind::BasisConflict),
+            ("canonical_store_busy", CanonicalErrorKind::StoreBusy),
+            ("repair_required", CanonicalErrorKind::RepairRequired),
+            (
+                "canonical_read_failed:fixture",
+                CanonicalErrorKind::DurableIo,
+            ),
+        ] {
+            assert_eq!(CanonicalError::from_code(code.into()).kind(), expected);
         }
     }
 

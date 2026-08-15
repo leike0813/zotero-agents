@@ -13,7 +13,7 @@ Core production modules are:
 | --- | --- | --- |
 | Application | `native/synthesis-sidecar/crates/synthesis-application` | Topic/Graph/Concept/Tag/Reference/checkpoint/durable/WebDAV use cases, validation, receipts, and promotion policy |
 | Repository | `native/synthesis-sidecar/crates/synthesis-repository` | Foundation v2 SQLite facts, bounded queries, migrations, and the single-writer boundary |
-| Canonical store | `native/synthesis-sidecar/crates/synthesis-canonical-store` | Topic canonical bytes, hashes, staging, journal, receipt, and recovery |
+| Canonical store | `native/synthesis-sidecar/crates/synthesis-canonical-store` | Topic representation validation and derivation, typed current views, transport-neutral assets, basis-guarded staging, transaction identity, journal, receipt, and recovery |
 | Worker engines | Rust engine crates and bounded worker mode | Deterministic graph, matcher, Tag, Concept, Topic Graph, and structured-artifact compute without commit authority |
 | Client/Host composition | TypeScript `SynthesisClient` and Host ports | UI orchestration, DTO transport, Zotero reads/effects, WebDAV credentials/HTTP, and export delivery |
 
@@ -24,8 +24,9 @@ owners.
 
 Core concepts:
 
-- **Canonical Store** — file-system-backed, versioned knowledge asset storage
-  with envelope format and transaction support
+- **Canonical Store** — file-system-backed Topic representation owner. It
+  prepares local drafts, decodes durable assets, exposes typed reads, and
+  accepts only opaque prepared promotions.
 - **Projection/Index** — build-time queryable projections from the canonical
   store into SQLite for hot-read paths
 - **WebDAV Sync** — export canonical durable bundles and import remote snapshots
@@ -36,7 +37,9 @@ Core concepts:
 
 ### Canonical Envelope
 
-Every KG asset is wrapped in a `CanonicalEnvelope<T>`:
+Generic Foundation assets may use a `CanonicalEnvelope<T>`. Topic current
+content has its own complete manifest/artifact/metadata/sections
+representation and does not expose this envelope as a write DTO:
 
 ```typescript
 // src/modules/synthesis/foundation.ts
@@ -91,23 +94,30 @@ type NoteShardEnvelope = {
 
 ### Transaction System
 
-Canonical mutations use the application-owned transaction path:
+Topic canonical mutations cross one representation boundary:
 
-1. Stage all assets to a temporary directory
-2. Validate each asset's envelope
-3. On success: promote staged assets into the canonical store
-4. On failure: rollback (discard staging directory)
-5. Persist the transaction receipt needed to prove the committed state
-6. Mark affected projections as stale in the owning repository transaction
+1. The application validates the use case and asks the structured-artifact
+   engine to assemble domain content.
+2. The canonical store prepares a draft or decodes transport-neutral durable
+   assets, deriving the path, declared hashes, bounds, and typed read view.
+3. The application attaches the expected basis to the opaque prepared value.
+4. The canonical store allocates the transaction identity, stages the complete
+   representation, and performs the basis-guarded promotion.
+5. Journal and receipt recovery prove the committed file state; application
+   projections remain owned by their repository transaction.
+
+Application and transport adapters never construct the persisted snapshot,
+section filenames, promotion DTO, or canonical transaction identity. Durable
+export receives canonical assets; durable import returns those assets to the
+same decoder before staging.
 
 ```typescript
-type CanonicalTransactionReceipt = {
+type TopicCanonicalReceipt = {
   transactionId: string;
-  status: "committed" | "rolled_back";
-  assetCount: number;
-  promotedAssets: string[];
-  rolledBackAssets: string[];
-  diagnostics: CanonicalDiagnostic[];
+  topicId: string;
+  pathId: string;
+  manifestHash: string;
+  artifactHash: string;
 };
 ```
 

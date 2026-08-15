@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,8 +13,8 @@ use synthesis_application::{
     TopicRepositoryPort, WorkbenchApplication,
 };
 use synthesis_canonical_store::{
-    CanonicalIdentity, CanonicalReceipt, CanonicalStore, CurrentTopic, Promotion, TopicSnapshot,
-    canonical_topic_path_id,
+    CanonicalError, CanonicalIdentity, CanonicalReceipt, CanonicalStore, CanonicalTopicState,
+    CanonicalTopicView, PreparedCanonicalPromotion, canonical_topic_path_id,
 };
 use synthesis_repository::{
     CacheBasisRecord, DeletedTopicArtifactRecord, OperationQuery, OperationRecord, Repository,
@@ -128,7 +128,7 @@ impl StructuredArtifactPort for FixtureEngine {
 
     fn apply_section_patch(
         &self,
-        current: &TopicSnapshot,
+        current: &CanonicalTopicView,
         patch_manifest: &Value,
         changed_sections: &BTreeMap<String, Value>,
     ) -> Result<PatchOutput, String> {
@@ -235,7 +235,7 @@ impl StructuredArtifactPort for DrainEngine {
 
     fn apply_section_patch(
         &self,
-        current: &TopicSnapshot,
+        current: &CanonicalTopicView,
         patch_manifest: &Value,
         changed_sections: &BTreeMap<String, Value>,
     ) -> Result<PatchOutput, String> {
@@ -293,14 +293,17 @@ fn canonical_report(
     } else {
         None
     };
-    let current_value = match store.read_current(topic_id)? {
-        CurrentTopic::Absent { topic_id, path_id } => json!({
+    let current_value = match store
+        .read_topic(topic_id)
+        .map_err(|error| error.code().to_owned())?
+    {
+        CanonicalTopicState::Absent { topic_id, path_id } => json!({
             "status":"absent",
             "topicId":topic_id,
             "pathId":path_id,
             "diagnostics":[],
         }),
-        CurrentTopic::Invalid {
+        CanonicalTopicState::Invalid {
             topic_id,
             path_id,
             diagnostics,
@@ -310,11 +313,11 @@ fn canonical_report(
             "pathId":path_id,
             "diagnostics":diagnostics,
         }),
-        CurrentTopic::Ready { snapshot, .. } => json!({
+        CanonicalTopicState::Ready(topic) => json!({
             "status":"ready",
-            "topicId":snapshot.topic_id,
-            "pathId":snapshot.path_id,
-            "snapshot":snapshot,
+            "topicId":topic.topic_id,
+            "pathId":topic.path_id,
+            "snapshot":topic,
             "diagnostics":[],
         }),
     };
@@ -524,37 +527,43 @@ struct FaultCanonical {
 }
 
 impl TopicCanonicalPort for FaultCanonical {
-    fn inspect(&self, topic_id: &str) -> Result<Value, String> {
-        self.inner.inspect(topic_id)
+    fn read_topic(&self, topic_id: &str) -> Result<CanonicalTopicState, CanonicalError> {
+        self.inner.read_topic(topic_id)
     }
 
-    fn read_current(&self, topic_id: &str) -> Result<CurrentTopic, String> {
-        self.inner.read_current(topic_id)
+    fn promote(
+        &self,
+        promotion: PreparedCanonicalPromotion,
+    ) -> Result<CanonicalReceipt, CanonicalError> {
+        Err(self.inner.reject_promotion_for_parity(
+            promotion,
+            match self.status {
+                TopicApplyStatus::CanonicalStoreBusy => "canonical_store_busy",
+                TopicApplyStatus::FailedRecovered => "failed_recovered",
+                TopicApplyStatus::RepairRequired => "repair_required",
+                _ => "parity_fault_invalid",
+            }
+            .into(),
+        ))
     }
 
-    fn promote(&self, _promotion: Promotion) -> Result<CanonicalReceipt, String> {
-        Err(match self.status {
-            TopicApplyStatus::CanonicalStoreBusy => "canonical_store_busy",
-            TopicApplyStatus::FailedRecovered => "failed_recovered",
-            TopicApplyStatus::RepairRequired => "repair_required",
-            _ => "parity_fault_invalid",
-        }
-        .into())
-    }
-
-    fn receipt(&self, topic_id: &str) -> Result<Option<CanonicalReceipt>, String> {
-        self.inner.receipt(topic_id)
-    }
-
-    fn archive_current(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String> {
+    fn archive_current(
+        &self,
+        topic_id: &str,
+        deleted_path_id: &str,
+    ) -> Result<bool, CanonicalError> {
         self.inner.archive_current(topic_id, deleted_path_id)
     }
 
-    fn restore_deleted(&self, topic_id: &str, deleted_path_id: &str) -> Result<bool, String> {
+    fn restore_deleted(
+        &self,
+        topic_id: &str,
+        deleted_path_id: &str,
+    ) -> Result<bool, CanonicalError> {
         self.inner.restore_deleted(topic_id, deleted_path_id)
     }
 
-    fn purge_deleted(&self, deleted_path_id: &str) -> Result<bool, String> {
+    fn purge_deleted(&self, deleted_path_id: &str) -> Result<bool, CanonicalError> {
         self.inner.purge_deleted(deleted_path_id)
     }
 }
@@ -563,7 +572,7 @@ fn run_drain(
     root: &Path,
     corpus: &Corpus,
     operation_index: &Arc<AtomicUsize>,
-    transaction_index: &Arc<AtomicUsize>,
+    transaction_ids: &Arc<Mutex<VecDeque<String>>>,
 ) -> Result<Value, String> {
     let drain_root = root.join("drain");
     let repository = Arc::new(Mutex::new(Repository::open_at(
@@ -574,17 +583,17 @@ fn run_drain(
         },
         &corpus.clock,
     )?));
-    let canonical = Arc::new(Mutex::new(CanonicalStore::open(
+    let mut canonical_store = CanonicalStore::open(
         &drain_root,
         CanonicalIdentity {
             profile_id: corpus.profile_id.clone(),
             data_root_id: corpus.data_root_id.clone(),
         },
-    )?));
+    )?;
+    canonical_store.set_transaction_ids_for_parity(Arc::clone(transaction_ids));
+    let canonical = Arc::new(Mutex::new(canonical_store));
     let operation_ids = corpus.operation_ids.clone();
-    let transaction_ids = corpus.transaction_ids.clone();
     let operation_index_factory = Arc::clone(operation_index);
-    let transaction_index_factory = Arc::clone(transaction_index);
     let gate = Arc::new((Mutex::new((false, false)), Condvar::new()));
     let topic = Arc::new(TopicApplication::with_factories(
         Arc::new(RepositoryPort::new(Arc::clone(&repository))),
@@ -598,9 +607,6 @@ fn run_drain(
         },
         Arc::new(move |_| {
             operation_ids[operation_index_factory.fetch_add(1, Ordering::Relaxed)].clone()
-        }),
-        Arc::new(move |_| {
-            transaction_ids[transaction_index_factory.fetch_add(1, Ordering::Relaxed)].clone()
         }),
     ));
     let request = topic_request_for(&corpus.topic.apply, "topic-drain")?;
@@ -699,7 +705,7 @@ fn run_fault(
     case_name: &str,
     corpus: &Corpus,
     operation_index: &Arc<AtomicUsize>,
-    transaction_index: &Arc<AtomicUsize>,
+    transaction_ids: &Arc<Mutex<VecDeque<String>>>,
     promotion_fault: Option<TopicApplyStatus>,
     repository_fault: Option<RepositoryFault>,
 ) -> Result<Value, String> {
@@ -712,13 +718,15 @@ fn run_fault(
         },
         &corpus.clock,
     )?));
-    let canonical = Arc::new(Mutex::new(CanonicalStore::open(
+    let mut canonical_store = CanonicalStore::open(
         &fault_root,
         CanonicalIdentity {
             profile_id: corpus.profile_id.clone(),
             data_root_id: corpus.data_root_id.clone(),
         },
-    )?));
+    )?;
+    canonical_store.set_transaction_ids_for_parity(Arc::clone(transaction_ids));
+    let canonical = Arc::new(Mutex::new(canonical_store));
     let repository_port = RepositoryPort::new(Arc::clone(&repository));
     let canonical_port = CanonicalStorePort::new(Arc::clone(&canonical));
     let repository_owner: Arc<dyn TopicRepositoryPort> = match repository_fault {
@@ -736,9 +744,7 @@ fn run_fault(
         None => Arc::new(canonical_port),
     };
     let operation_ids = corpus.operation_ids.clone();
-    let transaction_ids = corpus.transaction_ids.clone();
     let operation_index_factory = Arc::clone(operation_index);
-    let transaction_index_factory = Arc::clone(transaction_index);
     let topic = TopicApplication::with_factories(
         repository_owner,
         canonical_owner,
@@ -749,9 +755,6 @@ fn run_fault(
         },
         Arc::new(move |_| {
             operation_ids[operation_index_factory.fetch_add(1, Ordering::Relaxed)].clone()
-        }),
-        Arc::new(move |_| {
-            transaction_ids[transaction_index_factory.fetch_add(1, Ordering::Relaxed)].clone()
         }),
     );
     let result = topic.apply(corpus.topic.apply.clone());
@@ -881,20 +884,20 @@ fn main() -> Result<(), String> {
             })?;
         }
     }
-    let canonical = Arc::new(Mutex::new(CanonicalStore::open(
+    let transaction_ids = Arc::new(Mutex::new(VecDeque::from(corpus.transaction_ids.clone())));
+    let mut canonical_store = CanonicalStore::open(
         &main_root,
         CanonicalIdentity {
             profile_id: corpus.profile_id.clone(),
             data_root_id: corpus.data_root_id.clone(),
         },
-    )?));
+    )?;
+    canonical_store.set_transaction_ids_for_parity(Arc::clone(&transaction_ids));
+    let canonical = Arc::new(Mutex::new(canonical_store));
     let canonical_port = CanonicalStorePort::new(Arc::clone(&canonical));
     let operation_index = Arc::new(AtomicUsize::new(0));
-    let transaction_index = Arc::new(AtomicUsize::new(0));
     let operation_ids = corpus.operation_ids.clone();
-    let transaction_ids = corpus.transaction_ids.clone();
     let main_operation_index = Arc::clone(&operation_index);
-    let main_transaction_index = Arc::clone(&transaction_index);
     let topic = TopicApplication::with_factories(
         Arc::new(repository_port.clone()),
         Arc::new(canonical_port.clone()),
@@ -905,9 +908,6 @@ fn main() -> Result<(), String> {
         },
         Arc::new(move |_| {
             operation_ids[main_operation_index.fetch_add(1, Ordering::Relaxed)].clone()
-        }),
-        Arc::new(move |_| {
-            transaction_ids[main_transaction_index.fetch_add(1, Ordering::Relaxed)].clone()
         }),
     );
     let workbench_populated = workbench.read()?;
@@ -1035,14 +1035,14 @@ fn main() -> Result<(), String> {
     drop(reopened_canonical);
     drop(reopened_repository);
 
-    let drain = run_drain(&root, &corpus, &operation_index, &transaction_index)?;
+    let drain = run_drain(&root, &corpus, &operation_index, &transaction_ids)?;
     let faults = json!({
         "canonicalBusy":run_fault(
             &root,
             "canonical-busy",
             &corpus,
             &operation_index,
-            &transaction_index,
+            &transaction_ids,
             Some(TopicApplyStatus::CanonicalStoreBusy),
             None,
         )?,
@@ -1051,7 +1051,7 @@ fn main() -> Result<(), String> {
             "failed-recovered",
             &corpus,
             &operation_index,
-            &transaction_index,
+            &transaction_ids,
             Some(TopicApplyStatus::FailedRecovered),
             None,
         )?,
@@ -1060,7 +1060,7 @@ fn main() -> Result<(), String> {
             "repair-required",
             &corpus,
             &operation_index,
-            &transaction_index,
+            &transaction_ids,
             Some(TopicApplyStatus::RepairRequired),
             None,
         )?,
@@ -1069,7 +1069,7 @@ fn main() -> Result<(), String> {
             "projection-warning",
             &corpus,
             &operation_index,
-            &transaction_index,
+            &transaction_ids,
             None,
             Some(RepositoryFault::Projection),
         )?,
@@ -1078,7 +1078,7 @@ fn main() -> Result<(), String> {
             "receipt-warning",
             &corpus,
             &operation_index,
-            &transaction_index,
+            &transaction_ids,
             None,
             Some(RepositoryFault::Receipt),
         )?,

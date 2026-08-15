@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use synthesis_canonical_store::TopicSnapshot;
+use synthesis_canonical_store::CanonicalTopicView;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -759,7 +759,7 @@ pub enum TopicDetailResult {
         #[serde(rename = "topicId")]
         topic_id: String,
         topic: Box<TopicRecord>,
-        snapshot: Box<TopicSnapshot>,
+        snapshot: Box<CanonicalTopicView>,
     },
 }
 

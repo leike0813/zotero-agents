@@ -1038,6 +1038,8 @@ export async function checkSynthesisTypedApplicationParity(
         "--locked",
         "--manifest-path",
         "native/synthesis-sidecar/Cargo.toml",
+        "--features",
+        "parity-harness",
         "--",
         CORPUS_PATH,
         rustRoot,
