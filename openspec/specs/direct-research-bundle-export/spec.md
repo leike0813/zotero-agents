@@ -14,6 +14,12 @@ The system SHALL accept one or more explicit Zotero item references, resolve eac
 - **THEN** the bundle contains the Markdown source and its safe relative images
 - **AND** the bundle does not duplicate the PDF.
 
+#### Scenario: Remote caller exports Markdown images from a Windows Host
+- **WHEN** a remote caller requests an explicit paper whose Markdown source and eligible source-tree images reside on a Windows Host
+- **AND** the source or image paths use Windows drive-slash syntax or standard local `file:` URLs
+- **THEN** the returned archive SHALL contain the readable images under safe bundle-relative paths
+- **AND** rewritten Markdown and manifest records SHALL resolve those images without exposing Host-local paths.
+
 #### Scenario: Markdown is unavailable
 - **WHEN** an explicitly selected paper has no eligible Markdown source and has a PDF
 - **THEN** the bundle contains the PDF as the paper source.

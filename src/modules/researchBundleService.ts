@@ -1,4 +1,4 @@
-import { getBaseName, joinPath } from "../utils/path";
+import { getBaseName, joinPath, normalizeNativeLocalPath } from "../utils/path";
 import { sha256PrefixedHex } from "../utils/sha256";
 import {
   copyRuntimeFile,
@@ -257,7 +257,8 @@ async function rewriteMarkdownImages(args: {
       });
       continue;
     }
-    if (!(await runtimePathExists(resolved.path))) {
+    const nativePath = await probeNativeLocalPath(resolved.path);
+    if (!nativePath) {
       warnings.push({
         code: "markdown_image_missing",
         paper_ref: args.paperRef,
@@ -270,7 +271,7 @@ async function rewriteMarkdownImages(args: {
       copied.set(resolved.path, relativePath);
       assets.push({
         path: `${paperDir}/${relativePath}`,
-        sourcePath: resolved.path,
+        sourcePath: nativePath,
         contentType: "application/octet-stream",
       });
     }
@@ -282,6 +283,16 @@ async function rewriteMarkdownImages(args: {
     markdown = `${markdown.slice(0, match.index)}${replacement}${markdown.slice((match.index || 0) + match[0].length)}`;
   }
   return { markdown, assets, warnings };
+}
+
+async function probeNativeLocalPath(path: string | undefined) {
+  if (!path) return undefined;
+  try {
+    const nativePath = normalizeNativeLocalPath(path);
+    return (await runtimePathExists(nativePath)) ? nativePath : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function demoteMarkdownHeadings(markdown: string, levels: number) {
@@ -497,10 +508,14 @@ export async function materializeResearchBundlePapers(args: {
           `${entry.contentType} ${entry.filename}`,
         ),
       );
-      if (markdown?.path && (await runtimePathExists(markdown.path))) {
+      const markdownPath = await probeNativeLocalPath(markdown?.path);
+      const pdfPath = markdownPath
+        ? undefined
+        : await probeNativeLocalPath(pdf?.path);
+      if (markdownPath) {
         const rewritten = await rewriteMarkdownImages({
-          markdown: await readRuntimeTextFile(markdown.path),
-          sourcePath: markdown.path,
+          markdown: await readRuntimeTextFile(markdownPath),
+          sourcePath: markdownPath,
           paperRef: paper.paperRef,
         });
         entries.push({
@@ -515,11 +530,11 @@ export async function materializeResearchBundlePapers(args: {
           path: `${paperDir}/source.md`,
           assets: rewritten.assets.map((entry) => entry.path),
         };
-      } else if (pdf?.path && (await runtimePathExists(pdf.path))) {
+      } else if (pdfPath) {
         entries.push({
           path: `${paperDir}/source.pdf`,
           contentType: "application/pdf",
-          sourcePath: pdf.path,
+          sourcePath: pdfPath,
         });
         record.source = {
           kind: "pdf",
