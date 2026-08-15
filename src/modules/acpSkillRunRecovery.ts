@@ -102,9 +102,9 @@ import {
 
 const ACP_SKILL_RECOVERY_STARTUP_TIMEOUT_MS = 60_000;
 import {
+  applySequenceRunEvent,
   getSequenceRunStateByStepRequest,
   getSequenceStepIndexByRequestId,
-  markSequenceRunTerminal,
 } from "./workflowExecution/sequenceStateStore";
 import {
   CONFIRMED_ACP_SKILL_PROMPT_INTERRUPTION_STATE,
@@ -634,7 +634,8 @@ export async function continueRecoveredSequenceStep(args: {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
-    markSequenceRunTerminal({
+    applySequenceRunEvent({
+      type: "sequence.run.terminal",
       sequenceRunId: sequenceState.sequenceRunId,
       status: "failed",
       error: message,

@@ -48,8 +48,8 @@ import {
 } from "../../src/modules/skillRunnerAutoReplyObserver";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
 import {
+  applySequenceRunEvent,
   initializeSequenceRunState,
-  recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
@@ -1031,7 +1031,8 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
         workflowRunId: "sequence-existing-state",
         jobId: "sequence-existing-state",
       });
-      recordSequenceStepRequestCreated({
+      applySequenceRunEvent({
+        type: "sequence.step.request_created",
         sequenceRunId: "sequence-existing-state",
         stepIndex: 0,
         requestId: "req-sequence-waiting",

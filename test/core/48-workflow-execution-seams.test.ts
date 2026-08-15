@@ -65,10 +65,8 @@ import {
 import { loadAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeSemanticTrace";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
+  applySequenceRunEvent,
   initializeSequenceRunState,
-  markSequenceRunTerminal,
-  recordSequenceStepRequestCreated,
-  recordSequenceStepSucceeded,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 
 const parentInputPlanningV2 = {
@@ -759,7 +757,8 @@ describe("workflow execution seams", function () {
       slotStatus: "running",
     });
 
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId,
       stepIndex: 0,
       requestId: stepRequestId,
@@ -795,7 +794,8 @@ describe("workflow execution seams", function () {
       slotStatus: "waiting_user",
     });
 
-    markSequenceRunTerminal({
+    applySequenceRunEvent({
+      type: "sequence.run.terminal",
       sequenceRunId,
       status: "failed",
       error: "sequence failed before terminal step",
@@ -3642,12 +3642,14 @@ describe("workflow execution seams", function () {
         workflowRunId: sequenceRunId,
         jobId,
       });
-      recordSequenceStepRequestCreated({
+      applySequenceRunEvent({
+        type: "sequence.step.request_created",
         sequenceRunId,
         stepIndex: 0,
         requestId,
       });
-      recordSequenceStepSucceeded({
+      applySequenceRunEvent({
+        type: "sequence.step.succeeded",
         sequenceRunId,
         stepIndex: 0,
         requestId,
@@ -3719,9 +3721,43 @@ describe("workflow execution seams", function () {
         { kind: "pending", slotStatus: "succeeded" },
       );
 
-      markSequenceRunTerminal({
+      initializeSequenceRunState({
+        request: {
+          kind: "skillrunner.sequence.v1" as const,
+          steps: [
+            {
+              id: "prepare",
+              skill_id: "prepare-skill",
+              mode: "auto" as const,
+              workspace: "new" as const,
+            },
+          ],
+          final_step_id: "prepare",
+        },
+        backend: {
+          id: backendId,
+          type: backendType,
+          baseUrl:
+            backendType === "acp" ? "local://acp" : "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        workflowId: `${backendType}-observer-workflow`,
+        workflowRunId: sequenceRunId,
+        jobId,
+      });
+      applySequenceRunEvent({
+        type: "sequence.step.succeeded",
         sequenceRunId,
-        status: "completed",
+        stepIndex: 0,
+        requestId,
+        output: { status: "done" },
+        result: {
+          status: "succeeded",
+          requestId,
+          fetchType: "result",
+          resultJson: { status: "done" },
+          responseJson: { provider: backendType },
+        },
       });
       await runState.terminalPromise;
       assert.isTrue(terminalSettled);

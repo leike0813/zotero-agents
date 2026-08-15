@@ -52,9 +52,9 @@ import {
 import { resetBackendsRegistryReadDiagnosticsForTests } from "../../src/backends/registry";
 import { clearSkillRunnerSkillDisplayRegistryMemoryForTests } from "../../src/modules/skillRunnerSkillDisplayRegistry";
 import {
+  applySequenceRunEvent,
   getSequenceRunState,
   initializeSequenceRunState,
-  recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import { setPref } from "../../src/utils/prefs";
 
@@ -1006,7 +1006,8 @@ describe("separated ACP and SkillRunner run stores", function () {
       workflowRunId: "sequence-root-no-request-index",
       jobId: "job-1",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId: "sequence-root-no-request-index",
       stepIndex: 0,
       requestId: "sr-sequence-root-step-request",

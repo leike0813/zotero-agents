@@ -36,9 +36,9 @@ import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 import { waitForPromiseSettlement } from "../utils/wait";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
 import {
+  applySequenceRunEvent,
   getSequenceRunStateByStepRequest,
   getSequenceStepIndexByRequestId,
-  recordSequenceStepTerminal,
 } from "./workflowExecution/sequenceStateStore";
 import {
   parseAcpEffortFromModelText,
@@ -905,7 +905,8 @@ function propagateAcpSkillRunTerminalState(record: AcpSkillRunRecord) {
   if (stepIndex < 0) {
     return;
   }
-  recordSequenceStepTerminal({
+  applySequenceRunEvent({
+    type: "sequence.step.terminal",
     sequenceRunId: sequence.sequenceRunId,
     stepIndex,
     requestId: record.requestId,

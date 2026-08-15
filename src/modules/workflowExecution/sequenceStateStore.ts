@@ -16,6 +16,7 @@ import {
   type WorkflowSequenceRunStoreListOptions,
 } from "../pluginStateStore";
 import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
+import { getDotPath, primitiveEquals } from "./valuePath";
 
 export type SequenceRunStateStatus =
   | "running_step"
@@ -69,6 +70,71 @@ export type SequenceRunState = {
 };
 
 export type SequenceRunStateListener = (sequenceRunId: string) => void;
+
+export type SequenceRunEvent =
+  | {
+      type: "sequence.step.started";
+      sequenceRunId: string;
+      stepIndex: number;
+    }
+  | {
+      type: "sequence.step.request_created";
+      sequenceRunId: string;
+      stepIndex: number;
+      requestId: string;
+    }
+  | {
+      type: "sequence.step.succeeded";
+      sequenceRunId: string;
+      stepIndex: number;
+      requestId: string;
+      output: unknown;
+      result: ProviderExecutionResult;
+    }
+  | {
+      type: "sequence.step.waiting";
+      sequenceRunId: string;
+      stepIndex: number;
+      requestId: string;
+      result: ProviderExecutionResult;
+    }
+  | {
+      type: "sequence.step.terminal";
+      sequenceRunId: string;
+      stepIndex: number;
+      requestId?: string;
+      status: "failed" | "canceled";
+      error?: string;
+    }
+  | {
+      type: "sequence.step.apply_result";
+      sequenceRunId: string;
+      stepIndex: number;
+      workflowId?: string;
+      status: "succeeded" | "failed" | "skipped";
+      result?: unknown;
+      error?: string;
+    }
+  | {
+      type: "sequence.step.lifecycle_settled";
+      sequenceRunId: string;
+      stepIndex: number;
+    }
+  | {
+      type: "sequence.run.continuing";
+      sequenceRunId: string;
+    }
+  | {
+      type: "sequence.run.waiting_interaction";
+      sequenceRunId: string;
+    }
+  | {
+      type: "sequence.run.terminal";
+      sequenceRunId: string;
+      status: "failed" | "canceled";
+      error?: string;
+      terminalStepId?: string;
+    };
 
 const sequenceRunStateListeners = new Set<SequenceRunStateListener>();
 
@@ -438,6 +504,280 @@ function updateStep(
   };
 }
 
+export function resolveStepApplyFailureMode(
+  step: SkillRunnerSequenceRequestV1["steps"][number],
+) {
+  return step.apply_result?.on_failure === "fail_sequence"
+    ? "fail_sequence"
+    : "continue";
+}
+
+function matchesShortCircuitRule(args: {
+  step: SkillRunnerSequenceRequestV1["steps"][number];
+  output: unknown;
+}) {
+  const spec = args.step.short_circuit;
+  if (!spec || spec.result !== "step_output") {
+    return false;
+  }
+  const path = normalizeString(spec.when?.path);
+  if (!path) {
+    return false;
+  }
+  return primitiveEquals(getDotPath(args.output, path), spec.when.equals);
+}
+
+function isTerminalSequenceRunStatus(status: SequenceRunStateStatus) {
+  return status === "completed" || status === "failed" || status === "canceled";
+}
+
+function stepSucceededCompletesRun(args: {
+  state: SequenceRunState;
+  stepIndex: number;
+  output: unknown;
+}) {
+  const step = args.state.request.steps[args.stepIndex];
+  if (!step) {
+    return false;
+  }
+  return (
+    step.id === args.state.finalStepId ||
+    matchesShortCircuitRule({ step, output: args.output })
+  );
+}
+
+function requestIdentityConflict(args: {
+  state: SequenceRunState;
+  stepIndex: number;
+  requestId: string;
+}) {
+  const existingRequestId = normalizeString(
+    args.state.steps[args.stepIndex]?.requestId,
+  );
+  const requestId = normalizeString(args.requestId);
+  return !!existingRequestId && !!requestId && existingRequestId !== requestId;
+}
+
+function throwRequestIdentityConflict(args: {
+  sequenceRunId: string;
+  stepIndex: number;
+  existingRequestId: string;
+  requestId: string;
+}) {
+  throw new Error(
+    `sequence step request identity conflict: sequenceRunId=${args.sequenceRunId}; stepIndex=${args.stepIndex}; existingRequestId=${args.existingRequestId}; requestId=${args.requestId}`,
+  );
+}
+
+export function applySequenceRunEvent(
+  event: SequenceRunEvent,
+): SequenceRunState {
+  switch (event.type) {
+    case "sequence.step.started":
+      return updateState(event.sequenceRunId, (state) =>
+        updateStep(
+          {
+            ...state,
+            status: "running_step",
+            error: undefined,
+          },
+          event.stepIndex,
+          (step) => ({
+            ...step,
+            status: "running",
+          }),
+        ),
+      );
+    case "sequence.step.request_created": {
+      const requestId = normalizeString(event.requestId);
+      if (!requestId) {
+        const existing = getSequenceRunState(event.sequenceRunId);
+        if (!existing) {
+          throw new Error(
+            `sequence run state not found: ${event.sequenceRunId}`,
+          );
+        }
+        return existing;
+      }
+      return updateState(event.sequenceRunId, (state) => {
+        const existingRequestId = normalizeString(
+          state.steps[event.stepIndex]?.requestId,
+        );
+        if (
+          requestIdentityConflict({
+            state,
+            stepIndex: event.stepIndex,
+            requestId,
+          })
+        ) {
+          throwRequestIdentityConflict({
+            sequenceRunId: state.sequenceRunId,
+            stepIndex: event.stepIndex,
+            existingRequestId,
+            requestId,
+          });
+        }
+        const next = updateStep(state, event.stepIndex, (step) => ({
+          ...step,
+          requestId,
+          status: step.status || "running",
+        }));
+        return {
+          ...next,
+          rootRequestId: next.rootRequestId || requestId,
+        };
+      });
+    }
+    case "sequence.step.succeeded":
+      return updateState(event.sequenceRunId, (state) => {
+        const requestId = normalizeString(event.requestId);
+        const existingRequestId = normalizeString(
+          state.steps[event.stepIndex]?.requestId,
+        );
+        if (
+          requestIdentityConflict({
+            state,
+            stepIndex: event.stepIndex,
+            requestId,
+          })
+        ) {
+          throwRequestIdentityConflict({
+            sequenceRunId: state.sequenceRunId,
+            stepIndex: event.stepIndex,
+            existingRequestId,
+            requestId,
+          });
+        }
+        const next = updateStep(state, event.stepIndex, (step) => ({
+          ...step,
+          requestId: requestId || step.requestId,
+          status: "succeeded",
+          output: event.output,
+          result: cloneProviderResult(event.result),
+        }));
+        if (
+          stepSucceededCompletesRun({
+            state: next,
+            stepIndex: event.stepIndex,
+            output: event.output,
+          })
+        ) {
+          const step = next.request.steps[event.stepIndex];
+          return {
+            ...next,
+            status: "completed",
+            terminalStepId: step.id,
+            error: undefined,
+          };
+        }
+        return next;
+      });
+    case "sequence.step.waiting":
+      return updateState(event.sequenceRunId, (state) => {
+        const next = updateStep(
+          {
+            ...state,
+            status: "waiting_interaction",
+          },
+          event.stepIndex,
+          (step) => ({
+            ...step,
+            requestId: normalizeString(event.requestId) || step.requestId,
+            status: "deferred",
+            result: cloneProviderResult(event.result),
+          }),
+        );
+        return {
+          ...next,
+          rootRequestId: next.rootRequestId || normalizeString(event.requestId),
+        };
+      });
+    case "sequence.step.terminal":
+      return updateState(event.sequenceRunId, (state) =>
+        updateStep(
+          {
+            ...state,
+            status: event.status,
+            error: normalizeString(event.error) || undefined,
+          },
+          event.stepIndex,
+          (step) => ({
+            ...step,
+            requestId: normalizeString(event.requestId) || step.requestId,
+            status: event.status,
+            error: normalizeString(event.error) || undefined,
+          }),
+        ),
+      );
+    case "sequence.step.apply_result":
+      return updateState(event.sequenceRunId, (state) => {
+        const next = updateStep(state, event.stepIndex, (step) => ({
+          ...step,
+          applyResult: {
+            status: event.status,
+            workflowId: normalizeString(event.workflowId) || undefined,
+            result: event.result,
+            error: normalizeString(event.error) || undefined,
+            updatedAt: nowIso(),
+          },
+        }));
+        const step = next.request.steps[event.stepIndex];
+        if (
+          event.status === "failed" &&
+          step &&
+          resolveStepApplyFailureMode(step) === "fail_sequence" &&
+          next.status !== "failed" &&
+          next.status !== "canceled"
+        ) {
+          return {
+            ...next,
+            status: "failed",
+            error: normalizeString(event.error) || undefined,
+          };
+        }
+        return next;
+      });
+    case "sequence.step.lifecycle_settled":
+      return updateState(event.sequenceRunId, (state) =>
+        updateStep(state, event.stepIndex, (step) => ({
+          ...step,
+          lifecycleSettledAt: step.lifecycleSettledAt || nowIso(),
+        })),
+      );
+    case "sequence.run.continuing":
+      return updateState(event.sequenceRunId, (state) =>
+        isTerminalSequenceRunStatus(state.status)
+          ? state
+          : {
+              ...state,
+              status: "continuing",
+              error: undefined,
+              updatedAt: nowIso(),
+            },
+      );
+    case "sequence.run.waiting_interaction":
+      return updateState(event.sequenceRunId, (state) => ({
+        ...state,
+        status: "waiting_interaction",
+        error: undefined,
+        updatedAt: nowIso(),
+      }));
+    case "sequence.run.terminal":
+      return updateState(event.sequenceRunId, (state) =>
+        isTerminalSequenceRunStatus(state.status)
+          ? state
+          : {
+              ...state,
+              status: event.status,
+              terminalStepId:
+                normalizeString(event.terminalStepId) || state.terminalStepId,
+              error: normalizeString(event.error) || undefined,
+              updatedAt: nowIso(),
+            },
+      );
+  }
+}
+
 export function initializeSequenceRunState(args: {
   request: SkillRunnerSequenceRequestV1;
   backend: BackendInstance;
@@ -521,215 +861,6 @@ export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
     }
   }
   return null;
-}
-
-export function recordSequenceStepStarted(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-}) {
-  return updateState(args.sequenceRunId, (state) =>
-    updateStep(
-      {
-        ...state,
-        status: "running_step",
-        error: undefined,
-      },
-      args.stepIndex,
-      (step) => ({
-        ...step,
-        status: "running",
-      }),
-    ),
-  );
-}
-
-export function recordSequenceStepRequestCreated(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-  requestId: string;
-}) {
-  const requestId = normalizeString(args.requestId);
-  if (!requestId) {
-    return getSequenceRunState(args.sequenceRunId);
-  }
-  return updateState(args.sequenceRunId, (state) => {
-    const existingRequestId = normalizeString(
-      state.steps[args.stepIndex]?.requestId,
-    );
-    if (existingRequestId && existingRequestId !== requestId) {
-      throw new Error(
-        `sequence step request identity conflict: sequenceRunId=${state.sequenceRunId}; stepIndex=${args.stepIndex}; existingRequestId=${existingRequestId}; requestId=${requestId}`,
-      );
-    }
-    const next = updateStep(state, args.stepIndex, (step) => ({
-      ...step,
-      requestId,
-      status: step.status || "running",
-    }));
-    return {
-      ...next,
-      rootRequestId: next.rootRequestId || requestId,
-    };
-  });
-}
-
-export function recordSequenceStepSucceeded(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-  requestId: string;
-  output: unknown;
-  result: ProviderExecutionResult;
-}) {
-  return updateState(args.sequenceRunId, (state) => {
-    const requestId = normalizeString(args.requestId);
-    const existingRequestId = normalizeString(
-      state.steps[args.stepIndex]?.requestId,
-    );
-    if (existingRequestId && requestId && existingRequestId !== requestId) {
-      throw new Error(
-        `sequence step request identity conflict: sequenceRunId=${state.sequenceRunId}; stepIndex=${args.stepIndex}; existingRequestId=${existingRequestId}; requestId=${requestId}`,
-      );
-    }
-    return updateStep(state, args.stepIndex, (step) => ({
-      ...step,
-      requestId: requestId || step.requestId,
-      status: "succeeded",
-      output: args.output,
-      result: cloneProviderResult(args.result),
-    }));
-  });
-}
-
-export function recordSequenceStepWaiting(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-  requestId: string;
-  result: ProviderExecutionResult;
-}) {
-  return updateState(args.sequenceRunId, (state) => {
-    const next = updateStep(
-      {
-        ...state,
-        status: "waiting_interaction",
-      },
-      args.stepIndex,
-      (step) => ({
-        ...step,
-        requestId: normalizeString(args.requestId) || step.requestId,
-        status: "deferred",
-        result: cloneProviderResult(args.result),
-      }),
-    );
-    return {
-      ...next,
-      rootRequestId: next.rootRequestId || normalizeString(args.requestId),
-    };
-  });
-}
-
-export function recordSequenceStepTerminal(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-  requestId?: string;
-  status: "failed" | "canceled";
-  error?: string;
-}) {
-  return updateState(args.sequenceRunId, (state) =>
-    updateStep(
-      {
-        ...state,
-        status: args.status,
-        error: normalizeString(args.error) || undefined,
-      },
-      args.stepIndex,
-      (step) => ({
-        ...step,
-        requestId: normalizeString(args.requestId) || step.requestId,
-        status: args.status,
-        error: normalizeString(args.error) || undefined,
-      }),
-    ),
-  );
-}
-
-export function recordSequenceStepApplyResult(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-  workflowId?: string;
-  status: "succeeded" | "failed" | "skipped";
-  result?: unknown;
-  error?: string;
-}) {
-  return updateState(args.sequenceRunId, (state) =>
-    updateStep(state, args.stepIndex, (step) => ({
-      ...step,
-      applyResult: {
-        status: args.status,
-        workflowId: normalizeString(args.workflowId) || undefined,
-        result: args.result,
-        error: normalizeString(args.error) || undefined,
-        updatedAt: nowIso(),
-      },
-    })),
-  );
-}
-
-export function recordSequenceStepLifecycleSettled(args: {
-  sequenceRunId: string;
-  stepIndex: number;
-}) {
-  return updateState(args.sequenceRunId, (state) =>
-    updateStep(state, args.stepIndex, (step) => ({
-      ...step,
-      lifecycleSettledAt: step.lifecycleSettledAt || nowIso(),
-    })),
-  );
-}
-
-export function markSequenceRunContinuing(sequenceRunId: string) {
-  return updateState(sequenceRunId, (state) =>
-    state.status === "completed" ||
-    state.status === "failed" ||
-    state.status === "canceled"
-      ? state
-      : {
-          ...state,
-          status: "continuing",
-          error: undefined,
-          updatedAt: nowIso(),
-        },
-  );
-}
-
-export function markSequenceRunWaitingInteraction(sequenceRunId: string) {
-  return updateState(sequenceRunId, (state) => ({
-    ...state,
-    status: "waiting_interaction",
-    error: undefined,
-    updatedAt: nowIso(),
-  }));
-}
-
-export function markSequenceRunTerminal(args: {
-  sequenceRunId: string;
-  status: "completed" | "failed" | "canceled";
-  error?: string;
-  terminalStepId?: string;
-}) {
-  return updateState(args.sequenceRunId, (state) =>
-    state.status === "completed" ||
-    state.status === "failed" ||
-    state.status === "canceled"
-      ? state
-      : {
-          ...state,
-          status: args.status,
-          terminalStepId:
-            normalizeString(args.terminalStepId) || state.terminalStepId,
-          error: normalizeString(args.error) || undefined,
-          updatedAt: nowIso(),
-        },
-  );
 }
 
 export function getSequenceStepIndexByRequestId(

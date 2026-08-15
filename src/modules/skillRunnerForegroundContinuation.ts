@@ -39,10 +39,9 @@ import {
   type ApplySequenceStepResult,
 } from "./workflowExecution/sequenceRuntime";
 import {
+  applySequenceRunEvent,
   getSequenceRunState,
   getSequenceRunStateByStepRequest,
-  markSequenceRunTerminal,
-  recordSequenceStepWaiting,
   type SequenceRunState,
 } from "./workflowExecution/sequenceStateStore";
 import { executeSequenceStepApply } from "./workflowExecution/sequenceStepApply";
@@ -825,7 +824,8 @@ function markSequenceDeferred(args: {
   if (stepIndex < 0) {
     return;
   }
-  recordSequenceStepWaiting({
+  applySequenceRunEvent({
+    type: "sequence.step.waiting",
     sequenceRunId: args.sequenceState.sequenceRunId,
     stepIndex,
     requestId: args.result.requestId,
@@ -838,7 +838,8 @@ function markSequenceTerminalFailure(args: {
   status: "failed" | "canceled";
   error?: string;
 }) {
-  markSequenceRunTerminal({
+  applySequenceRunEvent({
+    type: "sequence.run.terminal",
     sequenceRunId: args.sequenceState.sequenceRunId,
     status: args.status,
     error: args.error,

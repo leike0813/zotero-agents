@@ -10,13 +10,10 @@ import {
   executeSkillRunnerSequence,
 } from "../../src/modules/workflowExecution/sequenceRuntime";
 import {
+  applySequenceRunEvent,
   getSequenceRunState,
   getSequenceRunStateByStepRequest,
   initializeSequenceRunState,
-  markSequenceRunTerminal,
-  recordSequenceStepApplyResult,
-  recordSequenceStepRequestCreated,
-  recordSequenceStepSucceeded,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   createAcpSkillRunnerWorkspace,
@@ -384,7 +381,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
         },
       },
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId: "workflow-run-continuation-skill-display",
       stepIndex: 0,
       requestId: "prepare-request",
@@ -561,7 +559,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
         },
       },
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId,
       stepIndex: 0,
       requestId: "prepare-request",
@@ -2084,12 +2083,14 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: sequenceRunId,
       jobId: "job-root-skip",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId,
       stepIndex: 0,
       requestId: finalRequestId,
     });
-    recordSequenceStepApplyResult({
+    applySequenceRunEvent({
+      type: "sequence.step.apply_result",
       sequenceRunId,
       stepIndex: 0,
       workflowId: "final-workflow",
@@ -2173,7 +2174,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: sequenceRunId,
       jobId: "job-foreground-detached",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId,
       stepIndex: 0,
       requestId,
@@ -2458,7 +2460,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: "workflow-run-recovered-short-circuit",
       jobId: "job-recovered-short-circuit",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId: "workflow-run-recovered-short-circuit",
       stepIndex: 0,
       requestId: "prepare-request",
@@ -2530,7 +2533,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: sequenceRunId,
       jobId: "job-external-final-replay",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId,
       stepIndex: 0,
       requestId: "finalize-request",
@@ -2593,7 +2597,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(replay.sequence?.terminal_step_id, "finalize");
     assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
 
-    markSequenceRunTerminal({
+    applySequenceRunEvent({
+      type: "sequence.run.terminal",
       sequenceRunId,
       status: "failed",
       error: "outer apply failed after sequence completion",
@@ -2640,7 +2645,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: sequenceRunId,
       jobId: "job-external-non-final",
     });
-    recordSequenceStepRequestCreated({
+    applySequenceRunEvent({
+      type: "sequence.step.request_created",
       sequenceRunId,
       stepIndex: 0,
       requestId: "prepare-request",
@@ -2728,7 +2734,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: "workflow-run-large-bundle",
       jobId: "job-large-bundle",
     });
-    recordSequenceStepSucceeded({
+    applySequenceRunEvent({
+      type: "sequence.step.succeeded",
       sequenceRunId: "workflow-run-large-bundle",
       stepIndex: 0,
       requestId: "bundle-request",

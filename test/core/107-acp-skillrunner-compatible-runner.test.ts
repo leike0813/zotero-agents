@@ -82,8 +82,8 @@ import {
   materializeHostBridgeCliRunInjection,
 } from "../../src/modules/hostBridgeCliInjection";
 import {
+  applySequenceRunEvent,
   initializeSequenceRunState,
-  recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   ACP_SKILL_PATCH_TEMPLATES,
@@ -11325,7 +11325,8 @@ describe("ACP SkillRunner-compatible runner", function () {
         workflowRunId,
         jobId,
       });
-      recordSequenceStepRequestCreated({
+      applySequenceRunEvent({
+        type: "sequence.step.request_created",
         sequenceRunId: workflowRunId,
         stepIndex: 0,
         requestId: workspace.requestId,
@@ -13703,7 +13704,8 @@ describe("ACP SkillRunner-compatible runner", function () {
             return;
           }
           requestId = String(event.requestId);
-          recordSequenceStepRequestCreated({
+          applySequenceRunEvent({
+            type: "sequence.step.request_created",
             sequenceRunId: workflowRunId,
             stepIndex: 0,
             requestId,
@@ -13932,7 +13934,8 @@ describe("ACP SkillRunner-compatible runner", function () {
             return;
           }
           requestId = String(event.requestId);
-          recordSequenceStepRequestCreated({
+          applySequenceRunEvent({
+            type: "sequence.step.request_created",
             sequenceRunId: workflowRunId,
             stepIndex: 0,
             requestId,
@@ -14139,7 +14142,8 @@ describe("ACP SkillRunner-compatible runner", function () {
         onProgress: (event) => {
           if (event.type !== "request-created") return;
           requestId = String(event.requestId);
-          recordSequenceStepRequestCreated({
+          applySequenceRunEvent({
+            type: "sequence.step.request_created",
             sequenceRunId: workflowRunId,
             stepIndex: 0,
             requestId,
