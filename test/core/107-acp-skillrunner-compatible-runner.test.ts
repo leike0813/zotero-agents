@@ -7203,6 +7203,63 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("projects ACP Skills tool display fields through the shared contract", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-tool-display",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp"),
+      });
+      recordAcpSkillRunSessionUpdate("run-tool-display", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-1",
+          name: "read_file",
+          title: "Reading configuration",
+          kind: "read",
+          status: "pending",
+          rawInput: { path: "config.json", limit: 20 },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-tool-display", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-1",
+          status: "completed",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "Finished" },
+            },
+          ],
+        },
+      } as any);
+
+      const tool = (await readRunTranscriptItems("run-tool-display")).find(
+        (item) => item.kind === "tool_call" && item.toolCallId === "tool-1",
+      );
+      assert.equal(tool?.kind, "tool_call");
+      if (tool?.kind === "tool_call") {
+        assert.equal(tool.toolName, "read_file");
+        assert.equal(tool.title, "Reading configuration");
+        assert.equal(tool.toolKind, "read");
+        assert.equal(tool.inputSummary, '{"path":"config.json","limit":20}');
+        assert.equal(tool.resultSummary, "Finished");
+        assert.equal(tool.summary, undefined);
+        assert.equal(tool.state, "completed");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps panel snapshot selection reads from mutating the globally selected ACP skill run", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({

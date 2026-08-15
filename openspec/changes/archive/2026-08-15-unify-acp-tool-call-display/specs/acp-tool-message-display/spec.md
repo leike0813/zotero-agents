@@ -1,10 +1,4 @@
-# acp-tool-message-display Specification
-
-## Purpose
-
-Define how ACP tool-call reports become stable, compact transcript display data while preserving protocol meaning and compatibility with supported agent adapters.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Tool Display Fields
 
@@ -92,32 +86,6 @@ ACP tool display projection and rendering SHALL filter placeholders according to
 - **THEN** it is not selected as the tool name or title
 - **AND** a canonical `name` with the same spelling remains opaque
 
-### Requirement: Transcript Tool Rendering
-
-ACP chat UI SHALL render tool calls as transcript activity while preserving message timeline boundaries.
-
-#### Scenario: Tool call remains transcript activity
-
-- Given a snapshot contains assistant output and tool calls
-- When the chat UI renders the transcript
-- Then canonical tool rows are rendered as tool transcript activity items
-- And assistant messages and thoughts remain normal transcript items
-
-#### Scenario: Plain mode does not fold tools
-
-- Given the transcript is in plain mode
-- When consecutive tool rows are present
-- Then each canonical tool row renders separately in normal document flow
-- And no plain-mode tool activity drawer is used
-
-#### Scenario: Bubble mode folds consecutive tool batches
-
-- Given the transcript is in bubble mode
-- And consecutive canonical tool rows are present
-- When the chat UI renders the transcript
-- Then the consecutive tool rows may render as a collapsed activity drawer
-- And expanding the group shows one row per canonical tool call
-
 ### Requirement: Tool Row Display
 
 ACP tool rows, transcript previews, and durable transcript indexes SHALL use one compact display selection while preserving full bounded display state for tooltips and details.
@@ -176,6 +144,8 @@ ACP tool display projection SHALL remain compatible with the saved Claude Code, 
 - **WHEN** a report supplies non-standard `summary`
 - **THEN** it is retained only as compatibility `summary`
 - **AND** it does not generate `toolName`, `inputSummary`, or `resultSummary`
+
+## ADDED Requirements
 
 ### Requirement: Tool Result Summary Updates
 

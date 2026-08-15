@@ -263,7 +263,7 @@ export type AcpConversationThoughtItem = AcpConversationItemBase & {
 export type AcpConversationToolCallItem = AcpConversationItemBase & {
   kind: "tool_call";
   toolCallId: string;
-  title: string;
+  title?: string;
   toolKind?: string;
   toolName?: string;
   inputSummary?: string;

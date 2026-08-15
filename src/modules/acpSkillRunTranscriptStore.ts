@@ -1,3 +1,7 @@
+import {
+  selectAcpToolCallDisplay,
+  type AcpToolCallDisplayState,
+} from "../shared/acpToolCallDisplay";
 import { joinPath } from "../utils/path";
 import type { AcpSkillRunTranscriptItem } from "./acpSkillRunStore";
 import {
@@ -285,9 +289,15 @@ function previewFromItem(item: AcpSkillRunTranscriptItem | null | undefined) {
     return truncatePreview(item.summary || item.title);
   }
   if (item.kind === "tool_call") {
-    return truncatePreview(
-      item.summary || item.resultSummary || item.inputSummary || item.title,
-    );
+    const selection = selectAcpToolCallDisplay({
+      toolName: item.toolName,
+      title: item.title,
+      kind: item.toolKind as AcpToolCallDisplayState["kind"],
+      inputSummary: item.inputSummary,
+      resultSummary: item.resultSummary,
+      summary: item.summary,
+    });
+    return truncatePreview(selection.secondary || selection.primary);
   }
   if (raw.kind === "plan") {
     return previewFromPlanEntries(raw.entries);
@@ -339,12 +349,18 @@ function previewFromPatch(
   if (planPreview) {
     return planPreview;
   }
-  const summary =
-    (patch as { summary?: unknown }).summary ||
-    (patch as { resultSummary?: unknown }).resultSummary ||
-    (patch as { inputSummary?: unknown }).inputSummary ||
-    (patch as { title?: unknown }).title;
-  return truncatePreview(summary) || existing;
+  const toolPatch = patch as Partial<
+    Extract<AcpSkillRunTranscriptItem, { kind: "tool_call" }>
+  >;
+  const selection = selectAcpToolCallDisplay({
+    toolName: toolPatch.toolName,
+    title: toolPatch.title,
+    kind: toolPatch.toolKind as AcpToolCallDisplayState["kind"],
+    inputSummary: toolPatch.inputSummary,
+    resultSummary: toolPatch.resultSummary,
+    summary: toolPatch.summary,
+  });
+  return truncatePreview(selection.secondary || selection.primary) || existing;
 }
 
 function previewFromIndex(index: AcpSkillRunTranscriptIndex) {

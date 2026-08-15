@@ -1,3 +1,8 @@
+import {
+  applyAcpToolCallDisplayUpdate,
+  selectAcpToolCallDisplay,
+  type AcpToolCallDisplayState,
+} from "../shared/acpToolCallDisplay";
 import { getStringOrFallback } from "../utils/locale";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
@@ -91,9 +96,15 @@ function transcriptPreviewFromItem(item: AcpSkillRunTranscriptItem) {
     return truncateAcpSkillRunPreview(item.summary || item.title);
   }
   if (item.kind === "tool_call") {
-    return truncateAcpSkillRunPreview(
-      item.summary || item.resultSummary || item.inputSummary || item.title,
-    );
+    const selection = selectAcpToolCallDisplay({
+      toolName: item.toolName,
+      title: item.title,
+      kind: item.toolKind as AcpToolCallDisplayState["kind"],
+      inputSummary: item.inputSummary,
+      resultSummary: item.resultSummary,
+      summary: item.summary,
+    });
+    return truncateAcpSkillRunPreview(selection.secondary || selection.primary);
   }
   return undefined;
 }
@@ -169,6 +180,7 @@ export type AcpSkillRunTranscriptLiveState = {
       toolKind?: string;
       toolName?: string;
       inputSummary?: string;
+      resultSummary?: string;
       summary?: string;
     }
   >;
@@ -722,111 +734,9 @@ function normalizeToolCallState(
   return "pending";
 }
 
-function isGenericToolText(value: unknown) {
-  const text = normalizeString(value);
-  const normalized = text.toLowerCase();
-  return (
-    !text ||
-    normalized === "tool" ||
-    normalized === "tool call" ||
-    normalized === "other" ||
-    text === "[]" ||
-    text === "{}" ||
-    /^call[_-][a-z0-9_-]+$/i.test(text) ||
-    /^toolu_[a-z0-9_-]+$/i.test(text)
-  );
-}
-
-function safeStringify(value: unknown): string {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  if (Array.isArray(value) && value.length === 0) {
-    return "";
-  }
-  if (isRecord(value) && Object.keys(value).length === 0) {
-    return "";
-  }
-  try {
-    return JSON.stringify(value) || "";
-  } catch {
-    return "";
-  }
-}
-
-function shortenToolSummary(value: unknown) {
-  const text = safeStringify(value).replace(/\s+/g, " ").trim();
-  if (isGenericToolText(text)) {
-    return "";
-  }
-  return text.length > 220 ? `${text.slice(0, 217)}...` : text;
-}
-
-function firstToolText(values: unknown[]) {
-  for (const value of values) {
-    const text = shortenToolSummary(value);
-    if (text) {
-      return text;
-    }
-  }
-  return "";
-}
-
-function extractToolName(update: AcpToolCall) {
-  return (
-    firstToolText([
-      update.name,
-      update.tool,
-      update.functionName,
-      update.function_name,
-      (isRecord(update.metadata) &&
-        (update.metadata.name || update.metadata.title)) ||
-        "",
-      update.title,
-      update.kind,
-    ]) || "Tool"
-  );
-}
-
-function extractToolInputSummary(update: AcpToolCall) {
-  return firstToolText([
-    update.rawInput,
-    update.input,
-    update.arguments,
-    update.args,
-    update.parameters,
-    update.params,
-    isRecord(update.metadata) ? update.metadata.description : "",
-    update.description,
-    update.summary,
-  ]);
-}
-
-function extractToolResultSummary(update: AcpToolCall) {
-  return firstToolText([
-    update.rawOutput,
-    update.output,
-    update.result,
-    update.content,
-    update.message,
-    update.detail,
-    update.summary,
-  ]);
-}
-
 function hasToolResultPayload(update: AcpToolCall) {
   return Boolean(
-    firstToolText([
-      update.rawOutput,
-      update.output,
-      update.result,
-      update.content,
-      update.message,
-      update.detail,
-    ]),
+    applyAcpToolCallDisplayUpdate(undefined, update).resultSummary,
   );
 }
 
@@ -857,24 +767,31 @@ function upsertTranscriptToolCall(
   const existingId = liveState.toolItemIds.get(toolCallId);
   const existing = liveState.toolItems.get(toolCallId);
   const nextState = inferToolCallState(update);
-  const title = firstToolText([update.title]) || existing?.title;
-  const toolKind = firstToolText([update.kind]) || existing?.toolKind;
-  const toolName = extractToolName(update) || existing?.toolName;
-  const inputSummary =
-    extractToolInputSummary(update) || existing?.inputSummary;
-  const summary = firstToolText([update.summary]) || existing?.summary;
+  const display = applyAcpToolCallDisplayUpdate(
+    existing
+      ? {
+          toolName: existing.toolName,
+          title: existing.title,
+          kind: existing.toolKind as AcpToolCallDisplayState["kind"],
+          inputSummary: existing.inputSummary,
+          resultSummary: existing.resultSummary,
+          summary: existing.summary,
+        }
+      : undefined,
+    update,
+  );
   const next: AcpSkillRunTranscriptItem = {
     id:
       existingId || nextAcpSkillRunTranscriptItemId(record, "tool", liveState),
     kind: "tool_call",
     toolCallId,
-    title: title || undefined,
+    title: display.title,
     state: nextState,
-    toolKind: toolKind || undefined,
-    toolName: toolName || undefined,
-    inputSummary: inputSummary || undefined,
-    resultSummary: extractToolResultSummary(update) || undefined,
-    summary: summary || undefined,
+    toolKind: display.kind,
+    toolName: display.toolName,
+    inputSummary: display.inputSummary,
+    resultSummary: display.resultSummary,
+    summary: display.summary,
     createdAt: now,
     updatedAt: now,
   };
@@ -885,6 +802,7 @@ function upsertTranscriptToolCall(
     toolKind: next.toolKind,
     toolName: next.toolName,
     inputSummary: next.inputSummary,
+    resultSummary: next.resultSummary,
     summary: next.summary,
   });
   queueAcpSkillRunTranscriptEvent(record, {
