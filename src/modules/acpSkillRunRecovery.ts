@@ -68,7 +68,7 @@ import {
   type AcpSkillRunReplyRequest,
   type AcpSkillRunSetupController,
 } from "./acpSkillRunStore";
-import { finishAcpSequenceStep } from "./workflowExecution/acpSequenceStepLifecycle";
+import { acpSequenceStepLifecycle } from "./workflowExecution/acpSequenceStepLifecycle";
 import {
   requestAcpSkillRunForeground,
   type AcpSkillRunForegroundDeps,
@@ -87,7 +87,10 @@ import {
   writeAcpSkillRunAuditRuntimeLogs,
   writeAcpSkillRunAuditStderrTail,
 } from "./acpSkillRunAuditTrail";
-import { continueSkillRunnerSequence } from "./workflowExecution/sequenceRuntime";
+import {
+  acceptCompletedSequenceStep,
+  sequenceTerminalStepOwnsApply,
+} from "./workflowExecution/sequenceRuntime";
 import {
   BoundedWaitError,
   createCancellationController,
@@ -102,7 +105,6 @@ import {
   getSequenceRunStateByStepRequest,
   getSequenceStepIndexByRequestId,
   markSequenceRunTerminal,
-  recordSequenceStepSucceeded,
 } from "./workflowExecution/sequenceStateStore";
 import {
   CONFIRMED_ACP_SKILL_PROMPT_INTERRUPTION_STATE,
@@ -478,51 +480,6 @@ export async function continueRecoveredSequenceStep(args: {
       resultJson: args.resultJson,
     });
   }
-  if (sequenceStepId === sequenceFinalStepId) {
-    const apply = await applyRecoveredAcpSkillResult({
-      record: args.record,
-      resultJson: args.resultJson,
-    });
-    const sequenceState = getSequenceRunStateByStepRequest(
-      args.record.requestId,
-    );
-    if (apply.ok && sequenceState?.rootRequestId) {
-      const stepIndex = getSequenceStepIndexByRequestId(
-        sequenceState,
-        args.record.requestId,
-      );
-      if (stepIndex >= 0) {
-        recordSequenceStepSucceeded({
-          sequenceRunId: sequenceState.sequenceRunId,
-          stepIndex,
-          requestId: args.record.requestId,
-          output: args.resultJson,
-          result: {
-            status: "succeeded",
-            requestId: args.record.requestId,
-            fetchType: "result",
-            resultJson: args.resultJson,
-            responseJson: {
-              provider: "acp",
-              recovered: true,
-            },
-          },
-        });
-      }
-      updateWorkflowTaskStateByRequest({
-        backendId: args.record.backendId,
-        backendType: args.record.backendType,
-        requestId: sequenceState.rootRequestId,
-        state: "succeeded",
-      });
-      markSequenceRunTerminal({
-        sequenceRunId: sequenceState.sequenceRunId,
-        status: "completed",
-      });
-    }
-    return apply;
-  }
-
   const sequenceState = getSequenceRunStateByStepRequest(args.record.requestId);
   if (!sequenceState) {
     throw new Error(
@@ -538,7 +495,10 @@ export async function continueRecoveredSequenceStep(args: {
       `sequence step not found for recovered ACP step: requestId=${args.record.requestId}; workflowId=${normalizeString(args.record.workflowId) || "(empty)"}; skillId=${normalizeString(args.record.skillId) || "(empty)"}; sequenceStepId=${sequenceStepId}`,
     );
   }
-  const recoveredResult: ProviderExecutionResult = {
+  const recoveredResult: Extract<
+    ProviderExecutionResult,
+    { status: "succeeded" }
+  > = {
     status: "succeeded",
     requestId: args.record.requestId,
     fetchType: "result",
@@ -551,29 +511,25 @@ export async function continueRecoveredSequenceStep(args: {
     },
   };
   const recoveredWorkspaceDir = normalizeString(args.record.workspaceDir);
-  recordSequenceStepSucceeded({
-    sequenceRunId: sequenceState.sequenceRunId,
-    stepIndex,
-    requestId: args.record.requestId,
-    output: args.resultJson,
-    result: recoveredResult,
-  });
-  try {
-    await registerAcpWorkflowWorkspaceForReuse({
-      workflowRunId: sequenceState.workflowRunId,
-      workspaceDir: recoveredWorkspaceDir,
-    });
-  } catch (error) {
-    const message = errorMessage(error);
-    throw new Error(
-      `ACP recovered workflow workspace is unavailable for sequence continuation: workflow_run_id=${sequenceState.workflowRunId}; requestId=${args.record.requestId}; reason=${message}`,
-    );
+  if (sequenceStepId !== sequenceFinalStepId) {
+    try {
+      await registerAcpWorkflowWorkspaceForReuse({
+        workflowRunId: sequenceState.workflowRunId,
+        workspaceDir: recoveredWorkspaceDir,
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      throw new Error(
+        `ACP recovered workflow workspace is unavailable for sequence continuation: workflow_run_id=${sequenceState.workflowRunId}; requestId=${args.record.requestId}; reason=${message}`,
+      );
+    }
   }
   const backend = await resolveBackendForRecoveredRun(args.record.backendId);
   try {
-    const continuationResult = await continueSkillRunnerSequence({
+    const continuationResult = await acceptCompletedSequenceStep({
       sequenceRunId: sequenceState.sequenceRunId,
-      startIndex: stepIndex + 1,
+      stepIndex,
+      stepResult: recoveredResult,
       backend,
       providerOptions:
         sequenceState.providerOptions || args.record.providerOptions,
@@ -596,14 +552,7 @@ export async function continueRecoveredSequenceStep(args: {
           dependencies: args.dependencies,
         });
       },
-      onSequenceStepFinished: async (event) => {
-        await finishAcpSequenceStep({
-          requestId: event.requestId,
-          finalStep: event.step.id === event.state.request.final_step_id,
-          applyResultStatus:
-            event.state.steps[event.stepIndex]?.applyResult?.status,
-        });
-      },
+      lifecycle: acpSequenceStepLifecycle,
       applySequenceStepResult: async (stepApply) => {
         const applyWorkflow = await resolveWorkflowById(
           stepApply.applyWorkflowId,
@@ -654,14 +603,25 @@ export async function continueRecoveredSequenceStep(args: {
     const finalResultJson = isJsonObject(continuationResult.resultJson)
       ? continuationResult.resultJson
       : args.resultJson;
-    const apply = await applyRecoveredAcpSkillResult({
-      record: {
-        ...finalRecord,
-        status: "succeeded",
-        resultJson: finalResultJson,
-      },
-      resultJson: finalResultJson,
-    });
+    const apply = sequenceTerminalStepOwnsApply({
+      request: sequenceState.request,
+      result: continuationResult,
+    })
+      ? {
+          ok: true as const,
+          status: "skipped" as const,
+          reason: "terminal_step_owns_apply",
+          requestId: continuationResult.requestId,
+          workflowId: sequenceState.workflowId,
+        }
+      : await applyRecoveredAcpSkillResult({
+          record: {
+            ...finalRecord,
+            status: "succeeded",
+            resultJson: finalResultJson,
+          },
+          resultJson: finalResultJson,
+        });
     if (apply.ok && sequenceState.rootRequestId) {
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,

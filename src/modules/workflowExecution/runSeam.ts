@@ -29,7 +29,6 @@ import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
 import {
   executeSkillRunnerSequence,
   type ApplySequenceStepResult,
-  type SequenceStepFinishedObserver,
 } from "./sequenceRuntime";
 import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
 import type { WorkflowSubmissionQueueExecutionContext } from "../../jobQueue/workflowSubmissionQueueContracts";
@@ -41,7 +40,7 @@ import { localizeWorkflowLabel } from "../../workflows/localization";
 import type { LoadedWorkflow } from "../../workflows/types";
 import { getLoadedWorkflowEntries } from "../workflowRuntime";
 import { executeSequenceStepApply } from "./sequenceStepApply";
-import { finishAcpSequenceStep } from "./acpSequenceStepLifecycle";
+import { acpSequenceStepLifecycle } from "./acpSequenceStepLifecycle";
 import { resolveSkillRunnerExecutionModeFromRequest } from "../skillRunnerExecutionMode";
 import {
   mapSkillRunnerProgressLifecycle,
@@ -593,18 +592,6 @@ export function runWorkflowExecutionSeam(
                 });
               }
             : undefined;
-        const onSequenceStepFinished: SequenceStepFinishedObserver | undefined =
-          backendType === ACP_BACKEND_TYPE
-            ? async (event) => {
-                await finishAcpSequenceStep({
-                  requestId: event.requestId,
-                  finalStep:
-                    event.step.id === event.state.request.final_step_id,
-                  applyResultStatus:
-                    event.state.steps[event.stepIndex]?.applyResult?.status,
-                });
-              }
-            : undefined;
         const sequenceTraceContext: Pick<
           ProviderOrchestrationContext,
           "parentWorkflowRunId" | "semanticTraceContext"
@@ -633,7 +620,10 @@ export function runWorkflowExecutionSeam(
           executeWithProvider: resolved.executeWithProvider,
           applySequenceStepResult,
           appendRuntimeLog: resolved.appendRuntimeLog,
-          onSequenceStepFinished,
+          lifecycle:
+            backendType === ACP_BACKEND_TYPE
+              ? acpSequenceStepLifecycle
+              : undefined,
           ...sequenceTraceContext,
           onProgress: (event) => {
             runtime.reportProgress(event);

@@ -40,6 +40,7 @@ import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
 import { getSequenceRunState } from "./sequenceStateStore";
+import { sequenceTerminalStepOwnsApply } from "./sequenceRuntime";
 
 type RunResultLike = {
   status?: string;
@@ -54,6 +55,8 @@ type RunResultLike = {
   sequence?: {
     workflow_run_id?: string;
     final_step_id?: string;
+    terminal_step_id?: string;
+    short_circuit_step_id?: string;
     steps?: Array<Record<string, unknown>>;
   };
 };
@@ -308,32 +311,6 @@ function getSequenceSteps(result: RunResultLike) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function shouldSkipFinalSequenceApply(args: {
-  request: unknown;
-  result: RunResultLike;
-}) {
-  if (!isRecord(args.request)) {
-    return false;
-  }
-  if (String(args.request.kind || "").trim() !== "skillrunner.sequence.v1") {
-    return false;
-  }
-  const steps = Array.isArray(args.request.steps) ? args.request.steps : [];
-  if (steps.length === 0) {
-    return false;
-  }
-  const finalStepId =
-    String(args.result.sequence?.final_step_id || "").trim() ||
-    String(args.request.final_step_id || "").trim();
-  if (!finalStepId) {
-    return false;
-  }
-  const finalStep = steps.find(
-    (entry) => isRecord(entry) && String(entry.id || "").trim() === finalStepId,
-  );
-  return isRecord(finalStep) && isRecord(finalStep.apply_result);
 }
 
 function summarizeSequenceStepApplyResults(result: RunResultLike) {
@@ -836,7 +813,7 @@ export async function runWorkflowApplySeam(
     }
 
     if (
-      shouldSkipFinalSequenceApply({
+      sequenceTerminalStepOwnsApply({
         request: args.runState.requests[i],
         result,
       })

@@ -5,11 +5,7 @@ import type { JobRecord, JobState } from "../jobQueue/manager";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
 import { maybeObserveSkillRunnerAutoReplyRun } from "./skillRunnerAutoReplyObserver";
 import { executeWithProvider as executeWithProviderFromRegistry } from "../providers/registry";
-import type {
-  ProviderExecutionResult,
-  SkillRunnerJobRequestV1,
-  SkillRunnerSequenceRequestV1,
-} from "../providers/contracts";
+import type { ProviderExecutionResult } from "../providers/contracts";
 import { executeApplyResult } from "../workflows/runtime";
 import { ZipBundleReader } from "../workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../workflows/types";
@@ -46,13 +42,8 @@ import {
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
 import {
-  applySequenceStepResultIfNeeded,
-  buildSequenceResult,
-  buildStepRequest,
-  continueSkillRunnerSequence,
-  matchesShortCircuitRule,
-  outputsByStepFromState,
-  resolveStepOutput,
+  acceptCompletedSequenceStep,
+  sequenceTerminalStepOwnsApply,
   type ApplySequenceStepResult,
 } from "./workflowExecution/sequenceRuntime";
 import {
@@ -60,7 +51,6 @@ import {
   getSequenceRunStateByStepRequest,
   markSequenceRunTerminal,
   recordSequenceStepWaiting,
-  recordSequenceStepSucceeded,
   type SequenceRunState,
 } from "./workflowExecution/sequenceStateStore";
 import { executeSequenceStepApply } from "./workflowExecution/sequenceStepApply";
@@ -599,22 +589,6 @@ export function buildSkillRunnerForegroundContinuationStepJobForTests(args: {
   return buildContinuationStepJob(args);
 }
 
-function shouldSkipFinalSequenceApply(args: {
-  request: SkillRunnerSequenceRequestV1;
-  result: Extract<ProviderExecutionResult, { status: "succeeded" }>;
-}) {
-  const finalStepId =
-    normalizeString(args.result.sequence?.final_step_id) ||
-    normalizeString(args.request.final_step_id);
-  if (!finalStepId) {
-    return false;
-  }
-  const finalStep = args.request.steps.find(
-    (entry) => normalizeString(entry.id) === finalStepId,
-  );
-  return !!finalStep?.apply_result;
-}
-
 function updateSequenceRootApplyState(args: {
   backend: BackendInstance;
   requestId: string;
@@ -657,7 +631,7 @@ async function applySequenceRootResultIfNeeded(args: {
 }) {
   const resultRequestId = normalizeString(args.result.requestId);
   if (
-    shouldSkipFinalSequenceApply({
+    sequenceTerminalStepOwnsApply({
       request: args.sequenceState.request,
       result: args.result,
     })
@@ -729,36 +703,6 @@ async function applySequenceRootResultIfNeeded(args: {
   }
 }
 
-function buildCurrentStepRequest(args: {
-  record: SkillRunnerRunRecord;
-  sequenceState: SequenceRunState;
-  stepIndex: number;
-}) {
-  if (isRecord(args.record.requestPayload)) {
-    return args.record.requestPayload as SkillRunnerJobRequestV1;
-  }
-  const step = args.sequenceState.request.steps[args.stepIndex];
-  const outputsByStep = outputsByStepFromState(args.sequenceState);
-  const previousStep = args.sequenceState.request.steps
-    .slice(0, args.stepIndex)
-    .reverse()
-    .find((candidate) => outputsByStep.has(candidate.id));
-  const reusableRequest = args.sequenceState.steps
-    .slice(0, args.stepIndex)
-    .reverse()
-    .find((candidate) => normalizeString(candidate.requestId));
-  return buildStepRequest({
-    sequence: args.sequenceState.request,
-    step,
-    stepIndex: args.stepIndex,
-    workflowRunId: args.sequenceState.workflowRunId,
-    previousStepId: previousStep?.id || "",
-    outputsByStep,
-    backendType: args.sequenceState.backendType,
-    workspaceRequestId: reusableRequest?.requestId,
-  }) as SkillRunnerJobRequestV1;
-}
-
 async function applySequenceTerminalStep(args: {
   record: SkillRunnerRunRecord;
   backend: BackendInstance;
@@ -776,14 +720,6 @@ async function applySequenceTerminalStep(args: {
   if (stepIndex < 0 || !step) {
     return;
   }
-  const output = resolveStepOutput(args.result);
-  recordSequenceStepSucceeded({
-    sequenceRunId: args.sequenceState.sequenceRunId,
-    stepIndex,
-    requestId,
-    output,
-    result: args.result,
-  });
   updateSkillRunnerRunResult({
     backendId: args.record.backendId,
     requestId,
@@ -797,13 +733,6 @@ async function applySequenceTerminalStep(args: {
       sequenceStepId: step.id,
       sequenceStepIndex: stepIndex,
     },
-  });
-  const stateAfterSucceeded =
-    getSequenceRunState(args.sequenceState.sequenceRunId) || args.sequenceState;
-  const stepRequest = buildCurrentStepRequest({
-    record: args.record,
-    sequenceState: stateAfterSucceeded,
-    stepIndex,
   });
   const applySequenceStepResult: ApplySequenceStepResult = async (
     stepApply,
@@ -841,61 +770,19 @@ async function applySequenceTerminalStep(args: {
       },
     });
   };
-  await applySequenceStepResultIfNeeded({
-    state: stateAfterSucceeded,
+  const continuationResult = await acceptCompletedSequenceStep({
+    sequenceRunId: args.sequenceState.sequenceRunId,
     stepIndex,
-    stepRequest,
     stepResult: args.result,
-    output,
-    backend: args.backend,
-    appendRuntimeLog,
-    applySequenceStepResult,
-  });
-  const latestState =
-    getSequenceRunState(args.sequenceState.sequenceRunId) ||
-    stateAfterSucceeded;
-  const isFinal = step.id === latestState.request.final_step_id;
-  const shortCircuited = matchesShortCircuitRule({ step, output });
-  if (isFinal || shortCircuited) {
-    markSequenceRunTerminal({
-      sequenceRunId: latestState.sequenceRunId,
-      status: "completed",
-    });
-    const terminalState =
-      getSequenceRunState(latestState.sequenceRunId) || latestState;
-    const sequenceResult = buildSequenceResult({
-      finalResult: {
-        ...args.result,
-        resultJson: output,
-      },
-      workflowRunId: terminalState.workflowRunId,
-      finalStepId: terminalState.request.final_step_id,
-      outputsByStep: outputsByStepFromState(terminalState),
-      shortCircuitStepId: shortCircuited ? step.id : undefined,
-    });
-    await applySequenceRootResultIfNeeded({
-      record: args.record,
-      backend: args.backend,
-      sequenceState: terminalState,
-      result: sequenceResult as Extract<
-        ProviderExecutionResult,
-        { status: "succeeded" }
-      >,
-      source: args.source,
-    });
-    return;
-  }
-  const continuationResult = await continueSkillRunnerSequence({
-    sequenceRunId: latestState.sequenceRunId,
-    startIndex: stepIndex + 1,
     backend: args.backend,
     providerOptions:
-      latestState.providerOptions ||
+      args.sequenceState.providerOptions ||
       resolveContinuationProviderOptions({
         record: args.record,
-        sequenceState: latestState,
+        sequenceState: args.sequenceState,
       }),
     appendRuntimeLog,
+    applySequenceStepResult,
     executeWithProvider: ({
       requestKind,
       request,
@@ -912,12 +799,12 @@ async function applySequenceTerminalStep(args: {
         onProgress,
         orchestrationContext,
       }),
-    applySequenceStepResult,
     onProgress: (event) => {
       const persisted = persistContinuationStepJob({
         record: args.record,
         sequenceState:
-          getSequenceRunState(latestState.sequenceRunId) || latestState,
+          getSequenceRunState(args.sequenceState.sequenceRunId) ||
+          args.sequenceState,
         backend: args.backend,
         event: event as Record<string, unknown>,
       });
@@ -941,7 +828,8 @@ async function applySequenceTerminalStep(args: {
   });
   if (continuationResult.status === "succeeded") {
     const terminalState =
-      getSequenceRunState(latestState.sequenceRunId) || latestState;
+      getSequenceRunState(args.sequenceState.sequenceRunId) ||
+      args.sequenceState;
     await applySequenceRootResultIfNeeded({
       record: args.record,
       backend: args.backend,

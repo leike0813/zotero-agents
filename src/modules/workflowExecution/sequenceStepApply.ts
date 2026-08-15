@@ -16,7 +16,6 @@ import {
   writeBytes,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
-import { settleAcpSequenceStepApply } from "./acpSequenceStepLifecycle";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -57,7 +56,6 @@ export async function executeSequenceStepApply(args: {
   runtime?: Partial<WorkflowRuntimeContext>;
 }) {
   const requestId = normalizeString(args.runResult.requestId);
-  const backendType = normalizeString(args.runResult.backendType);
   let bundlePath = "";
   try {
     const bundleResource = await createBundleReaderForRunResult({
@@ -90,26 +88,7 @@ export async function executeSequenceStepApply(args: {
       sequenceStep: args.sequenceStep,
       appendRuntimeLog,
     });
-    if (backendType === "acp") {
-      await settleAcpSequenceStepApply({
-        requestId,
-        finalStep: args.sequenceStep.finalStep,
-        state: "succeeded",
-      });
-    }
     return applied;
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error || "unknown error");
-    if (backendType === "acp") {
-      await settleAcpSequenceStepApply({
-        requestId,
-        finalStep: args.sequenceStep.finalStep,
-        state: "failed",
-        error: message,
-      });
-    }
-    throw error;
   } finally {
     if (bundlePath) {
       await removeFileIfExists(bundlePath);

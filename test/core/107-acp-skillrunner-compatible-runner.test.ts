@@ -11362,8 +11362,15 @@ describe("ACP SkillRunner-compatible runner", function () {
         getAcpSkillRunRecord(workspace.requestId)?.status,
         "succeeded",
       );
+      assert.equal(
+        getAcpSkillRunRecord(workspace.requestId)?.applyResultState,
+        "succeeded",
+      );
       assert.equal(coreRun?.status, "succeeded");
       assert.equal(finalizeRun?.status, "succeeded");
+      assert.isFalse(hasAcpSkillRunController(workspace.requestId));
+      assert.isFalse(hasAcpSkillRunController(coreRun?.requestId || ""));
+      assert.isFalse(hasAcpSkillRunController(finalizeRun?.requestId || ""));
       assert.equal(coreRun?.workspaceDir, workspace.workspaceDir);
       assert.equal(finalizeRun?.workspaceDir, workspace.workspaceDir);
       assert.deepEqual(foregroundSelectedRequestIds, [

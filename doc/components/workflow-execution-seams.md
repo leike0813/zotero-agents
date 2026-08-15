@@ -80,8 +80,14 @@ sequence root exclusively owns workflow terminal settlement. Terminal or
 applied child-step records remain step lifecycle facts while the root is
 running; they cannot complete the submission, invoke outer `applyResult`, or
 emit the workflow finish summary. Once the root is `completed`, settlement
-uses the last actually materialized step request so short-circuited sequences
-retain their terminal result. A `failed` or `canceled` root skips outer apply.
+uses `terminal_step_id` to identify the step that actually ended the sequence.
+This keeps short-circuited sequences attached to their real terminal result. A
+`failed` or `canceled` root skips outer apply.
+
+The runtime marks the sequence root `completed` before returning a terminal
+result to the outer apply seam. A later outer-apply failure may fail the
+workflow task and its owning run's apply state, but it does not rewrite the
+already completed sequence root.
 
 For single SkillRunner jobs, terminal provider success is final workflow
 business completion only after foreground `applyResult` succeeds. Backend
@@ -115,15 +121,17 @@ sequenceDiagram
   participant Seq as Sequence Runtime
   participant Queue as Job Queue
   participant Provider as SkillRunner Provider
-  participant Store as SkillRunnerRunStore
+  participant Store as Sequence State Store
+  participant Life as Step Lifecycle Adapter
 
   Seq->>Queue: enqueue step 0
   Queue->>Provider: create and upload step 0
   Provider->>Store: request_ready step 0
   Provider-->>Seq: terminal success or waiting detach
-  Seq->>Store: write result and handoff projection
-  Seq->>Seq: run step apply when declared
-  Seq->>Queue: continue when dependencies are satisfied
+  Seq->>Store: record successful step result
+  Seq->>Seq: run declared step apply
+  Seq->>Life: settle step controller lifecycle
+  Seq->>Queue: continue after the apply/lifecycle barrier
   Seq->>Queue: enqueue step 1 with workspace reuse
 ```
 
@@ -134,9 +142,14 @@ Rules:
 - Step 0 does not send workspace reuse.
 - Step N reuses the previous successful SkillRunner step's backend
   `request_id`.
-- Sequence continuation depends on execution success, workspace reuse, and
-  required handoff availability.
-- Sequence continuation does not depend on Host-side apply success.
+- Normal provider success and externally observed success enter the same
+  advancement path.
+- Step apply and lifecycle settlement finish before the next step is launched.
+- A failed step apply follows its declared `on_failure` policy: `continue`
+  proceeds only after lifecycle settlement; `fail_sequence` settles lifecycle
+  and then stops the sequence.
+- Replaying the same persisted step/request identity resumes completed phases;
+  a different request identity for the same step is rejected.
 
 ## Result And Handoff
 
@@ -165,14 +178,18 @@ Single SkillRunner apply is foreground workflow work:
 - foreground apply state moves through `running` and terminal apply states
 - apply failure is visible on the owning run
 
-Normal sequence SkillRunner apply is foreground sequence runtime work:
+Normal and externally resumed sequence step apply use the shared sequence
+runtime:
 
 - terminal success triggers result or bundle settlement
 - settlement writes result projection
 - step/root apply state moves through `running` and terminal apply states
 - apply failure is visible on the owning run
+- lifecycle cleanup is an explicit barrier after step apply
+- backend-specific cleanup is provided through a lifecycle adapter; the step
+  apply seam itself has no controller side effects
 
-Recovery-owned SkillRunner apply is deferred reconciler work:
+Recovery-owned non-sequence SkillRunner apply is deferred reconciler work:
 
 - terminal success triggers result or bundle settlement
 - settlement writes result projection

@@ -250,6 +250,7 @@ export type ProviderExecutionSucceededResult = {
   sequence?: {
     workflow_run_id?: string;
     final_step_id?: string;
+    terminal_step_id?: string;
     short_circuited?: boolean;
     short_circuit_step_id?: string;
     declared_final_step_id?: string;

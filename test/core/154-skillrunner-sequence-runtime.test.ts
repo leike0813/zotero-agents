@@ -6,13 +6,14 @@ import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContrac
 import { compileDeclarativeRequest } from "../../src/workflows/declarativeRequestCompiler";
 import { assertRequestPayloadContract } from "../../src/providers/requestContracts";
 import {
-  continueSkillRunnerSequence,
+  acceptCompletedSequenceStep,
   executeSkillRunnerSequence,
 } from "../../src/modules/workflowExecution/sequenceRuntime";
 import {
   getSequenceRunState,
   getSequenceRunStateByStepRequest,
   initializeSequenceRunState,
+  markSequenceRunTerminal,
   recordSequenceStepApplyResult,
   recordSequenceStepRequestCreated,
   recordSequenceStepSucceeded,
@@ -383,23 +384,22 @@ describe("skillrunner.sequence.v1 runtime", function () {
         },
       },
     });
-    recordSequenceStepSucceeded({
+    recordSequenceStepRequestCreated({
       sequenceRunId: "workflow-run-continuation-skill-display",
       stepIndex: 0,
       requestId: "prepare-request",
-      output: { ok: true },
-      result: {
+    });
+
+    await acceptCompletedSequenceStep({
+      sequenceRunId: "workflow-run-continuation-skill-display",
+      stepIndex: 0,
+      stepResult: {
         status: "succeeded",
         requestId: "prepare-request",
         fetchType: "result",
         resultJson: { ok: true },
         responseJson: {},
       },
-    });
-
-    await continueSkillRunnerSequence({
-      sequenceRunId: "workflow-run-continuation-skill-display",
-      startIndex: 1,
       backend,
       providerOptions: {},
       appendRuntimeLog: () => {},
@@ -1653,10 +1653,12 @@ describe("skillrunner.sequence.v1 runtime", function () {
         events.push(`apply:${step.id}`);
         return { applied: true };
       },
-      onSequenceStepFinished: async ({ step }) => {
-        events.push(`finish:start:${step.id}`);
-        await Promise.resolve();
-        events.push(`finish:end:${step.id}`);
+      lifecycle: {
+        settleStep: async ({ step }) => {
+          events.push(`finish:start:${step.id}`);
+          await Promise.resolve();
+          events.push(`finish:end:${step.id}`);
+        },
       },
     });
 
@@ -1713,8 +1715,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
         resultJson: { status: "canceled" },
         responseJson: {},
       }),
-      onSequenceStepFinished: async ({ step }) => {
-        events.push(`finish:${step.id}`);
+      lifecycle: {
+        settleStep: async ({ step }) => {
+          events.push(`finish:${step.id}`);
+        },
       },
     });
 
@@ -1818,6 +1822,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
   for (const backendType of ["skillrunner", "acp"] as const) {
     it(`stops ${backendType} sequence before downstream steps when required step apply fails`, async function () {
       const launched: string[] = [];
+      const lifecycle: string[] = [];
       const sequenceRunId = `workflow-run-${backendType}-step-apply-fail`;
       try {
         await executeSkillRunnerSequence({
@@ -1872,6 +1877,11 @@ describe("skillrunner.sequence.v1 runtime", function () {
           applySequenceStepResult: async () => {
             throw new Error("apply broke");
           },
+          lifecycle: {
+            settleStep: async ({ step, applyResultStatus }) => {
+              lifecycle.push(`${step.id}:${applyResultStatus}`);
+            },
+          },
         });
         assert.fail("expected required step apply failure to stop sequence");
       } catch (error) {
@@ -1879,6 +1889,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
       }
 
       assert.deepEqual(launched, ["prepare-skill"]);
+      assert.deepEqual(lifecycle, ["prepare:failed"]);
       assert.equal(getSequenceRunState(sequenceRunId)?.status, "failed");
     });
   }
@@ -2452,31 +2463,26 @@ describe("skillrunner.sequence.v1 runtime", function () {
       stepIndex: 0,
       requestId: "prepare-request",
     });
-    recordSequenceStepSucceeded({
+    const result = await acceptCompletedSequenceStep({
       sequenceRunId: "workflow-run-recovered-short-circuit",
       stepIndex: 0,
-      requestId: "prepare-request",
-      output: canceledOutput,
-      result: {
+      stepResult: {
         status: "succeeded",
         requestId: "prepare-request",
         fetchType: "result",
         resultJson: canceledOutput,
         responseJson: { provider: "acp", recovered: true },
       },
-    });
-
-    const result = await continueSkillRunnerSequence({
-      sequenceRunId: "workflow-run-recovered-short-circuit",
-      startIndex: 1,
       backend,
       providerOptions: {},
       appendRuntimeLog: () => {},
       executeWithProvider: async () => {
         assert.fail("downstream continuation should not launch");
       },
-      onSequenceStepFinished: async ({ step }) => {
-        lifecycleEvents.push(`finish:${step.id}`);
+      lifecycle: {
+        settleStep: async ({ step }) => {
+          lifecycleEvents.push(`finish:${step.id}`);
+        },
       },
     });
 
@@ -2494,6 +2500,203 @@ describe("skillrunner.sequence.v1 runtime", function () {
       getSequenceRunState("workflow-run-recovered-short-circuit")?.status,
       "completed",
     );
+  });
+
+  it("accepts a repeated externally completed final step without repeating settled work", async function () {
+    const sequenceRunId = "workflow-run-external-final-replay";
+    const backend = {
+      id: "acp-backend",
+      type: "acp",
+      baseUrl: "local://acp",
+      auth: { kind: "none" as const },
+    };
+    const request = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "finalize-skill",
+          mode: "auto" as const,
+          workspace: "new" as const,
+          apply_result: { workflow_id: "finalize-workflow" },
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    initializeSequenceRunState({
+      request,
+      backend,
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      jobId: "job-external-final-replay",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId: "finalize-request",
+    });
+    const events: string[] = [];
+    const stepResult = {
+      status: "succeeded" as const,
+      requestId: "finalize-request",
+      fetchType: "result" as const,
+      resultJson: { status: "done" },
+      responseJson: { provider: "acp", recovered: true },
+    };
+    const accept = () =>
+      acceptCompletedSequenceStep({
+        sequenceRunId,
+        stepIndex: 0,
+        stepResult,
+        backend,
+        appendRuntimeLog: () => {},
+        executeWithProvider: async () => {
+          assert.fail("a completed final step must not dispatch another step");
+        },
+        applySequenceStepResult: async () => {
+          events.push("apply");
+          return { applied: true };
+        },
+        lifecycle: {
+          settleStep: async () => {
+            events.push("cleanup");
+          },
+        },
+      });
+
+    const firstAcceptance = accept();
+    const conflictingAcceptance = acceptCompletedSequenceStep({
+      sequenceRunId,
+      stepIndex: 0,
+      stepResult: { ...stepResult, requestId: "conflicting-request" },
+      backend,
+      appendRuntimeLog: () => {},
+      executeWithProvider: async () => {
+        assert.fail("a conflicting replay must not dispatch work");
+      },
+    });
+    const first = await firstAcceptance;
+
+    try {
+      await conflictingAcceptance;
+      assert.fail("expected a conflicting request identity to be rejected");
+    } catch (error) {
+      assert.include(String(error), "request identity conflict");
+    }
+
+    const replay = await accept();
+
+    assert.deepEqual(events, ["apply", "cleanup"]);
+    assert.equal(first.status, "succeeded");
+    assert.equal(replay.status, "succeeded");
+    assert.equal(first.sequence?.terminal_step_id, "finalize");
+    assert.equal(replay.sequence?.terminal_step_id, "finalize");
+    assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
+
+    markSequenceRunTerminal({
+      sequenceRunId,
+      status: "failed",
+      error: "outer apply failed after sequence completion",
+    });
+    assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
+
+    assert.equal(
+      getSequenceRunState(sequenceRunId)?.steps[0]?.requestId,
+      "finalize-request",
+    );
+    assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
+  });
+
+  it("advances an externally completed non-final step through the normal success policy", async function () {
+    const sequenceRunId = "workflow-run-external-non-final";
+    const backend = {
+      id: "acp-backend",
+      type: "acp",
+      baseUrl: "local://acp",
+      auth: { kind: "none" as const },
+    };
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+            apply_result: { workflow_id: "prepare-workflow" },
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            mode: "auto",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend,
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      jobId: "job-external-non-final",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId: "prepare-request",
+    });
+    const events: string[] = [];
+
+    const result = await acceptCompletedSequenceStep({
+      sequenceRunId,
+      stepIndex: 0,
+      stepResult: {
+        status: "succeeded",
+        requestId: "prepare-request",
+        fetchType: "result",
+        resultJson: { prepared: true },
+        responseJson: { provider: "acp", recovered: true },
+      },
+      backend,
+      appendRuntimeLog: () => {},
+      onProgress: (event) => {
+        if (event.type === "sequence-step-succeeded") {
+          events.push(`success:${event.sequenceStepId}`);
+        }
+      },
+      applySequenceStepResult: async ({ step }) => {
+        events.push(`apply:${step.id}`);
+        return { applied: true };
+      },
+      lifecycle: {
+        settleStep: async ({ step }) => {
+          events.push(`cleanup:${step.id}`);
+        },
+      },
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        events.push(`run:${skillId}`);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { finalized: true },
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.deepEqual(events, [
+      "success:prepare",
+      "apply:prepare",
+      "cleanup:prepare",
+      "run:finalize-skill",
+      "success:finalize",
+      "cleanup:finalize",
+    ]);
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.sequence?.terminal_step_id, "finalize");
+    assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
   });
 
   it("does not persist sequence step bundle bytes in run state", function () {

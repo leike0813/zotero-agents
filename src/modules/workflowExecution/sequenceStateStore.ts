@@ -42,6 +42,7 @@ export type SequenceStepRunState = {
     error?: string;
     updatedAt: string;
   };
+  lifecycleSettledAt?: string;
   updatedAt: string;
 };
 
@@ -58,6 +59,7 @@ export type SequenceRunState = {
   request: SkillRunnerSequenceRequestV1;
   currentStepIndex: number;
   finalStepId: string;
+  terminalStepId?: string;
   rootRequestId?: string;
   status: SequenceRunStateStatus;
   steps: SequenceStepRunState[];
@@ -239,6 +241,7 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
     output: raw.output,
     result: parseProviderResult(raw.result),
     applyResult: parseStepApplyResult(raw.applyResult),
+    lifecycleSettledAt: normalizeString(raw.lifecycleSettledAt) || undefined,
     updatedAt: normalizeString(raw.updatedAt) || nowIso(),
   };
 }
@@ -285,6 +288,7 @@ function parseState(raw: unknown): SequenceRunState | null {
       Math.floor(Number(raw.currentStepIndex || 0) || 0),
     ),
     finalStepId: normalizeString(raw.finalStepId),
+    terminalStepId: normalizeString(raw.terminalStepId) || undefined,
     rootRequestId: normalizeString(raw.rootRequestId) || undefined,
     status:
       status === "running_step" ||
@@ -549,6 +553,14 @@ export function recordSequenceStepRequestCreated(args: {
     return getSequenceRunState(args.sequenceRunId);
   }
   return updateState(args.sequenceRunId, (state) => {
+    const existingRequestId = normalizeString(
+      state.steps[args.stepIndex]?.requestId,
+    );
+    if (existingRequestId && existingRequestId !== requestId) {
+      throw new Error(
+        `sequence step request identity conflict: sequenceRunId=${state.sequenceRunId}; stepIndex=${args.stepIndex}; existingRequestId=${existingRequestId}; requestId=${requestId}`,
+      );
+    }
     const next = updateStep(state, args.stepIndex, (step) => ({
       ...step,
       requestId,
@@ -568,15 +580,24 @@ export function recordSequenceStepSucceeded(args: {
   output: unknown;
   result: ProviderExecutionResult;
 }) {
-  return updateState(args.sequenceRunId, (state) =>
-    updateStep(state, args.stepIndex, (step) => ({
+  return updateState(args.sequenceRunId, (state) => {
+    const requestId = normalizeString(args.requestId);
+    const existingRequestId = normalizeString(
+      state.steps[args.stepIndex]?.requestId,
+    );
+    if (existingRequestId && requestId && existingRequestId !== requestId) {
+      throw new Error(
+        `sequence step request identity conflict: sequenceRunId=${state.sequenceRunId}; stepIndex=${args.stepIndex}; existingRequestId=${existingRequestId}; requestId=${requestId}`,
+      );
+    }
+    return updateStep(state, args.stepIndex, (step) => ({
       ...step,
-      requestId: normalizeString(args.requestId) || step.requestId,
+      requestId: requestId || step.requestId,
       status: "succeeded",
       output: args.output,
       result: cloneProviderResult(args.result),
-    })),
-  );
+    }));
+  });
 }
 
 export function recordSequenceStepWaiting(args: {
@@ -653,13 +674,31 @@ export function recordSequenceStepApplyResult(args: {
   );
 }
 
+export function recordSequenceStepLifecycleSettled(args: {
+  sequenceRunId: string;
+  stepIndex: number;
+}) {
+  return updateState(args.sequenceRunId, (state) =>
+    updateStep(state, args.stepIndex, (step) => ({
+      ...step,
+      lifecycleSettledAt: step.lifecycleSettledAt || nowIso(),
+    })),
+  );
+}
+
 export function markSequenceRunContinuing(sequenceRunId: string) {
-  return updateState(sequenceRunId, (state) => ({
-    ...state,
-    status: "continuing",
-    error: undefined,
-    updatedAt: nowIso(),
-  }));
+  return updateState(sequenceRunId, (state) =>
+    state.status === "completed" ||
+    state.status === "failed" ||
+    state.status === "canceled"
+      ? state
+      : {
+          ...state,
+          status: "continuing",
+          error: undefined,
+          updatedAt: nowIso(),
+        },
+  );
 }
 
 export function markSequenceRunWaitingInteraction(sequenceRunId: string) {
@@ -675,13 +714,22 @@ export function markSequenceRunTerminal(args: {
   sequenceRunId: string;
   status: "completed" | "failed" | "canceled";
   error?: string;
+  terminalStepId?: string;
 }) {
-  return updateState(args.sequenceRunId, (state) => ({
-    ...state,
-    status: args.status,
-    error: normalizeString(args.error) || undefined,
-    updatedAt: nowIso(),
-  }));
+  return updateState(args.sequenceRunId, (state) =>
+    state.status === "completed" ||
+    state.status === "failed" ||
+    state.status === "canceled"
+      ? state
+      : {
+          ...state,
+          status: args.status,
+          terminalStepId:
+            normalizeString(args.terminalStepId) || state.terminalStepId,
+          error: normalizeString(args.error) || undefined,
+          updatedAt: nowIso(),
+        },
+  );
 }
 
 export function getSequenceStepIndexByRequestId(

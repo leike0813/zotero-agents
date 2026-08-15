@@ -3913,6 +3913,114 @@ describe("workflow execution seams", function () {
     );
   });
 
+  it("applies a short-circuit result when only the unexecuted declared final step owns applyResult", async function () {
+    let applyCalled = false;
+    const queueStub = {
+      getJob() {
+        return {
+          id: "job-1",
+          state: "succeeded",
+          meta: {
+            targetParentID: 123,
+            backendId: "acp-backend",
+            backendType: "acp",
+            providerId: "acp",
+            runId: "run-1",
+          },
+          result: {
+            status: "succeeded",
+            requestId: "prepare-request",
+            fetchType: "result",
+            resultJson: { canceled: true },
+            responseJson: {},
+            sequence: {
+              workflow_run_id: "workflow-run-1",
+              final_step_id: "final",
+              terminal_step_id: "prepare",
+              short_circuited: true,
+              short_circuit_step_id: "prepare",
+              declared_final_step_id: "final",
+              steps: [
+                {
+                  step_id: "prepare",
+                  request_id: "prepare-request",
+                  output: { canceled: true },
+                  result: {
+                    status: "succeeded",
+                    requestId: "prepare-request",
+                    fetchType: "result",
+                    resultJson: { canceled: true },
+                    responseJson: {},
+                  },
+                },
+              ],
+            },
+          },
+        };
+      },
+    };
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: {
+          workflow: {
+            manifest: {
+              id: "sequence-apply",
+              label: "Sequence Apply",
+              provider: "acp",
+              request: { kind: "skillrunner.sequence.v1" },
+              hooks: { applyResult: "hooks/applyResult.js" },
+            },
+          } as any,
+          requests: [
+            {
+              kind: "skillrunner.sequence.v1",
+              targetParentID: 123,
+              final_step_id: "final",
+              steps: [
+                {
+                  id: "prepare",
+                  skill_id: "prepare-skill",
+                  mode: "auto",
+                },
+                {
+                  id: "final",
+                  skill_id: "final-skill",
+                  mode: "auto",
+                  apply_result: { workflow_id: "final-workflow" },
+                },
+              ],
+            },
+          ],
+          queue: queueStub as any,
+          jobIds: ["job-1"],
+          runId: "run-1",
+          totalJobs: 1,
+          idlePromise: Promise.resolve(),
+        },
+        messageFormatter: createLocalizedMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: () => undefined as any,
+        executeApplyResult: async () => {
+          applyCalled = true;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 1);
+    assert.equal(applyCalled, true);
+    assert.notEqual(
+      (
+        summary.jobOutcomes[0].structuredApplyResult as
+          | Record<string, unknown>
+          | undefined
+      )?.skipped_final_apply,
+      true,
+    );
+  });
+
   it("uses full-parallel queue concurrency for generic-http providers", function () {
     let capturedConcurrency = -1;
     const queueStub = {
