@@ -40,6 +40,7 @@ import {
   resetSkillRunnerRunStoreForTests,
   settleSkillRunnerRun,
   updateSkillRunnerRunApplyState,
+  updateSkillRunnerRunStateByRequest,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -378,21 +379,42 @@ describe("workflow execution seams", function () {
         workflowRunId: "run-missing",
         jobId: "job-missing",
       }),
-      { kind: "missing" },
+      { kind: "missing", slotStatus: "missing" },
     );
   });
 
   it("Workflow Job Terminal Resolution separates local terminal and deferred work", function () {
     const cases = [
-      { state: "running", resultStatus: "", expected: "pending" },
+      {
+        state: "running",
+        resultStatus: "",
+        expected: "pending",
+        slotStatus: "running",
+      },
       {
         state: "succeeded",
         resultStatus: "succeeded",
         expected: "local-ready",
+        slotStatus: "succeeded",
       },
-      { state: "failed", resultStatus: "failed", expected: "local-ready" },
-      { state: "canceled", resultStatus: "canceled", expected: "local-ready" },
-      { state: "succeeded", resultStatus: "deferred", expected: "pending" },
+      {
+        state: "failed",
+        resultStatus: "failed",
+        expected: "local-ready",
+        slotStatus: "failed",
+      },
+      {
+        state: "canceled",
+        resultStatus: "canceled",
+        expected: "local-ready",
+        slotStatus: "canceled",
+      },
+      {
+        state: "succeeded",
+        resultStatus: "deferred",
+        expected: "pending",
+        slotStatus: "succeeded",
+      },
     ] as const;
 
     for (const entry of cases) {
@@ -403,13 +425,13 @@ describe("workflow execution seams", function () {
         result: entry.resultStatus ? { status: entry.resultStatus } : undefined,
         meta: {},
       };
-      assert.equal(
+      assert.deepEqual(
         resolveWorkflowJobTerminalResolution({
           queue: { getJob: () => job } as any,
           workflowRunId: "run-local",
           jobId: job.id,
-        }).kind,
-        entry.expected,
+        }),
+        { kind: entry.expected, slotStatus: entry.slotStatus },
         `${entry.state}/${entry.resultStatus || "no-result"}`,
       );
     }
@@ -433,7 +455,7 @@ describe("workflow execution seams", function () {
       });
 
     resetAcpSkillRunsForTests();
-    assert.deepEqual(resolve(), { kind: "pending" });
+    assert.deepEqual(resolve(), { kind: "pending", slotStatus: "unobserved" });
 
     upsertAcpSkillRun({
       requestId,
@@ -446,6 +468,7 @@ describe("workflow execution seams", function () {
     });
     assert.deepEqual(resolve(), {
       kind: "canonical-ready",
+      slotStatus: "canceled",
       outcome: {
         terminalState: "canceled",
         requestId,
@@ -465,6 +488,7 @@ describe("workflow execution seams", function () {
     });
     assert.deepEqual(resolve(), {
       kind: "canonical-ready",
+      slotStatus: "succeeded",
       outcome: { terminalState: "succeeded", requestId },
     });
 
@@ -482,6 +506,7 @@ describe("workflow execution seams", function () {
     });
     assert.deepEqual(resolve(), {
       kind: "canonical-ready",
+      slotStatus: "failed",
       outcome: {
         terminalState: "failed",
         requestId,
@@ -532,6 +557,7 @@ describe("workflow execution seams", function () {
     });
     assert.deepEqual(resolve(), {
       kind: "canonical-ready",
+      slotStatus: "canceled",
       outcome: {
         terminalState: "canceled",
         reason: "stopped before request identity",
@@ -555,12 +581,16 @@ describe("workflow execution seams", function () {
     job.result.requestId = requestId;
     assert.deepEqual(resolve(), {
       kind: "canonical-ready",
+      slotStatus: "succeeded",
       outcome: { terminalState: "succeeded", requestId },
     });
 
     job.state = "succeeded";
     job.result.status = "succeeded";
-    assert.deepEqual(resolve(), { kind: "local-ready" });
+    assert.deepEqual(resolve(), {
+      kind: "local-ready",
+      slotStatus: "succeeded",
+    });
 
     updateSkillRunnerRunApplyState({
       backendId,
@@ -570,11 +600,278 @@ describe("workflow execution seams", function () {
     });
     assert.deepEqual(resolve(), {
       kind: "canonical-ready",
+      slotStatus: "failed",
       outcome: {
         terminalState: "failed",
         requestId,
         reason: "SkillRunner apply failed",
       },
+    });
+  });
+
+  it("Workflow Job Terminal Resolution reports normalized ACP slot statuses", function () {
+    const backendId = "resolution-acp-slot-backend";
+    const requestId = "resolution-acp-slot-request";
+    const job = {
+      id: "job-acp-slot",
+      state: "running",
+      request: { kind: "acp.skill-run.v1" },
+      result: { status: "deferred", requestId },
+      meta: { backendId, backendType: "acp", requestId },
+    };
+    const resolve = () =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId: "run-acp-slot",
+        jobId: job.id,
+      });
+
+    resetAcpSkillRunsForTests();
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "unobserved",
+    });
+
+    for (const status of [
+      "waiting_user",
+      "repairing",
+      "failed_retriable",
+    ] as const) {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId,
+        status,
+        backendId,
+        backendType: "acp",
+        conversationState: status === "waiting_user" ? "prompting" : "running",
+        conversationRecoveryState: "unavailable",
+      });
+      assert.deepEqual(resolve(), { kind: "pending", slotStatus: status });
+    }
+  });
+
+  it("Workflow Job Terminal Resolution reports SkillRunner slot statuses and keeps local-ready sampling canonical-first", function () {
+    const backendId = "resolution-skillrunner-slot-backend";
+    const workflowRunId = "run-skillrunner-slot";
+    const jobId = "job-skillrunner-slot";
+    const requestId = "resolution-skillrunner-slot-request";
+    const job = {
+      id: jobId,
+      state: "running",
+      request: { kind: "skillrunner.job.v1" },
+      result: { status: "deferred" } as { status: string; requestId?: string },
+      meta: { backendId, backendType: "skillrunner", requestId },
+    };
+    const resolve = () =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId,
+        jobId,
+      });
+
+    resetSkillRunnerRunStoreForTests();
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "unobserved",
+    });
+
+    const run = createSkillRunnerRun({
+      backendId,
+      workflowId: "resolution-skillrunner-slot-workflow",
+      workflowRunId,
+      jobId,
+      taskName: "Resolution SkillRunner Slot Job",
+    });
+    assert.isOk(run);
+    attachSkillRunnerRequestId({ runKey: run!.runKey, requestId });
+    updateSkillRunnerRunStateByRequest({
+      backendId,
+      requestId,
+      state: "waiting_auth",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "waiting_auth",
+    });
+
+    job.state = "succeeded";
+    job.result.status = "succeeded";
+    assert.deepEqual(resolve(), {
+      kind: "local-ready",
+      slotStatus: "waiting_auth",
+    });
+  });
+
+  it("Workflow Job Terminal Resolution reports sequence slot status and terminal outcome", function () {
+    resetPluginStateStoreForTests();
+    resetSkillRunnerRunStoreForTests();
+    const backendId = "resolution-sequence-slot-backend";
+    const workflowRunId = "run-sequence-slot";
+    const jobId = "job-sequence-slot";
+    const stepRequestId = "resolution-sequence-step-request";
+    const request = {
+      kind: "skillrunner.sequence.v1",
+      steps: [
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          mode: "auto" as const,
+          workspace: "new" as const,
+        },
+        {
+          id: "finalize",
+          skill_id: "finalize-skill",
+          mode: "auto" as const,
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    const job = {
+      id: jobId,
+      state: "running",
+      request,
+      result: { status: "deferred" },
+      meta: { backendId, backendType: "skillrunner", requestId: stepRequestId },
+    };
+    const sequenceRunId = `${workflowRunId}-${jobId}`;
+    const resolve = () =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId,
+        jobId,
+      });
+
+    initializeSequenceRunState({
+      request,
+      backend: {
+        id: backendId,
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      workflowId: "resolution-sequence-slot-workflow",
+      workflowRunId: sequenceRunId,
+      jobId,
+    });
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "running",
+    });
+
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId: stepRequestId,
+    });
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "unobserved",
+    });
+
+    const run = createSkillRunnerRun({
+      backendId,
+      workflowId: "resolution-sequence-slot-workflow",
+      workflowRunId: sequenceRunId,
+      jobId: `${jobId}:prepare`,
+      taskName: "Resolution Sequence Slot / prepare",
+      skillId: "prepare-skill",
+      sequenceRunId,
+      sequenceJobId: jobId,
+      sequenceStepId: "prepare",
+    });
+    assert.isOk(run);
+    attachSkillRunnerRequestId({
+      runKey: run!.runKey,
+      requestId: stepRequestId,
+    });
+    updateSkillRunnerRunStateByRequest({
+      backendId,
+      requestId: stepRequestId,
+      state: "waiting_user",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "waiting_user",
+    });
+
+    markSequenceRunTerminal({
+      sequenceRunId,
+      status: "failed",
+      error: "sequence failed before terminal step",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      slotStatus: "failed",
+      outcome: {
+        terminalState: "failed",
+        reason: "sequence failed before terminal step",
+      },
+    });
+  });
+
+  it("Workflow Job Terminal Resolution preserves ACP sequence slot fallback from job request identity", function () {
+    resetPluginStateStoreForTests();
+    resetAcpSkillRunsForTests();
+    const backendId = "resolution-acp-sequence-slot-backend";
+    const workflowRunId = "run-acp-sequence-slot";
+    const jobId = "job-acp-sequence-slot";
+    const jobRequestId = "resolution-acp-sequence-root-request";
+    const request = {
+      kind: "skillrunner.sequence.v1",
+      steps: [
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          mode: "auto" as const,
+          workspace: "new" as const,
+        },
+      ],
+      final_step_id: "prepare",
+    };
+    const job = {
+      id: jobId,
+      state: "running",
+      request,
+      result: { status: "deferred" },
+      meta: { backendId, backendType: "acp", requestId: jobRequestId },
+    };
+    const sequenceRunId = `${workflowRunId}-${jobId}`;
+    const resolve = () =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId,
+        jobId,
+      });
+
+    initializeSequenceRunState({
+      request,
+      backend: {
+        id: backendId,
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      workflowId: "resolution-acp-sequence-slot-workflow",
+      workflowRunId: sequenceRunId,
+      jobId,
+    });
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "unobserved",
+    });
+
+    upsertAcpSkillRun({
+      requestId: jobRequestId,
+      status: "waiting_user",
+      backendId,
+      backendType: "acp",
+      conversationState: "prompting",
+      conversationRecoveryState: "unavailable",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "pending",
+      slotStatus: "waiting_user",
     });
   });
 
@@ -3134,6 +3431,129 @@ describe("workflow execution seams", function () {
     ]);
   });
 
+  it("maps Workflow Job Terminal Resolution slot statuses to submission slot actions", async function () {
+    const cases = [
+      {
+        slotStatus: "waiting_user",
+        initialSlotState: "held",
+        expected: ["yield:waiting-user"],
+      },
+      {
+        slotStatus: "waiting_auth",
+        initialSlotState: "held",
+        expected: ["yield:waiting-auth"],
+      },
+      {
+        slotStatus: "failed_retriable",
+        initialSlotState: "held",
+        expected: ["yield:recoverable-failure"],
+      },
+      {
+        slotStatus: "running",
+        initialSlotState: "yielded",
+        expected: ["ensure:remote-resume"],
+      },
+      {
+        slotStatus: "repairing",
+        initialSlotState: "yielded",
+        expected: ["ensure:remote-resume"],
+      },
+      {
+        slotStatus: "succeeded",
+        initialSlotState: "held",
+        expected: [],
+      },
+      {
+        slotStatus: "unobserved",
+        initialSlotState: "held",
+        expected: [],
+      },
+    ] as const;
+
+    for (const entry of cases) {
+      const calls: string[] = [];
+      let slotState = entry.initialSlotState;
+      runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "slot-observer-workflow",
+                label: "Slot Observer Workflow",
+                provider: "pass-through",
+                request: { kind: "pass-through.run.v1" },
+              },
+            } as any,
+            requests: [{ kind: "pass-through.run.v1" }],
+            candidateSkipped: 0,
+            executionContext: {
+              providerId: "pass-through",
+              requestKind: "pass-through.run.v1",
+              providerOptions: {},
+              backend: {
+                id: "slot-observer-backend",
+                type: "pass-through",
+                baseUrl: "local://slot-observer-backend",
+              },
+            },
+          },
+          submissionLineage: {
+            submissionId: `submission-${entry.slotStatus}` as never,
+            submissionUnitId: `unit-${entry.slotStatus}` as never,
+            slot: {
+              yield: (reason) => {
+                if (slotState === "yielded") {
+                  return false;
+                }
+                calls.push(`yield:${reason}`);
+                slotState = "yielded";
+                return true;
+              },
+              ensureSlot: async (reason) => {
+                calls.push(`ensure:${reason}`);
+                slotState = "resumption-pending";
+                return true;
+              },
+              runWithPrioritySlot: async () => false,
+              cancelPendingResumption: () => false,
+              snapshot: () =>
+                ({
+                  state: slotState,
+                }) as any,
+            },
+          } as any,
+        },
+        {
+          createQueue: () =>
+            ({
+              enqueue() {
+                return "job-slot-observer";
+              },
+              getJob() {
+                return {
+                  id: "job-slot-observer",
+                  state: "running",
+                  request: { kind: "pass-through.run.v1" },
+                  meta: {},
+                };
+              },
+              waitForIdle() {
+                return Promise.resolve();
+              },
+            }) as any,
+          resolveWorkflowJobTerminalResolution: () =>
+            ({
+              kind: "local-ready",
+              slotStatus: entry.slotStatus,
+            }) as any,
+        },
+      );
+
+      await flushMicrotasks();
+      assert.deepEqual(calls, entry.expected, entry.slotStatus);
+    }
+  });
+
   it("keeps the workflow terminal observer pending until the sequence root is terminal", async function () {
     for (const backendType of ["acp", "skillrunner"] as const) {
       resetPluginStateStoreForTests();
@@ -3296,7 +3716,7 @@ describe("workflow execution seams", function () {
           workflowRunId: runState.runId,
           jobId,
         }),
-        { kind: "pending" },
+        { kind: "pending", slotStatus: "succeeded" },
       );
 
       markSequenceRunTerminal({
@@ -3313,6 +3733,7 @@ describe("workflow execution seams", function () {
         }),
         {
           kind: "canonical-ready",
+          slotStatus: "succeeded",
           outcome: { terminalState: "succeeded", requestId },
         },
         `${backendType} completed short-circuit root should use its last materialized step`,
@@ -3347,7 +3768,7 @@ describe("workflow execution seams", function () {
             workflowRunId: runState.runId,
             jobId,
           }),
-          { kind: "pending" },
+          { kind: "pending", slotStatus: "unobserved" },
           "completed roots must not fall back to a synthetic root run record",
         );
       }
@@ -3458,6 +3879,7 @@ describe("workflow execution seams", function () {
         },
         resolveWorkflowJobTerminalResolution: () => ({
           kind: "canonical-ready",
+          slotStatus: "canceled",
           outcome: {
             terminalState: "canceled",
             requestId: "canonical-acp-apply-request",

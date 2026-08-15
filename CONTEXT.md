@@ -9,5 +9,5 @@ The normalized display state derived from ACP tool-call reports and used consist
 _Avoid_: Tool text helper, mirror-specific tool display
 
 **Workflow Job Terminal Resolution**:
-The conclusion reached for a workflow job after considering local execution and canonical lifecycle facts: missing, pending, locally ready, or canonically ready.
+The read-only interpretation of one workflow job's local queue and canonical lifecycle facts, yielding both a terminal conclusion (missing, pending, locally ready, canonically ready) and a normalized slot status for the run seam.
 _Avoid_: Terminal outcome, completion, job state

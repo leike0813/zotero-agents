@@ -76,7 +76,7 @@ SkillRunner job progress:
 `terminalResolution.ts` owns the synchronous, read-only interpretation of one
 workflow job's local queue and canonical lifecycle facts. Its interface accepts
 the queue, workflow run id, and job id, then derives request identity and
-returns one of four decisions:
+returns one of four decisions plus a normalized slot status:
 
 - `missing`: the admitted queue job can no longer be read;
 - `pending`: local or canonical terminal evidence is incomplete;
@@ -84,6 +84,18 @@ returns one of four decisions:
   the apply reducer;
 - `canonical-ready`: sequence, SkillRunner, or ACP lifecycle facts already
   provide the terminal outcome and terminal apply evidence.
+
+Slot status uses one vocabulary across queue and canonical facts: `missing`,
+`unobserved`, `queued`, `running`, `waiting_user`, `waiting_auth`,
+`failed_retriable`, `repairing`, `succeeded`, `failed`, or `canceled`.
+Canonical terminal outcomes own the slot status for `canonical-ready`. Pending
+and local-ready resolutions sample the same canonical records as the terminal
+interpretation; backend canonical paths return `unobserved` when no record
+resolves instead of inventing a local fallback. Local job state remains the
+fallback only for paths that previously used it, such as pass-through and
+SkillRunner sequences without a materialized step request. Sequence state
+resolves request identity and does not project its own status into the slot
+vocabulary.
 
 Sequence root failure or cancellation owns its terminal class. A running or
 missing root keeps the workflow pending. A completed root selects its last
@@ -95,11 +107,12 @@ the apply reducer for a locally succeeded, non-deferred result; this preserves
 sequence step-owned apply summaries and ordinary foreground apply behavior.
 
 The run and apply seams receive the complete resolver through their dependency
-objects. The run seam retains lifecycle subscriptions, settle-once cleanup, and
-submission-slot status sampling. It waits only for `pending`; a missing admitted
-job settles observation so the apply seam can report its existing explicit
-failure. The apply seam retains local reduction, apply hooks, lifecycle writes,
-runtime logs, and bundle cleanup.
+objects. The run seam retains lifecycle subscriptions and settle-once cleanup;
+it maps each returned slot status to the submission-slot coordinator actions
+without reading lifecycle stores itself. It waits only for `pending`; a missing
+admitted job settles observation so the apply seam can report its existing
+explicit failure. The apply seam consumes the terminal class and retains local
+reduction, apply hooks, lifecycle writes, runtime logs, and bundle cleanup.
 
 The resolution module does not own lifecycle persistence or subscriptions.
 Existing store getters can still perform lazy hydration or legacy migration, so

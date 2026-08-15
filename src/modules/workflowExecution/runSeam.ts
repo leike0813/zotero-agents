@@ -12,7 +12,6 @@ import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
 import {
-  getAcpSkillRunRecord,
   selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "../acpSkillRunStore";
@@ -52,8 +51,6 @@ import {
   buildSkillRunnerSequenceRunKey,
   buildSkillRunnerSingleRunKey,
   createSkillRunnerRun,
-  getSkillRunnerRunRecord,
-  getSkillRunnerRunRecordByRequest,
   getSkillRunnerRunProjection,
   recordSkillRunnerProgress,
   registerSkillRunnerSkillDisplaySnapshot,
@@ -61,10 +58,7 @@ import {
   subscribeSkillRunnerRunStore,
   updateSkillRunnerRunStateByRequest,
 } from "../skillRunnerRunStore";
-import {
-  getSequenceRunState,
-  subscribeSequenceRunStateStore,
-} from "./sequenceStateStore";
+import { subscribeSequenceRunStateStore } from "./sequenceStateStore";
 import { isDebugModeEnabled } from "../debugMode";
 import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
 import {
@@ -272,8 +266,6 @@ function observeWorkflowRunTerminal(args: {
   queue: JobQueueManager;
   jobIds: ReadonlyArray<string>;
   runId: string;
-  requestKind: string;
-  backendType: string;
   idlePromise: Promise<void>;
   submissionLineage?: WorkflowSubmissionQueueExecutionContext;
   resolveTerminal: typeof resolveWorkflowJobTerminalResolution;
@@ -303,61 +295,18 @@ function observeWorkflowRunTerminal(args: {
       cleanup();
       resolve();
     };
-    const isTerminal = (jobId: string) =>
-      args.resolveTerminal({
-        queue: args.queue,
-        workflowRunId: args.runId,
-        jobId,
-      }).kind !== "pending";
     const check = () => {
+      const observations = args.jobIds.map((jobId) =>
+        args.resolveTerminal({
+          queue: args.queue,
+          workflowRunId: args.runId,
+          jobId,
+        }),
+      );
       if (args.submissionLineage) {
-        const statuses = args.jobIds
-          .map((jobId) => {
-            const job = args.queue.getJob(jobId);
-            if (!job) return "";
-            if (args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
-              const state = getSequenceRunState(`${args.runId}-${jobId}`);
-              const requestId = normalizeText(
-                [...(state?.steps || [])]
-                  .reverse()
-                  .find((step) => normalizeText(step.requestId))?.requestId,
-              );
-              if (requestId && args.backendType === "skillrunner") {
-                return normalizeText(
-                  getSkillRunnerRunRecordByRequest({
-                    backendId: state?.backendId || "",
-                    requestId,
-                  })?.status,
-                );
-              }
-              if (requestId && args.backendType === ACP_BACKEND_TYPE) {
-                return normalizeText(getAcpSkillRunRecord(requestId)?.status);
-              }
-            }
-            if (
-              args.requestKind === "skillrunner.job.v1" &&
-              args.backendType === "skillrunner"
-            ) {
-              return normalizeText(
-                getSkillRunnerRunRecord(
-                  buildSkillRunnerSingleRunKey({
-                    workflowRunId: args.runId,
-                    jobId,
-                  }),
-                )?.status,
-              );
-            }
-            if (args.backendType === ACP_BACKEND_TYPE) {
-              const requestId = normalizeText(
-                job.meta.requestId ||
-                  (job.result as { requestId?: unknown } | undefined)
-                    ?.requestId,
-              );
-              return normalizeText(getAcpSkillRunRecord(requestId)?.status);
-            }
-            return normalizeText(job.state);
-          })
-          .filter(Boolean);
+        const statuses = observations.map(
+          (observation) => observation.slotStatus,
+        );
         if (statuses.some((status) => status === "waiting_user")) {
           args.submissionLineage.slot.yield("waiting-user");
         } else if (statuses.some((status) => status === "waiting_auth")) {
@@ -373,7 +322,10 @@ function observeWorkflowRunTerminal(args: {
           void args.submissionLineage.slot.ensureSlot("remote-resume");
         }
       }
-      if (!settled && args.jobIds.every(isTerminal)) {
+      if (
+        !settled &&
+        observations.every((observation) => observation.kind !== "pending")
+      ) {
         settle();
       }
     };
@@ -940,8 +892,6 @@ export function runWorkflowExecutionSeam(
     queue,
     jobIds,
     runId,
-    requestKind: args.prepared.executionContext.requestKind,
-    backendType: args.prepared.executionContext.backend.type,
     idlePromise,
     submissionLineage: args.submissionLineage,
     resolveTerminal: resolved.resolveWorkflowJobTerminalResolution,
