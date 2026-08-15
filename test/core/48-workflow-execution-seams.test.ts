@@ -22,11 +22,9 @@ import {
   buildWorkflowExecutionUnitPreview,
   runWorkflowPreparationSeam,
 } from "../../src/modules/workflowExecution/preparationSeam";
-import {
-  resolveProviderTerminalOutcome,
-  runWorkflowApplySeam,
-} from "../../src/modules/workflowExecution/applySeam";
+import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
+import { resolveWorkflowJobTerminalResolution } from "../../src/modules/workflowExecution/terminalResolution";
 import {
   executePreparedWorkflowUnit,
   submitPreparedWorkflowUnits,
@@ -40,6 +38,7 @@ import {
   projectSkillRunnerRun,
   recordSkillRunnerProgress,
   resetSkillRunnerRunStoreForTests,
+  settleSkillRunnerRun,
   updateSkillRunnerRunApplyState,
 } from "../../src/modules/skillRunnerRunStore";
 import {
@@ -370,6 +369,213 @@ describe("workflow execution seams", function () {
   beforeEach(function () {
     clearRuntimeLogs();
     resetWorkflowToastStateForTests();
+  });
+
+  it("Workflow Job Terminal Resolution classifies a missing job explicitly", function () {
+    assert.deepEqual(
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => undefined } as any,
+        workflowRunId: "run-missing",
+        jobId: "job-missing",
+      }),
+      { kind: "missing" },
+    );
+  });
+
+  it("Workflow Job Terminal Resolution separates local terminal and deferred work", function () {
+    const cases = [
+      { state: "running", resultStatus: "", expected: "pending" },
+      {
+        state: "succeeded",
+        resultStatus: "succeeded",
+        expected: "local-ready",
+      },
+      { state: "failed", resultStatus: "failed", expected: "local-ready" },
+      { state: "canceled", resultStatus: "canceled", expected: "local-ready" },
+      { state: "succeeded", resultStatus: "deferred", expected: "pending" },
+    ] as const;
+
+    for (const entry of cases) {
+      const job = {
+        id: "job-local",
+        state: entry.state,
+        request: { kind: "pass-through.run.v1" },
+        result: entry.resultStatus ? { status: entry.resultStatus } : undefined,
+        meta: {},
+      };
+      assert.equal(
+        resolveWorkflowJobTerminalResolution({
+          queue: { getJob: () => job } as any,
+          workflowRunId: "run-local",
+          jobId: job.id,
+        }).kind,
+        entry.expected,
+        `${entry.state}/${entry.resultStatus || "no-result"}`,
+      );
+    }
+  });
+
+  it("Workflow Job Terminal Resolution reads ACP canonical lifecycle evidence", function () {
+    const backendId = "resolution-acp-backend";
+    const requestId = "resolution-acp-request";
+    const job = {
+      id: "job-acp",
+      state: "running",
+      request: { kind: "acp.skill-run.v1" },
+      result: { status: "deferred", requestId },
+      meta: { backendId, backendType: "acp", requestId },
+    };
+    const resolve = () =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId: "run-acp",
+        jobId: job.id,
+      });
+
+    resetAcpSkillRunsForTests();
+    assert.deepEqual(resolve(), { kind: "pending" });
+
+    upsertAcpSkillRun({
+      requestId,
+      status: "canceled",
+      backendId,
+      backendType: "acp",
+      error: "canceled by user",
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      outcome: {
+        terminalState: "canceled",
+        requestId,
+        reason: "canceled by user",
+      },
+    });
+
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId,
+      status: "succeeded",
+      backendId,
+      backendType: "acp",
+      applyResultState: "succeeded",
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      outcome: { terminalState: "succeeded", requestId },
+    });
+
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId,
+      status: "failed",
+      backendStatus: "succeeded",
+      backendId,
+      backendType: "acp",
+      applyResultState: "failed",
+      error: "apply exploded",
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      outcome: {
+        terminalState: "failed",
+        requestId,
+        reason: "apply exploded",
+      },
+    });
+  });
+
+  it("Workflow Job Terminal Resolution reads SkillRunner request and run-key evidence", function () {
+    const backendId = "resolution-skillrunner-backend";
+    const workflowRunId = "run-skillrunner";
+    const jobId = "job-skillrunner";
+    const requestId = "resolution-skillrunner-request";
+    const job = {
+      id: jobId,
+      state: "running",
+      request: { kind: "skillrunner.job.v1" },
+      result: { status: "deferred" } as { status: string; requestId?: string },
+      meta: { backendId, backendType: "skillrunner" } as Record<
+        string,
+        unknown
+      >,
+    };
+    const resolve = () =>
+      resolveWorkflowJobTerminalResolution({
+        queue: { getJob: () => job } as any,
+        workflowRunId,
+        jobId,
+      });
+    const createRun = () => {
+      const run = createSkillRunnerRun({
+        backendId,
+        workflowId: "resolution-skillrunner-workflow",
+        workflowRunId,
+        jobId,
+        taskName: "Resolution SkillRunner Job",
+      });
+      assert.isOk(run);
+      return run!;
+    };
+
+    resetSkillRunnerRunStoreForTests();
+    const localRun = createRun();
+    settleSkillRunnerRun({
+      runKey: localRun.runKey,
+      status: "canceled",
+      error: "stopped before request identity",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      outcome: {
+        terminalState: "canceled",
+        reason: "stopped before request identity",
+      },
+    });
+
+    resetSkillRunnerRunStoreForTests();
+    const succeededRun = createRun();
+    attachSkillRunnerRequestId({ runKey: succeededRun.runKey, requestId });
+    settleSkillRunnerRun({
+      runKey: succeededRun.runKey,
+      status: "succeeded",
+      backendStatus: "succeeded",
+    });
+    updateSkillRunnerRunApplyState({
+      backendId,
+      requestId,
+      state: "skipped",
+    });
+    job.meta.requestId = requestId;
+    job.result.requestId = requestId;
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      outcome: { terminalState: "succeeded", requestId },
+    });
+
+    job.state = "succeeded";
+    job.result.status = "succeeded";
+    assert.deepEqual(resolve(), { kind: "local-ready" });
+
+    updateSkillRunnerRunApplyState({
+      backendId,
+      requestId,
+      state: "failed",
+      error: "SkillRunner apply failed",
+    });
+    assert.deepEqual(resolve(), {
+      kind: "canonical-ready",
+      outcome: {
+        terminalState: "failed",
+        requestId,
+        reason: "SkillRunner apply failed",
+      },
+    });
   });
 
   it("plans ordered declarative units without running preflight or request hooks", async function () {
@@ -2875,6 +3081,59 @@ describe("workflow execution seams", function () {
     });
   });
 
+  it("settles terminal observation when an admitted queue job is missing", async function () {
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "missing-terminal-job",
+              label: "Missing Terminal Job",
+              provider: "pass-through",
+              request: { kind: "pass-through.run.v1" },
+            },
+          } as any,
+          requests: [{ kind: "pass-through.run.v1" }],
+          candidateSkipped: 0,
+          executionContext: {
+            providerId: "pass-through",
+            requestKind: "pass-through.run.v1",
+            providerOptions: {},
+            backend: {
+              id: "missing-terminal-job",
+              type: "pass-through",
+              baseUrl: "local://missing-terminal-job",
+            },
+          },
+        },
+      },
+      {
+        createQueue: () =>
+          ({
+            enqueue() {
+              return "job-missing-after-admission";
+            },
+            getJob() {
+              return undefined;
+            },
+            waitForIdle() {
+              return Promise.resolve();
+            },
+          }) as any,
+      },
+    );
+
+    await Promise.race([
+      runState.terminalPromise,
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("missing job kept terminal observer pending")),
+          100,
+        ),
+      ),
+    ]);
+  });
+
   it("keeps the workflow terminal observer pending until the sequence root is terminal", async function () {
     for (const backendType of ["acp", "skillrunner"] as const) {
       resetPluginStateStoreForTests();
@@ -3031,13 +3290,13 @@ describe("workflow execution seams", function () {
         terminalSettled,
         `${backendType} observer must ignore a terminal non-final child`,
       );
-      assert.isNull(
-        resolveProviderTerminalOutcome({
+      assert.deepEqual(
+        resolveWorkflowJobTerminalResolution({
           queue: runState.queue,
-          runId: runState.runId,
+          workflowRunId: runState.runId,
           jobId,
-          requestId,
         }),
+        { kind: "pending" },
       );
 
       markSequenceRunTerminal({
@@ -3047,15 +3306,51 @@ describe("workflow execution seams", function () {
       await runState.terminalPromise;
       assert.isTrue(terminalSettled);
       assert.deepEqual(
-        resolveProviderTerminalOutcome({
+        resolveWorkflowJobTerminalResolution({
           queue: runState.queue,
-          runId: runState.runId,
+          workflowRunId: runState.runId,
           jobId,
-          requestId,
         }),
-        { status: "succeeded" },
+        {
+          kind: "canonical-ready",
+          outcome: { terminalState: "succeeded", requestId },
+        },
         `${backendType} completed short-circuit root should use its last materialized step`,
       );
+      if (backendType === "skillrunner") {
+        resetSkillRunnerRunStoreForTests();
+        const syntheticRootRun = createSkillRunnerRun({
+          backendId,
+          workflowId: `${backendType}-observer-workflow`,
+          workflowRunId: runState.runId,
+          jobId,
+          taskName: "Synthetic sequence root",
+        });
+        assert.isOk(syntheticRootRun);
+        attachSkillRunnerRequestId({
+          runKey: syntheticRootRun!.runKey,
+          requestId: "synthetic-root-request",
+        });
+        settleSkillRunnerRun({
+          runKey: syntheticRootRun!.runKey,
+          status: "succeeded",
+          backendStatus: "succeeded",
+        });
+        updateSkillRunnerRunApplyState({
+          backendId,
+          requestId: "synthetic-root-request",
+          state: "succeeded",
+        });
+        assert.deepEqual(
+          resolveWorkflowJobTerminalResolution({
+            queue: runState.queue,
+            workflowRunId: runState.runId,
+            jobId,
+          }),
+          { kind: "pending" },
+          "completed roots must not fall back to a synthetic root run record",
+        );
+      }
     }
   });
 
@@ -3121,17 +3416,8 @@ describe("workflow execution seams", function () {
     ]);
   });
 
-  it("skips apply when a running ACP job is already canonically canceled", async function () {
-    resetAcpSkillRunsForTests();
+  it("skips apply when terminal resolution is already canonically canceled", async function () {
     let applyCalls = 0;
-    upsertAcpSkillRun({
-      requestId: "acp-apply-canceled-request",
-      status: "canceled",
-      backendId: "acp-apply-canceled",
-      backendType: "acp",
-      conversationState: "ended",
-      conversationRecoveryState: "unavailable",
-    });
     const summary = await runWorkflowApplySeam(
       {
         runState: {
@@ -3153,7 +3439,7 @@ describe("workflow execution seams", function () {
               meta: {
                 backendId: "acp-apply-canceled",
                 backendType: "acp",
-                requestId: "acp-apply-canceled-request",
+                requestId: "stale-acp-apply-request",
               },
             }),
           } as any,
@@ -3170,12 +3456,24 @@ describe("workflow execution seams", function () {
           applyCalls += 1;
           return { ok: true };
         },
+        resolveWorkflowJobTerminalResolution: () => ({
+          kind: "canonical-ready",
+          outcome: {
+            terminalState: "canceled",
+            requestId: "canonical-acp-apply-request",
+            reason: "canceled by canonical lifecycle",
+          },
+        }),
       },
     );
 
     assert.equal(applyCalls, 0);
     assert.equal(summary.failed, 1);
     assert.equal(summary.jobOutcomes[0]?.terminalState, "canceled");
+    assert.equal(
+      summary.jobOutcomes[0]?.requestId,
+      "canonical-acp-apply-request",
+    );
   });
 
   it("applies preflight short-circuit records through the apply seam", async function () {

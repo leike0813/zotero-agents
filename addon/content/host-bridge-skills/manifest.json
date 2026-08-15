@@ -9,49 +9,49 @@
     {
       "id": "zotero-bridge-cli",
       "kind": "minimum-core",
-      "version": "0.5.3"
+      "version": "0.5.4"
     },
     {
       "id": "zotero-library-agent",
       "kind": "generic-agent",
-      "version": "0.5.4"
+      "version": "0.5.5"
     }
   ],
   "skills": [
     {
       "id": "zotero-bridge-cli",
       "mount": "skills/zotero-bridge-cli",
-      "runnerVersion": "0.5.3"
+      "runnerVersion": "0.5.4"
     },
     {
       "id": "zotero-library-agent",
       "mount": "skills/zotero-library-agent",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-library-query",
       "mount": "skills/zotero-library-query",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-literature-acquisition",
       "mount": "skills/zotero-literature-acquisition",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-literature-analysis",
       "mount": "skills/zotero-literature-analysis",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-research-synthesis",
       "mount": "skills/zotero-research-synthesis",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.5"
     },
     {
       "id": "zotero-library-curation",
       "mount": "skills/zotero-library-curation",
-      "runnerVersion": "0.5.4"
+      "runnerVersion": "0.5.5"
     }
   ],
   "files": [
@@ -73,7 +73,7 @@
     {
       "path": "zotero-bridge-cli/assets/runner.json",
       "bytes": 696,
-      "sha256": "1d3629fa4364200d44a04d0d82104d5806426bb84c289b549447e9c11b2611fc"
+      "sha256": "1b0626a463031626c85629b41903ee0eebe3a0dea810594d8777128f2327c2fe"
     },
     {
       "path": "zotero-bridge-cli/references/command-catalog.md",
@@ -748,7 +748,7 @@
     {
       "path": "zotero-library-agent/assets/runner.json",
       "bytes": 772,
-      "sha256": "1689f77de7b35fecfbe30567502d7958c42850473a3ec69f525c3a5299735adb"
+      "sha256": "4b0e33444db5da6b59e0c04f58a2cdbea0180066583e68fa52d489e4d14e07ce"
     },
     {
       "path": "zotero-library-agent/references/research-task-model.md",
@@ -773,7 +773,7 @@
     {
       "path": "zotero-library-curation/assets/runner.json",
       "bytes": 1105,
-      "sha256": "3ce5f50b1e0c1996130b11128380f74000f0a2a11680ad34e257a21577f0bc0e"
+      "sha256": "8b5f3aa43847e4adac0129e62b65d9d006bb21814b6e0c3423445d6b8f1619f3"
     },
     {
       "path": "zotero-library-curation/references/playbook.md",
@@ -793,7 +793,7 @@
     {
       "path": "zotero-library-query/assets/runner.json",
       "bytes": 1103,
-      "sha256": "a7b966b7db82d5f738f40b6ac03a60632287611cc1be7e043551a87a9373e390"
+      "sha256": "d3210dca53628a9d523814cd7b9d1f8912351fbede0d7b9f89ae1ad3224dfc8f"
     },
     {
       "path": "zotero-library-query/references/playbook.md",
@@ -813,7 +813,7 @@
     {
       "path": "zotero-literature-acquisition/assets/runner.json",
       "bytes": 1110,
-      "sha256": "62c60dc3955ec9b2c04a6e19237fd58dfa9d31e22b34ef2d9514e2ba71361090"
+      "sha256": "89caa4042bb42f16c0297e3896d42f90ac2c5c18c65b2d85795bf0b689bf25cd"
     },
     {
       "path": "zotero-literature-acquisition/references/playbook.md",
@@ -833,7 +833,7 @@
     {
       "path": "zotero-literature-analysis/assets/runner.json",
       "bytes": 1138,
-      "sha256": "281b0b823e0ef73a37d62bf0fc1bce67c972a93774b322cfdab1a370392b1ff3"
+      "sha256": "ba9d91ba880dadedce845138a6fcf7804a0706dfe8b61b935529391bb763c4c7"
     },
     {
       "path": "zotero-literature-analysis/references/playbook.md",
@@ -853,7 +853,7 @@
     {
       "path": "zotero-research-synthesis/assets/runner.json",
       "bytes": 1115,
-      "sha256": "aff52e309c9091b3656193e1dc4412f5856fc7755d3322d86c5b8a50f4b70bbf"
+      "sha256": "0a533393fb90cccaaff5b6d17bdf98b4238cf44dd6577e139afdf2acb92b8c8c"
     },
     {
       "path": "zotero-research-synthesis/references/playbook.md",
@@ -866,5 +866,5 @@
       "sha256": "48d26f5b33fa8b53f29a67f7c5104917bf4c4d0bbad0e3b6b383c89852956a0b"
     }
   ],
-  "aggregateSha256": "8813b504510224ae044298c2838687ff0ce50876ae9f48958b8d2bc36a8bc435"
+  "aggregateSha256": "da36137d534989063c9f9cf3296a5fba092fffac396e8312264257e7ef2d05c6"
 }

@@ -2,7 +2,7 @@
   "id": "zotero-bridge-cli",
   "name": "🔌 Zotero Bridge CLI",
   "description": "Operate the Zotero Bridge CLI when exact Zotero commands or structured recovery are needed.",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "execution_modes": [
     "auto"
   ],

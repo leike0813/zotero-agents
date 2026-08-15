@@ -71,6 +71,41 @@ SkillRunner job progress:
 - `skillrunner.sequence.v1` steps use the foreground sequence loop;
   recovery-owned runs use deferred reconciler settlement.
 
+## Workflow Job Terminal Resolution
+
+`terminalResolution.ts` owns the synchronous, read-only interpretation of one
+workflow job's local queue and canonical lifecycle facts. Its interface accepts
+the queue, workflow run id, and job id, then derives request identity and
+returns one of four decisions:
+
+- `missing`: the admitted queue job can no longer be read;
+- `pending`: local or canonical terminal evidence is incomplete;
+- `local-ready`: non-deferred queue execution is terminal and remains owned by
+  the apply reducer;
+- `canonical-ready`: sequence, SkillRunner, or ACP lifecycle facts already
+  provide the terminal outcome and terminal apply evidence.
+
+Sequence root failure or cancellation owns its terminal class. A running or
+missing root keeps the workflow pending. A completed root selects its last
+materialized step, but completion alone is not success: missing or non-terminal
+step evidence remains pending. Canonical failed or canceled records take
+precedence over stale apply-failure evidence, while apply failure after backend
+success produces a failed workflow outcome. Canonical success does not bypass
+the apply reducer for a locally succeeded, non-deferred result; this preserves
+sequence step-owned apply summaries and ordinary foreground apply behavior.
+
+The run and apply seams receive the complete resolver through their dependency
+objects. The run seam retains lifecycle subscriptions, settle-once cleanup, and
+submission-slot status sampling. It waits only for `pending`; a missing admitted
+job settles observation so the apply seam can report its existing explicit
+failure. The apply seam retains local reduction, apply hooks, lifecycle writes,
+runtime logs, and bundle cleanup.
+
+The resolution module does not own lifecycle persistence or subscriptions.
+Existing store getters can still perform lazy hydration or legacy migration, so
+the resolver is not treated as a pure function and does not hide read failures
+as pending evidence.
+
 ## Apply Summary Seam
 
 Apply summary inspects job outcomes and reports workflow-level completion.

@@ -13,7 +13,6 @@ import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
 import {
   getAcpSkillRunRecord,
-  isTerminalAcpSkillRunStatus,
   selectAcpSkillRun,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "../acpSkillRunStore";
@@ -67,7 +66,7 @@ import {
   subscribeSequenceRunStateStore,
 } from "./sequenceStateStore";
 import { isDebugModeEnabled } from "../debugMode";
-import { resolveProviderTerminalOutcome } from "./applySeam";
+import { resolveWorkflowJobTerminalResolution } from "./terminalResolution";
 import {
   beginAcpRuntimeSemanticTraceClaimAttempt,
   claimAcpRuntimeSemanticTraceRoot,
@@ -88,6 +87,7 @@ type RunSeamDeps = {
   selectAcpSkillRun: (requestId: string) => void | Promise<void>;
   getLoadedWorkflowEntries: typeof getLoadedWorkflowEntries;
   executeSequenceStepApply: typeof executeSequenceStepApply;
+  resolveWorkflowJobTerminalResolution: typeof resolveWorkflowJobTerminalResolution;
 };
 
 const defaultRunSeamDeps: RunSeamDeps = {
@@ -101,6 +101,7 @@ const defaultRunSeamDeps: RunSeamDeps = {
   selectAcpSkillRun,
   getLoadedWorkflowEntries,
   executeSequenceStepApply,
+  resolveWorkflowJobTerminalResolution,
 };
 
 function findWorkflowById(workflows: LoadedWorkflow[], workflowId: string) {
@@ -275,6 +276,7 @@ function observeWorkflowRunTerminal(args: {
   backendType: string;
   idlePromise: Promise<void>;
   submissionLineage?: WorkflowSubmissionQueueExecutionContext;
+  resolveTerminal: typeof resolveWorkflowJobTerminalResolution;
 }) {
   return new Promise<void>((resolve) => {
     if (
@@ -301,84 +303,12 @@ function observeWorkflowRunTerminal(args: {
       cleanup();
       resolve();
     };
-    const isTerminal = (jobId: string) => {
-      const job = args.queue.getJob(jobId);
-      if (!job) {
-        return false;
-      }
-      if (args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
-        const sequenceState = getSequenceRunState(`${args.runId}-${jobId}`);
-        if (
-          !sequenceState ||
-          (sequenceState.status !== "completed" &&
-            sequenceState.status !== "failed" &&
-            sequenceState.status !== "canceled")
-        ) {
-          return false;
-        }
-      }
-      const providerTerminal = resolveProviderTerminalOutcome({
+    const isTerminal = (jobId: string) =>
+      args.resolveTerminal({
         queue: args.queue,
-        runId: args.runId,
+        workflowRunId: args.runId,
         jobId,
-        requestId: normalizeText(
-          job.meta.requestId ||
-            (job.result as { requestId?: unknown } | undefined)?.requestId,
-        ),
-      });
-      if (providerTerminal) {
-        return true;
-      }
-      const resultStatus = normalizeText(
-        (job.result as { status?: unknown } | undefined)?.status,
-      );
-      if (resultStatus !== "deferred") {
-        return (
-          job.state === "succeeded" ||
-          job.state === "failed" ||
-          job.state === "canceled"
-        );
-      }
-      if (
-        args.requestKind === "skillrunner.job.v1" &&
-        args.backendType === "skillrunner"
-      ) {
-        const runKey = buildSkillRunnerSingleRunKey({
-          workflowRunId: args.runId,
-          jobId,
-        });
-        const record = getSkillRunnerRunRecord(runKey);
-        if (record) {
-          if (record.status === "failed" || record.status === "canceled") {
-            return true;
-          }
-          return (
-            record.status === "succeeded" &&
-            (record.apply.state === "succeeded" ||
-              record.apply.state === "failed" ||
-              record.apply.state === "skipped")
-          );
-        }
-      }
-      if (args.backendType === ACP_BACKEND_TYPE) {
-        const requestId = normalizeText(
-          job.meta.requestId ||
-            (job.result as { requestId?: unknown } | undefined)?.requestId,
-        );
-        const record = requestId ? getAcpSkillRunRecord(requestId) : null;
-        if (record) {
-          if (record.status === "failed" || record.status === "canceled") {
-            return true;
-          }
-          return (
-            isTerminalAcpSkillRunStatus(record.status) &&
-            (record.applyResultState === "succeeded" ||
-              record.applyResultState === "failed")
-          );
-        }
-      }
-      return false;
-    };
+      }).kind !== "pending";
     const check = () => {
       if (args.submissionLineage) {
         const statuses = args.jobIds
@@ -1014,6 +944,7 @@ export function runWorkflowExecutionSeam(
     backendType: args.prepared.executionContext.backend.type,
     idlePromise,
     submissionLineage: args.submissionLineage,
+    resolveTerminal: resolved.resolveWorkflowJobTerminalResolution,
   });
 
   return {
