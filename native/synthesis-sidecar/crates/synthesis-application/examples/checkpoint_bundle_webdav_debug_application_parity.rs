@@ -344,18 +344,14 @@ fn main() -> Result<(), String> {
         .get(1)
         .cloned()
         .ok_or_else(|| "fixture_receipt_missing".to_owned())?;
-    let durable = Arc::new(DurableBundleApplication::with_runtime(
+    let durable = Arc::new(DurableBundleApplication::acquire_for_parity(
         repository_port.clone(),
-        Some(canonical_port.clone()),
-        Some(canonical_port.clone()),
-        {
-            let clock = clock.clone();
-            Arc::new(move || clock.clone())
-        },
-        Arc::new(move || durable_receipt.clone()),
+        canonical_port.clone(),
+        clock.clone(),
+        durable_receipt,
         "parity".into(),
-    ));
-    let durable_export = durable.build_export(None)?;
+    )?);
+    let durable_export = durable.build_export()?;
     let durable_source = ExportSource {
         manifest_text: durable_export.manifest_text.clone(),
         assets: durable_export

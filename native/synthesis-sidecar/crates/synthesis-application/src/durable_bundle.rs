@@ -1,13 +1,13 @@
 use crate::admission::{AdmissionError, SingleFlightAdmission};
+use crate::ports::{CanonicalStorePort, RepositoryPort};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use synthesis_canonical_store::{Promotion, canonical_json_hash};
+use synthesis_canonical_store::{ImportBatchRecoveryOutcome, Promotion, canonical_json_hash};
 use synthesis_repository::{
-    DurableBundleCapture, DurableDraft, DurableImportApply, DurableImportCapture,
-    DurableImportCommitReceipt, DurableSyncFact, DurableTopicBasis,
+    DurableDraft, DurableImportApply, DurableImportCapture, DurableSyncFact, DurableTopicBasis,
 };
 
 pub const DURABLE_MANIFEST_VERSION: &str = "2.0.0";
@@ -205,59 +205,22 @@ pub struct DurableImportApplyResult {
     pub imported: usize,
 }
 
-pub trait DurableBundleRepositoryPort: Send + Sync {
-    fn capture_bundle(&self) -> Result<DurableBundleCapture, String>;
-    fn capture_import(&self) -> Result<DurableImportCapture, String>;
-    fn apply_import(&self, request: &DurableImportApply) -> Result<bool, String>;
-    fn clear_import_commit(&self, receipt_id: &str) -> Result<bool, String>;
-}
-
 pub trait DurableBundleSourcePort: Send + Sync {
     fn read_manifest_text(&self) -> Result<Option<String>, String>;
     fn read_asset_text(&self, path: &str) -> Result<Option<String>, String>;
 }
 
-pub trait DurableBundleSinkPort: Send + Sync {
-    fn write_asset_text(&self, path: &str, text: &str) -> Result<(), String>;
-    fn write_manifest_text(&self, text: &str) -> Result<(), String>;
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DurableCanonicalCapture {
+pub(crate) struct DurableCanonicalCapture {
     pub basis: String,
     pub drafts: Vec<DurableDraft>,
 }
 
-pub trait DurableCanonicalSourcePort: Send + Sync {
-    fn read_current_assets(
-        &self,
-        topic: &DurableTopicBasis,
-    ) -> Result<DurableCanonicalCapture, String>;
-    fn inspect_current(&self, topic: &DurableTopicBasis) -> Result<String, String>;
-}
-
 #[derive(Clone, Debug, Default)]
-pub struct DurableCanonicalPreparation {
+pub(crate) struct DurableCanonicalPreparation {
     pub promotions: Vec<Promotion>,
     pub targets: Vec<DurableTopicBasis>,
-}
-
-pub trait DurableCanonicalImportPort: Send + Sync {
-    fn prepare(
-        &self,
-        entries: &[DurableEnvelope],
-        current_topics: &[DurableTopicBasis],
-    ) -> Result<DurableCanonicalPreparation, String>;
-    fn stage(
-        &self,
-        receipt_id: &str,
-        manifest_hash: &str,
-        promotions: Vec<Promotion>,
-    ) -> Result<(), String>;
-    fn commit(&self, receipt_id: &str, manifest_hash: &str) -> Result<String, String>;
-    fn discard(&self, receipt_id: &str) -> Result<bool, String>;
-    fn recover(&self, receipt: Option<&DurableImportCommitReceipt>) -> Result<String, String>;
 }
 
 type Clock = Arc<dyn Fn() -> String + Send + Sync>;
@@ -275,9 +238,8 @@ struct ImportReceipt {
 }
 
 pub struct DurableBundleApplication {
-    repository: Arc<dyn DurableBundleRepositoryPort>,
-    canonical_source: Option<Arc<dyn DurableCanonicalSourcePort>>,
-    canonical_import: Option<Arc<dyn DurableCanonicalImportPort>>,
+    repository: Arc<RepositoryPort>,
+    canonical: Arc<CanonicalStorePort>,
     now: Clock,
     create_receipt_id: ReceiptFactory,
     producer_version: String,
@@ -286,41 +248,57 @@ pub struct DurableBundleApplication {
 }
 
 impl DurableBundleApplication {
-    pub fn new(repository: Arc<dyn DurableBundleRepositoryPort>) -> Self {
-        Self::with_runtime(
+    pub fn acquire(
+        repository: Arc<RepositoryPort>,
+        canonical: Arc<CanonicalStorePort>,
+    ) -> Result<Self, String> {
+        Self::acquire_with_runtime(
             repository,
-            None,
-            None,
+            canonical,
             Arc::new(default_now),
             Arc::new(default_receipt_id),
-            "zotero-skills".into(),
+            "synthesis-sidecar".into(),
         )
     }
 
-    pub fn with_runtime(
-        repository: Arc<dyn DurableBundleRepositoryPort>,
-        canonical_source: Option<Arc<dyn DurableCanonicalSourcePort>>,
-        canonical_import: Option<Arc<dyn DurableCanonicalImportPort>>,
+    #[cfg(feature = "parity-harness")]
+    pub fn acquire_for_parity(
+        repository: Arc<RepositoryPort>,
+        canonical: Arc<CanonicalStorePort>,
+        now: String,
+        receipt_id: String,
+        producer_version: String,
+    ) -> Result<Self, String> {
+        Self::acquire_with_runtime(
+            repository,
+            canonical,
+            Arc::new(move || now.clone()),
+            Arc::new(move || receipt_id.clone()),
+            producer_version,
+        )
+    }
+
+    fn acquire_with_runtime(
+        repository: Arc<RepositoryPort>,
+        canonical: Arc<CanonicalStorePort>,
         now: Clock,
         create_receipt_id: ReceiptFactory,
         producer_version: String,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        let application = Self {
             repository,
-            canonical_source,
-            canonical_import,
+            canonical,
             now,
             create_receipt_id,
             producer_version,
             receipt: Mutex::new(None),
             admission: SingleFlightAdmission::new(),
-        }
+        };
+        application.reconcile_pending_import()?;
+        Ok(application)
     }
 
-    pub fn build_export(
-        &self,
-        sink: Option<&dyn DurableBundleSinkPort>,
-    ) -> Result<DurableExport, String> {
+    pub fn build_export(&self) -> Result<DurableExport, String> {
         let _lease = self
             .admission
             .admit()
@@ -329,11 +307,7 @@ impl DurableBundleApplication {
         let mut drafts = first.drafts.clone();
         let mut canonical_bases = BTreeMap::new();
         for topic in sorted_topics(&first.topic_bases) {
-            let source = self
-                .canonical_source
-                .as_ref()
-                .ok_or_else(|| "canonical_source_required".to_owned())?;
-            let current = source.read_current_assets(topic)?;
+            let current = self.canonical.read_current_assets(topic)?;
             canonical_bases.insert(topic_key(topic), current.basis);
             drafts.extend(current.drafts);
         }
@@ -347,11 +321,7 @@ impl DurableBundleApplication {
             let expected = canonical_bases
                 .get(&topic_key(topic))
                 .ok_or_else(|| "basis_superseded".to_owned())?;
-            let actual = self
-                .canonical_source
-                .as_ref()
-                .ok_or_else(|| "canonical_source_required".to_owned())?
-                .inspect_current(topic)?;
+            let actual = self.canonical.inspect_current(topic)?;
             if &actual != expected {
                 return Err("basis_superseded".into());
             }
@@ -362,12 +332,6 @@ impl DurableBundleApplication {
             &self.producer_version,
             first.topic_bases.len(),
         )?;
-        if let Some(sink) = sink {
-            for asset in &built.assets {
-                sink.write_asset_text(&asset.path, &asset.text)?;
-            }
-            sink.write_manifest_text(&built.manifest_text)?;
-        }
         built.summary.topic_count = first.topic_bases.len();
         Ok(built)
     }
@@ -437,10 +401,11 @@ impl DurableBundleApplication {
             .cloned()
             .collect::<Vec<_>>();
         let mut canonical = DurableCanonicalPreparation::default();
-        if preview.ok
-            && let Some(import) = &self.canonical_import
-        {
-            match import.prepare(&entries, &capture.bundle.topic_bases) {
+        if preview.ok {
+            match self
+                .canonical
+                .prepare_import(&entries, &capture.bundle.topic_bases)
+            {
                 Ok(prepared) => canonical = prepared,
                 Err(error) => {
                     preview.ok = false;
@@ -499,22 +464,18 @@ impl DurableBundleApplication {
         {
             return Err("basis_superseded".into());
         }
-        if !receipt.canonical.promotions.is_empty() {
-            let canonical_import = self
-                .canonical_import
-                .as_ref()
-                .ok_or_else(|| "canonical_import_required".to_owned())?;
-            if let Err(error) = canonical_import.stage(
+        if !receipt.canonical.promotions.is_empty()
+            && let Err(error) = self.canonical.stage_import(
                 &receipt.receipt_id,
                 receipt
                     .manifest_hash
                     .strip_prefix("sha256:")
                     .unwrap_or(&receipt.manifest_hash),
                 receipt.canonical.promotions.clone(),
-            ) {
-                let _ = canonical_import.discard(&receipt.receipt_id);
-                return Err(error);
-            }
+            )
+        {
+            let _ = self.canonical.discard_import(&receipt.receipt_id);
+            return Err(error);
         }
         let entries = receipt
             .entries
@@ -535,37 +496,15 @@ impl DurableBundleApplication {
         let committed = match applied {
             Ok(committed) => committed,
             Err(error) => {
-                let _ = self
-                    .canonical_import
-                    .as_ref()
-                    .map(|port| port.discard(&receipt.receipt_id));
+                let _ = self.canonical.discard_import(&receipt.receipt_id);
                 return Err(error);
             }
         };
         if !committed {
-            let _ = self
-                .canonical_import
-                .as_ref()
-                .map(|port| port.discard(&receipt.receipt_id));
+            let _ = self.canonical.discard_import(&receipt.receipt_id);
             return Err("basis_superseded".into());
         }
-        if !receipt.canonical.promotions.is_empty() {
-            let status = self
-                .canonical_import
-                .as_ref()
-                .ok_or_else(|| "canonical_import_required".to_owned())?
-                .commit(
-                    &receipt.receipt_id,
-                    receipt
-                        .manifest_hash
-                        .strip_prefix("sha256:")
-                        .unwrap_or(&receipt.manifest_hash),
-                )?;
-            if status != "promoted" {
-                return Err(status);
-            }
-        }
-        self.repository.clear_import_commit(&receipt.receipt_id)?;
+        self.reconcile_pending_import()?;
         Ok(DurableImportApplyResult {
             status: "committed".into(),
             manifest_hash: receipt.manifest_hash,
@@ -592,36 +531,22 @@ impl DurableBundleApplication {
         Ok(true)
     }
 
-    pub fn recover_import(&self) -> Result<String, String> {
-        let _lease = self
-            .admission
-            .admit()
-            .map_err(|error| admission_code(error, "durable_bundle_export_busy"))?;
+    fn reconcile_pending_import(&self) -> Result<ImportBatchRecoveryOutcome, String> {
         let capture = self.repository.capture_import()?;
-        let Some(canonical_import) = &self.canonical_import else {
-            return if capture.commit_receipt.is_some() {
-                Err("canonical_import_required".into())
-            } else {
-                Ok("none".into())
-            };
-        };
-        let status = canonical_import.recover(capture.commit_receipt.as_ref())?;
-        if status == "repair_required" {
-            return Err("durable_import_recovery_failed".into());
-        }
+        let outcome = self
+            .canonical
+            .recover_import(capture.commit_receipt.as_ref())?;
         if let Some(receipt) = &capture.commit_receipt {
-            let source = self
-                .canonical_source
-                .as_ref()
-                .ok_or_else(|| "canonical_source_required".to_owned())?;
             for target in &receipt.topic_targets {
-                if source.inspect_current(target)? != target.bundle_hash {
+                if self.canonical.inspect_current(target)? != target.bundle_hash {
                     return Err("durable_import_recovery_incomplete".into());
                 }
             }
-            self.repository.clear_import_commit(&receipt.receipt_id)?;
+            if !self.repository.clear_import_commit(&receipt.receipt_id)? {
+                return Err("durable_import_receipt_clear_failed".into());
+            }
         }
-        Ok(status)
+        Ok(outcome)
     }
 
     pub fn stop_admission(&self) {
@@ -1392,121 +1317,5 @@ mod tests {
         let verified = read_and_verify(&MemorySource { export });
         assert!(verified.value.is_some());
         assert!(verified.diagnostics.is_empty());
-    }
-
-    struct RecoveryRepository {
-        capture: DurableImportCapture,
-        cleared: Mutex<Vec<String>>,
-    }
-
-    impl DurableBundleRepositoryPort for RecoveryRepository {
-        fn capture_bundle(&self) -> Result<DurableBundleCapture, String> {
-            Ok(self.capture.bundle.clone())
-        }
-
-        fn capture_import(&self) -> Result<DurableImportCapture, String> {
-            Ok(self.capture.clone())
-        }
-
-        fn apply_import(&self, _request: &DurableImportApply) -> Result<bool, String> {
-            Err("unexpected_apply".into())
-        }
-
-        fn clear_import_commit(&self, receipt_id: &str) -> Result<bool, String> {
-            self.cleared
-                .lock()
-                .expect("cleared")
-                .push(receipt_id.into());
-            Ok(true)
-        }
-    }
-
-    struct RecoveryCanonical {
-        status: String,
-        basis: String,
-    }
-
-    impl DurableCanonicalSourcePort for RecoveryCanonical {
-        fn read_current_assets(
-            &self,
-            _topic: &DurableTopicBasis,
-        ) -> Result<DurableCanonicalCapture, String> {
-            Err("unexpected_read".into())
-        }
-
-        fn inspect_current(&self, _topic: &DurableTopicBasis) -> Result<String, String> {
-            Ok(self.basis.clone())
-        }
-    }
-
-    impl DurableCanonicalImportPort for RecoveryCanonical {
-        fn prepare(
-            &self,
-            _entries: &[DurableEnvelope],
-            _current_topics: &[DurableTopicBasis],
-        ) -> Result<DurableCanonicalPreparation, String> {
-            Err("unexpected_prepare".into())
-        }
-
-        fn stage(
-            &self,
-            _receipt_id: &str,
-            _manifest_hash: &str,
-            _promotions: Vec<Promotion>,
-        ) -> Result<(), String> {
-            Err("unexpected_stage".into())
-        }
-
-        fn commit(&self, _receipt_id: &str, _manifest_hash: &str) -> Result<String, String> {
-            Err("unexpected_commit".into())
-        }
-
-        fn discard(&self, _receipt_id: &str) -> Result<bool, String> {
-            Err("unexpected_discard".into())
-        }
-
-        fn recover(&self, _receipt: Option<&DurableImportCommitReceipt>) -> Result<String, String> {
-            Ok(self.status.clone())
-        }
-    }
-
-    #[test]
-    fn restart_recovery_verifies_canonical_targets_before_clearing_receipt() {
-        let target = DurableTopicBasis {
-            topic_id: "topic:recovered".into(),
-            path_id: "topic-recovered".into(),
-            bundle_hash: "sha256:ready".into(),
-            ..DurableTopicBasis::default()
-        };
-        let repository = Arc::new(RecoveryRepository {
-            capture: DurableImportCapture {
-                commit_receipt: Some(DurableImportCommitReceipt {
-                    receipt_id: "receipt:recover".into(),
-                    manifest_hash: "sha256:manifest".into(),
-                    topic_targets: vec![target],
-                    committed_at: "2026-07-26T00:00:00.000Z".into(),
-                }),
-                ..DurableImportCapture::default()
-            },
-            cleared: Mutex::new(Vec::new()),
-        });
-        let canonical = Arc::new(RecoveryCanonical {
-            status: "promoted".into(),
-            basis: "sha256:ready".into(),
-        });
-        let application = DurableBundleApplication::with_runtime(
-            repository.clone(),
-            Some(canonical.clone()),
-            Some(canonical),
-            Arc::new(|| "2026-07-26T00:00:00.000Z".into()),
-            Arc::new(|| "receipt:unused".into()),
-            "test".into(),
-        );
-
-        assert_eq!(application.recover_import().expect("recover"), "promoted");
-        assert_eq!(
-            *repository.cleared.lock().expect("cleared"),
-            vec!["receipt:recover"]
-        );
     }
 }

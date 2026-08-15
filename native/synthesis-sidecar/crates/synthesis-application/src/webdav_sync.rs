@@ -116,7 +116,7 @@ pub trait WebDavDurablePort: Send + Sync {
 
 impl WebDavDurablePort for DurableBundleApplication {
     fn build_export(&self) -> Result<DurableExport, String> {
-        self.build_export(None)
+        self.build_export()
     }
 
     fn preview_import(

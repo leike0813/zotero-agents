@@ -98,31 +98,7 @@ runtime persistence APIs.
 - **WHEN** any canonical transaction asset path violates KG scope, traversal,
   segment, relative path budget, reserved name, or case-collision rules
 - **THEN** the foundation SHALL reject the transaction before staging
-- **AND** it SHALL NOT write target assets, receipts, store-change events, or
-  projection stale marks.
-
-### Requirement: Canonical transactions emit a single store change event
-
-Synthesis Layer foundation SHALL group canonical writes in an internal
-transaction that records receipts and emits one `canonical-store-changed` event
-after a successful commit.
-
-#### Scenario: Transaction commits multiple assets
-
-- **WHEN** one transaction writes multiple canonical assets in the same scope
-- **THEN** the foundation SHALL persist the assets
-- **AND** it SHALL record one receipt in DB-backed canonical-store records
-- **AND** it SHALL emit exactly one DB-backed `canonical-store-changed` event
-  containing the scope, changed assets, transaction id, and timestamp
-- **AND** it SHALL NOT append normal runtime records to
-  `sidecar/canonical-store-receipts.jsonl` or
-  `sidecar/canonical-store-events.jsonl`.
-
-#### Scenario: Transaction fails validation
-
-- **WHEN** any transaction asset fails validation before commit
-- **THEN** the foundation SHALL leave existing target assets unchanged
-- **AND** it SHALL write sanitized diagnostics for the failed transaction.
+- **AND** it SHALL NOT write target assets, receipts, or projection stale marks.
 
 ### Requirement: Projection registry tracks stale and rebuild state
 
@@ -218,12 +194,14 @@ Zotero note mirror SHALL NOT participate in normal Synthesis runtime persistence
 ### Requirement: WebDAV durable import uses one Foundation transaction
 
 WebDAV durable import SHALL apply validated canonical assets through one
-Foundation transaction and SHALL emit one canonical-store-changed event only
-after promotion succeeds.
+Foundation transaction. The import SHALL become successful only after canonical
+promotion completes, all promoted targets are verified, and the repository
+commit receipt is cleared.
 
 #### Scenario: Valid import is promoted
 
 - **WHEN** a WebDAV durable import passes validation, preview, and conflict gates
 - **THEN** one Foundation transaction SHALL apply all imported canonical facts
-- **AND** failed promotion SHALL roll back partial writes and emit no success
-  receipt.
+- **AND** an interrupted promotion SHALL remain unsuccessful until ready-gated
+  recovery completes it
+- **AND** WebDAV import SHALL NOT schedule canonical autosync publication.

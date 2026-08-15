@@ -3,8 +3,7 @@ use crate::debug_maintenance::{
 };
 use crate::dto::{PatchOutput, TopicLibraryItemsByRef, TopicLibraryPage};
 use crate::durable_bundle::{
-    DurableBundleRepositoryPort, DurableCanonicalCapture, DurableCanonicalImportPort,
-    DurableCanonicalPreparation, DurableCanonicalSourcePort, DurableEnvelope,
+    DurableCanonicalCapture, DurableCanonicalPreparation, DurableEnvelope,
 };
 use crate::knowledge_checkpoint::KnowledgeCheckpointRepositoryPort;
 use crate::reference::{
@@ -16,8 +15,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
 use synthesis_canonical_store::{
-    CanonicalBasis, CanonicalReceipt, CanonicalStore, CurrentTopic, Promotion, TopicSnapshot,
-    canonical_json_hash,
+    CanonicalBasis, CanonicalReceipt, CanonicalStore, CurrentTopic, ImportBatchRecoveryOutcome,
+    Promotion, TopicSnapshot, canonical_json_hash,
 };
 use synthesis_repository::{
     CacheBasisRecord, DeletedTopicArtifactRecord, OperationQuery, OperationRecord, Repository,
@@ -1885,29 +1884,29 @@ impl KnowledgeCheckpointRepositoryPort for RepositoryPort {
     }
 }
 
-impl DurableBundleRepositoryPort for RepositoryPort {
-    fn capture_bundle(&self) -> Result<DurableBundleCapture, String> {
+impl RepositoryPort {
+    pub(crate) fn capture_bundle(&self) -> Result<DurableBundleCapture, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .capture_durable_bundle_state()
     }
 
-    fn capture_import(&self) -> Result<DurableImportCapture, String> {
+    pub(crate) fn capture_import(&self) -> Result<DurableImportCapture, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .capture_durable_import_state()
     }
 
-    fn apply_import(&self, request: &DurableImportApply) -> Result<bool, String> {
+    pub(crate) fn apply_import(&self, request: &DurableImportApply) -> Result<bool, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .apply_durable_import_state(request)
     }
 
-    fn clear_import_commit(&self, receipt_id: &str) -> Result<bool, String> {
+    pub(crate) fn clear_import_commit(&self, receipt_id: &str) -> Result<bool, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
@@ -2000,8 +1999,8 @@ impl TopicCanonicalPort for CanonicalStorePort {
     }
 }
 
-impl DurableCanonicalSourcePort for CanonicalStorePort {
-    fn read_current_assets(
+impl CanonicalStorePort {
+    pub(crate) fn read_current_assets(
         &self,
         topic: &DurableTopicBasis,
     ) -> Result<DurableCanonicalCapture, String> {
@@ -2056,7 +2055,7 @@ impl DurableCanonicalSourcePort for CanonicalStorePort {
         })
     }
 
-    fn inspect_current(&self, topic: &DurableTopicBasis) -> Result<String, String> {
+    pub(crate) fn inspect_current(&self, topic: &DurableTopicBasis) -> Result<String, String> {
         let store = self
             .store
             .lock()
@@ -2073,8 +2072,8 @@ impl DurableCanonicalSourcePort for CanonicalStorePort {
     }
 }
 
-impl DurableCanonicalImportPort for CanonicalStorePort {
-    fn prepare(
+impl CanonicalStorePort {
+    pub(crate) fn prepare_import(
         &self,
         entries: &[DurableEnvelope],
         current_topics: &[DurableTopicBasis],
@@ -2196,7 +2195,7 @@ impl DurableCanonicalImportPort for CanonicalStorePort {
         })
     }
 
-    fn stage(
+    pub(crate) fn stage_import(
         &self,
         receipt_id: &str,
         manifest_hash: &str,
@@ -2208,25 +2207,17 @@ impl DurableCanonicalImportPort for CanonicalStorePort {
             .stage_import_batch(receipt_id.into(), manifest_hash.into(), promotions)
     }
 
-    fn commit(&self, receipt_id: &str, manifest_hash: &str) -> Result<String, String> {
-        self.store
-            .lock()
-            .map_err(|_| "canonical_store_unavailable".to_owned())?
-            .commit_import_batch(receipt_id, manifest_hash)
-            .map(|_| "promoted".into())
-    }
-
-    fn discard(&self, receipt_id: &str) -> Result<bool, String> {
+    pub(crate) fn discard_import(&self, receipt_id: &str) -> Result<bool, String> {
         self.store
             .lock()
             .map_err(|_| "canonical_store_unavailable".to_owned())?
             .discard_import_batch(receipt_id)
     }
 
-    fn recover(
+    pub(crate) fn recover_import(
         &self,
         receipt: Option<&synthesis_repository::DurableImportCommitReceipt>,
-    ) -> Result<String, String> {
+    ) -> Result<ImportBatchRecoveryOutcome, String> {
         self.store
             .lock()
             .map_err(|_| "canonical_store_unavailable".to_owned())?

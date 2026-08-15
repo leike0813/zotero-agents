@@ -91,14 +91,14 @@ type NoteShardEnvelope = {
 
 ### Transaction System
 
-Asset mutations go through `writeCanonicalTransaction()`:
+Canonical mutations use the application-owned transaction path:
 
 1. Stage all assets to a temporary directory
 2. Validate each asset's envelope
 3. On success: promote staged assets into the canonical store
 4. On failure: rollback (discard staging directory)
-5. Record a `CanonicalTransactionReceipt` and emit a `CanonicalStoreChangedEvent`
-6. Mark affected projections as stale
+5. Persist the transaction receipt needed to prove the committed state
+6. Mark affected projections as stale in the owning repository transaction
 
 ```typescript
 type CanonicalTransactionReceipt = {

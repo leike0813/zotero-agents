@@ -145,7 +145,12 @@ verification, preview, import, repository CAS, sync metadata, and recoverable
 multi-Topic canonical promotion. It captures repository and canonical bases
 before export and recaptures them before commit. Import preserves absent local
 facts, marks rebuildable projections stale, and cannot apply unresolved
-conflicts or tombstones.
+conflicts or tombstones. Production acquires this application before listener
+bind and ready discovery. Acquisition treats the SQLite import receipt as the
+commit witness: it discards a staged batch without a receipt, rolls a matching
+committed batch forward, verifies every canonical target, and only then clears
+the receipt. Inconsistent evidence fails startup and remains available for
+diagnosis.
 
 The Rust WebDAV application composes that durable port with a secret-free
 reverse-Host port. The plugin adapter alone reads preferences and encrypted
@@ -363,4 +368,7 @@ WebDAV Sync uses this rule as a hard contract:
 - durable facts must be exportable as canonical bundle assets with a stable envelope and manifest entry;
 - the live SQLite file, WAL/SHM files, operation rows, cache basis rows, graph cache rows, layout rows, metrics rows, logs, locks, credentials, and temp workspaces are local-only;
 - import validates and dry-runs the WebDAV durable payload before writing SQLite;
-- successful import hydrates durable facts and marks rebuildable projections stale rather than ready.
+- successful import hydrates durable facts, verifies canonical promotion, clears
+  its commit receipt, and marks rebuildable projections stale rather than ready;
+- startup completes or rejects any interrupted import before publishing ready
+  discovery; the runtime never compensates an already committed SQLite import.

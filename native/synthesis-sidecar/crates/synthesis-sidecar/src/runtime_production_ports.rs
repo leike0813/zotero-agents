@@ -240,14 +240,7 @@ pub(crate) fn build_production_applications(
     .with_library_id(config.as_deref().map_or(0, |config| config.library_id));
     let _ = tags.ensure_staged_bindings_migrated();
     let debug = DebugMaintenanceApplication::new(repository.clone(), canonical.clone());
-    let durable = DurableBundleApplication::with_runtime(
-        repository.clone(),
-        Some(canonical.clone()),
-        Some(canonical.clone()),
-        Arc::new(utc_now_iso8601),
-        Arc::new(|| format!("durable-import:{}", utc_now_iso8601())),
-        "synthesis-sidecar".into(),
-    );
+    let durable = DurableBundleApplication::acquire(repository.clone(), canonical.clone())?;
     let webdav = Arc::new(WebDavSyncApplication::new(
         host.clone(),
         Arc::new(FileWebDavStateStore::new(webdav_state_path)),

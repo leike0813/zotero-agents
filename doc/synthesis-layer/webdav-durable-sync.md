@@ -27,6 +27,15 @@ Durable bundles include user-owned and non-rebuildable Synthesis facts. They exc
 
 Import is always preview-first. A clean preview may write through repository and domain APIs, then marks rebuildable projections stale. Conflicts produce a durable conflict report and block application; the runtime never chooses last-writer-wins silently.
 
+The SQLite durable-import receipt is the commit witness across the repository
+and canonical filesystem boundary. After that receipt commits, both live apply
+and the next production acquisition use the same completion path to promote a
+matching canonical batch, verify every target, and clear the receipt. A staged
+batch without a receipt is pre-commit evidence and is discarded. Receipt,
+batch, or target mismatch fails production acquisition before listener bind and
+ready discovery; recovery preserves the conflicting evidence and does not
+choose an offline repair policy.
+
 ## Triggering and Retry
 
 Manual commands are `syncWebDavNow`, `pauseWebDavSync`, `resumeWebDavSync`, `retryWebDavSync`, and `resolveWebDavSyncConflict`.
@@ -56,6 +65,13 @@ its patch, so a concurrent pause remains authoritative. The file-backed state
 store separately serializes atomic `.pending`/`.previous` replacement.
 
 The first native production clock wrote decimal Unix milliseconds into its local WebDAV state and remote HEAD. On read, Rust recognizes only that exact historical encoding for native-owned state, last-run, retry-base, and HEAD timestamps, converts it to ISO-8601, and then applies the normal strict validator. Valid local state is saved atomically in canonical form. A remote HEAD is not rewritten merely for migration; the next successful ETag-guarded publication writes the canonical timestamp. Signed, fractional, overflowing, structurally invalid, or unknown timestamp forms still fail closed, as do invalid manifests, paths, hashes, schemas, persisted state, and malformed pointers.
+
+Production constructs the durable application before publishing discovery.
+This acquisition is the import recovery gate: successful acquisition proves
+that no pending receipt/batch pair remains and that any receipt whose canonical
+promotion had already completed was verified and cleared. WebDAV imports stay
+outside the canonical autosync trigger set, so recovery cannot create a remote
+publication loop.
 
 Shutdown first stops the canonical autosync worker, clears pending debounce state, and aborts its WebDAV target. It then stops WebDAV admission and drains the one active WebDAV run before production application owners are released.
 

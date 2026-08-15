@@ -1,4 +1,5 @@
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -8,6 +9,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use synthesis_canonical_store::{
+    CanonicalIdentity, CanonicalStore, Promotion, TopicSnapshot, canonical_json_hash,
+};
+use synthesis_repository::{DurableImportApply, DurableTopicBasis, Repository, RepositoryIdentity};
 use synthesis_sidecar::{ServePhase, serve};
 
 static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -180,6 +185,122 @@ fn write_launch_config(root: &Path, reverse_host_port: u16) -> (PathBuf, PathBuf
     (config_path, discovery_path, lifecycle_token)
 }
 
+fn repository_identity() -> RepositoryIdentity {
+    RepositoryIdentity {
+        profile_id: "1".repeat(64),
+        data_root_id: "3".repeat(64),
+    }
+}
+
+fn canonical_identity() -> CanonicalIdentity {
+    CanonicalIdentity {
+        profile_id: "1".repeat(64),
+        data_root_id: "3".repeat(64),
+    }
+}
+
+fn pending_import_snapshot() -> TopicSnapshot {
+    let sections = BTreeMap::from([("summary".into(), json!({"text":"recovered"}))]);
+    let artifact = json!({"schema":"topic.artifact.v1","title":"Recovered"});
+    let metadata = json!({"updatedAt":"2026-08-15T00:00:00.000Z"});
+    TopicSnapshot {
+        topic_id: "topic:startup-recovery".into(),
+        path_id: "topic-startup-recovery".into(),
+        manifest: json!({
+            "schema":"topic.manifest.v1",
+            "sections":{"summary":{"path":"summary.json"}},
+            "artifact_hash":canonical_json_hash(&artifact).expect("artifact hash"),
+            "metadata_hash":canonical_json_hash(&metadata).expect("metadata hash"),
+            "section_hashes":{
+                "summary":canonical_json_hash(&sections["summary"]).expect("section hash")
+            }
+        }),
+        artifact,
+        metadata,
+        sections,
+        markdown: BTreeMap::from([("synthesis.md".into(), "# Recovered\n".into())]),
+    }
+}
+
+fn prepare_import_crash_window(
+    root: &Path,
+    repository_receipt_id: Option<&str>,
+    canonical_receipt_id: &str,
+    promote_canonical: bool,
+) {
+    let database_path = root.join("state/synthesis.db");
+    let canonical_root = root.join("data/synthesis");
+    let snapshot = pending_import_snapshot();
+    let manifest_hash = "a".repeat(64);
+    let target = DurableTopicBasis {
+        topic_id: snapshot.topic_id.clone(),
+        path_id: snapshot.path_id.clone(),
+        manifest_hash: canonical_json_hash(&snapshot.manifest).expect("manifest hash"),
+        artifact_hash: canonical_json_hash(&snapshot.artifact).expect("artifact hash"),
+        metadata_hash: canonical_json_hash(&snapshot.metadata).expect("metadata hash"),
+        bundle_hash: canonical_json_hash(&serde_json::to_value(&snapshot).expect("snapshot value"))
+            .expect("bundle hash"),
+    };
+    let mut repository = Repository::initialize_production(&database_path, repository_identity())
+        .expect("initialize repository");
+    let capture = repository
+        .capture_durable_import_state()
+        .expect("capture import state");
+    if let Some(receipt_id) = repository_receipt_id {
+        assert!(
+            repository
+                .apply_durable_import_state(&DurableImportApply {
+                    expected_aggregate_basis: capture.bundle.aggregate_basis,
+                    expected_index_revision: capture.index_revision,
+                    receipt_id: receipt_id.into(),
+                    manifest_hash: format!("sha256:{manifest_hash}"),
+                    topic_targets: vec![target],
+                    now: "2026-08-15T00:00:00.000Z".into(),
+                    ..DurableImportApply::default()
+                })
+                .expect("commit repository import")
+        );
+    }
+    repository.close().expect("close repository");
+
+    let mut canonical =
+        CanonicalStore::initialize_production(&canonical_root, canonical_identity())
+            .expect("initialize canonical store");
+    canonical
+        .stage_import_batch(
+            canonical_receipt_id.into(),
+            manifest_hash.clone(),
+            vec![Promotion {
+                transaction_id: "transaction:startup-recovery".into(),
+                expected_basis: None,
+                snapshot,
+            }],
+        )
+        .expect("stage canonical import");
+    if promote_canonical {
+        canonical
+            .commit_import_batch(canonical_receipt_id, &manifest_hash)
+            .expect("promote canonical import");
+    }
+    canonical.close().expect("close canonical store");
+}
+
+fn run_until_ready_then_shutdown(config_path: &Path, discovery_path: &Path, lifecycle_token: &str) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_synthesis-sidecar"))
+        .arg("serve")
+        .arg("--config")
+        .arg(config_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn sidecar");
+    let discovery = wait_for_discovery(&mut child, discovery_path);
+    let port = discovery["port"].as_u64().expect("discovery port") as u16;
+    assert_eq!(shutdown(port, lifecycle_token)["ok"], true);
+    assert!(wait_for_exit(&mut child).success());
+}
+
 fn wait_for_discovery(child: &mut Child, path: &Path) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -271,6 +392,132 @@ fn partial_startup_failure_releases_ownership_without_publishing_ready() {
 
     drop(reverse_host);
     fs::remove_dir_all(root).expect("remove partial startup root");
+}
+
+#[test]
+fn ready_startup_rolls_forward_a_committed_durable_import() {
+    let root = test_root("durable-import-roll-forward");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+    prepare_import_crash_window(
+        &root,
+        Some("receipt:startup-recovery"),
+        "receipt:startup-recovery",
+        false,
+    );
+    run_until_ready_then_shutdown(&config_path, &discovery_path, &lifecycle_token);
+
+    let mut repository = Repository::open_production(
+        &root.join("state/synthesis.db"),
+        repository_identity(),
+        "2026-08-15T00:01:00.000Z",
+    )
+    .expect("reopen repository");
+    assert!(
+        repository
+            .capture_durable_import_state()
+            .expect("capture recovered import")
+            .commit_receipt
+            .is_none()
+    );
+    repository.close().expect("close repository");
+    let canonical =
+        CanonicalStore::open_production(&root.join("data/synthesis"), canonical_identity())
+            .expect("reopen canonical store");
+    assert_eq!(
+        canonical
+            .inspect("topic:startup-recovery")
+            .expect("inspect recovered topic")["status"],
+        "ready"
+    );
+    canonical.close().expect("close canonical store");
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove recovery root");
+}
+
+#[test]
+fn ready_startup_discards_an_uncommitted_durable_import_batch() {
+    let root = test_root("durable-import-discard");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+    prepare_import_crash_window(&root, None, "receipt:startup-recovery", false);
+
+    run_until_ready_then_shutdown(&config_path, &discovery_path, &lifecycle_token);
+
+    assert!(!root.join("data/synthesis/import-batch.json").exists());
+    let canonical =
+        CanonicalStore::open_production(&root.join("data/synthesis"), canonical_identity())
+            .expect("reopen canonical store");
+    assert_eq!(
+        canonical
+            .inspect("topic:startup-recovery")
+            .expect("inspect discarded topic")["status"],
+        "absent"
+    );
+    canonical.close().expect("close canonical store");
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove discard root");
+}
+
+#[test]
+fn ready_startup_clears_a_receipt_after_completed_canonical_promotion() {
+    let root = test_root("durable-import-verify");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, lifecycle_token) =
+        write_launch_config(&root, reverse_host.port);
+    prepare_import_crash_window(
+        &root,
+        Some("receipt:startup-recovery"),
+        "receipt:startup-recovery",
+        true,
+    );
+
+    run_until_ready_then_shutdown(&config_path, &discovery_path, &lifecycle_token);
+
+    let mut repository = Repository::open_production(
+        &root.join("state/synthesis.db"),
+        repository_identity(),
+        "2026-08-15T00:01:00.000Z",
+    )
+    .expect("reopen repository");
+    assert!(
+        repository
+            .capture_durable_import_state()
+            .expect("capture verified import")
+            .commit_receipt
+            .is_none()
+    );
+    repository.close().expect("close repository");
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove verified root");
+}
+
+#[test]
+fn inconsistent_durable_import_evidence_fails_before_ready() {
+    let root = test_root("durable-import-mismatch");
+    let reverse_host = ReverseHost::start();
+    let (config_path, discovery_path, _) = write_launch_config(&root, reverse_host.port);
+    prepare_import_crash_window(
+        &root,
+        Some("receipt:startup-recovery"),
+        "receipt:different",
+        false,
+    );
+
+    let failure = serve(&config_path).expect_err("mismatched import must fail startup");
+
+    assert_eq!(failure.phase(), ServePhase::Startup);
+    assert_eq!(failure.code(), "canonical_import_receipt_mismatch");
+    assert!(!discovery_path.exists());
+    assert!(root.join("data/synthesis/import-batch.json").exists());
+
+    drop(reverse_host);
+    fs::remove_dir_all(root).expect("remove mismatch root");
 }
 
 #[test]

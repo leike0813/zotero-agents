@@ -356,8 +356,10 @@ sequenceDiagram
   I->>S: recapture aggregate and sync-index basis
   I->>C: stage strict multi-Topic batch
   I->>S: CAS durable facts, stale bases, index, and commit receipt
-  I->>C: promote batch synchronously
-  I->>S: clear commit receipt
+  I->>I: enter shared consistency completion
+  I->>C: promote or recognize completed batch
+  I->>C: verify every canonical target
+  I->>S: clear commit receipt after verification
   I-->>U: import result summary
 ```
 
@@ -366,4 +368,9 @@ Constraints:
 - Apply consumes the receipt even when acknowledgement or basis checks fail.
 - Conflicts and tombstones never receive an apply receipt.
 - Restart rolls a batch forward only when its manifest/receipt matches SQLite;
-  an uncommitted batch is discarded and a mismatch requires repair.
+  an uncommitted batch is discarded and inconsistent evidence fails startup.
+- Production acquisition runs the same consistency completion before listener
+  bind and ready discovery. Once SQLite commits, recovery never compensates or
+  replays repository effects; it completes canonical promotion and clears the
+  receipt only after target verification.
+- WebDAV imports mark projections stale but do not schedule canonical autosync.

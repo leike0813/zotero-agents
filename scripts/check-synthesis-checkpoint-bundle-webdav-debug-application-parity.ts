@@ -449,6 +449,8 @@ function runRustCandidate(
       "native/synthesis-sidecar/Cargo.toml",
       "-p",
       "synthesis-application",
+      "--features",
+      "parity-harness",
       "--example",
       "checkpoint_bundle_webdav_debug_application_parity",
     ],

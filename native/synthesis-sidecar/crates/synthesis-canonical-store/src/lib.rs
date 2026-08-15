@@ -68,6 +68,13 @@ pub struct CanonicalReceipt {
     pub artifact_hash: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImportBatchRecoveryOutcome {
+    NoPendingBatch,
+    DiscardedUncommittedBatch,
+    PromotedCommittedBatch,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CurrentTopic {
@@ -1506,10 +1513,10 @@ impl CanonicalStore {
     pub fn recover_import_batch(
         &mut self,
         receipt: Option<(&str, &str)>,
-    ) -> Result<String, String> {
+    ) -> Result<ImportBatchRecoveryOutcome, String> {
         let path = self.root.join("import-batch.json");
         if !path.exists() {
-            return Ok("none".into());
+            return Ok(ImportBatchRecoveryOutcome::NoPendingBatch);
         }
         let batch: ImportBatch = match fs::read(&path)
             .map_err(|error| format!("canonical_read_failed:{error}"))
@@ -1520,22 +1527,22 @@ impl CanonicalStore {
             Ok(batch) if batch.schema == IMPORT_SCHEMA => batch,
             _ => {
                 self.repair_required = true;
-                return Ok("repair_required".into());
+                return Err("canonical_import_batch_invalid".into());
             }
         };
         let Some((receipt_id, manifest_hash)) = receipt else {
             self.discard_import_batch(&batch.receipt_id)?;
-            return Ok("failed_recovered".into());
+            return Ok(ImportBatchRecoveryOutcome::DiscardedUncommittedBatch);
         };
         if receipt_id != batch.receipt_id || manifest_hash != batch.manifest_hash {
             self.repair_required = true;
-            return Ok("repair_required".into());
+            return Err("canonical_import_receipt_mismatch".into());
         }
         match self.commit_import_batch(receipt_id, manifest_hash) {
-            Ok(_) => Ok("promoted".into()),
+            Ok(_) => Ok(ImportBatchRecoveryOutcome::PromotedCommittedBatch),
             Err(_) => {
                 self.repair_required = true;
-                Ok("repair_required".into())
+                Err("canonical_import_recovery_failed".into())
             }
         }
     }
@@ -2057,7 +2064,7 @@ mod tests {
             reopened
                 .recover_import_batch(Some(("receipt:forward", &"c".repeat(64))))
                 .expect("recover"),
-            "promoted"
+            ImportBatchRecoveryOutcome::PromotedCommittedBatch
         );
         assert_eq!(
             reopened.inspect("topic:r7").expect("inspect")["status"],
@@ -2084,7 +2091,7 @@ mod tests {
             reopened
                 .recover_import_batch(None)
                 .expect("recover discard"),
-            "failed_recovered"
+            ImportBatchRecoveryOutcome::DiscardedUncommittedBatch
         );
         assert_eq!(
             reopened.inspect("topic:r7").expect("inspect")["status"],
@@ -2121,7 +2128,7 @@ mod tests {
             reopened
                 .recover_import_batch(Some(("receipt:prefix", &"e".repeat(64))))
                 .expect("recover"),
-            "promoted"
+            ImportBatchRecoveryOutcome::PromotedCommittedBatch
         );
         assert_eq!(
             reopened.inspect("topic:r7").expect("first")["status"],

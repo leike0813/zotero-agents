@@ -4,6 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+parity-harness = []
+
+[[example]]
+name = "checkpoint_bundle_webdav_debug_application_parity"
+required-features = ["parity-harness"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
